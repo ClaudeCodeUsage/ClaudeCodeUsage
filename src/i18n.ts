@@ -1396,6 +1396,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   'de-DE': {
     'language': { label: 'Anzeigesprache', help: 'UI-Sprache. "auto" folgt VS Code.' },
     'decimalPlaces': { label: 'Kosten-Dezimalstellen', help: '' },
+    'tokenDecimalPlaces': { label: 'Token-Dezimalstellen', help: 'Dezimalstellen für kompakte Token-Anzeige (1.2M / 345.6K). Volle Ganzzahlen bleiben unberührt.' },
     'compactNumbers': { label: 'Kompakte Token-Zahlen', help: 'Zeige 1.2M / 345K statt voller Zahlen.' },
     'timezone': { label: 'Zeitzone für Daten', help: 'IANA-Zone (z.B. Asia/Hong_Kong). Leer = System.' },
     'projectGroupingMode': { label: 'Projektgruppierung', help: 'git = nach Repo · folder = oberste Ebene · flat = jedes cwd.' },
@@ -1424,6 +1425,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   'zh-TW': {
     'language': { label: '顯示語言', help: 'UI 語言。"auto" 會跟隨 VS Code。' },
     'decimalPlaces': { label: '費用小數位數', help: '' },
+    'tokenDecimalPlaces': { label: 'Token 小數位數', help: '緊湊 token 顯示（1.2M / 345.6K）的小數位數。完整整數值不受影響。' },
     'compactNumbers': { label: '簡潔的 Token 計數', help: '顯示 1.2M / 345K 而非完整數字。' },
     'timezone': { label: '日期時區', help: 'IANA 時區（例如 Asia/Hong_Kong）。空白 = 系統。' },
     'projectGroupingMode': { label: '專案分組', help: 'git = 依儲存庫 · folder = 最上層 · flat = 每個目前工作目錄。' },
@@ -1452,6 +1454,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   'zh-CN': {
     'language': { label: '显示语言', help: 'UI 语言。"auto" 会跟随 VS Code。' },
     'decimalPlaces': { label: '费用小数位数', help: '' },
+    'tokenDecimalPlaces': { label: 'Token 小数位数', help: '紧凑 token 显示（1.2M / 345.6K）的小数位数。完整整数值不受影响。' },
     'compactNumbers': { label: '简洁的 token 计数', help: '显示 1.2M / 345K 而非完整数字。' },
     'timezone': { label: '日期时区', help: 'IANA 时区（例如 Asia/Hong_Kong）。空 = 系统。' },
     'projectGroupingMode': { label: '项目分组', help: 'git = 按仓库 · folder = 顶层 · flat = 每个当前工作目录。' },
@@ -1480,6 +1483,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   'ja': {
     'language': { label: '表示言語', help: 'UI 言語。"auto" は VS Code に従います。' },
     'decimalPlaces': { label: 'コストの小数点以下桁数', help: '' },
+    'tokenDecimalPlaces': { label: 'トークンの小数点以下桁数', help: 'トークンの短縮表示（1.2M / 345.6K）の小数桁数。完全な整数値には影響しません。' },
     'compactNumbers': { label: 'トークン数を短縮表記', help: '完全な数値の代わりに 1.2M / 345K と表示します。' },
     'timezone': { label: '日付のタイムゾーン', help: 'IANA ゾーン (例: Asia/Hong_Kong)。空 = システム。' },
     'projectGroupingMode': { label: 'プロジェクトのグループ化', help: 'git = リポジトリごと · folder = トップレベル · flat = 各 cwd。' },
@@ -1508,6 +1512,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   'ko': {
     'language': { label: '표시 언어', help: 'UI 언어. "auto"는 VS Code를 따릅니다.' },
     'decimalPlaces': { label: '비용 소수점 자리수', help: '' },
+    'tokenDecimalPlaces': { label: '토큰 소수점 자리수', help: '간략한 토큰 표시(1.2M / 345.6K)의 소수 자리수. 전체 정수 값에는 영향을 주지 않습니다.' },
     'compactNumbers': { label: '간략한 토큰 수 표시', help: '전체 숫자 대신 1.2M / 345K로 표시합니다.' },
     'timezone': { label: '날짜 시간대', help: 'IANA 표준 시간대 (예: Asia/Hong_Kong). 비워두면 시스템.' },
     'projectGroupingMode': { label: '프로젝트 그룹화', help: 'git = 저장소별 · folder = 최상위 · flat = 각 cwd.' },
@@ -1538,6 +1543,9 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
 export class I18n {
   private static currentLanguage: SupportedLanguage = 'en';
   private static currentDecimalPlaces: number = 2;
+  // Decimals for COMPACT token display only (1.2M / 345.6K) — separate from the
+  // cost decimal places. Does not affect full integer token values.
+  private static tokenDecimalPlaces: number = 1;
   private static compactNumbers: boolean = false;
   private static timezone: string = '';
 
@@ -1564,6 +1572,13 @@ export class I18n {
   static setDecimalPlaces(places: number): void {
     if (typeof places === 'number' && isFinite(places) && places >= 0 && places <= 4) {
       this.currentDecimalPlaces = Math.floor(places);
+    }
+  }
+
+  /** Decimals for compact token display, 0–2 (claudeCodeUsage.tokenDecimalPlaces). */
+  static setTokenDecimalPlaces(places: number): void {
+    if (typeof places === 'number' && isFinite(places) && places >= 0 && places <= 2) {
+      this.tokenDecimalPlaces = Math.floor(places);
     }
   }
 
@@ -1639,7 +1654,7 @@ export class I18n {
   /** Always-compact token count (k / M / B) honouring the user's decimal
    * places — used by the status-bar "tokens" metric so it stays short. */
   static formatTokensCompact(num: number): string {
-    const p = this.currentDecimalPlaces;
+    const p = this.tokenDecimalPlaces;
     const abs = Math.abs(num);
     if (abs >= 1_000_000_000) {
       return (num / 1_000_000_000).toFixed(p) + 'B';
@@ -1655,15 +1670,18 @@ export class I18n {
 
   static formatNumber(num: number): string {
     if (this.compactNumbers) {
+      // Compact token display honours tokenDecimalPlaces (0–2); parseFloat trims
+      // trailing zeros so 1.20M reads as 1.2M.
+      const p = this.tokenDecimalPlaces;
       const abs = Math.abs(num);
       if (abs >= 1_000_000_000) {
-        return parseFloat((num / 1_000_000_000).toFixed(2)) + 'B';
+        return parseFloat((num / 1_000_000_000).toFixed(p)) + 'B';
       }
       if (abs >= 1_000_000) {
-        return parseFloat((num / 1_000_000).toFixed(2)) + 'M';
+        return parseFloat((num / 1_000_000).toFixed(p)) + 'M';
       }
       if (abs >= 1_000) {
-        return parseFloat((num / 1_000).toFixed(1)) + 'K';
+        return parseFloat((num / 1_000).toFixed(p)) + 'K';
       }
     }
     // Use the user's selected locale so the thousands separator etc. match

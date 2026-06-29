@@ -64,6 +64,17 @@ export const SETTINGS: SettingDef[] = [
     max: 4,
   },
   {
+    key: 'tokenDecimalPlaces',
+    type: 'number',
+    default: 1,
+    storage: 'state',
+    group: 'general',
+    label: 'Token decimal places',
+    help: 'Decimals for compact token display (1.2M / 345.6K). Full integer counts are unaffected.',
+    min: 0,
+    max: 2,
+  },
+  {
     key: 'compactNumbers',
     type: 'boolean',
     default: false,

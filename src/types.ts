@@ -219,6 +219,8 @@ export interface ExtensionConfig {
   dataDirectory: string;
   language: string;
   decimalPlaces: number;
+  // Decimals for compact token display only (1.2M / 345.6K).
+  tokenDecimalPlaces: number;
   compactNumbers: boolean;
   // IANA timezone name (e.g. "Asia/Hong_Kong") used for date display, or ''
   // to use the system timezone. Useful for users in devcontainers or

@@ -349,6 +349,7 @@ export class ClaudeCodeUsageExtension {
     const config = this.getConfiguration();
     I18n.setLanguage(config.language as any);
     I18n.setDecimalPlaces(config.decimalPlaces);
+    I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
     this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly);
@@ -381,6 +382,7 @@ export class ClaudeCodeUsageExtension {
       dataDirectory: s.get<string>('dataDirectory'),
       language: s.get<string>('language'),
       decimalPlaces: s.get<number>('decimalPlaces'),
+      tokenDecimalPlaces: s.get<number>('tokenDecimalPlaces'),
       compactNumbers: s.get<boolean>('compactNumbers'),
       timezone: s.get<string>('timezone'),
       showCost: s.get<boolean>('showCost'),
@@ -412,6 +414,7 @@ export class ClaudeCodeUsageExtension {
     const config = this.getConfiguration();
     I18n.setLanguage(config.language as any);
     I18n.setDecimalPlaces(config.decimalPlaces);
+    I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
     this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly);
