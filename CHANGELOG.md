@@ -6,8 +6,6 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [2.2.0] — Unreleased
 
-See [`docs/V2.2.md`](docs/V2.2.md) for the full V2.2 design + roadmap.
-
 ### Added
 - **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
   display (`1.2M` / `345.6K`); full integer counts are unaffected.
