@@ -4,7 +4,12 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
-## [2.1.0] — Unreleased
+## [2.2.0] — Unreleased
+
+### Added
+- _In progress — see `docs/V2.2.md`._
+
+## [2.1.0] — 2026-06-26
 
 ### Added
 - **Weekly Opus limit in the status bar** — opt-in `showOpusWeekly` (default
@@ -157,6 +162,28 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   now-invalid cwd made `spawn` fail with ENOENT), and a workspace-folders-change
   listener forces a fresh fetch — so the quota survives a folder switch without
   needing a new window.
+
+## [2.0.3] — 2026-06-17
+
+Maintenance / infrastructure release (no user-facing feature changes); shipped on
+the way to 2.1.0 as the project moved to the `ClaudeCodeUsage` organization.
+
+### Added
+- **macOS Keychain credentials** — read Claude Code's OAuth credentials from the
+  macOS Keychain in addition to `~/.claude/.credentials.json`, for setups that
+  store them there.
+- **`node:test` test framework** — zero-dependency unit tests (`src/test/*.test.ts`
+  → `out/test/`), run with `npm test`; a `Test` CI check on every push / PR.
+- **GitHub issue templates** — bug report, feature request, and question forms
+  with a scope/preflight preamble.
+
+### Changed
+- **CI hardening** — pinned action SHAs and a `CODEOWNERS` file; branch protection
+  on `main` (PR + passing `Test` check required).
+- **Release workflow** — a merge-and-auto-release flow (Release Drafter keeps a
+  draft GitHub Release current; the maintainer clicks Publish, which tags `v*` and
+  triggers Marketplace / Open VSX publish). Squash-merge preserves contributor
+  attribution.
 
 ## [2.0.2] — 2026-06-09
 

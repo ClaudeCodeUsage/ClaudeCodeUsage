@@ -8,12 +8,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jack21/ClaudeCodeUsage.git"
+    "url": "https://github.com/ClaudeCodeUsage/ClaudeCodeUsage.git"
   },
   "bugs": {
-    "url": "https://github.com/jack21/ClaudeCodeUsage/issues"
+    "url": "https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues"
   },
-  "homepage": "https://github.com/jack21/ClaudeCodeUsage",
+  "homepage": "https://github.com/ClaudeCodeUsage/ClaudeCodeUsage",
   "keywords": [
     "claude",
     "claude-code",
