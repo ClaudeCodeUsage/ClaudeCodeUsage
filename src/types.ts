@@ -273,7 +273,7 @@ export interface ExtensionConfig {
   // Skip the dashboard webview on auto-refreshes (status bar still updates).
   // Use when the constantly-reloading dashboard interferes with reading
   // numbers while an agent is actively writing.
-  pauseDashboardRefresh: boolean;
+  dashboardAutoRefresh: boolean;
 }
 
 export interface ModelPricing {

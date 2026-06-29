@@ -76,6 +76,9 @@ export class ClaudeCodeUsageExtension {
     // Migrate any pre-2.1 settings.json values for the keys that have moved out
     // of the VS Code Settings UI into the dashboard-managed store. Runs once.
     void this.settings.migrateOnce();
+    // V2.2: convert the old pauseDashboardRefresh to the positive
+    // dashboardAutoRefresh (inverted). Runs once.
+    void this.settings.migrateDashboardAutoRefresh();
     // Usage Optimizer (Phase 9c): the webview posts a draft prompt; we run it
     // through the same model backend as the advice feature and post back a
     // tightened prompt + a settings recommendation. Consent gate lives here.
@@ -97,7 +100,7 @@ export class ClaudeCodeUsageExtension {
     const commands = [
       vscode.commands.registerCommand('claudeCodeUsage.refresh', () => {
         // Manual refresh always updates the dashboard even when
-        // pauseDashboardRefresh is on.
+        // dashboardAutoRefresh is off.
         this.refreshData(true);
       }),
       vscode.commands.registerCommand('claudeCodeUsage.showDetails', () => {
@@ -409,7 +412,7 @@ export class ClaudeCodeUsageExtension {
       enableContentAnalysis: s.get<boolean>('enableContentAnalysis'),
       projectGroupingMode: s.get<'git' | 'folder' | 'flat'>('projectGroupingMode'),
       fileWatching: s.get<boolean>('fileWatching'),
-      pauseDashboardRefresh: s.get<boolean>('pauseDashboardRefresh')
+      dashboardAutoRefresh: s.get<boolean>('dashboardAutoRefresh')
     };
   }
 
@@ -592,11 +595,11 @@ export class ClaudeCodeUsageExtension {
     this.isRefreshing = true;
     try {
       const config = this.getConfiguration();
-      // When the user has paused dashboard refresh, auto-triggers (timer +
-      // fs.watch) skip the webview update entirely; the status bar still
-      // refreshes so today's cost / quota stay live. Manual command always
-      // refreshes everything so the user can force-update on demand.
-      const updateWebview = manualTrigger || !config.pauseDashboardRefresh;
+      // When dashboard auto-refresh is off, auto-triggers (timer + fs.watch)
+      // skip the webview update entirely; the status bar still refreshes so
+      // today's cost / quota stay live. Manual command always refreshes
+      // everything so the user can force-update on demand.
+      const updateWebview = manualTrigger || config.dashboardAutoRefresh;
 
       // Quota is account-level, decoupled from local data. Fire it without
       // awaiting so a slow/cold OAuth fetch (curl can take seconds, or fail
@@ -728,7 +731,7 @@ export class ClaudeCodeUsageExtension {
 
       this.statusBar.updateUsageData(null, null, errorMessage);
       this.statusBar.updateContext(null);
-      if (manualTrigger || !this.getConfiguration().pauseDashboardRefresh) {
+      if (manualTrigger || this.getConfiguration().dashboardAutoRefresh) {
         this.webviewProvider.updateData(null, null, null, null, [], [], [], errorMessage, null);
       }
     } finally {

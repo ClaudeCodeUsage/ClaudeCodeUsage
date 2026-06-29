@@ -109,10 +109,10 @@ export class UsageWebviewProvider {
         case 'getAdvice':
           vscode.commands.executeCommand('claudeCodeUsage.getAdvice');
           break;
-        case 'setPauseDashboardRefresh':
+        case 'setDashboardAutoRefresh':
           // Persist the in-dashboard toggle so it survives reload. Lives in the
           // dashboard-managed store now (no longer in VS Code Settings).
-          await this.settings?.set('pauseDashboardRefresh', !!message.value);
+          await this.settings?.set('dashboardAutoRefresh', !!message.value);
           break;
         case 'tabChanged':
           this.currentTab = message.tab;
@@ -469,7 +469,7 @@ export class UsageWebviewProvider {
       this.getStyles() +
       `</style>
       </head>
-      <body class="${this.setting<boolean>('pauseDashboardRefresh', false) ? 'auto-off' : ''}">
+      <body class="${this.setting<boolean>('dashboardAutoRefresh', true) ? '' : 'auto-off'}">
         <div class="container">
           <header>
             <h1>` +

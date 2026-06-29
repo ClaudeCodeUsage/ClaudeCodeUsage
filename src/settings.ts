@@ -40,6 +40,10 @@ export interface SettingDef {
 // with other globalState entries (consent flags, dismissals, …).
 const STATE_PREFIX = 'ccu.setting.';
 const MIGRATION_FLAG = 'ccu.settingsMigrated.v1';
+// V2.2: one-shot conversion of the old double-negative pauseDashboardRefresh to
+// the positive dashboardAutoRefresh. Its own flag so it runs even for users who
+// already passed the v1 migration.
+const AUTOREFRESH_MIGRATION_FLAG = 'ccu.migrated.dashboardAutoRefresh';
 
 export const SETTINGS: SettingDef[] = [
   // --- General ---
@@ -221,13 +225,15 @@ export const SETTINGS: SettingDef[] = [
     help: 'Refresh ~1.5s after each new message.',
   },
   {
-    key: 'pauseDashboardRefresh',
+    // V2.2: positive wording, replacing the old double-negative
+    // `pauseDashboardRefresh` (migrated by SettingsStore.migrateDashboardAutoRefresh).
+    key: 'dashboardAutoRefresh',
     type: 'boolean',
-    default: false,
+    default: true,
     storage: 'state',
     group: 'data',
-    label: 'Pause dashboard auto-refresh',
-    help: 'Status bar still updates; dashboard only on manual refresh.',
+    label: 'Dashboard auto-refresh',
+    help: 'Auto-refresh the dashboard as new usage lands. Off = manual refresh only (the status bar still updates).',
   },
   {
     key: 'enableContentAnalysis',
@@ -452,5 +458,35 @@ export class SettingsStore {
       }
     }
     await this.context.globalState.update(MIGRATION_FLAG, true);
+  }
+
+  /**
+   * One-shot V2.2 migration: the old `pauseDashboardRefresh` (double negative)
+   * becomes `dashboardAutoRefresh` (positive), inverted:
+   *   pauseDashboardRefresh === true  → dashboardAutoRefresh = false
+   *   false / undefined               → dashboardAutoRefresh = true (the default)
+   * Reads the old value from globalState (2.1) or settings.json (pre-2.1).
+   */
+  async migrateDashboardAutoRefresh(): Promise<void> {
+    if (this.context.globalState.get<boolean>(AUTOREFRESH_MIGRATION_FLAG, false)) {
+      return;
+    }
+    const newKey = STATE_PREFIX + 'dashboardAutoRefresh';
+    if (this.context.globalState.get(newKey) === undefined) {
+      let oldPause = this.context.globalState.get<boolean>(STATE_PREFIX + 'pauseDashboardRefresh');
+      if (oldPause === undefined) {
+        const info = this.cfg().inspect('pauseDashboardRefresh');
+        const v = info?.globalValue ?? info?.workspaceFolderValue ?? info?.workspaceValue;
+        if (typeof v === 'boolean') {
+          oldPause = v;
+        }
+      }
+      // Only write when the user had actually set the old flag; otherwise leave
+      // dashboardAutoRefresh at its catalog default (true).
+      if (oldPause !== undefined) {
+        await this.context.globalState.update(newKey, !oldPause);
+      }
+    }
+    await this.context.globalState.update(AUTOREFRESH_MIGRATION_FLAG, true);
   }
 }
