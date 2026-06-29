@@ -236,6 +236,9 @@ export interface ExtensionConfig {
   statusBarMetric: 'cost' | 'tokens';
   // Opt-in: append the weekly Opus limit (opus:NN%) to the quota item (PR #38).
   showOpusWeekly: boolean;
+  // Quota status-bar display (V2.2): inline reset countdown; 5h-only.
+  showResetInStatusBar: boolean;
+  quotaFiveHourOnly: boolean;
   // Fetch real 5-hour / weekly limit utilisation via Claude Code's OAuth session.
   usageLimitTracking: boolean;
   // LLM "usage advice" feature (OpenAI-compatible endpoint, e.g. DeepSeek).

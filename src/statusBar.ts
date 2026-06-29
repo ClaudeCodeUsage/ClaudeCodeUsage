@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ClaudeApiUsageResponse, ClaudeUsageLimit, ContextWindowInfo, UsageData } from './types';
 import { I18n } from './i18n';
+import { formatQuotaStatusText, worstShownUtilisation } from './quotaFormat';
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
@@ -16,6 +17,11 @@ export class StatusBarManager {
   // Opt-in: append the weekly Opus limit (opus:NN%) to the quota item (PR #38,
   // @wheelbarrel00).
   private showOpusWeekly: boolean = false;
+  // Quota status-bar display options (V2.2): show the reset countdown inline,
+  // and/or show only the 5-hour window. Both default off — the status bar stays
+  // clean ("5h 6% · wk 1%"); reset detail lives in the tooltip.
+  private showResetInStatusBar: boolean = false;
+  private quotaFiveHourOnly: boolean = false;
 
   constructor() {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -62,6 +68,13 @@ export class StatusBarManager {
     }
     // Re-apply the first item — it may need to become an icon-only entry point.
     this.applyCostVisibility();
+  }
+
+  /** Quota status-bar display options (V2.2). Takes effect on the next quota
+   * update (the caller refreshes right after a config change). */
+  setQuotaOptions(showResetInStatusBar: boolean, quotaFiveHourOnly: boolean): void {
+    this.showResetInStatusBar = showResetInStatusBar;
+    this.quotaFiveHourOnly = quotaFiveHourOnly;
   }
 
   /** Show / hide the first status-bar item per the showCost setting. When cost
@@ -215,31 +228,19 @@ export class StatusBarManager {
     // hours, even after a plan upgrade or a reset). Drop any window whose reset
     // time has passed. Adapted from PR #24 by @nickearnshaw.
     const live = this.liveWindows(usageLimits);
-    const fiveHour = live?.five_hour;
-    const weekly = live?.seven_day;
-    const opus = live?.seven_day_opus;
-    if (!fiveHour && !weekly && !(this.showOpusWeekly && opus)) {
+    const opts = {
+      showReset: this.showResetInStatusBar,
+      fiveHourOnly: this.quotaFiveHourOnly,
+      showOpusWeekly: this.showOpusWeekly,
+    };
+    // Clean, opt-in-reset text ("5h 6% · wk 1%"); empty when nothing to show.
+    const text = formatQuotaStatusText(live, opts);
+    if (!text) {
       this.quotaItem.hide();
       return;
     }
-
-    const parts: string[] = [];
-    let worstPct = 0;
-    if (fiveHour) {
-      worstPct = Math.max(worstPct, fiveHour.utilization);
-      parts.push(`5h:${Math.round(fiveHour.utilization)}%`);
-    }
-    if (weekly) {
-      worstPct = Math.max(worstPct, weekly.utilization);
-      parts.push(`wk:${Math.round(weekly.utilization)}%`);
-    }
-    // Opt-in weekly Opus cap (PR #38, @wheelbarrel00).
-    if (this.showOpusWeekly && opus) {
-      worstPct = Math.max(worstPct, opus.utilization);
-      parts.push(`opus:${Math.round(opus.utilization)}%`);
-    }
-
-    this.quotaItem.text = `$(dashboard) ${parts.join(' ')}`;
+    const worstPct = worstShownUtilisation(live, opts);
+    this.quotaItem.text = `$(dashboard) ${text}`;
 
     // Stay quiet until usage actually gets high.
     if (worstPct >= 95) {

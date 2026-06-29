@@ -353,6 +353,7 @@ export class ClaudeCodeUsageExtension {
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
     this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly);
+    this.statusBar.setQuotaOptions(config.showResetInStatusBar, config.quotaFiveHourOnly);
 
     // Listen for configuration changes
     vscode.workspace.onDidChangeConfiguration(e => {
@@ -390,6 +391,8 @@ export class ClaudeCodeUsageExtension {
       contextWindowOverride: s.get<number>('contextWindowOverride'),
       statusBarMetric: s.get<'cost' | 'tokens'>('statusBarMetric'),
       showOpusWeekly: s.get<boolean>('showOpusWeekly'),
+      showResetInStatusBar: s.get<boolean>('showResetInStatusBar'),
+      quotaFiveHourOnly: s.get<boolean>('quotaFiveHourOnly'),
       usageLimitTracking: s.get<boolean>('usageLimitTracking'),
       adviceApiKey: s.get<string>('advice.apiKey'),
       adviceApiUrl: s.get<string>('advice.apiUrl'),
@@ -418,6 +421,7 @@ export class ClaudeCodeUsageExtension {
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
     this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly);
+    this.statusBar.setQuotaOptions(config.showResetInStatusBar, config.quotaFiveHourOnly);
 
     // Restart auto-refresh with new interval
     this.startAutoRefresh();
