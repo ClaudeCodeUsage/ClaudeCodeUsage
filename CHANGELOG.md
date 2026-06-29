@@ -6,8 +6,22 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [2.2.0] — Unreleased
 
+See [`docs/V2.2.md`](docs/V2.2.md) for the full V2.2 design + roadmap.
+
 ### Added
-- _In progress — see `docs/V2.2.md`._
+- **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
+  display (`1.2M` / `345.6K`); full integer counts are unaffected.
+- **Cleaner quota status bar** — opt-in `showResetInStatusBar`
+  (`5h 6% ↻4.8h | wk 1% ↻1.6d`) and `quotaFiveHourOnly`; the default stays the
+  airy `5h 6% · wk 1%`, with full reset times in the tooltip.
+- **Share-card + heatmap foundations** — tested pure logic (`src/shareCard.ts`,
+  `src/heatmap.ts`) for the upcoming Usage Share Card and Monthly token heatmap.
+
+### Changed
+- **`dashboardAutoRefresh`** (positive wording, default true) replaces the
+  double-negative `pauseDashboardRefresh`; existing values are migrated.
+- Repository metadata (`repository` / `bugs` / `homepage`) now points at the
+  `ClaudeCodeUsage` organization.
 
 ## [2.1.0] — 2026-06-26
 
