@@ -232,8 +232,8 @@ export interface ExtensionConfig {
   showContext: boolean;
   // Manual context-window size override in tokens (0 = auto-detect).
   contextWindowOverride: number;
-  // First status-bar item: today's cost, or today's total token count.
-  statusBarMetric: 'cost' | 'tokens';
+  // First status-bar item: today's cost, this month's cost, or today's total token count.
+  statusBarMetric: 'cost' | 'monthly-cost' | 'tokens';
   // Opt-in: append the weekly Opus limit (opus:NN%) to the quota item (PR #38).
   showOpusWeekly: boolean;
   // Quota status-bar display (V2.2): inline reset countdown; 5h-only.
@@ -283,7 +283,7 @@ export interface ModelPricing {
   cache_read_input_token_cost?: number;
 }
 
-export type SupportedLanguage = 'en' | "de-DE" | 'zh-TW' | 'zh-CN' | 'ja' | 'ko';
+export type SupportedLanguage = 'en' | "de-DE" | 'zh-TW' | 'zh-CN' | 'ja' | 'ko' | 'pt-BR';
 
 // One multi-agent run. Two kinds (verified on disk 2026-06-12):
 //  - a dynamic-workflow run (wf_<id> dir; trigger word "ultracode"), or

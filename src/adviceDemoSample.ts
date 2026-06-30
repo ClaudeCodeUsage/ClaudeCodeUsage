@@ -321,13 +321,64 @@ Warum: Gibt Claude eine Entscheidungsgrenze, nicht ein Dutzend.
   Sonnet 4.6 bei ausreichender Qualität.
 `;
 
+const PT_BR = `## Resumo
+
+Nos últimos 30 dias, **as respostas do assistente e os resultados de ferramentas dominam
+seus gastos** (≈68% combinados), enquanto seus próprios prompts representam apenas ≈11%.
+O padrão: prompts curtos e exploratórios como *"dá uma olhada em..."* disparam várias
+chamadas Read/Grep que inflam os tokens de saída.
+
+A principal alavanca é a **precisão dos prompts**, não "usar um modelo menor".
+
+## Reescritas concretas
+
+### 1. Enquadramento "explore primeiro"
+
+**Antes:** *"Dá uma olhada no módulo de autenticação e me diz o que está acontecendo."*
+
+**Depois:** *"Em \`src/auth/session.ts\`, \`refreshToken()\` está retornando 401
+intermitentemente em produção. Leia este arquivo e seus chamadores diretos, depois
+proponha uma correção. Não resuma o módulo inteiro."*
+
+Por quê: indica o *sintoma*, nomeia o *escopo* e suprime o resumo desnecessário.
+
+### 2. Desvio de escopo durante a tarefa
+
+**Antes:** *"Ah, pode também confirmar que os testes ainda passam? E adicionar um teste
+para o caso extremo que discutimos?"*
+
+**Depois:** *"Adicione **um** teste para o caso de array vazio em \`parseConfig\`.
+Execute apenas \`npm test -- parseConfig.test.ts\`. Não adicione outros testes."*
+
+Por quê: limita a mudança, o comando de teste e a área de impacto.
+
+### 3. "Use seu julgamento"
+
+**Antes:** *"Refatore isso da forma que achar mais limpa."*
+
+**Depois:** *"Extraia a lógica de retry de \`processBatch\` para um helper
+\`retryWithBackoff\`. Mantenha todo o resto igual. Não renomeie variáveis."*
+
+Por quê: dá ao Claude uma única decisão a tomar, não uma dúzia.
+
+## Economias menores
+
+- **Taxa de acerto do cache: 41%** — bom. Não quebre o cache editando CLAUDE.md
+  no meio da session; edite entre sessions.
+- **Context window médio ao final da session: 89k tokens.** Sessions acima de ~140k ficam
+  exponencialmente mais caras por turno — inicie novas sessions mais cedo.
+- **Haiku 4.5 aparece em 0% das suas sessions.** Para reformatar, comentar ou "explica
+  essa linha", ele custa ~1/15 de Sonnet 4.6 com qualidade suficiente.
+`;
+
 const BODIES: Record<SupportedLanguage, string> = {
   'en': EN,
   'zh-CN': ZH_CN,
   'zh-TW': ZH_TW,
   'ja': JA,
   'ko': KO,
-  'de-DE': DE
+  'de-DE': DE,
+  'pt-BR': PT_BR
 };
 
 /** Demo body for the user's UI language; falls back to English. */

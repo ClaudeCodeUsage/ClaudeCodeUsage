@@ -3,6 +3,7 @@ import { ClaudeDataLoader } from './dataLoader';
 import { I18n } from './i18n';
 import { getModelRatesPerMillion } from './pricing';
 import { SETTINGS, SettingsStore, SettingView } from './settings';
+import { buildResumeCommand, isUsableCwd, isValidSessionId, isUnderDir } from './sessionResume';
 import {
   AttributionScope,
   BranchUsage,
@@ -52,7 +53,7 @@ export class UsageWebviewProvider {
   // the user edits a setting in the dashboard's ⚙ Settings tab. Both are set by
   // extension.ts right after construction.
   public settings?: SettingsStore;
-  public onSettingsChanged?: () => void;
+  public onSettingsChanged?: (key?: string) => void;
   // Last Usage Optimizer interaction (draft + lens choices + result). Persisted
   // here so an auto-refresh re-render of the webview doesn't wipe a result the
   // user is still reading — renderOptimizerCard restores it from this.
@@ -117,17 +118,84 @@ export class UsageWebviewProvider {
         case 'tabChanged':
           this.currentTab = message.tab;
           break;
+        case 'resumeSession': {
+          // Resume a past session via the official extension, or a terminal fallback.
+          const sessionId = message.sessionId;
+          if (!isValidSessionId(sessionId)) {
+            vscode.window.showWarningMessage(I18n.t.popup.resumeInvalid);
+            break;
+          }
+          const rawCwd = typeof message.cwd === 'string' ? message.cwd : '';
+          const cwd = isUsableCwd(rawCwd) ? rawCwd : undefined;
+          // The official in-tab view only opens sessions from this project; others
+          // go via terminal. A session whose log had no cwd carries the dash-
+          // encoded folder name (e.g. "-Users-ozn-dev-ccp"), so match that too.
+          const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const sameProject = !!ws && (isUnderDir(rawCwd, ws) || rawCwd === ws.replace(/[/\\]/g, '-'));
+          const official = vscode.extensions.getExtension('anthropic.claude-code');
+          if (official && sameProject) {
+            try {
+              if (!official.isActive) { await official.activate(); }
+              await vscode.commands.executeCommand('claude-vscode.editor.open', sessionId);
+              break;
+            } catch {
+              // Fall back to the terminal if the command shape changed.
+            }
+          }
+          const term = vscode.window.createTerminal({ name: 'Claude Resume', cwd });
+          term.show();
+          term.sendText(buildResumeCommand(sessionId) as string);
+          break;
+        }
+        case 'deleteSession': {
+          // Delete a session's log (modal confirm, routed to OS trash).
+          const sessionId = message.sessionId;
+          if (!isValidSessionId(sessionId)) {
+            vscode.window.showWarningMessage(I18n.t.popup.resumeInvalid);
+            break;
+          }
+          const name = String(message.title || sessionId);
+          const yes = I18n.t.popup.deleteSessionYes;
+          const pick = await vscode.window.showWarningMessage(
+            I18n.t.popup.deleteSessionConfirm.replace('{name}', name),
+            { modal: true, detail: I18n.t.popup.deleteSessionDetail },
+            yes
+          );
+          if (pick !== yes) { break; }
+          const { ClaudeDataLoader } = await import('./dataLoader');
+          const targets = await ClaudeDataLoader.findSessionFiles(sessionId, this.dataDirectory);
+          let deleted = 0;
+          for (const f of targets) {
+            try {
+              await vscode.workspace.fs.delete(vscode.Uri.file(f), { recursive: true, useTrash: true });
+              deleted++;
+            } catch { /* skip what we can't remove */ }
+          }
+          // Always force a fresh reload so the row drops — whether files were
+          // removed now or it was already gone (stale row from an earlier
+          // delete). refresh -> refreshData(true) re-reads disk regardless of
+          // mtimes, so the session disappears either way.
+          vscode.commands.executeCommand('claudeCodeUsage.refresh');
+          if (deleted > 0) {
+            vscode.window.showInformationMessage(I18n.t.popup.deleteSessionDone.replace('{name}', name));
+          } else {
+            vscode.window.showWarningMessage(I18n.t.popup.deleteSessionNotFound);
+          }
+          break;
+        }
         case 'updateSetting':
           if (this.settings && typeof message.key === 'string') {
             await this.settings.set(message.key, message.value);
-            // Re-apply config (status bar, refresh cadence, language…) and
-            // re-render. globalState changes don't fire onDidChangeConfiguration.
-            this.onSettingsChanged?.();
+            // Re-apply config. Pass the key so status-bar-only toggles skip the
+            // dashboard reload (which flickers); globalState changes don't fire
+            // onDidChangeConfiguration, so this callback is the only signal.
+            this.onSettingsChanged?.(message.key);
           }
           break;
         case 'resetSetting':
           if (this.settings && typeof message.key === 'string') {
             await this.settings.reset(message.key);
+            // Reset re-renders fully so the control visually reverts to default.
             this.onSettingsChanged?.();
           }
           break;
@@ -1223,9 +1291,17 @@ export class UsageWebviewProvider {
     // enabled; the column collapses to "-" otherwise (estimate, see hint).
     const thinkingMap = this.contentAnalysis ? this.contentAnalysis.thinkingBySession : null;
 
+    // Mark sessions outside the current workspace so the list can default to "this project".
+    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+    let currentCount = 0;
+
     let rows = '';
     this.sessionBreakdown.forEach((s) => {
       const d = s.data;
+      const foreign = workspacePath
+        ? !(isUnderDir(s.projectPath, workspacePath) || s.projectPath === workspacePath.replace(/[/\\]/g, '-'))
+        : false;
+      if (!foreign) { currentCount++; }
       // Conversation title (the name `claude --resume` shows); falls back to a
       // short session id so same-project rows stay distinguishable either way.
       const fullName = s.title || s.sessionId;
@@ -1242,7 +1318,7 @@ export class UsageWebviewProvider {
         thinkingShare !== null && thinkingShare > 0.6 ? t.effortHint : '',
       ].filter((x) => x).join(' · ');
       rows +=
-        '<tr class="sort-row"' +
+        '<tr class="sort-row' + (foreign ? ' session-foreign' : '') + '"' +
         ' data-sort-time="' + s.startTime.getTime() + '"' +
         ' data-sort-session="' + this.escapeHtml(fullName.toLowerCase()) + '"' +
         ' data-sort-project="' + this.escapeHtml((s.projectName || '').toLowerCase()) + '"' +
@@ -1269,16 +1345,42 @@ export class UsageWebviewProvider {
         '</td>' +
         '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>' +
         '<td class="number-cell">' + this.escapeHtml(this.formatDuration(s.startTime, s.endTime)) + '</td>' +
+        // Copy id / resume / delete actions; id re-validated host-side.
+        '<td class="actions-cell">' +
+        '<button class="session-action" title="' + this.escapeHtml(t.copySessionId) +
+        '" data-session-id="' + this.escapeHtml(s.sessionId) + '" onclick="copySession(this)">⧉</button>' +
+        '<button class="session-action" title="' + this.escapeHtml(t.resumeSession) +
+        '" data-session-id="' + this.escapeHtml(s.sessionId) +
+        '" data-cwd="' + this.escapeHtml(s.projectPath || '') + '" onclick="resumeSession(this)">▶</button>' +
+        '<button class="session-action session-delete" title="' + this.escapeHtml(t.deleteSession) +
+        '" data-session-id="' + this.escapeHtml(s.sessionId) +
+        '" data-title="' + this.escapeHtml(fullName) + '" onclick="deleteSession(this)">🗑</button>' +
+        '</td>' +
         '</tr>';
     });
 
     const th = (key: string, label: string): string =>
       '<th class="sortable" data-sortkey="' + key + '">' + label + '</th>';
 
+    // Filter the list to the current project (default) or all.
+    const total = this.sessionBreakdown.length;
+    const foreignCount = total - currentCount;
+    const showToggle = !!workspacePath && currentCount > 0 && foreignCount > 0;
+    const filterBar = showToggle
+      ? '<div class="sess-filter">' +
+        '<button class="sess-filter-btn active" data-mode="current" onclick="sessionFilter(this)">' +
+          this.escapeHtml(t.sessionFilterCurrent) + ' (' + currentCount + ')</button>' +
+        '<button class="sess-filter-btn" data-mode="all" onclick="sessionFilter(this)">' +
+          this.escapeHtml(t.sessionFilterAll) + ' (' + total + ')</button>' +
+        '</div>'
+      : '';
+
     return (
       '<div class="daily-breakdown">' +
       '<h3>' + t.sessionBreakdown + '</h3>' +
       '<p class="table-hint">' + t.sortHint + '</p>' +
+      filterBar +
+      '<div class="session-list' + (showToggle ? ' show-current' : '') + '" id="sessionList">' +
       '<div class="daily-table-container">' +
       '<table class="daily-table sortable-table">' +
       '<thead><tr>' +
@@ -1294,9 +1396,11 @@ export class UsageWebviewProvider {
       th('thinking', t.thinkingShare) +
       th('messages', t.messages) +
       th('duration', t.duration) +
+      '<th>' + t.sessionActions + '</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
       '</table>' +
+      '</div>' +
       '</div>' +
       '<p class="table-hint">' + t.thinkingShare + ': ' + t.estimatedNote + '</p>' +
       '</div>'
@@ -1368,9 +1472,19 @@ export class UsageWebviewProvider {
   /** A table cell showing the project's friendly name with its full path beneath. */
   private renderProjectCell(name: string, fullPath: string): string {
     const safeName = this.escapeHtml(name || 'unknown');
-    const safePath = this.escapeHtml(fullPath || '');
-    const pathLine = safePath ? '<div class="project-path" title="' + safePath + '">' + safePath + '</div>' : '';
-    return '<td class="project-cell"><div class="project-name">' + safeName + '</div>' + pathLine + '</td>';
+    return '<td class="project-cell"><div class="project-name">' + safeName + '</div>' + this.projectPathLine(fullPath || '') + '</td>';
+  }
+
+  /** A project directory line with a small copy-to-clipboard icon. */
+  private projectPathLine(fullPath: string, indent: number = 0): string {
+    if (!fullPath) { return ''; }
+    const safe = this.escapeHtml(fullPath);
+    const pad = '&nbsp;'.repeat(indent);
+    return '<div class="project-path" title="' + safe + '">' +
+      '<span class="project-path-text">' + pad + safe + '</span>' +
+      '<button class="copy-path" data-path="' + safe + '" title="' +
+      this.escapeHtml(I18n.t.popup.copyPath) + '" onclick="copyPath(this, event)">⧉</button>' +
+      '</div>';
   }
 
   private renderProjectData(): string {
@@ -1420,9 +1534,7 @@ export class UsageWebviewProvider {
           this.escapeHtml(group.groupName) +
           ' <span class="group-count">(' + group.projectCount + ')</span>' +
           '</div>' +
-          '<div class="project-path" title="' + this.escapeHtml(group.groupPath) + '">' +
-          this.escapeHtml(group.groupPath) +
-          '</div>' +
+          this.projectPathLine(group.groupPath) +
           '</td>' +
           '<td class="number-cell">' + I18n.formatNumber(group.sessionCount) + '</td>' +
           usageCells(group.data) +
@@ -1432,10 +1544,8 @@ export class UsageWebviewProvider {
           rows +=
             '<tr class="sort-child project-child-row" data-group="' + groupId + '" style="display:none;">' +
             '<td class="project-cell project-child-cell">' +
-            '<div class="project-name">' + this.escapeHtml(child.projectName) + '</div>' +
-            '<div class="project-path" title="' + this.escapeHtml(child.projectPath) + '">' +
-            this.escapeHtml(child.projectPath) +
-            '</div>' +
+            '<div class="project-name">&nbsp;&nbsp;' + this.escapeHtml(child.projectName) + '</div>' +
+            this.projectPathLine(child.projectPath, 2) +
             '</td>' +
             '<td class="number-cell">' + I18n.formatNumber(child.sessionCount) + '</td>' +
             usageCells(child.data) +
@@ -2482,7 +2592,8 @@ export class UsageWebviewProvider {
       }
 
       .container {
-        max-width: 800px;
+        /* Widen for big monitors; fluid below the cap. */
+        max-width: 1600px;
         margin: 0 auto;
       }
 
@@ -2825,6 +2936,58 @@ export class UsageWebviewProvider {
       }
       body.auto-off .btn-refresh-now {
         display: inline-block;
+      }
+
+      /* Session row action buttons. */
+      .actions-cell {
+        white-space: nowrap;
+        text-align: center;
+      }
+      .session-action {
+        background: none;
+        border: 1px solid var(--vscode-panel-border);
+        color: var(--vscode-foreground);
+        border-radius: 4px;
+        cursor: pointer;
+        padding: 1px 6px;
+        margin: 0 1px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .session-action:hover {
+        background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+      }
+      .session-action.copied {
+        color: var(--vscode-charts-green, #4caf50);
+        border-color: var(--vscode-charts-green, #4caf50);
+      }
+      .session-delete:hover {
+        color: var(--vscode-errorForeground, #f44336);
+        border-color: var(--vscode-errorForeground, #f44336);
+      }
+
+      /* Sessions "current project / all" filter. */
+      .sess-filter {
+        display: flex;
+        gap: 6px;
+        margin: 0 0 10px;
+      }
+      .sess-filter-btn {
+        background: none;
+        border: 1px solid var(--vscode-panel-border);
+        color: var(--vscode-foreground);
+        border-radius: 4px;
+        cursor: pointer;
+        padding: 2px 10px;
+        font-size: 12px;
+      }
+      .sess-filter-btn.active {
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border-color: var(--vscode-button-background);
+      }
+      .session-list.show-current .session-foreign {
+        display: none;
       }
 
       /* iOS-style auto-refresh toggle. The label/switch sit next to the other
@@ -3314,8 +3477,38 @@ export class UsageWebviewProvider {
       .project-path {
         font-size: 11px;
         color: var(--vscode-descriptionForeground);
-        word-break: break-all;
         margin-top: 2px;
+        display: flex;
+        align-items: flex-start;
+        gap: 4px;
+      }
+      .project-path-text {
+        word-break: break-all;
+      }
+      /* Small copy-path icon, revealed on row hover. */
+      .copy-path {
+        flex-shrink: 0;
+        background: none;
+        border: none;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        padding: 0 2px;
+        font-size: 11px;
+        line-height: 1.3;
+        opacity: 0;
+        transition: opacity 0.1s;
+      }
+      .sort-row:hover .copy-path,
+      .project-child-row:hover .copy-path,
+      .copy-path.copied {
+        opacity: 0.7;
+      }
+      .copy-path:hover {
+        opacity: 1 !important;
+        color: var(--vscode-foreground);
+      }
+      .copy-path.copied {
+        color: var(--vscode-charts-green, #4caf50);
       }
 
       .composition-chart {
@@ -3789,6 +3982,22 @@ console.log("[DEBUG] === JAVASCRIPT INITIALIZATION START ===");
 const vscode = acquireVsCodeApi();
 console.log("[DEBUG] VSCode API acquired");
 
+// Restore the active tab from localStorage before first paint, so a reload can't change it.
+function restoreActiveTab() {
+  try {
+    var t = localStorage.getItem('ccu.activeTab');
+    if (t && document.getElementById('tab-' + t) && document.getElementById(t)) {
+      showTab(t);
+    }
+  } catch (e) {}
+}
+function restoreUi() { restoreActiveTab(); restoreSessionFilter(); }
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', restoreUi);
+} else {
+  restoreUi();
+}
+
 // Locale + timezone baked in at render time so drill-down renders match the
 // user's UI language and configured timezone (instead of the hardcoded zh-TW
 // that the original used in this script body).
@@ -3928,6 +4137,87 @@ function dismissQuotaWarn() {
   vscode.postMessage({ command: 'dismissQuotaWarn' });
 }
 
+// Session row actions.
+function copySession(btn) {
+  if (!btn) { return; }
+  var id = btn.getAttribute('data-session-id') || '';
+  if (!id) { return; }
+  var orig = btn.textContent;
+  var done = function() {
+    btn.classList.add('copied');
+    btn.textContent = '✓';
+    setTimeout(function() { btn.classList.remove('copied'); btn.textContent = orig; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(id).then(done, done);
+  } else {
+    done();
+  }
+}
+
+function resumeSession(btn) {
+  if (!btn) { return; }
+  var id = btn.getAttribute('data-session-id') || '';
+  if (!id) { return; }
+  vscode.postMessage({
+    command: 'resumeSession',
+    sessionId: id,
+    cwd: btn.getAttribute('data-cwd') || ''
+  });
+}
+
+function deleteSession(btn) {
+  if (!btn) { return; }
+  var id = btn.getAttribute('data-session-id') || '';
+  if (!id) { return; }
+  // The host shows a modal confirm before anything is removed.
+  vscode.postMessage({
+    command: 'deleteSession',
+    sessionId: id,
+    title: btn.getAttribute('data-title') || ''
+  });
+}
+
+function applySessionFilter(mode) {
+  var list = document.getElementById('sessionList');
+  if (!list) { return; }
+  list.classList.toggle('show-current', mode === 'current');
+  document.querySelectorAll('.sess-filter-btn').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+  });
+}
+function sessionFilter(btn) {
+  if (!btn) { return; }
+  var mode = btn.getAttribute('data-mode');
+  applySessionFilter(mode);
+  // Persist so the full-document reload (e.g. after a delete) keeps the filter.
+  try { localStorage.setItem('ccu.sessionFilter', mode); } catch (e) {}
+}
+function restoreSessionFilter() {
+  try {
+    var mode = localStorage.getItem('ccu.sessionFilter');
+    if (mode && document.querySelector('.sess-filter-btn[data-mode="' + mode + '"]')) {
+      applySessionFilter(mode);
+    }
+  } catch (e) {}
+}
+
+function copyPath(btn, e) {
+  if (e) { e.stopPropagation(); }
+  if (!btn) { return; }
+  var p = btn.getAttribute('data-path') || '';
+  if (!p) { return; }
+  var orig = btn.textContent;
+  var done = function() {
+    btn.classList.add('copied');
+    btn.textContent = '✓';
+    setTimeout(function() { btn.classList.remove('copied'); btn.textContent = orig; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(p).then(done, done);
+  } else { done(); }
+}
+
 function attrSetScope(kind) {
   document.querySelectorAll('.attr-tab').forEach(function(b) {
     b.classList.toggle('active', b.getAttribute('data-kind') === kind);
@@ -4036,8 +4326,9 @@ function showTab(tabName) {
       selectedContent.classList.add('active');
       console.log("[DEBUG] Tab switched successfully to:", tabName);
 
-      // Notify extension
       vscode.postMessage({ command: 'tabChanged', tab: tabName });
+      // Persist in localStorage too — survives the reload, restored before paint.
+      try { localStorage.setItem('ccu.activeTab', tabName); } catch (e) {}
     } else {
       console.error("[DEBUG] Tab or content not found:", tabName);
     }

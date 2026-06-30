@@ -27,6 +27,10 @@ export class ClaudeCodeUsageExtension {
   private fileWatcher: fs.FSWatcher | undefined;
   private watchDebounceTimer: NodeJS.Timeout | undefined;
   private watchedDir: string | null = null;
+  // Watches ~/.claude/.credentials.json so an account switch is reflected
+  // promptly instead of after a full quota TTL (#45).
+  private credsWatcher: fs.FSWatcher | undefined;
+  private credsDebounceTimer: NodeJS.Timeout | undefined;
   private cache: {
     records: any[];
     contentAnalysis: ContentAnalysis | null;
@@ -34,13 +38,17 @@ export class ClaudeCodeUsageExtension {
     dataDirectory: string | null;
     usageLimits: ClaudeApiUsageResponse | null;
     usageLimitsLastUpdate: Date;
+    usageLimitsBackoffUntil: Date;
+    usageLimitsFailStreak: number;
   } = {
     records: [],
     contentAnalysis: null,
     lastUpdate: new Date(0),
     dataDirectory: null,
     usageLimits: null,
-    usageLimitsLastUpdate: new Date(0)
+    usageLimitsLastUpdate: new Date(0),
+    usageLimitsBackoffUntil: new Date(0),
+    usageLimitsFailStreak: 0
   };
 
   private outputChannel: vscode.OutputChannel;
@@ -52,6 +60,8 @@ export class ClaudeCodeUsageExtension {
   // more refresh after the current one finishes, instead of dropping the event
   // (which starved updates during rapid ultracode/sub-agent writes).
   private pendingRefresh: boolean = false;
+  // True when a coalesced refresh was a manual one, so the follow-up forces a full reload.
+  private pendingManual: boolean = false;
   // Epoch ms of the last observed .jsonl change. Drives activity-aware
   // refresh cadence: while Claude Code is actively writing we refresh faster
   // (~15 s, quota cache 20 s); when idle we fall back to the user's interval.
@@ -87,12 +97,14 @@ export class ClaudeCodeUsageExtension {
     // it tell us when the user changes a setting there so we re-apply config
     // (globalState changes don't fire onDidChangeConfiguration).
     this.webviewProvider.settings = this.settings;
-    this.webviewProvider.onSettingsChanged = () => this.onConfigurationChanged();
+    this.webviewProvider.onSettingsChanged = (key) => this.onSettingsChangedFromPanel(key);
 
     this.setupCommands();
     this.loadConfiguration();
+    this.loadPersistedQuota();
     this.startAutoRefresh();
     this.refreshData().then(() => this.startFileWatching());
+    this.startCredentialsWatching();
     console.log('Claude Code Usage Extension: Initialization complete');
   }
 
@@ -355,8 +367,7 @@ export class ClaudeCodeUsageExtension {
     I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
-    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly);
-    this.statusBar.setQuotaOptions(config.showResetInStatusBar, config.quotaFiveHourOnly);
+    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar);
 
     // Listen for configuration changes
     vscode.workspace.onDidChangeConfiguration(e => {
@@ -371,6 +382,8 @@ export class ClaudeCodeUsageExtension {
     // quota fetch + refresh so it reappears without needing a new window.
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       this.cache.usageLimitsLastUpdate = new Date(0);
+      this.cache.usageLimitsBackoffUntil = new Date(0);
+      this.cache.usageLimitsFailStreak = 0;
       this.quotaColdRetryDone = false;
       this.refreshData();
     });
@@ -392,7 +405,7 @@ export class ClaudeCodeUsageExtension {
       showCost: s.get<boolean>('showCost'),
       showContext: s.get<boolean>('showContext'),
       contextWindowOverride: s.get<number>('contextWindowOverride'),
-      statusBarMetric: s.get<'cost' | 'tokens'>('statusBarMetric'),
+      statusBarMetric: s.get<'cost' | 'monthly-cost' | 'tokens'>('statusBarMetric'),
       showOpusWeekly: s.get<boolean>('showOpusWeekly'),
       showResetInStatusBar: s.get<boolean>('showResetInStatusBar'),
       quotaFiveHourOnly: s.get<boolean>('quotaFiveHourOnly'),
@@ -416,6 +429,26 @@ export class ClaudeCodeUsageExtension {
     };
   }
 
+  // Settings whose change only affects the status bar (no dashboard reload).
+  private static readonly STATUS_BAR_ONLY_SETTINGS = new Set([
+    // usageLimitTracking is intentionally excluded: turning it on must trigger a
+    // /usage fetch (the full reload path), else the quota stays empty until the
+    // next tick.
+    'showCost', 'showContext', 'statusBarMetric',
+    'showOpusWeekly', 'quotaFiveHourOnly', 'showResetInStatusBar',
+  ]);
+
+  /** Dashboard Settings change — status-bar-only toggles apply in place, others reload. */
+  private onSettingsChangedFromPanel(key?: string): void {
+    if (key && ClaudeCodeUsageExtension.STATUS_BAR_ONLY_SETTINGS.has(key)) {
+      const config = this.getConfiguration();
+      this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar);
+      this.statusBar.updateQuota(this.cache.usageLimits ?? null);
+      return;
+    }
+    this.onConfigurationChanged();
+  }
+
   private onConfigurationChanged(): void {
     const config = this.getConfiguration();
     I18n.setLanguage(config.language as any);
@@ -423,8 +456,7 @@ export class ClaudeCodeUsageExtension {
     I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
-    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly);
-    this.statusBar.setQuotaOptions(config.showResetInStatusBar, config.quotaFiveHourOnly);
+    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar);
 
     // Restart auto-refresh with new interval
     this.startAutoRefresh();
@@ -502,6 +534,60 @@ export class ClaudeCodeUsageExtension {
     this.watchedDir = null;
   }
 
+  /**
+   * Watch the OAuth credentials file so switching Claude accounts updates the
+   * quota promptly. Without this, the quota stays on the previous account's
+   * numbers for up to a full TTL (120 s) — long enough to read as "stuck on the
+   * wrong account, only a window reload fixes it" (#45). On a change we drop the
+   * cached quota and refetch; the api client re-reads the new token. Watches the
+   * parent dir (the file is rewritten/replaced, which single-file watches miss)
+   * and filters by name. macOS Keychain-stored credentials have no file to
+   * watch — those still self-correct on the next refresh tick.
+   */
+  private startCredentialsWatching(): void {
+    const credsPath = this.apiClient.getCredentialsPath();
+    const dir = path.dirname(credsPath);
+    const name = path.basename(credsPath);
+    if (!fs.existsSync(dir)) {
+      return;
+    }
+    try {
+      this.credsWatcher = fs.watch(dir, (_event, filename) => {
+        if (filename && String(filename) !== name) {
+          return;
+        }
+        if (this.credsDebounceTimer) {
+          clearTimeout(this.credsDebounceTimer);
+        }
+        this.credsDebounceTimer = setTimeout(() => {
+          // The cached quota belongs to the previous token/account. Expire it so
+          // the next refresh bypasses the TTL and refetches with the new token.
+          // The api client's own 429 cool-down still protects the endpoint.
+          this.cache.usageLimitsLastUpdate = new Date(0);
+          this.refreshData();
+        }, 800);
+      });
+    } catch {
+      // Watching unsupported on this platform/filesystem — the refresh tick
+      // still picks up the new account within a TTL.
+    }
+  }
+
+  private stopCredentialsWatching(): void {
+    if (this.credsDebounceTimer) {
+      clearTimeout(this.credsDebounceTimer);
+      this.credsDebounceTimer = undefined;
+    }
+    if (this.credsWatcher) {
+      try {
+        this.credsWatcher.close();
+      } catch {
+        // Already closed.
+      }
+      this.credsWatcher = undefined;
+    }
+  }
+
   /** True when Claude Code has written a log line in the last 60 s. */
   private isActive(): boolean {
     return Date.now() - this.lastActivityAt < 60000;
@@ -540,9 +626,35 @@ export class ClaudeCodeUsageExtension {
   }
 
   /** Fetch real usage limits via OAuth, cached for 2 minutes. */
+  // Persist the last-known quota across reloads/restarts.
+  private static readonly QUOTA_STATE_KEY = 'ccu.usageLimits';
+
+  private loadPersistedQuota(): void {
+    if (!this.getConfiguration().usageLimitTracking) {
+      return;
+    }
+    try {
+      const saved = this.context.globalState.get<{ data: ClaudeApiUsageResponse; ts: number }>(
+        ClaudeCodeUsageExtension.QUOTA_STATE_KEY
+      );
+      if (saved && saved.data) {
+        this.cache.usageLimits = saved.data;
+        this.cache.usageLimitsLastUpdate = new Date(saved.ts || 0);
+        this.statusBar.updateQuota(saved.data);
+      }
+    } catch {
+      /* ignore corrupt persisted state */
+    }
+  }
+
   private async maybeFetchUsageLimits(config: ExtensionConfig): Promise<ClaudeApiUsageResponse | null> {
     if (!config.usageLimitTracking) {
       return null;
+    }
+    const now = Date.now();
+    // While backing off after a 429, return the cached value without refetching.
+    if (now < this.cache.usageLimitsBackoffUntil.getTime()) {
+      return this.cache.usageLimits;
     }
     const age = Date.now() - this.cache.usageLimitsLastUpdate.getTime();
     // Activity-aware cache: 20 s while Claude Code is actively writing (so the
@@ -564,9 +676,22 @@ export class ClaudeCodeUsageExtension {
     if (fetched) {
       this.cache.usageLimits = fetched;
       this.cache.usageLimitsLastUpdate = new Date();
+      this.cache.usageLimitsFailStreak = 0;
+      // Even on success, hold off /usage for 30s — this floor also covers the
+      // expired-window bypass so a just-rolled window can't trigger an immediate
+      // refetch.
+      this.cache.usageLimitsBackoffUntil = new Date(Date.now() + 30000);
+      // Write through to disk so the next startup/reload has it instantly.
+      void this.context.globalState.update(
+        ClaudeCodeUsageExtension.QUOTA_STATE_KEY,
+        { data: fetched, ts: Date.now() }
+      );
       return fetched;
     }
-    // Keep showing the last known value if a refresh fails.
+    // Failed (usually a 429). Exponentially back off — 60s, 120s … capped at 10 min.
+    this.cache.usageLimitsFailStreak++;
+    const backoffMs = Math.min(600000, 60000 * Math.pow(2, this.cache.usageLimitsFailStreak - 1));
+    this.cache.usageLimitsBackoffUntil = new Date(now + backoffMs);
     return this.cache.usageLimits;
   }
 
@@ -590,6 +715,7 @@ export class ClaudeCodeUsageExtension {
       // one more after the current finishes (see finally). Dropping the event
       // outright starved updates during rapid ultracode / sub-agent writes.
       this.pendingRefresh = true;
+      if (manualTrigger) { this.pendingManual = true; }
       return;
     }
     this.isRefreshing = true;
@@ -643,8 +769,9 @@ export class ClaudeCodeUsageExtension {
       // this avoids pointless work (and CPU spikes) while you are not running code.
       const latestMtime = await ClaudeDataLoader.getLatestModifiedTime(dataDirectory);
       const dirChanged = this.cache.dataDirectory !== dataDirectory;
+      // A manual refresh always reloads from disk (a delete doesn't bump mtimes).
       const needFullRefresh =
-        dirChanged || this.cache.records.length === 0 || latestMtime > this.cache.lastUpdate.getTime();
+        manualTrigger || dirChanged || this.cache.records.length === 0 || latestMtime > this.cache.lastUpdate.getTime();
 
       if (!needFullRefresh) {
         // Idle: logs unchanged. Quota was already refreshed above. Still
@@ -717,7 +844,7 @@ export class ClaudeCodeUsageExtension {
 
       // Update UI. Quota is pushed asynchronously by the fire-and-forget fetch
       // above; passing undefined leaves the quota item untouched here.
-      this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined);
+      this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined, monthData);
       this.statusBar.updateContext(
         ClaudeDataLoader.getCurrentContextInfo(records, workspacePath, config.contextWindowOverride)
       );
@@ -741,7 +868,9 @@ export class ClaudeCodeUsageExtension {
       // number of dropped triggers into a single follow-up.
       if (this.pendingRefresh) {
         this.pendingRefresh = false;
-        setTimeout(() => this.refreshData(), 0);
+        const manual = this.pendingManual;
+        this.pendingManual = false;
+        setTimeout(() => this.refreshData(manual), 0);
       }
     }
   }
@@ -752,6 +881,7 @@ export class ClaudeCodeUsageExtension {
       this.refreshTimer = undefined;
     }
     this.stopFileWatching();
+    this.stopCredentialsWatching();
     this.statusBar.dispose();
     this.webviewProvider.dispose();
   }

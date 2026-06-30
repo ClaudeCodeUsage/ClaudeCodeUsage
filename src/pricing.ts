@@ -132,21 +132,45 @@ const NON_CLAUDE_PRICING: Record<string, ModelPricing> = {
   'deepseek-v4-flash': priced(0.14, 0.28, 0.0028),
 
   // --- Moonshot / Kimi --- prices published in USD by Moonshot
+  'kimi-k2.7-code': priced(0.95, 4.0, 0.19),
   'kimi-k2-6': priced(0.95, 4.0, 0.16),
   'kimi-k2-5': priced(0.6, 2.5),
   'kimi-k2': priced(0.6, 2.5),
   'moonshot-v1-128k': priced(0.6, 2.5),
 
-  // --- Zhipu GLM --- approximate, converted from published RMB pricing
+  // --- Zhipu GLM ---
+  // GLM-5.x models use official USD pricing from z.ai (the global API channel);
+  // older models are approximate, converted from published RMB pricing at ~7.2 RMB/USD.
+  // https://docs.z.ai/guides/overview/pricing
+  'glm-5.2': priced(1.40, 4.40, 0.26),
+  'glm-5.1': priced(1.40, 4.40, 0.26),
   'glm-4.6': priced(0.6, 2.2),
   'glm-4.5': priced(0.6, 2.2),
   'glm-4.5-air': priced(0.2, 1.1),
 
-  // --- Alibaba Qwen --- approximate, converted from RMB (DashScope, <=32K tier)
+  // --- MiniMax --- standard list price (launch promo was 50% off)
+  // https://platform.minimaxi.com/docs/guides/pricing-paygo
+  'minimax-m3': priced(0.60, 2.40, 0.12),
+
+  // --- Xiaomi MiMo --- post price-cut (May 2026) USD equivalent
+  'mimo-v2.5-pro': priced(0.435, 0.87, 0.0036),
+
+  // --- Alibaba Qwen ---
+  // Qwen 3.5 models use international region USD pricing;
+  // older models are approximate, converted from RMB (DashScope, <=32K tier).
+  'qwen3.5-flash': priced(0.10, 0.40),
+  'qwen3.5-plus': priced(0.40, 2.40),
   'qwen-max': priced(0.35, 1.39),
   'qwen-plus': priced(0.11, 0.67),
   'qwen-turbo': priced(0.042, 0.083),
   'qwen-long': priced(0.069, 0.278),
+
+  // --- Tencent Hy3 --- via OpenRouter (global API channel)
+  'hy3-preview': priced(0.063, 0.21, 0.029),
+
+  // --- StepFun / 阶跃星辰 --- global USD pricing via OpenRouter
+  'step-3.7-flash': priced(0.20, 1.15, 0.04),
+  'step-3.5-flash': priced(0.10, 0.30, 0.02),
 };
 
 // Exact model-id -> pricing map. Both dated snapshots and short aliases are listed
@@ -245,6 +269,12 @@ function inferPricingByFamily(modelName: string): { pricing: ModelPricing; famil
   if (name.includes('deepseek')) {
     return { pricing: NON_CLAUDE_PRICING['deepseek-chat'], family: 'DeepSeek' };
   }
+  if (name.includes('minimax')) {
+    return { pricing: NON_CLAUDE_PRICING['minimax-m3'], family: 'MiniMax' };
+  }
+  if (name.includes('mimo')) {
+    return { pricing: NON_CLAUDE_PRICING['mimo-v2.5-pro'], family: 'Xiaomi MiMo' };
+  }
   if (name.includes('kimi') || name.includes('moonshot')) {
     return { pricing: NON_CLAUDE_PRICING['kimi-k2-6'], family: 'Moonshot Kimi' };
   }
@@ -253,6 +283,12 @@ function inferPricingByFamily(modelName: string): { pricing: ModelPricing; famil
   }
   if (name.includes('qwen') || name.includes('tongyi')) {
     return { pricing: NON_CLAUDE_PRICING['qwen-plus'], family: 'Alibaba Qwen' };
+  }
+  if (name.includes('hy3')) {
+    return { pricing: NON_CLAUDE_PRICING['hy3-preview'], family: 'Tencent Hy3' };
+  }
+  if (name.startsWith('step-') || name.includes('/step-')) {
+    return { pricing: NON_CLAUDE_PRICING['step-3.7-flash'], family: 'StepFun' };
   }
 
   return null;

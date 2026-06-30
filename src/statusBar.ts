@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ClaudeApiUsageResponse, ClaudeUsageLimit, ContextWindowInfo, UsageData } from './types';
 import { I18n } from './i18n';
-import { formatQuotaStatusText, worstShownUtilisation } from './quotaFormat';
+import { formatQuotaStatusText, worstShownUtilisation, QuotaStatusOptions } from './quotaFormat';
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
@@ -12,16 +12,14 @@ export class StatusBarManager {
   private showCost: boolean = true;
   private showContext: boolean = true;
   private usageLimitTracking: boolean = true;
-  // First item shows today's cost ('cost') or today's total token count ('tokens').
-  private metric: 'cost' | 'tokens' = 'cost';
+  // First item shows today's cost ('cost'), this month's cost ('monthly-cost'), or today's token count ('tokens').
+  private metric: 'cost' | 'monthly-cost' | 'tokens' = 'cost';
   // Opt-in: append the weekly Opus limit (opus:NN%) to the quota item (PR #38,
   // @wheelbarrel00).
   private showOpusWeekly: boolean = false;
-  // Quota status-bar display options (V2.2): show the reset countdown inline,
-  // and/or show only the 5-hour window. Both default off — the status bar stays
-  // clean ("5h 6% · wk 1%"); reset detail lives in the tooltip.
-  private showResetInStatusBar: boolean = false;
-  private quotaFiveHourOnly: boolean = false;
+  // Quota display preferences.
+  private quotaFiveHourOnly: boolean = false; // show only the 5h window
+  private showResetInBar: boolean = false;    // append reset countdown to the bar
 
   constructor() {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -55,26 +53,23 @@ export class StatusBarManager {
     showCost: boolean,
     showContext: boolean,
     usageLimitTracking: boolean = true,
-    metric: 'cost' | 'tokens' = 'cost',
-    showOpusWeekly: boolean = false
+    metric: 'cost' | 'monthly-cost' | 'tokens' = 'cost',
+    showOpusWeekly: boolean = false,
+    quotaFiveHourOnly: boolean = false,
+    showResetInBar: boolean = false
   ): void {
     this.showCost = showCost;
     this.showContext = showContext;
     this.usageLimitTracking = usageLimitTracking;
     this.metric = metric;
     this.showOpusWeekly = showOpusWeekly;
+    this.quotaFiveHourOnly = quotaFiveHourOnly;
+    this.showResetInBar = showResetInBar;
     if (!showContext) {
       this.contextItem.hide();
     }
     // Re-apply the first item — it may need to become an icon-only entry point.
     this.applyCostVisibility();
-  }
-
-  /** Quota status-bar display options (V2.2). Takes effect on the next quota
-   * update (the caller refreshes right after a config change). */
-  setQuotaOptions(showResetInStatusBar: boolean, quotaFiveHourOnly: boolean): void {
-    this.showResetInStatusBar = showResetInStatusBar;
-    this.quotaFiveHourOnly = quotaFiveHourOnly;
   }
 
   /** Show / hide the first status-bar item per the showCost setting. When cost
@@ -103,7 +98,8 @@ export class StatusBarManager {
     todayData: UsageData | null,
     workspaceTodayData?: UsageData | null,
     error?: string,
-    usageLimits?: ClaudeApiUsageResponse | null
+    usageLimits?: ClaudeApiUsageResponse | null,
+    monthData?: UsageData | null
   ): void {
     // Quota is account-level and decoupled from local-data state: the caller
     // is expected to call updateQuota() separately so workspaces without
@@ -120,7 +116,7 @@ export class StatusBarManager {
       return;
     }
 
-    this.showTodayData(todayData, workspaceTodayData ?? null);
+    this.showTodayData(todayData, workspaceTodayData ?? null, monthData ?? null);
     // The usageLimits arg is kept for callers that want a single-call update
     // path; quota was already refreshed earlier in this cycle.
     if (usageLimits !== undefined) {
@@ -137,10 +133,10 @@ export class StatusBarManager {
     }
   }
 
-  private showTodayData(todayData: UsageData, workspaceTodayData: UsageData | null): void {
+  private showTodayData(todayData: UsageData, workspaceTodayData: UsageData | null, monthData: UsageData | null): void {
     // Primary figure = today across all projects; secondary = today for the
     // current workspace, so you can see this project's share next to the global
-    // total. Both reset at midnight. The metric setting switches cost ↔ tokens.
+    // total. Both reset at midnight. The metric setting switches cost ↔ tokens ↔ monthly cost.
     const ws = workspaceTodayData ?? null;
     const totalTokens = (d: UsageData): number =>
       d.totalInputTokens + d.totalOutputTokens + d.totalCacheCreationTokens + d.totalCacheReadTokens;
@@ -150,6 +146,8 @@ export class StatusBarManager {
       if (ws) {
         text += ` $(folder) ${I18n.formatTokensCompact(totalTokens(ws))}`;
       }
+    } else if (this.metric === 'monthly-cost') {
+      text = `$(calendar) ${I18n.formatCurrency(monthData?.totalCost ?? 0)}`;
     } else {
       text = `$(pulse) ${I18n.formatCurrency(todayData.totalCost)}`;
       // Show the workspace figure whenever a workspace is open — including
@@ -160,7 +158,9 @@ export class StatusBarManager {
     }
     this.statusBarItem.text = text;
 
-    this.statusBarItem.tooltip = this.createTooltip(todayData, ws);
+    this.statusBarItem.tooltip = this.metric === 'monthly-cost'
+      ? this.createMonthlyTooltip(monthData)
+      : this.createTooltip(todayData, ws);
     this.statusBarItem.backgroundColor = undefined;
     this.applyCostVisibility();
   }
@@ -228,18 +228,27 @@ export class StatusBarManager {
     // hours, even after a plan upgrade or a reset). Drop any window whose reset
     // time has passed. Adapted from PR #24 by @nickearnshaw.
     const live = this.liveWindows(usageLimits);
-    const opts = {
-      showReset: this.showResetInStatusBar,
+    // Collapse to the 5h window only.
+    if (this.quotaFiveHourOnly && live) {
+      live.seven_day = undefined;
+      live.seven_day_opus = undefined;
+    }
+    // The status bar must stay clean: the default is the airy "5h 6% · wk 1%";
+    // reset countdowns are opt-in (showResetInStatusBar), full reset detail
+    // lives in the tooltip. The dense colon-heavy form is deliberately gone.
+    // See quotaFormat.ts (pure + unit-tested).
+    const opts: QuotaStatusOptions = {
+      showReset: this.showResetInBar,
       fiveHourOnly: this.quotaFiveHourOnly,
-      showOpusWeekly: this.showOpusWeekly,
+      showOpusWeekly: this.showOpusWeekly
     };
-    // Clean, opt-in-reset text ("5h 6% · wk 1%"); empty when nothing to show.
     const text = formatQuotaStatusText(live, opts);
     if (!text) {
       this.quotaItem.hide();
       return;
     }
     const worstPct = worstShownUtilisation(live, opts);
+
     this.quotaItem.text = `$(dashboard) ${text}`;
 
     // Stay quiet until usage actually gets high.
@@ -378,6 +387,23 @@ export class StatusBarManager {
     return md;
   }
 
+  private createMonthlyTooltip(monthData: UsageData | null): vscode.MarkdownString {
+    const t = I18n.t.popup;
+    const md = new vscode.MarkdownString();
+    md.supportThemeIcons = true;
+
+    md.appendMarkdown(`| | $(calendar) ${t.thisMonth} |\n`);
+    md.appendMarkdown(`|:--|--:|\n`);
+    md.appendMarkdown(`| ${t.cost} | ${I18n.formatCurrency(monthData?.totalCost ?? 0)} |\n`);
+    md.appendMarkdown(`| ${t.inputTokens} | ${I18n.formatNumber(monthData?.totalInputTokens ?? 0)} |\n`);
+    md.appendMarkdown(`| ${t.outputTokens} | ${I18n.formatNumber(monthData?.totalOutputTokens ?? 0)} |\n`);
+    md.appendMarkdown(`| ${t.cacheCreation} | ${I18n.formatNumber(monthData?.totalCacheCreationTokens ?? 0)} |\n`);
+    md.appendMarkdown(`| ${t.cacheRead} | ${I18n.formatNumber(monthData?.totalCacheReadTokens ?? 0)} |\n`);
+    md.appendMarkdown(`| ${t.messages} | ${I18n.formatNumber(monthData?.messageCount ?? 0)} |\n`);
+    md.appendMarkdown(`\n\n*Click for detailed breakdown*`);
+    return md;
+  }
+
   private createQuotaTooltip(usageLimits: ClaudeApiUsageResponse): vscode.MarkdownString {
     const t = I18n.t.popup;
     const md = new vscode.MarkdownString();
@@ -452,7 +478,7 @@ export class StatusBarManager {
     );
   }
 
-    /** Time remaining until a reset, e.g. "2h 15m" or "3d 4h". */
+    /** Time remaining until a reset, e.g. "2h 15m" or "3.2d". */
   private formatCountdown(target: Date): string {
     const ms = target.getTime() - Date.now();
     if (ms <= 0) {
@@ -462,7 +488,7 @@ export class StatusBarManager {
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
     if (hours >= 24) {
-      return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+      return `${(hours / 24).toFixed(1)}d`;
     }
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   }

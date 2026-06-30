@@ -467,6 +467,42 @@ export class ClaudeDataLoader {
     return claudePaths.length > 0 ? claudePaths[0] : null;
   }
 
+  /** Locate the .jsonl log file(s) and sub-agent dir for a session id. */
+  static async findSessionFiles(sessionId: string, dataDirectory?: string | null): Promise<string[]> {
+    if (!sessionId || /[\\/]/.test(sessionId) || sessionId === 'unknown') { return []; }
+    const roots = new Set<string>(this.getClaudePaths());
+    if (dataDirectory) { roots.add(dataDirectory); }
+    const fileName = sessionId + '.jsonl';
+    const matches: string[] = [];
+    const walk = async (dir: string): Promise<void> => {
+      let entries;
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) {
+          if (e.name === sessionId) {
+            matches.push(full); // session's sub-agent container — remove whole
+          } else {
+            await walk(full);
+          }
+        } else if (e.isFile() && e.name === fileName) {
+          matches.push(full);
+        }
+      }
+    };
+    for (const root of roots) {
+      const projectsDir = path.join(root, CLAUDE_PROJECTS_DIR_NAME);
+      if (fs.existsSync(projectsDir)) {
+        await walk(projectsDir);
+      }
+    }
+    return matches;
+  }
+
   static async loadUsageRecords(
     dataDirectory?: string,
     options?: { analyzeContent?: boolean; windowDays?: number; log?: (line: string) => void }

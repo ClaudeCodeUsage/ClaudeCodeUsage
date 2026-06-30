@@ -101,6 +101,16 @@ consent prompt.
 
 ## What's new in 2.1
 
+- **Sessions: resume / copy / delete** — each row can copy the session id,
+  **resume** it (official Claude Code extension in-tab for this project, or a
+  terminal `claude --resume <id>` for other projects), or **delete** it (to the
+  trash, with confirm). A **Current project / All** filter defaults to the
+  current project.
+- **Quota display options** — `quotaFiveHourOnly` (show only the 5h
+  window) and `showResetInStatusBar` (append the reset countdown, e.g.
+  `5h:50%:2.3h | wk:30%:3.2d`), both in ⚙ Settings.
+- **Wider dashboard** — detail page widened to 1600 px, still fluid
+  on narrow screens.
 - **Workflows tab** — every multi-agent run in one place: dynamic-workflow
   runs (ultracode) *and* ad-hoc sub-agent batches, with per-run cost, agent
   count, models used, **cache hit rate** (the "is my provider workflow-ready"

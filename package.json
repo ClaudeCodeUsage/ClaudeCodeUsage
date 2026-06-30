@@ -2,7 +2,7 @@
   "name": "claude-code-usage",
   "displayName": "Claude Code Usage",
   "description": "Monitor Claude Code usage and costs in VSCode status bar",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "publisher": "GrowthJack",
   "author": "GrowthJack",
   "license": "MIT",
@@ -54,7 +54,8 @@
             "zh-TW",
             "zh-CN",
             "ja",
-            "ko"
+            "ko",
+            "pt-BR"
           ],
           "default": "auto",
           "description": "Display language (auto-detection or manual selection). All other settings now live in the dashboard's ⚙ Settings tab (Show Usage Details)."

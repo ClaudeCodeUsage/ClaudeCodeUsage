@@ -123,8 +123,9 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'statusBar',
     label: 'Status-bar metric',
-    help: "What the first status-bar item shows: today's cost, or today's total token count (k/M).",
-    enumValues: ['cost', 'tokens'],
+    help: "What the first status-bar item shows: today's cost, this month's cost, or today's total token count (k/M).",
+    enumValues: ['cost', 'monthly-cost', 'tokens'],
+    enumLabels: ["Today's cost", "Monthly cost", 'Token count'],
   },
   {
     key: 'showContext',
@@ -166,6 +167,7 @@ export const SETTINGS: SettingDef[] = [
     help: 'Append the weekly Opus cap (opus:NN%) after the 5h / weekly figures.',
   },
   {
+    // Show only the 5-hour quota window; drop weekly / Opus from the status bar.
     key: 'quotaFiveHourOnly',
     type: 'boolean',
     default: false,
@@ -175,6 +177,7 @@ export const SETTINGS: SettingDef[] = [
     help: 'Show only the 5-hour quota in the status bar, hiding the weekly figure (reset details stay in the tooltip).',
   },
   {
+    // Append the 5h / weekly reset countdown to the status-bar quota item.
     key: 'showResetInStatusBar',
     type: 'boolean',
     default: false,

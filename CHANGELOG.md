@@ -9,9 +9,6 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ### Added
 - **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
   display (`1.2M` / `345.6K`); full integer counts are unaffected.
-- **Cleaner quota status bar** — opt-in `showResetInStatusBar`
-  (`5h 6% ↻4.8h | wk 1% ↻1.6d`) and `quotaFiveHourOnly`; the default stays the
-  airy `5h 6% · wk 1%`, with full reset times in the tooltip.
 - **Share-card + heatmap foundations** — tested pure logic (`src/shareCard.ts`,
   `src/heatmap.ts`) for the upcoming Usage Share Card and Monthly token heatmap.
 
@@ -20,6 +17,51 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   double-negative `pauseDashboardRefresh`; existing values are migrated.
 - Repository metadata (`repository` / `bugs` / `homepage`) now points at the
   `ClaudeCodeUsage` organization.
+
+## [2.1.1] — Unreleased
+
+### Added
+- **Monthly cost in the status bar** — the `statusBarMetric` setting gains a
+  new `monthly-cost` option. When selected, the first status-bar item shows the
+  current calendar month's total cost ($(calendar) icon) instead of today's
+  cost. Hover tooltip mirrors the today tooltip with month-to-date token and
+  cost breakdown. (PR #41, @PhisicsLollo0.)
+- **Sessions: resume / copy / delete** — each session row can copy its id, copy
+  its project path, resume it (in the
+  official Claude Code extension, or a terminal for cross-project sessions), or
+  delete it (to the trash, after a confirm); plus a Current project / All filter.
+  (PR #43, @oxsean.)
+- **Quota display options** — `quotaFiveHourOnly` (show only the 5-hour window)
+  and `showResetInStatusBar` (append a compact reset countdown) in the ⚙ Settings
+  tab. The default stays the clean `5h 6% · wk 1%`; full reset times always live
+  in the tooltip. To hide cost, set `statusBarMetric` to `tokens`. (PR #43.)
+- **Sturdier quota** — the last `/usage` result is cached to disk and shown
+  instantly on startup; on a 429 the fetch backs off instead of hammering the
+  endpoint. (PR #43.)
+- **Wider dashboard** (up to 1600 px) with indented sub-project rows; status-bar
+  setting changes apply without a full dashboard reload. (PR #43.)
+- **Brazilian Portuguese (pt-BR)** — adds pt-BR as a seventh interface
+  language: status bar, dashboard, settings labels/help and the advice demo
+  sample. (PR #48, @henrique-carvalho-dev.)
+
+### Fixed
+- **Account switch now refreshes the quota** — switching Claude accounts no
+  longer leaves the status bar stuck on the previous account's usage until a
+  window reload. The OAuth credentials are re-read on every quota fetch (a
+  switched-in account's token is valid, so the old expiry-only re-read never
+  noticed it), and the credentials file is watched so the change is picked up
+  promptly instead of after a full cache interval. (Keychain-stored credentials
+  on macOS update on the next refresh tick.) (PR #47.)
+- **Model pricing accuracy** — several models had missing or stale pricing:
+  `glm-5.1`, `glm-5.2` (were falling back to glm-4.6 rates), `minimax-m3`
+  (used Sonnet default), `mimo-v2.5-pro` (used Sonnet default),
+  `kimi-k2.7-code` (input/output correct via family inference, cache wrong),
+  `qwen3.5-flash`, `qwen3.5-plus` (used qwen-plus rates),
+  `hy3-preview` (used Sonnet default), `step-3.7-flash`, `step-3.5-flash`
+  (used Sonnet default). Added correct official/exchange rates for each;
+  registered family-inference branches for minimax, mimo, hy3 and step-
+  so unknown future models from these providers also get sensible defaults.
+  (PR #46, @YuboZhang.)
 
 ## [2.1.0] — 2026-06-26
 
@@ -174,28 +216,6 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   now-invalid cwd made `spawn` fail with ENOENT), and a workspace-folders-change
   listener forces a fresh fetch — so the quota survives a folder switch without
   needing a new window.
-
-## [2.0.3] — 2026-06-17
-
-Maintenance / infrastructure release (no user-facing feature changes); shipped on
-the way to 2.1.0 as the project moved to the `ClaudeCodeUsage` organization.
-
-### Added
-- **macOS Keychain credentials** — read Claude Code's OAuth credentials from the
-  macOS Keychain in addition to `~/.claude/.credentials.json`, for setups that
-  store them there.
-- **`node:test` test framework** — zero-dependency unit tests (`src/test/*.test.ts`
-  → `out/test/`), run with `npm test`; a `Test` CI check on every push / PR.
-- **GitHub issue templates** — bug report, feature request, and question forms
-  with a scope/preflight preamble.
-
-### Changed
-- **CI hardening** — pinned action SHAs and a `CODEOWNERS` file; branch protection
-  on `main` (PR + passing `Test` check required).
-- **Release workflow** — a merge-and-auto-release flow (Release Drafter keeps a
-  draft GitHub Release current; the maintainer clicks Publish, which tags `v*` and
-  triggers Marketplace / Open VSX publish). Squash-merge preserves contributor
-  attribution.
 
 ## [2.0.2] — 2026-06-09
 

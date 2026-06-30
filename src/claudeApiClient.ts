@@ -64,6 +64,14 @@ export class ClaudeApiClient {
     }
   }
 
+  /** Absolute path to the OAuth credentials file the client reads. Lets the
+   * extension watch it and refetch quota immediately on an account switch (#45).
+   * On macOS the credentials may instead live in the Keychain (no file to
+   * watch); that case still updates on the next quota refresh tick. */
+  getCredentialsPath(): string {
+    return this.credentialsPath;
+  }
+
   private loadCredentialsFromKeychain(): ClaudeCredentials | null {
     if (process.platform !== 'darwin') {
       return null;
@@ -145,7 +153,13 @@ export class ClaudeApiClient {
   }
 
   private async getValidCredentials(): Promise<ClaudeCredentials | null> {
-    let credentials = this.credentials || (await this.loadCredentials());
+    // Re-read from disk/keychain on every call so switching Claude accounts is
+    // honoured without a window reload. #45: a switched-in account has a *valid*
+    // (non-expired) token, so the expiry-only re-read below never noticed it and
+    // we kept serving the previous account's quota until the host restarted.
+    // loadCredentials refreshes this.credentials; fall back to the cached copy
+    // only if the fresh read transiently fails.
+    let credentials = (await this.loadCredentials()) || this.credentials;
     if (!credentials) {
       return null;
     }

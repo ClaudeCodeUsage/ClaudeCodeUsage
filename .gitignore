@@ -17,14 +17,11 @@ CLAUDE.local.md
 # Locally generated AI-advice reports — contain the maintainer's own prompt
 # samples. Curated excerpts may be hand-copied into the README, but the raw
 # reports must never be committed.
-docs/claude-advice-*.md
 
-# Local-only planning / architecture / dev-reference docs. The maintainer
-# iterates on these privately; at this stage they are NOT shipped to the repo.
-# (Re-track later by removing these lines if a doc should become public.)
+# Local-only planning / architecture / dev-reference docs. The whole docs/
+# tree is the maintainer's private context pack — synced to a personal repo,
+# never shipped to the public repo. README / CHANGELOG live at the repo root.
+# (Re-track a specific doc later with `!docs/<name>` if it should become public.)
+docs/
 /ARCHITECTURE.md
 /ARCHITECTURE-zh-CN.md
-docs/V2.1-*
-docs/V2.2-*
-docs/reply-style-guide.md
-docs/draft-issue-*.md
