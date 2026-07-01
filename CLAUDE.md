@@ -38,7 +38,10 @@ billing tool, not a multi-provider monitor.
   rejects Node's TLS fingerprint.
 - **`advisor.ts`** + **`adviceDemoSample.ts`** — the opt-in AI advice feature
   and its localised static demo.
-- **`i18n.ts`** — translations for en / de-DE / zh-TW / zh-CN / ja / ko.
+- **`i18n.ts`** — translations for en / de-DE / zh-TW / zh-CN / ja / ko / pt-BR.
+  Selectable UI languages (package.json enum + settings dropdown): en / zh-TW /
+  zh-CN / ja / ko / pt-BR. (de-DE strings exist but are not offered in the
+  picker — expose in both enums or drop, TBD.)
 - **`types.ts`** — shared interfaces.
 
 ## Build & Release

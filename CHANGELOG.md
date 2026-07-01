@@ -26,6 +26,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   `ClaudeCodeUsage` organization.
 
 ### Fixed
+- **pt-BR now selectable** — Brazilian Portuguese (added in 2.1.1) was missing
+  from the dashboard's language dropdown (`settings.ts` enum) and the README
+  language lists, even though the strings, `package.json` enum and
+  `SupportedLanguage` already had it. Wired it through everywhere.
 - **Timezone-correct month / day bucketing** — the This-month and All-time
   breakdowns now bucket every record's day *and* month in the configured
   timezone (empty = system). Previously the month boundary was local while the

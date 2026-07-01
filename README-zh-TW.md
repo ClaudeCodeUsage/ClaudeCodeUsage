@@ -50,7 +50,7 @@ ext install GrowthJack.claude-code-usage
 
 開啟設定（`Ctrl+,`）並搜尋 **`Claude Code Usage`**。所有設定皆為選用，最常用的：
 
-- `language` — 介面語言（`auto` / `en` / `zh-TW` / `zh-CN` / `ja` / `ko`）。
+- `language` — 介面語言（`auto` / `en` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR`）。
 - `timezone` — 日期顯示用的 IANA 時區（如 `Asia/Hong_Kong`）。
 - `usageLimitTracking` — 顯示真實的 5 小時 / 每週配額指示器。
 - `showCost` / `showContext` — 切換狀態列的成本項目與上下文視窗佔用指示器（類似 `/context`）。

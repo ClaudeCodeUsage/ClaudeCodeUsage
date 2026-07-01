@@ -55,7 +55,7 @@ export const SETTINGS: SettingDef[] = [
     group: 'general',
     label: 'Display language',
     help: 'UI language. "auto" follows VS Code.',
-    enumValues: ['auto', 'en', 'zh-TW', 'zh-CN', 'ja', 'ko'],
+    enumValues: ['auto', 'en', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR'],
   },
   {
     key: 'decimalPlaces',
