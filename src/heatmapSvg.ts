@@ -148,16 +148,16 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
         : `${compactNum(grid.total)} tokens in Claude Code · ${year}`);
   const noun = metric === 'sessions' ? 'sessions' : metric === 'cost' ? '' : 'tokens';
 
-  const cell = 11;
+  const cell = 12;
   const gap = 3;
   const step = cell + gap;
-  const padL = 30; // weekday labels
-  const titleH = 16;
-  const monthH = 14;
+  const padL = 38; // weekday labels
+  const titleH = 24;
+  const monthH = 18;
   const padT = titleH + monthH;
   const gridW = grid.columns * step;
   const gridH = 7 * step;
-  const footerH = 24;
+  const footerH = 30;
   const width = padL + gridW + 10;
   const height = padT + gridH + footerH;
 
@@ -166,7 +166,7 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">`
   );
   parts.push(`<rect width="${width}" height="${height}" fill="#ffffff"/>`);
-  parts.push(`<text x="${padL}" y="11" font-size="12" font-weight="600" fill="#24292f">${esc(summary)}</text>`);
+  parts.push(`<text x="${padL}" y="16" font-size="15" font-weight="600" fill="#24292f">${esc(summary)}</text>`);
 
   // Cells with GitHub-style tooltips: "1.2M tokens on June 18th".
   for (const c of grid.cells) {
@@ -194,29 +194,29 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
     const m = Number(first.dateISO.slice(5, 7)) - 1;
     if (m !== lastMonth) {
       lastMonth = m;
-      parts.push(`<text x="${padL + col * step}" y="${titleH + 10}" font-size="10" fill="#57606a">${MONTHS[m]}</text>`);
+      parts.push(`<text x="${padL + col * step}" y="${titleH + 13}" font-size="12" fill="#57606a">${MONTHS[m]}</text>`);
     }
   }
 
   // Weekday labels (Mon / Wed / Fri).
   for (const [row, label] of [[1, 'Mon'], [3, 'Wed'], [5, 'Fri']] as [number, string][]) {
-    parts.push(`<text x="0" y="${padT + row * step + cell - 1}" font-size="9" fill="#57606a">${label}</text>`);
+    parts.push(`<text x="0" y="${padT + row * step + cell - 1}" font-size="11" fill="#57606a">${label}</text>`);
   }
 
-  const footY = padT + gridH + 14;
+  const footY = padT + gridH + 18;
 
   // Watermark, bottom-left (an orange dot + source, to point back at the tool).
   parts.push(`<rect x="${padL}" y="${footY - 8}" width="9" height="9" rx="2" ry="2" fill="${scale[3]}"/>`);
-  parts.push(`<text x="${padL + 13}" y="${footY}" font-size="9" fill="#57606a">${esc(watermark)}</text>`);
+  parts.push(`<text x="${padL + 13}" y="${footY}" font-size="11" fill="#57606a">${esc(watermark)}</text>`);
 
   // Legend, bottom-right: Less [][][][][] More.
   let lx = padL + gridW - (5 * step + 56);
-  parts.push(`<text x="${lx}" y="${footY}" font-size="9" fill="#57606a">Less</text>`);
+  parts.push(`<text x="${lx}" y="${footY}" font-size="11" fill="#57606a">Less</text>`);
   lx += 26;
   for (let b = 0; b < 5; b++) {
     parts.push(`<rect x="${lx + b * step}" y="${footY - 9}" width="${cell}" height="${cell}" rx="2" ry="2" fill="${scale[b]}"/>`);
   }
-  parts.push(`<text x="${lx + 5 * step + 4}" y="${footY}" font-size="9" fill="#57606a">More</text>`);
+  parts.push(`<text x="${lx + 5 * step + 4}" y="${footY}" font-size="11" fill="#57606a">More</text>`);
 
   parts.push('</svg>');
   return parts.join('\n');
