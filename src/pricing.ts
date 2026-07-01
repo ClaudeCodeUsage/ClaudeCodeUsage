@@ -198,6 +198,10 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // Claude Opus 4 (2025-05-14)
   'claude-opus-4-20250514': OPUS_LEGACY,
 
+  // Claude Sonnet 5 (same $3 / $15 Sonnet tier). Family inference already maps
+  // any "sonnet" model to SONNET, so this is an explicit anchor for clarity.
+  'claude-sonnet-5': SONNET,
+
   // Claude Sonnet 4.6
   'claude-sonnet-4-6': SONNET,
 

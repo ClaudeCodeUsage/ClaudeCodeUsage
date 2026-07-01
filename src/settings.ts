@@ -45,6 +45,23 @@ const MIGRATION_FLAG = 'ccu.settingsMigrated.v1';
 // already passed the v1 migration.
 const AUTOREFRESH_MIGRATION_FLAG = 'ccu.migrated.dashboardAutoRefresh';
 
+// Valid IANA zones for the timezone dropdown ('' = system default). A dropdown
+// (not free text) means an invalid value can never be entered (#51).
+// `Intl.supportedValuesOf` is ES2023; fall back to a small common set on older
+// runtimes.
+const TIMEZONE_VALUES: string[] = (() => {
+  try {
+    const zones = (Intl as unknown as { supportedValuesOf(key: string): string[] }).supportedValuesOf('timeZone');
+    return ['', ...zones];
+  } catch {
+    return [
+      '', 'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+      'Europe/London', 'Europe/Berlin', 'Europe/Paris', 'Asia/Shanghai', 'Asia/Hong_Kong',
+      'Asia/Tokyo', 'Asia/Kolkata', 'Australia/Sydney',
+    ];
+  }
+})();
+
 export const SETTINGS: SettingDef[] = [
   // --- General ---
   {
@@ -98,12 +115,14 @@ export const SETTINGS: SettingDef[] = [
   },
   {
     key: 'timezone',
-    type: 'string',
+    type: 'enum',
     default: '',
     storage: 'state',
     group: 'general',
     label: 'Timezone for dates',
-    help: 'IANA zone (e.g. Asia/Hong_Kong). Empty = system.',
+    help: 'Pick an IANA zone, or the system default. (#51: a dropdown so an invalid value can never be entered.)',
+    enumValues: TIMEZONE_VALUES,
+    enumLabels: ['System default', ...TIMEZONE_VALUES.slice(1)],
   },
   {
     key: 'projectGroupingMode',

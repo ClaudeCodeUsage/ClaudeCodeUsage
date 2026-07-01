@@ -1899,13 +1899,28 @@ export class I18n {
     return this.currentLanguage;
   }
 
-  /** IANA timezone (e.g. "Asia/Hong_Kong"), or '' to use the system zone. */
+  /** IANA timezone (e.g. "Asia/Hong_Kong"), or '' to use the system zone. The
+   * setting is a dropdown now, but an old synced config could still hold an
+   * invalid hand-typed value — `Intl.DateTimeFormat` throws on a bad `timeZone`
+   * and that crashed the whole dashboard (#51). Reject anything Intl won't
+   * accept and fall back to the system zone. */
   static setTimezone(tz: string): void {
-    this.timezone = typeof tz === 'string' ? tz.trim() : '';
+    const clean = typeof tz === 'string' ? tz.trim() : '';
+    this.timezone = clean && I18n.isValidTimeZone(clean) ? clean : '';
   }
 
   static getTimezone(): string {
     return this.timezone;
+  }
+
+  /** True if `tz` is an IANA zone Intl accepts (so date formatting won't throw). */
+  static isValidTimeZone(tz: string): boolean {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Intl date-format options merged with the configured timezone (if any). */

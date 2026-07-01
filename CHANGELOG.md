@@ -35,6 +35,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   `ClaudeCodeUsage` organization.
 
 ### Fixed
+- **Timezone is a validated dropdown** — the Timezone setting is now a picker of
+  valid IANA zones (`Intl.supportedValuesOf`) instead of free text, so an invalid
+  value can't be entered; a guard also rejects any old bad synced value. Fixes a
+  crash where a hand-typed zone made `Intl` throw and broke the whole dashboard.
+  (#51)
 - **German (de-DE) now selectable** — the German translation (contributed by
   @mxzinke) existed in the strings and `SupportedLanguage` but had never been
   added to the `package.json` enum or the settings dropdown, so it couldn't be
