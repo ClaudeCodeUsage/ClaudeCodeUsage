@@ -1225,7 +1225,7 @@ export class UsageWebviewProvider {
         ${this.renderCompositionChart(
           [...this.dailyDataForAllTime]
             .sort((a, b) => a.date.localeCompare(b.date))
-            .map((d) => ({ label: this.getShortDate(d.date), data: d.data }))
+            .map((d) => ({ label: this.getShortDate(d.date), data: d.data, key: d.date }))
         )}
 
         <div class="daily-table-container">
@@ -2311,7 +2311,7 @@ export class UsageWebviewProvider {
    * Static stacked-bar chart breaking each period into input / cache-read /
    * cache-write / output tokens — a finer view than the single-metric chart.
    */
-  private renderCompositionChart(items: { label: string; data: UsageData }[]): string {
+  private renderCompositionChart(items: { label: string; data: UsageData; key?: string }[]): string {
     if (!items || items.length === 0) {
       return '';
     }
@@ -2343,8 +2343,15 @@ export class UsageWebviewProvider {
           '"></div>'
         );
       };
+      // In the all-time view each bar is a month (it.key = its date); make it
+      // click-to-expand that month's per-day composition (reuses the table's
+      // month-detail round-trip).
+      const colOpen = it.key
+        ? '<div class="hc-col hc-col-clickable" onclick="toggleMonthlyDetail(\'' + it.key + '\')" title="' +
+          this.escapeHtml(it.label) + ' — ' + I18n.formatNumber(total) + '">'
+        : '<div class="hc-col">';
       bars +=
-        '<div class="hc-col">' +
+        colOpen +
         '<div class="stack-bar" title="' +
         this.escapeHtml(it.label) +
         ': ' +
@@ -3521,6 +3528,15 @@ export class UsageWebviewProvider {
 
       .composition-chart {
         margin: 12px 0 20px;
+      }
+
+      /* Clickable month bars in the all-time composition chart (drill to daily). */
+      .hc-col-clickable {
+        cursor: pointer;
+      }
+      .hc-col-clickable:hover .stack-bar {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
       }
 
       .cost-composition {
@@ -4894,6 +4910,46 @@ function cacheHitPct(d) {
   return den > 0 ? (d.totalCacheReadTokens / den * 100).toFixed(0) + '%' : '-';
 }
 
+// Client-side stacked token-composition chart (mirrors the server-rendered
+// renderCompositionChart, same CSS classes). Used when a month is expanded to
+// show its per-day composition. items: [{ label, data }].
+function compositionHtml(items) {
+  if (!items || !items.length) { return ''; }
+  var maxH = 120;
+  var totals = items.map(function(it) {
+    var d = it.data;
+    return d.totalInputTokens + d.totalOutputTokens + d.totalCacheCreationTokens + d.totalCacheReadTokens;
+  });
+  var maxTotal = Math.max.apply(null, totals.concat([1]));
+  var fmt = function(n) { return n.toLocaleString(__locale); };
+  var bars = items.map(function(it, idx) {
+    var d = it.data, total = totals[idx], barH = (total / maxTotal) * maxH;
+    var seg = function(v, cls, label) {
+      var h = total > 0 ? (v / total) * barH : 0;
+      return '<div class="stack-seg ' + cls + '" style="height:' + h + 'px;" title="' + label + ': ' + fmt(v) + '"></div>';
+    };
+    return '<div class="hc-col"><div class="stack-bar" title="' + it.label + ': ' + fmt(total) + '">'
+      + seg(d.totalInputTokens, 'seg-input', '${I18n.t.popup.inputTokens}')
+      + seg(d.totalCacheReadTokens, 'seg-cache-read', '${I18n.t.popup.cacheRead}')
+      + seg(d.totalCacheCreationTokens, 'seg-cache-creation', '${I18n.t.popup.cacheCreation}')
+      + seg(d.totalOutputTokens, 'seg-output', '${I18n.t.popup.outputTokens}')
+      + '</div></div>';
+  }).join('');
+  var xlabels = items.map(function(it) { return '<div class="hc-xlabel">' + it.label + '</div>'; }).join('');
+  var dot = function(cls, label) { return '<span class="legend-item"><span class="legend-dot ' + cls + '"></span>' + label + '</span>'; };
+  return '<div class="composition-chart"><h4>${I18n.t.popup.tokenComposition}</h4>'
+    + '<div class="stack-legend">'
+    + dot('seg-input', '${I18n.t.popup.inputTokens}') + dot('seg-cache-read', '${I18n.t.popup.cacheRead}')
+    + dot('seg-cache-creation', '${I18n.t.popup.cacheCreation}') + dot('seg-output', '${I18n.t.popup.outputTokens}')
+    + '</div>'
+    + '<div class="hc-wrap"><div class="hc-yaxis">'
+    + '<span class="hc-yval">' + fmt(maxTotal) + '</span><span class="hc-yval">' + fmt(Math.round(maxTotal / 2)) + '</span><span class="hc-yval">0</span>'
+    + '</div><div class="hc-main"><div class="hc-scroll"><div class="hc-plot">'
+    + '<div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>'
+    + '<div class="hc-bars">' + bars + '</div></div>'
+    + '<div class="hc-xlabels">' + xlabels + '</div></div></div></div></div>';
+}
+
 function renderHourlyData(hourlyData, date) {
   if (!hourlyData || hourlyData.length === 0) {
     return '<div class="no-data">${I18n.t.popup.noDataMessage}</div>';
@@ -4968,6 +5024,15 @@ function renderDailyData(dailyData, monthDate) {
   html += '<div class="chart-content" id="daily-chart-' + monthDate + '">';
   html += renderDailyChart(dailyData, 'cost');
   html += '</div>';
+
+  // Per-day token composition for this month (the drill-down of the all-time
+  // monthly composition the user clicked).
+  html += compositionHtml(dailyData.map(function(item) {
+    return {
+      label: new Date(item.date).toLocaleDateString(__locale, __dateOpts({ month: 'numeric', day: 'numeric' })),
+      data: item.data
+    };
+  }));
 
   html += '<div class="daily-table-container"><table class="daily-table"><thead><tr>';
   html += '<th>${I18n.t.popup.date}</th>';

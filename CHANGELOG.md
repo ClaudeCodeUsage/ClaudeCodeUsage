@@ -12,6 +12,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)
   breakdown tables — and in the expanded per-day / per-hour drill-downs — so the
   cache efficiency is visible per row, not just in the summary card.
+- **Token-composition drill-down** — clicking a month in the All-time *Token
+  composition* chart expands that month's per-day composition (alongside the
+  daily chart + table), so you can read the input / output / cache-write /
+  cache-read split day by day, not just at the month level.
 - **Share-card + heatmap foundations** — tested pure logic (`src/shareCard.ts`,
   `src/heatmap.ts`) for the upcoming Usage Share Card and Monthly token heatmap.
 
