@@ -56,6 +56,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   errors, Claude Code retries it and re-logs the same user prompt; an identical
   prompt re-appearing within a short window is now counted once (genuine
   re-sends minutes/hours later still count). (`src/promptDedup.ts`, unit-tested.)
+- **Compaction summary no longer counts as a message** — when a session is
+  auto-compacted, Claude Code injects the "This session is being continued…"
+  summary as a *user* message; it's now excluded from the Messages count (you
+  never typed it). Verified on real logs.
 
 ## [2.1.1] — Unreleased
 

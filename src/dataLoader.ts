@@ -922,6 +922,12 @@ export class ClaudeDataLoader {
     if (/^\[Request interrupted/i.test(t)) {
       return true;
     }
+    // Compaction continuation: when a session is auto-compacted, Claude Code
+    // injects the summary as a *user* message — the user never typed it, so it
+    // must not count towards "Messages".
+    if (/^This session is being continued from a previous conversation/i.test(t)) {
+      return true;
+    }
     // Slash-command echo blocks wrap the invocation/output in these tags.
     if (
       t.startsWith('<command-name>') ||
