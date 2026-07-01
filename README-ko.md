@@ -50,7 +50,7 @@ Cursor / Windsurf용으로 [Open VSX Registry](https://open-vsx.org/extension/Gr
 
 설정(`Ctrl+,`)을 열고 **`Claude Code Usage`**를 검색하세요. 모두 선택 사항입니다. 가장 유용한 것:
 
-- `language` — UI 언어(`auto` / `en` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR`).
+- `language` — UI 언어(`auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR`).
 - `timezone` — 날짜 표시용 IANA 시간대(예: `Asia/Seoul`).
 - `usageLimitTracking` — 실제 5시간 / 주간 쿼터 표시.
 - `showCost` / `showContext` — 상태 표시줄의 비용 항목과 컨텍스트 윈도우 사용률(`/context` 유사) 표시 전환.

@@ -220,7 +220,7 @@ for **`Claude Code Usage`**:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `language` | `"auto"` | UI language: `auto` / `en` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR`. |
+| `language` | `"auto"` | UI language: `auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR`. |
 | `dataDirectory` | `""` | Custom Claude data dir; empty = auto-detect. |
 | `advice.apiKey` | `""` | API key for AI advice + the Usage Optimizer (empty = advice opens a demo instead). |
 

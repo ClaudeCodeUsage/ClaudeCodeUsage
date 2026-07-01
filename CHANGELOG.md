@@ -26,6 +26,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   `ClaudeCodeUsage` organization.
 
 ### Fixed
+- **German (de-DE) now selectable** — the German translation (contributed by
+  @mxzinke) existed in the strings and `SupportedLanguage` but had never been
+  added to the `package.json` enum or the settings dropdown, so it couldn't be
+  chosen. Exposed it everywhere; verified the translation and fixed two English
+  leaks (`error`, popup `currentSession`).
 - **pt-BR now selectable** — Brazilian Portuguese (added in 2.1.1) was missing
   from the dashboard's language dropdown (`settings.ts` enum) and the README
   language lists, even though the strings, `package.json` enum and

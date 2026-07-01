@@ -51,6 +51,7 @@
           "enum": [
             "auto",
             "en",
+            "de-DE",
             "zh-TW",
             "zh-CN",
             "ja",
