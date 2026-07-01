@@ -88,6 +88,15 @@ export const SETTINGS: SettingDef[] = [
     help: 'Show 1.2M / 345K instead of full numbers.',
   },
   {
+    key: 'showHeatmap',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'general',
+    label: 'Show token heatmap (All tab)',
+    help: 'Show a GitHub-style yearly token heatmap on the All tab. Off by default — mainly a shareable view of what you can already see elsewhere. Use "Export Token Heatmap" for a GitHub-profile SVG.',
+  },
+  {
     key: 'timezone',
     type: 'string',
     default: '',

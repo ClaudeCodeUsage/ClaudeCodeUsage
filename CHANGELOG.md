@@ -12,6 +12,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)
   breakdown tables — and in the expanded per-day / per-hour drill-downs — so the
   cache efficiency is visible per row, not just in the summary card.
+- **Token heatmap on the All tab** (opt-in, `showHeatmap`, default off) — a
+  GitHub-style yearly token heatmap (Claude orange) at the top of the All tab.
+  Inline SVG, so the per-day hover tooltips work in the dashboard. Mainly a
+  shareable view of data already shown elsewhere, hence off by default.
 - **Export Token Heatmap (GitHub style)** — a command that writes a
   self-contained, GitHub-contribution-style SVG of the trailing year's token
   usage (Claude-orange scale, top-left summary, per-day tooltips, source

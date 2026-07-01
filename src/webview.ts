@@ -4,6 +4,7 @@ import { I18n } from './i18n';
 import { getModelRatesPerMillion } from './pricing';
 import { SETTINGS, SettingsStore, SettingView } from './settings';
 import { buildResumeCommand, isUsableCwd, isValidSessionId, isUnderDir } from './sessionResume';
+import { renderHeatmapSvg } from './heatmapSvg';
 import {
   AttributionScope,
   BranchUsage,
@@ -1201,6 +1202,16 @@ export class UsageWebviewProvider {
 
     const allTimeSummary = this.renderUsageData(this.allTimeData);
 
+    // Optional GitHub-style token heatmap (off by default; mainly a shareable
+    // view). Inline SVG renders with working hover tooltips inside the webview.
+    let heatmapPanel = '';
+    if (this.setting<boolean>('showHeatmap', false) && this.allRecords && this.allRecords.length > 0) {
+      const daily = ClaudeDataLoader.getDailyUsageMap(this.allRecords, I18n.getTimezone());
+      heatmapPanel =
+        '<div class="heatmap-panel"><h3>Token heatmap</h3>' +
+        '<div class="heatmap-svg">' + renderHeatmapSvg(daily) + '</div></div>';
+    }
+
     const dailyBreakdown =
       this.dailyDataForAllTime.length > 0
         ? `
@@ -1281,7 +1292,8 @@ export class UsageWebviewProvider {
     `
         : '';
 
-    return allTimeSummary + dailyBreakdown;
+    // Heatmap sits right above the "monthly usage" breakdown, below the totals.
+    return allTimeSummary + heatmapPanel + dailyBreakdown;
   }
 
   private renderSessionData(): string {
@@ -3528,6 +3540,22 @@ export class UsageWebviewProvider {
 
       .composition-chart {
         margin: 12px 0 20px;
+      }
+
+      /* Optional token heatmap panel (All tab). The SVG has a fixed size; let it
+       * scroll horizontally on narrow panels rather than squash. */
+      .heatmap-panel {
+        margin: 4px 0 22px;
+      }
+      .heatmap-svg {
+        overflow-x: auto;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 6px;
+        padding: 6px;
+        background: #ffffff;
+      }
+      .heatmap-svg svg {
+        display: block;
       }
 
       /* Clickable month bars in the all-time composition chart (drill to daily). */
