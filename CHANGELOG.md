@@ -9,6 +9,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ### Added
 - **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
   display (`1.2M` / `345.6K`); full integer counts are unaffected.
+- **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)
+  breakdown tables — and in the expanded per-day / per-hour drill-downs — so the
+  cache efficiency is visible per row, not just in the summary card.
 - **Share-card + heatmap foundations** — tested pure logic (`src/shareCard.ts`,
   `src/heatmap.ts`) for the upcoming Usage Share Card and Monthly token heatmap.
 

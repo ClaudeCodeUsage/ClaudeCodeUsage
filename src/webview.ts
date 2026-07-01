@@ -1148,6 +1148,7 @@ export class UsageWebviewProvider {
                 <th>${I18n.t.popup.outputTokens}</th>
                 <th>${I18n.t.popup.cacheCreation}</th>
                 <th>${I18n.t.popup.cacheRead}</th>
+                <th>${I18n.t.popup.cacheHitRate}</th>
                 <th>${I18n.t.popup.messages}</th>
                 <th></th>
               </tr>
@@ -1163,6 +1164,7 @@ export class UsageWebviewProvider {
                   <td class="number-cell">${I18n.formatNumber(data.totalOutputTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalCacheCreationTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalCacheReadTokens)}</td>
+                  <td class="number-cell">${this.formatPercent(this.cacheHitRate(data))}</td>
                   <td class="number-cell">${I18n.formatNumber(data.messageCount)}</td>
                   <td class="detail-cell">
                     <button class="detail-button" onclick="toggleHourlyDetail('${date}')" title="${I18n.t.popup.hourlyBreakdown}">
@@ -1173,7 +1175,7 @@ export class UsageWebviewProvider {
                   </td>
                 </tr>
                 <tr class="hourly-detail-row" data-date="${date}" style="display: none;">
-                  <td colspan="8">
+                  <td colspan="9">
                     <div class="hourly-detail-container" id="hourly-detail-${date}">
                       <div class="loading-indicator">載入中...</div>
                     </div>
@@ -1236,6 +1238,7 @@ export class UsageWebviewProvider {
                 <th>${I18n.t.popup.outputTokens}</th>
                 <th>${I18n.t.popup.cacheCreation}</th>
                 <th>${I18n.t.popup.cacheRead}</th>
+                <th>${I18n.t.popup.cacheHitRate}</th>
                 <th>${I18n.t.popup.messages}</th>
                 <th></th>
               </tr>
@@ -1251,6 +1254,7 @@ export class UsageWebviewProvider {
                   <td class="number-cell">${I18n.formatNumber(data.totalOutputTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalCacheCreationTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalCacheReadTokens)}</td>
+                  <td class="number-cell">${this.formatPercent(this.cacheHitRate(data))}</td>
                   <td class="number-cell">${I18n.formatNumber(data.messageCount)}</td>
                   <td class="detail-cell">
                     <button class="detail-button" onclick="toggleMonthlyDetail('${date}')" title="顯示每日詳細資料">
@@ -1261,7 +1265,7 @@ export class UsageWebviewProvider {
                   </td>
                 </tr>
                 <tr class="monthly-detail-row" data-date="${date}" style="display: none;">
-                  <td colspan="8">
+                  <td colspan="9">
                     <div class="monthly-detail-container" id="monthly-detail-${date}">
                       <div class="loading-indicator">載入中...</div>
                     </div>
@@ -4880,6 +4884,12 @@ function formatValue(value, metric) {
   }
 }
 
+// Cache hit rate for a drill-down row: cacheRead / (input + cacheWrite + cacheRead).
+function cacheHitPct(d) {
+  var den = d.totalInputTokens + d.totalCacheCreationTokens + d.totalCacheReadTokens;
+  return den > 0 ? (d.totalCacheReadTokens / den * 100).toFixed(0) + '%' : '-';
+}
+
 function renderHourlyData(hourlyData, date) {
   if (!hourlyData || hourlyData.length === 0) {
     return '<div class="no-data">${I18n.t.popup.noDataMessage}</div>';
@@ -4910,6 +4920,7 @@ function renderHourlyData(hourlyData, date) {
   html += '<th>${I18n.t.popup.outputTokens}</th>';
   html += '<th>${I18n.t.popup.cacheCreation}</th>';
   html += '<th>${I18n.t.popup.cacheRead}</th>';
+  html += '<th>${I18n.t.popup.cacheHitRate}</th>';
   html += '<th>${I18n.t.popup.messages}</th>';
   html += '</tr></thead><tbody>';
 
@@ -4921,6 +4932,7 @@ function renderHourlyData(hourlyData, date) {
     html += '<td class="number-cell">' + item.data.totalOutputTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + item.data.totalCacheCreationTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + item.data.totalCacheReadTokens.toLocaleString(__locale) + '</td>';
+    html += '<td class="number-cell">' + cacheHitPct(item.data) + '</td>';
     html += '<td class="number-cell">' + item.data.messageCount.toLocaleString(__locale) + '</td>';
     html += '</tr>';
   });
@@ -4960,6 +4972,7 @@ function renderDailyData(dailyData, monthDate) {
   html += '<th>${I18n.t.popup.outputTokens}</th>';
   html += '<th>${I18n.t.popup.cacheCreation}</th>';
   html += '<th>${I18n.t.popup.cacheRead}</th>';
+  html += '<th>${I18n.t.popup.cacheHitRate}</th>';
   html += '<th>${I18n.t.popup.messages}</th>';
   html += '</tr></thead><tbody>';
 
@@ -4974,6 +4987,7 @@ function renderDailyData(dailyData, monthDate) {
     html += '<td class="number-cell">' + item.data.totalOutputTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + item.data.totalCacheCreationTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + item.data.totalCacheReadTokens.toLocaleString(__locale) + '</td>';
+    html += '<td class="number-cell">' + cacheHitPct(item.data) + '</td>';
     html += '<td class="number-cell">' + item.data.messageCount.toLocaleString(__locale) + '</td>';
     html += '</tr>';
   });
