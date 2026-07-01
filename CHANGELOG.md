@@ -18,6 +18,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - Repository metadata (`repository` / `bugs` / `homepage`) now points at the
   `ClaudeCodeUsage` organization.
 
+### Fixed
+- **API-error retries no longer inflate the Messages count** — when a request
+  errors, Claude Code retries it and re-logs the same user prompt; an identical
+  prompt re-appearing within a short window is now counted once (genuine
+  re-sends minutes/hours later still count). (`src/promptDedup.ts`, unit-tested.)
+
 ## [2.1.1] — Unreleased
 
 ### Added

@@ -5,6 +5,7 @@ import * as path from 'path';
 // Removed tinyglobby dependency - using native fs instead
 // Removed zod dependency - using native validation instead
 import { calculateCostBreakdown } from './pricing';
+import { isRetryDuplicatePrompt } from './promptDedup';
 import {
   AttributionEntry,
   AttributionScope,
@@ -600,6 +601,10 @@ export class ClaudeDataLoader {
             }
           }
 
+          // Per-session (per-file) map of prompt text → last-counted epoch ms,
+          // to drop API-error retry re-logs of the same prompt from the Messages
+          // count (see promptDedup.ts).
+          const recentPrompts = new Map<string, number>();
           for (const line of lines) {
             stats.linesScanned += 1;
             try {
@@ -671,6 +676,11 @@ export class ClaudeDataLoader {
                           .join('')
                       : '';
                 if (text.trim().length > 0 && !this.isSyntheticUserText(text)) {
+                  // Skip API-error retry re-logs: the same prompt re-appearing
+                  // within a short window is one message, not several.
+                  if (isRetryDuplicatePrompt(text.trim(), Date.parse(lineAny.timestamp), recentPrompts)) {
+                    continue;
+                  }
                   const prompt: ClaudeUsageRecord = {
                     timestamp: lineAny.timestamp,
                     message: { usage: { input_tokens: 0, output_tokens: 0 } },
