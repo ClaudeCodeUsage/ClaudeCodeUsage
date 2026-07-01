@@ -22,6 +22,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   `ClaudeCodeUsage` organization.
 
 ### Fixed
+- **Timezone-correct month / day bucketing** — the This-month and All-time
+  breakdowns now bucket every record's day *and* month in the configured
+  timezone (empty = system). Previously the month boundary was local while the
+  day key was UTC, so a record just after local midnight on the 1st showed up
+  under the previous month's last day. (`src/dateKeys.ts`, unit-tested.)
+- **Breakdown table scroll** — number cells stay on one line, so the compact
+  (k/M) view fits the panel with no horizontal scroll while full integer numbers
+  overflow and scroll the table only; the chart keeps its own scroll.
 - **API-error retries no longer inflate the Messages count** — when a request
   errors, Claude Code retries it and re-logs the same user prompt; an identical
   prompt re-appearing within a short window is now counted once (genuine

@@ -6,6 +6,8 @@ import * as path from 'path';
 // Removed zod dependency - using native validation instead
 import { calculateCostBreakdown } from './pricing';
 import { isRetryDuplicatePrompt } from './promptDedup';
+import { dayKeyInZone, monthKeyInZone } from './dateKeys';
+import { I18n } from './i18n';
 import {
   AttributionEntry,
   AttributionScope,
@@ -158,14 +160,14 @@ const TRIVIAL_COMMANDS = new Set([
   '/mcp', '/agents', '/export', '/rewind', '/init', '/add-dir', '/ide',
 ]);
 
-// Local "YYYY-MM-DD" key for a log line's timestamp ('' when unparsable).
+// "YYYY-MM-DD" key for a log line's timestamp, in the user's configured
+// timezone (empty = system zone), so day/month bucketing is consistent
+// (see dateKeys.ts). '' when unparsable.
 function localDayKey(timestamp: unknown): string {
-  const ts = typeof timestamp === 'string' ? new Date(timestamp) : null;
-  if (!ts || isNaN(ts.getTime())) {
+  if (typeof timestamp !== 'string') {
     return '';
   }
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${ts.getFullYear()}-${pad(ts.getMonth() + 1)}-${pad(ts.getDate())}`;
+  return dayKeyInZone(new Date(timestamp), I18n.getTimezone());
 }
 
 // Collect an actual user prompt (capped + truncated) for the AI-advice feature.
@@ -1258,33 +1260,30 @@ export class ClaudeDataLoader {
   }
 
   static getThisMonthData(records: ClaudeUsageRecord[]): UsageData {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-    const monthRecords = records.filter((record) => {
-      const recordDate = new Date(record.timestamp);
-      return recordDate >= monthStart;
-    });
+    const tz = I18n.getTimezone();
+    const thisMonth = monthKeyInZone(new Date(), tz);
+    const monthRecords = records.filter(
+      (record) => monthKeyInZone(new Date(record.timestamp), tz) === thisMonth
+    );
 
     return this.calculateUsageData(monthRecords);
   }
 
   static getDailyDataForMonth(records: ClaudeUsageRecord[]): { date: string; data: UsageData }[] {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const tz = I18n.getTimezone();
+    const thisMonth = monthKeyInZone(new Date(), tz);
 
-    const monthRecords = records.filter((record) => {
-      const recordDate = new Date(record.timestamp);
-      return recordDate >= monthStart;
-    });
-
-    // Group records by date
+    // Group records by their calendar day in the configured timezone, keeping
+    // only days that belong to the current month in that same zone (so a record
+    // just after local midnight on the 1st isn't filed under the previous
+    // month's last day).
     const recordsByDate: Record<string, ClaudeUsageRecord[]> = {};
 
-    monthRecords.forEach((record) => {
-      const recordDate = new Date(record.timestamp);
-      const dateKey = recordDate.toISOString().split('T')[0]; // YYYY-MM-DD
-
+    records.forEach((record) => {
+      const dateKey = dayKeyInZone(new Date(record.timestamp), tz);
+      if (!dateKey || dateKey.slice(0, 7) !== thisMonth) {
+        return;
+      }
       if (!recordsByDate[dateKey]) {
         recordsByDate[dateKey] = [];
       }
@@ -2063,23 +2062,20 @@ export class ClaudeDataLoader {
   }
 
   static getDailyDataForSpecificMonth(records: ClaudeUsageRecord[], monthDateString: string): { date: string; data: UsageData }[] {
-    // monthDateString format: YYYY-MM-01 (first day of the month)
-    const monthDate = new Date(monthDateString);
-    const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0); // Last day of the month
-
-    const monthRecords = records.filter((record) => {
-      const recordDate = new Date(record.timestamp);
-      return recordDate >= monthStart && recordDate <= monthEnd;
-    });
+    // monthDateString is a "YYYY-MM-..." key already produced in the configured
+    // zone (see getDailyDataForAllTime), so take its month directly and bucket
+    // by day in the same zone — no local/UTC boundary mismatch.
+    const tz = I18n.getTimezone();
+    const targetMonth = monthDateString.slice(0, 7);
 
     // Group records by date
     const recordsByDate: Record<string, ClaudeUsageRecord[]> = {};
 
-    monthRecords.forEach((record) => {
-      const recordDate = new Date(record.timestamp);
-      const dateKey = recordDate.toISOString().split('T')[0]; // YYYY-MM-DD
-
+    records.forEach((record) => {
+      const dateKey = dayKeyInZone(new Date(record.timestamp), tz);
+      if (!dateKey || dateKey.slice(0, 7) !== targetMonth) {
+        return;
+      }
       if (!recordsByDate[dateKey]) {
         recordsByDate[dateKey] = [];
       }
@@ -2096,13 +2092,15 @@ export class ClaudeDataLoader {
   }
 
   static getDailyDataForAllTime(records: ClaudeUsageRecord[]): { date: string; data: UsageData }[] {
-    // Group all records by month for all-time view
+    // Group all records by month (in the configured timezone) for all-time view
+    const tz = I18n.getTimezone();
     const recordsByMonth: Record<string, ClaudeUsageRecord[]> = {};
 
     records.forEach((record) => {
-      const recordDate = new Date(record.timestamp);
-      const monthKey = `${recordDate.getFullYear()}-${String(recordDate.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
-
+      const monthKey = monthKeyInZone(new Date(record.timestamp), tz); // YYYY-MM
+      if (!monthKey) {
+        return;
+      }
       if (!recordsByMonth[monthKey]) {
         recordsByMonth[monthKey] = [];
       }

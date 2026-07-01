@@ -3390,6 +3390,10 @@ export class UsageWebviewProvider {
       .number-cell {
         text-align: right;
         font-family: var(--vscode-editor-font-family);
+        /* Keep figures on one line: compact (k/M) numbers fit the panel with no
+         * horizontal scroll; full integer numbers overflow so the table (only)
+         * scrolls, while the chart above keeps its own independent scroll. */
+        white-space: nowrap;
       }
 
       .loading, .error, .no-data {
