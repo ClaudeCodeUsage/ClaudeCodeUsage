@@ -1,5 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { renderHeatmapSvg } from './heatmapSvg';
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import { StatusBarManager } from './statusBar';
@@ -129,6 +131,9 @@ export class ClaudeCodeUsageExtension {
       }),
       vscode.commands.registerCommand('claudeCodeUsage.showLogs', () => {
         this.outputChannel.show();
+      }),
+      vscode.commands.registerCommand('claudeCodeUsage.exportHeatmap', () => {
+        this.exportHeatmap();
       })
     ];
 
@@ -145,6 +150,38 @@ export class ClaudeCodeUsageExtension {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`${I18n.t.popup.pricingUpdateFailed}: ${message}`);
+    }
+  }
+
+  /** Export the token heatmap as a GitHub-profile-ready SVG (a "contribution
+   * graph" of the trailing year, Claude orange). Offers to copy the Markdown
+   * embed snippet. */
+  private async exportHeatmap(): Promise<void> {
+    const records = this.cache.records;
+    if (!records || records.length === 0) {
+      vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+      return;
+    }
+    const daily = ClaudeDataLoader.getDailyUsageMap(records, I18n.getTimezone());
+    const svg = renderHeatmapSvg(daily);
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), 'claude-code-heatmap.svg')),
+      filters: { 'SVG image': ['svg'] },
+      saveLabel: 'Export heatmap',
+    });
+    if (!uri) {
+      return;
+    }
+    try {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
+    } catch (e) {
+      vscode.window.showErrorMessage(`Heatmap export failed: ${(e as Error).message}`);
+      return;
+    }
+    const copy = 'Copy Markdown embed';
+    const pick = await vscode.window.showInformationMessage('Token heatmap exported.', copy);
+    if (pick === copy) {
+      await vscode.env.clipboard.writeText(`![Claude Code token heatmap](${path.basename(uri.fsPath)})`);
     }
   }
 

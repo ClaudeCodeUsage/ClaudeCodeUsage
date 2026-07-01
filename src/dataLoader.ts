@@ -8,6 +8,7 @@ import { calculateCostBreakdown } from './pricing';
 import { isRetryDuplicatePrompt } from './promptDedup';
 import { dayKeyInZone, monthKeyInZone } from './dateKeys';
 import { I18n } from './i18n';
+import { DayUsage } from './heatmap';
 import {
   AttributionEntry,
   AttributionScope,
@@ -1257,6 +1258,41 @@ export class ClaudeDataLoader {
     });
 
     return this.calculateUsageData(todayRecords);
+  }
+
+  /** Per-day usage keyed by 'YYYY-MM-DD' (in the configured timezone) for the
+   * heatmap: tokens (all four token types), cost, and distinct sessions.
+   * Skips synthetic / API-error records, mirroring the dashboard totals. */
+  static getDailyUsageMap(records: ClaudeUsageRecord[], tz: string): Record<string, DayUsage> {
+    const daily: Record<string, DayUsage> = {};
+    const sessionsByDay: Record<string, Set<string>> = {};
+    for (const r of records) {
+      const u = r.message.usage;
+      const model = r.message.model;
+      if (!u || !model || model === '<synthetic>' || r.isApiErrorMessage) {
+        continue;
+      }
+      const tokens =
+        u.input_tokens + u.output_tokens + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+      if (tokens <= 0) {
+        continue;
+      }
+      const key = dayKeyInZone(new Date(r.timestamp), tz);
+      if (!key) {
+        continue;
+      }
+      const cb = calculateCostBreakdown(u, model);
+      const d = daily[key] ?? (daily[key] = { tokens: 0, cost: 0, sessions: 0 });
+      d.tokens += tokens;
+      d.cost += cb.input + cb.output + cb.cacheWrite + cb.cacheRead;
+      if (r._sessionId) {
+        (sessionsByDay[key] ?? (sessionsByDay[key] = new Set())).add(r._sessionId);
+      }
+    }
+    for (const key of Object.keys(daily)) {
+      daily[key].sessions = sessionsByDay[key]?.size ?? 0;
+    }
+    return daily;
   }
 
   static getThisMonthData(records: ClaudeUsageRecord[]): UsageData {

@@ -98,6 +98,11 @@
         "command": "claudeCodeUsage.showLogs",
         "title": "Show Diagnostic Logs",
         "category": "Claude Code Usage"
+      },
+      {
+        "command": "claudeCodeUsage.exportHeatmap",
+        "title": "Export Token Heatmap (GitHub style SVG)",
+        "category": "Claude Code Usage"
       }
     ]
   },
