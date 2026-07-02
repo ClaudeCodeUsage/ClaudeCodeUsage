@@ -100,35 +100,46 @@ function utcOffsetLabel(zone: string): string {
   }
 }
 
-/** Every IANA zone (ES2023); falls back to the curated set on old runtimes. */
-const ALL_ZONES: string[] = (() => {
-  try {
-    return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf('timeZone');
-  } catch {
-    return CURATED_ZONES.map((z) => z.zone);
-  }
-})();
+// Full UTC-offset coverage (Carl: it's the *offsets* that must be complete, not
+// every city). Whole hours use fixed-offset Etc/GMT zones (POSIX-inverted sign,
+// no DST); the real fractional offsets use a representative zone. A region hint
+// aids recognition. Labels are computed live so they always match the actual
+// bucketing.
+const OFFSET_ZONES: { zone: string; hint?: string }[] = [
+  { zone: 'Etc/GMT+12' }, { zone: 'Etc/GMT+11' }, { zone: 'Etc/GMT+10' },
+  { zone: 'Pacific/Marquesas', hint: 'Marquesas' }, { zone: 'Etc/GMT+9' }, { zone: 'Etc/GMT+8' },
+  { zone: 'Etc/GMT+7' }, { zone: 'Etc/GMT+6' }, { zone: 'Etc/GMT+5' }, { zone: 'Etc/GMT+4' },
+  { zone: 'America/St_Johns', hint: 'Newfoundland' }, { zone: 'Etc/GMT+3' }, { zone: 'Etc/GMT+2' },
+  { zone: 'Etc/GMT+1' }, { zone: 'UTC' }, { zone: 'Etc/GMT-1' }, { zone: 'Etc/GMT-2' }, { zone: 'Etc/GMT-3' },
+  { zone: 'Asia/Tehran', hint: 'Iran' }, { zone: 'Etc/GMT-4' }, { zone: 'Asia/Kabul', hint: 'Afghanistan' },
+  { zone: 'Etc/GMT-5' }, { zone: 'Asia/Kolkata', hint: 'India' }, { zone: 'Asia/Kathmandu', hint: 'Nepal' },
+  { zone: 'Etc/GMT-6' }, { zone: 'Asia/Yangon', hint: 'Myanmar' }, { zone: 'Etc/GMT-7' }, { zone: 'Etc/GMT-8' },
+  { zone: 'Australia/Eucla', hint: 'Eucla' }, { zone: 'Etc/GMT-9' }, { zone: 'Australia/Darwin', hint: 'C. Australia' },
+  { zone: 'Etc/GMT-10' }, { zone: 'Australia/Lord_Howe', hint: 'Lord Howe' }, { zone: 'Etc/GMT-11' },
+  { zone: 'Etc/GMT-12' }, { zone: 'Pacific/Chatham', hint: 'Chatham' }, { zone: 'Etc/GMT-13' }, { zone: 'Etc/GMT-14' },
+];
 
 const offLabel = (zone: string, name: string): string => {
   const off = utcOffsetLabel(zone);
   return off ? `(${off}) ${name}` : name;
 };
+const offsetOnly = (zone: string, hint?: string): string => {
+  const off = utcOffsetLabel(zone) || 'UTC';
+  return hint ? `(${off}) ${hint}` : `(${off})`;
+};
 
-const curatedSet = new Set(CURATED_ZONES.map((z) => z.zone));
-const otherZones = ALL_ZONES.filter((z) => !curatedSet.has(z)).sort();
-
-// Flat set (validation accepts any zone) + labels; the dropdown groups them.
-const TIMEZONE_VALUES: string[] = ['', ...CURATED_ZONES.map((z) => z.zone), ...otherZones];
+// Flat set (validation accepts any listed zone) + labels; the dropdown groups them.
+const TIMEZONE_VALUES: string[] = ['', ...CURATED_ZONES.map((z) => z.zone), ...OFFSET_ZONES.map((z) => z.zone)];
 const TIMEZONE_LABELS: string[] = [
   'System default',
   ...CURATED_ZONES.map((z) => offLabel(z.zone, z.city)),
-  ...otherZones.map((z) => offLabel(z, z)),
+  ...OFFSET_ZONES.map((z) => offsetOnly(z.zone, z.hint)),
 ];
-// Common zones stay handy at the top; every other zone is reachable below.
+// Common named zones stay handy at the top; every UTC offset is under "UTC offset".
 const TIMEZONE_GROUPS = [
   { label: 'System', values: [''], labels: ['System default'] },
   { label: 'Common', values: CURATED_ZONES.map((z) => z.zone), labels: CURATED_ZONES.map((z) => offLabel(z.zone, z.city)) },
-  { label: 'All zones', values: otherZones, labels: otherZones.map((z) => offLabel(z, z)) },
+  { label: 'UTC offset', values: OFFSET_ZONES.map((z) => z.zone), labels: OFFSET_ZONES.map((z) => offsetOnly(z.zone, z.hint)) },
 ];
 
 export const SETTINGS: SettingDef[] = [
@@ -216,7 +227,7 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'general',
     label: 'Timezone for dates',
-    help: 'Pick a zone (labelled with its current UTC offset), or the system default. Common zones are at the top; every IANA zone is under "All zones".',
+    help: 'Pick a common zone or a UTC offset (every offset is covered), or the system default. Labels show the current UTC offset.',
     enumValues: TIMEZONE_VALUES,
     enumLabels: TIMEZONE_LABELS,
     enumGroups: TIMEZONE_GROUPS,
