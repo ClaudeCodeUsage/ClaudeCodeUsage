@@ -1475,10 +1475,38 @@ export class ClaudeDataLoader {
 
     const rangeData = this.calculateUsageData(inRange);
 
-    // Rhythm: per-day token totals, oldest → newest (+ parallel date keys).
-    const dayMap = this.getDailyUsageMap(inRange, tz);
-    const dailyDates = Object.keys(dayMap).sort();
-    const daily = dailyDates.map((k) => dayMap[k].tokens);
+    // Rhythm: hourly for a single day (so "today" isn't one lonely bar), else
+    // per-day token totals, oldest → newest (+ parallel date/hour labels).
+    let daily: number[];
+    let dailyDates: string[];
+    if (range === 'today') {
+      const hourFmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz || undefined,
+        hour: '2-digit',
+        hour12: false,
+      });
+      const hours = new Array(24).fill(0);
+      for (const r of inRange) {
+        const u = r.message.usage;
+        const model = r.message.model;
+        if (!u || !model || model === '<synthetic>' || r.isApiErrorMessage) {
+          continue;
+        }
+        const tokens =
+          u.input_tokens + u.output_tokens + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
+        if (tokens <= 0) {
+          continue;
+        }
+        const h = parseInt(hourFmt.format(new Date(r.timestamp)), 10) % 24;
+        hours[h] += tokens;
+      }
+      daily = hours;
+      dailyDates = hours.map((_, h) => String(h).padStart(2, '0') + ':00');
+    } else {
+      const dayMap = this.getDailyUsageMap(inRange, tz);
+      dailyDates = Object.keys(dayMap).sort();
+      daily = dailyDates.map((k) => dayMap[k].tokens);
+    }
 
     // Distinct billable sessions in range (mirrors the getDailyUsageMap filter).
     const sessions = new Set<string>();

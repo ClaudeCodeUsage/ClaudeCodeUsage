@@ -48,6 +48,20 @@ test('uses a custom range label when provided (specific month)', () => {
   assert.match(svg, /June 2026/);
 });
 
+test('size presets set the canvas dimensions', () => {
+  assert.match(renderShareCardSvg(base, { size: 'portrait' }), /width="1080" height="1350"/);
+  assert.match(renderShareCardSvg(base, { size: 'story' }), /width="1080" height="1920"/);
+  assert.match(renderShareCardSvg(base, { size: 'square' }), /width="1080" height="1080"/);
+});
+
+test('embeds an avatar in the corner when provided', () => {
+  const svg = renderShareCardSvg({ ...base, badge: { id: 'x', label: 'X' } }, { avatarDataUri: 'data:image/png;base64,AAA' });
+  assert.match(svg, /<image[^>]+href="data:image\/png;base64,AAA"/);
+  assert.match(svg, /clip-path="url\(#av\)"/);
+  // avatar replaces the badge in the corner
+  assert.doesNotMatch(svg, />X<\/text>/);
+});
+
 test('shows the full model name, not just the family', () => {
   const svg = renderShareCardSvg({ ...base, totalTokens: 1, topModelName: 'Opus 4.8', topModelFamily: 'Opus' });
   assert.match(svg, />Opus 4\.8</);

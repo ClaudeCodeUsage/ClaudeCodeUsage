@@ -9,6 +9,7 @@ import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename 
 import { renderShareCardSvg } from './shareCardSvg';
 import * as os from 'os';
 import * as path from 'path';
+import * as https from 'https';
 import {
   AttributionScope,
   BranchUsage,
@@ -45,6 +46,7 @@ export class UsageWebviewProvider {
   private branchBreakdown: BranchUsage[] = [];
   private workflowBreakdown: WorkflowUsage[] = [];
   private costliestMessages: CostlyMessage[] = [];
+  private avatarCache?: string; // GitHub avatar data: URI, fetched on demand
   // Real quota utilisation (pushed asynchronously) for the workflow quota
   // guard banner; dismissal lasts for the lifetime of this window.
   private usageLimits: ClaudeApiUsageResponse | null = null;
@@ -128,10 +130,13 @@ export class UsageWebviewProvider {
           // it back for injection (no full re-render).
           if (this.panel && this.allRecords && this.allRecords.length > 0) {
             try {
+              const avatar = message.avatar ? await this.getAvatarDataUri() : undefined;
               const svg = this.buildShareCardSvgFor(
                 String(message.range || 'month'),
                 String(message.scope || 'all'),
-                (message.sections || {}) as Partial<ShareSections>
+                (message.sections || {}) as Partial<ShareSections>,
+                message.size ? String(message.size) : undefined,
+                avatar
               );
               this.panel.webview.postMessage({ command: 'shareCardResult', svg });
             } catch (e) {
@@ -147,7 +152,8 @@ export class UsageWebviewProvider {
             break;
           }
           const range = String(message.range || 'month');
-          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>);
+          const avatar = message.avatar ? await this.getAvatarDataUri() : undefined;
+          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>, message.size ? String(message.size) : undefined, avatar);
           const defaultName = shareCardFilename(range).replace(/\.png$/, '.svg');
           const uri = await vscode.window.showSaveDialog({
             defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
@@ -1428,22 +1434,25 @@ export class UsageWebviewProvider {
       return '';
     }
 
-    // Range options: presets + the last 12 calendar months (in the configured tz).
+    // Range: grouped like the scope dropdown — rolling presets vs. a specific
+    // calendar month (last 12), so the two kinds are visually distinct.
     const now = new Date();
     const monthOpts: string[] = [];
-    for (let i = 0; i < 12; i++) {
+    for (let i = 1; i <= 12; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      monthOpts.push(`<option value="month:${key}">${esc(label)}</option>`);
+      monthOpts.push(`<option value="month:${key}">${esc(label)}${i === 1 ? ' (last month)' : ''}</option>`);
     }
     const rangeSelect =
       '<select id="scRange">' +
+      '<optgroup label="Rolling">' +
       '<option value="month" selected>This month</option>' +
       '<option value="week">Last 7 days</option>' +
       '<option value="year">Last 12 months</option>' +
-      '<option value="today">Today</option>' +
-      monthOpts.join('') +
+      '<option value="today">Today (hourly)</option>' +
+      '</optgroup>' +
+      '<optgroup label="Specific month">' + monthOpts.join('') + '</optgroup>' +
       '</select>';
 
     // Scope: overall / by project / by session (top few by cost).
@@ -1458,9 +1467,17 @@ export class UsageWebviewProvider {
       .join('');
     const scopeSelect =
       '<select id="scScope">' +
-      '<option value="all" selected>Overall</option>' +
+      '<optgroup label="All"><option value="all" selected>Overall</option></optgroup>' +
       (projectOpts ? '<optgroup label="By project">' + projectOpts + '</optgroup>' : '') +
       (sessionOpts ? '<optgroup label="By session">' + sessionOpts + '</optgroup>' : '') +
+      '</select>';
+
+    const sizeSelect =
+      '<select id="scSize">' +
+      '<option value="landscape" selected>Landscape (1200×680)</option>' +
+      '<option value="square">Square (1080×1080)</option>' +
+      '<option value="portrait">Portrait (1080×1350)</option>' +
+      '<option value="story">Story (1080×1920)</option>' +
       '</select>';
 
     // Section toggles. Default ON: cost, cache-hit, model (+ the token hero,
@@ -1482,11 +1499,16 @@ export class UsageWebviewProvider {
 
     return (
       '<div class="share-panel"><h3>Share card</h3>' +
-      '<p class="table-hint">Pick a range, scope and metrics, then Generate. Only aggregate numbers are drawn — no prompts, paths, or session ids.</p>' +
+      '<p class="table-hint">Pick a range, scope, size and metrics, then Generate. Only aggregate numbers are drawn — no prompts, paths, or session ids.</p>' +
       '<div class="sc-config">' +
-      '<div class="sc-row"><label class="sc-label">Range</label>' + rangeSelect +
-      '<label class="sc-label">Scope</label>' + scopeSelect + '</div>' +
-      '<div class="sc-checks">' + toggles + '</div>' +
+      '<div class="sc-grid">' +
+      '<label class="sc-field"><span>Range</span>' + rangeSelect + '</label>' +
+      '<label class="sc-field"><span>Scope</span>' + scopeSelect + '</label>' +
+      '<label class="sc-field"><span>Size</span>' + sizeSelect + '</label>' +
+      '</div>' +
+      '<div class="sc-checks">' + toggles +
+      '<label class="sc-check" title="Fetches your GitHub avatar (asks to sign in once)"><input type="checkbox" id="scAvatar"> GitHub avatar</label>' +
+      '</div>' +
       '<div class="share-actions">' +
       '<button class="btn-secondary btn-small" onclick="generateShareCard()">Generate preview</button>' +
       '<button class="btn-secondary btn-small" onclick="exportShareCardConfigured()">Export as SVG…</button>' +
@@ -1496,12 +1518,75 @@ export class UsageWebviewProvider {
     );
   }
 
-  /** Build the share-card SVG for a webview request ({range, scope, sections}).
-   * Shared by the preview (postMessage back) and export paths. */
-  private buildShareCardSvgFor(range: string, scope: string, sections: Partial<ShareSections>): string {
+  /** Build the share-card SVG for a webview request ({range, scope, sections,
+   * size, avatar}). Shared by the preview (postMessage back) and export paths. */
+  private buildShareCardSvgFor(
+    range: string,
+    scope: string,
+    sections: Partial<ShareSections>,
+    size?: string,
+    avatarDataUri?: string
+  ): string {
     const input = ClaudeDataLoader.buildShareInput(this.allRecords, range, scope);
     const merged: ShareSections = { ...DEFAULT_SECTIONS, ...sections };
-    return renderShareCardSvg(buildShareCardData(input, merged));
+    const sz = (['landscape', 'square', 'portrait', 'story'] as const).find((s) => s === size);
+    return renderShareCardSvg(buildShareCardData(input, merged), { size: sz, avatarDataUri });
+  }
+
+  /** Fetch the signed-in GitHub user's avatar as a data: URI (cached). Only
+   * called when the user ticks "GitHub avatar", so auth is on demand. Needs just
+   * `read:user`. Returns undefined if sign-in is declined or the fetch fails. */
+  private async getAvatarDataUri(): Promise<string | undefined> {
+    if (this.avatarCache) {
+      return this.avatarCache;
+    }
+    let session: vscode.AuthenticationSession | undefined;
+    try {
+      session = await vscode.authentication.getSession('github', ['read:user'], { createIfNone: true });
+    } catch {
+      return undefined;
+    }
+    if (!session) {
+      return undefined;
+    }
+    try {
+      const user = await this.httpsGet('https://api.github.com/user', session.accessToken);
+      const avatarUrl = JSON.parse(user.body.toString('utf8')).avatar_url as string | undefined;
+      if (!avatarUrl) {
+        return undefined;
+      }
+      const img = await this.httpsGet(avatarUrl + (avatarUrl.includes('?') ? '&' : '?') + 's=160');
+      const ct = img.contentType || 'image/png';
+      this.avatarCache = `data:${ct};base64,${img.body.toString('base64')}`;
+      return this.avatarCache;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Minimal GET over https returning the raw body + content-type. */
+  private httpsGet(url: string, token?: string): Promise<{ body: Buffer; contentType: string }> {
+    return new Promise((resolve, reject) => {
+      const req = https.get(
+        url,
+        {
+          headers: {
+            'User-Agent': 'ClaudeCodeUsage-VSCode',
+            ...(token ? { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } : {}),
+          },
+          timeout: 15000,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(c as Buffer));
+          res.on('end', () =>
+            resolve({ body: Buffer.concat(chunks), contentType: String(res.headers['content-type'] || '') })
+          );
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error('timeout')));
+    });
   }
 
   private renderSessionData(): string {
@@ -3935,53 +4020,98 @@ export class UsageWebviewProvider {
         color: var(--vscode-foreground);
       }
 
-      /* Share card panel (All tab): config form + responsive preview. */
+      /* Share card panel (All tab): config card + responsive preview. Styled to
+       * sit inside the plugin's existing card language (theme vars, soft border,
+       * the shared .btn-secondary buttons). */
       .share-panel {
         margin: 8px 0 22px;
       }
       .sc-config {
-        margin: 8px 0;
+        margin: 12px 0;
+        padding: 16px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 10px;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
       }
-      .sc-row {
+      .sc-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px 16px;
+        margin-bottom: 14px;
+      }
+      .sc-field {
         display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .sc-label {
-        font-size: 12px;
+        flex-direction: column;
+        gap: 5px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
         color: var(--vscode-descriptionForeground);
-        margin-left: 6px;
+      }
+      .sc-field select {
+        width: 100%;
+        padding: 5px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+        background: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+        font-size: 13px;
+        text-transform: none;
+        letter-spacing: normal;
       }
       .sc-checks {
         display: flex;
         flex-wrap: wrap;
-        gap: 6px 18px;
-        margin-bottom: 12px;
+        gap: 8px 10px;
+        margin-bottom: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--vscode-panel-border);
       }
       .sc-check {
         font-size: 12px;
         display: inline-flex;
         align-items: center;
-        gap: 5px;
+        gap: 6px;
+        padding: 4px 10px 4px 8px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 999px;
         color: var(--vscode-foreground);
+        cursor: pointer;
+        user-select: none;
+      }
+      .sc-check:hover {
+        border-color: var(--vscode-focusBorder);
       }
       .share-preview {
-        max-width: 680px;
-        margin: 10px 0;
+        margin: 12px 0 0;
+        padding: 10px;
         border: 1px solid var(--vscode-panel-border);
         border-radius: 10px;
-        overflow: hidden;
-        background: #fff;
+        overflow: auto;
+        max-height: 640px;
+        background:
+          linear-gradient(45deg, #f3f3f3 25%, transparent 25%, transparent 75%, #f3f3f3 75%),
+          linear-gradient(45deg, #f3f3f3 25%, #fff 25%, #fff 75%, #f3f3f3 75%);
+        background-size: 20px 20px;
+        background-position: 0 0, 10px 10px;
       }
       .share-preview svg {
         display: block;
         width: 100%;
         height: auto;
+        max-width: 560px;
+        margin: 0 auto;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+        border-radius: 8px;
+      }
+      .share-preview p {
+        text-align: center;
       }
       .share-actions {
-        margin-top: 8px;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 4px;
       }
 
       /* Optional token heatmap panel (All tab). The SVG has a fixed size; let it
@@ -4507,14 +4637,18 @@ const __dateOpts = (extra) => {
 function scReadConfig() {
   var rangeEl = document.getElementById('scRange');
   var scopeEl = document.getElementById('scScope');
+  var sizeEl = document.getElementById('scSize');
   var sections = {};
   var boxes = document.querySelectorAll('.sc-sec');
   for (var i = 0; i < boxes.length; i++) {
     sections[boxes[i].getAttribute('data-sec')] = boxes[i].checked;
   }
+  var avatarEl = document.getElementById('scAvatar');
   return {
     range: rangeEl ? rangeEl.value : 'month',
     scope: scopeEl ? scopeEl.value : 'all',
+    size: sizeEl ? sizeEl.value : 'landscape',
+    avatar: avatarEl ? avatarEl.checked : false,
     sections: sections
   };
 }
@@ -4522,11 +4656,11 @@ function generateShareCard() {
   var cfg = scReadConfig();
   var prev = document.getElementById('scPreview');
   if (prev) { prev.innerHTML = '<p class="table-hint">Generating…</p>'; }
-  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, sections: cfg.sections });
+  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, size: cfg.size, avatar: cfg.avatar, sections: cfg.sections });
 }
 function exportShareCardConfigured() {
   var cfg = scReadConfig();
-  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, sections: cfg.sections });
+  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, size: cfg.size, avatar: cfg.avatar, sections: cfg.sections });
 }
 function exportHeatmap() {
   vscode.postMessage({ command: 'exportHeatmap' });

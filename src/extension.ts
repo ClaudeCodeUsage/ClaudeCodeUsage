@@ -300,6 +300,22 @@ export class ClaudeCodeUsageExtension {
       return;
     }
 
+    // This is an authorization + write action, not a local export — make that
+    // explicit and get consent before touching GitHub.
+    const proceed = 'Sign in & publish';
+    const ok = await vscode.window.showWarningMessage(
+      'Publish the token heatmap to GitHub?',
+      {
+        modal: true,
+        detail:
+          'This signs you in to GitHub (VS Code asks once) and commits a single SVG image to a repo you choose (default: your profile repo, so it shows on your GitHub home). Only the aggregate heatmap is uploaded — never prompts, file paths, or session ids. You can delete it from the repo anytime.',
+      },
+      proceed
+    );
+    if (ok !== proceed) {
+      return;
+    }
+
     let session: vscode.AuthenticationSession | undefined;
     try {
       // 'repo' so private profile repos work too; VS Code shows its own consent.
