@@ -56,26 +56,29 @@ const AUTOREFRESH_MIGRATION_FLAG = 'ccu.migrated.dashboardAutoRefresh';
 // injects the stored value if it's not in this list).
 //
 // Ordered roughly west → east. Offsets are computed live (DST-aware) at load.
+// Labels use the canonical IANA time-zone database identifier (the official,
+// apolitical standard) — its last path segment as a friendly city name — so no
+// editorialised country groupings that could read as taking a side.
 const CURATED_ZONES: { zone: string; city: string }[] = [
   { zone: 'Pacific/Honolulu', city: 'Honolulu' },
   { zone: 'America/Anchorage', city: 'Anchorage' },
-  { zone: 'America/Los_Angeles', city: 'Los Angeles (Pacific)' },
-  { zone: 'America/Denver', city: 'Denver (Mountain)' },
-  { zone: 'America/Chicago', city: 'Chicago (Central)' },
-  { zone: 'America/New_York', city: 'New York (Eastern)' },
+  { zone: 'America/Los_Angeles', city: 'Los Angeles' },
+  { zone: 'America/Denver', city: 'Denver' },
+  { zone: 'America/Chicago', city: 'Chicago' },
+  { zone: 'America/New_York', city: 'New York' },
   { zone: 'America/Sao_Paulo', city: 'São Paulo' },
   { zone: 'UTC', city: 'UTC' },
   { zone: 'Europe/London', city: 'London' },
-  { zone: 'Europe/Paris', city: 'Paris / Madrid' },
+  { zone: 'Europe/Paris', city: 'Paris' },
   { zone: 'Europe/Berlin', city: 'Berlin' },
   { zone: 'Europe/Athens', city: 'Athens' },
   { zone: 'Europe/Moscow', city: 'Moscow' },
   { zone: 'Asia/Dubai', city: 'Dubai' },
   { zone: 'Asia/Karachi', city: 'Karachi' },
-  { zone: 'Asia/Kolkata', city: 'India' },
+  { zone: 'Asia/Kolkata', city: 'Kolkata' },
   { zone: 'Asia/Dhaka', city: 'Dhaka' },
-  { zone: 'Asia/Bangkok', city: 'Bangkok / Jakarta' },
-  { zone: 'Asia/Shanghai', city: 'Shanghai / Beijing' },
+  { zone: 'Asia/Bangkok', city: 'Bangkok' },
+  { zone: 'Asia/Shanghai', city: 'Shanghai' },
   { zone: 'Asia/Hong_Kong', city: 'Hong Kong' },
   { zone: 'Asia/Singapore', city: 'Singapore' },
   { zone: 'Asia/Tokyo', city: 'Tokyo' },
@@ -105,41 +108,41 @@ function utcOffsetLabel(zone: string): string {
 // no DST); the real fractional offsets use a representative zone. A region hint
 // aids recognition. Labels are computed live so they always match the actual
 // bucketing.
-const OFFSET_ZONES: { zone: string; hint?: string }[] = [
+// Pure UTC offsets — no place/country names at all (offset is neutral). The
+// backing IANA zone is an implementation detail; the label shows only the offset.
+const OFFSET_ZONES: { zone: string }[] = [
   { zone: 'Etc/GMT+12' }, { zone: 'Etc/GMT+11' }, { zone: 'Etc/GMT+10' },
-  { zone: 'Pacific/Marquesas', hint: 'Marquesas' }, { zone: 'Etc/GMT+9' }, { zone: 'Etc/GMT+8' },
+  { zone: 'Pacific/Marquesas' }, { zone: 'Etc/GMT+9' }, { zone: 'Etc/GMT+8' },
   { zone: 'Etc/GMT+7' }, { zone: 'Etc/GMT+6' }, { zone: 'Etc/GMT+5' }, { zone: 'Etc/GMT+4' },
-  { zone: 'America/St_Johns', hint: 'Newfoundland' }, { zone: 'Etc/GMT+3' }, { zone: 'Etc/GMT+2' },
+  { zone: 'America/St_Johns' }, { zone: 'Etc/GMT+3' }, { zone: 'Etc/GMT+2' },
   { zone: 'Etc/GMT+1' }, { zone: 'UTC' }, { zone: 'Etc/GMT-1' }, { zone: 'Etc/GMT-2' }, { zone: 'Etc/GMT-3' },
-  { zone: 'Asia/Tehran', hint: 'Iran' }, { zone: 'Etc/GMT-4' }, { zone: 'Asia/Kabul', hint: 'Afghanistan' },
-  { zone: 'Etc/GMT-5' }, { zone: 'Asia/Kolkata', hint: 'India' }, { zone: 'Asia/Kathmandu', hint: 'Nepal' },
-  { zone: 'Etc/GMT-6' }, { zone: 'Asia/Yangon', hint: 'Myanmar' }, { zone: 'Etc/GMT-7' }, { zone: 'Etc/GMT-8' },
-  { zone: 'Australia/Eucla', hint: 'Eucla' }, { zone: 'Etc/GMT-9' }, { zone: 'Australia/Darwin', hint: 'C. Australia' },
-  { zone: 'Etc/GMT-10' }, { zone: 'Australia/Lord_Howe', hint: 'Lord Howe' }, { zone: 'Etc/GMT-11' },
-  { zone: 'Etc/GMT-12' }, { zone: 'Pacific/Chatham', hint: 'Chatham' }, { zone: 'Etc/GMT-13' }, { zone: 'Etc/GMT-14' },
+  { zone: 'Asia/Tehran' }, { zone: 'Etc/GMT-4' }, { zone: 'Asia/Kabul' },
+  { zone: 'Etc/GMT-5' }, { zone: 'Asia/Kolkata' }, { zone: 'Asia/Kathmandu' },
+  { zone: 'Etc/GMT-6' }, { zone: 'Asia/Yangon' }, { zone: 'Etc/GMT-7' }, { zone: 'Etc/GMT-8' },
+  { zone: 'Australia/Eucla' }, { zone: 'Etc/GMT-9' }, { zone: 'Australia/Darwin' },
+  { zone: 'Etc/GMT-10' }, { zone: 'Australia/Lord_Howe' }, { zone: 'Etc/GMT-11' },
+  { zone: 'Etc/GMT-12' }, { zone: 'Pacific/Chatham' }, { zone: 'Etc/GMT-13' }, { zone: 'Etc/GMT-14' },
 ];
 
 const offLabel = (zone: string, name: string): string => {
   const off = utcOffsetLabel(zone);
   return off ? `(${off}) ${name}` : name;
 };
-const offsetOnly = (zone: string, hint?: string): string => {
-  const off = utcOffsetLabel(zone) || 'UTC';
-  return hint ? `(${off}) ${hint}` : `(${off})`;
-};
+const offsetOnly = (zone: string): string => `(${utcOffsetLabel(zone) || 'UTC'})`;
 
 // Flat set (validation accepts any listed zone) + labels; the dropdown groups them.
 const TIMEZONE_VALUES: string[] = ['', ...CURATED_ZONES.map((z) => z.zone), ...OFFSET_ZONES.map((z) => z.zone)];
 const TIMEZONE_LABELS: string[] = [
   'System default',
   ...CURATED_ZONES.map((z) => offLabel(z.zone, z.city)),
-  ...OFFSET_ZONES.map((z) => offsetOnly(z.zone, z.hint)),
+  ...OFFSET_ZONES.map((z) => offsetOnly(z.zone)),
 ];
-// Common named zones stay handy at the top; every UTC offset is under "UTC offset".
+// Common named zones (IANA cities) stay handy at the top; every UTC offset is
+// under "UTC offset".
 const TIMEZONE_GROUPS = [
   { label: 'System', values: [''], labels: ['System default'] },
   { label: 'Common', values: CURATED_ZONES.map((z) => z.zone), labels: CURATED_ZONES.map((z) => offLabel(z.zone, z.city)) },
-  { label: 'UTC offset', values: OFFSET_ZONES.map((z) => z.zone), labels: OFFSET_ZONES.map((z) => offsetOnly(z.zone, z.hint)) },
+  { label: 'UTC offset', values: OFFSET_ZONES.map((z) => z.zone), labels: OFFSET_ZONES.map((z) => offsetOnly(z.zone)) },
 ];
 
 export const SETTINGS: SettingDef[] = [
@@ -200,7 +203,7 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'features',
     label: 'Show efficiency insights',
-    help: 'Off by default (not everyone wants these). Adds cost/message, tokens/message and realised cache savings to Today / month / all-time and the projects table, plus a "top 10 costliest messages" panel on the Content tab.',
+    help: 'Off by default (not everyone wants these). Adds cost/message, tokens/message and realised cache savings to Today / month / all-time and the projects table. (The "top 10 costliest messages" panel has its own toggle below.)',
   },
   {
     key: 'enableShareCard',
@@ -210,6 +213,15 @@ export const SETTINGS: SettingDef[] = [
     group: 'features',
     label: 'Enable usage share card',
     help: 'Off by default. When on, the All tab gets a configurable "Share card" — pick a range (week / month / year / a specific month), a scope (overall / a project / a session) and which metrics to show, then generate a one-page SVG to share. Only aggregate numbers leave your machine, and only when you export.',
+  },
+  {
+    key: 'showCostliestMessages',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'features',
+    label: 'Show "top 10 costliest messages"',
+    help: 'Off by default. Adds a panel on the Content tab that ranks your single most expensive turns and, on expand, shows the prompt that triggered each (plus a cost split so you can tell a cache miss from a long answer). It reads and displays your own prompt text, so it stays opt-in.',
   },
   {
     key: 'enableSessionDelete',

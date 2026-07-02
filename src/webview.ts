@@ -47,6 +47,17 @@ export class UsageWebviewProvider {
   private workflowBreakdown: WorkflowUsage[] = [];
   private costliestMessages: CostlyMessage[] = [];
   private avatarCache?: string; // GitHub avatar data: URI, fetched on demand
+  // Last generated share card + its config, kept so an auto-refresh re-render
+  // doesn't wipe the user's picks or preview (share card / heatmap / optimizer
+  // output should survive data refreshes — only usage numbers update).
+  private lastShareCardSvg?: string;
+  private lastShareCardConfig?: {
+    range: string;
+    scope: string;
+    sections: Record<string, boolean>;
+    avatar: boolean;
+    fullNumbers: boolean;
+  };
   // Real quota utilisation (pushed asynchronously) for the workflow quota
   // guard banner; dismissal lasts for the lifetime of this window.
   private usageLimits: ClaudeApiUsageResponse | null = null;
@@ -131,13 +142,13 @@ export class UsageWebviewProvider {
           if (this.panel && this.allRecords && this.allRecords.length > 0) {
             try {
               const avatar = message.avatar ? await this.getAvatarDataUri() : undefined;
-              const svg = this.buildShareCardSvgFor(
-                String(message.range || 'month'),
-                String(message.scope || 'all'),
-                (message.sections || {}) as Partial<ShareSections>,
-                message.size ? String(message.size) : undefined,
-                avatar
-              );
+              const range = String(message.range || 'last30');
+              const scope = String(message.scope || 'all');
+              const sections = (message.sections || {}) as Record<string, boolean>;
+              const svg = this.buildShareCardSvgFor(range, scope, sections as Partial<ShareSections>, avatar, !!message.fullNumbers);
+              // Remember it so a re-render restores the preview + picks.
+              this.lastShareCardSvg = svg;
+              this.lastShareCardConfig = { range, scope, sections, avatar: !!message.avatar, fullNumbers: !!message.fullNumbers };
               this.panel.webview.postMessage({ command: 'shareCardResult', svg });
             } catch (e) {
               this.panel.webview.postMessage({ command: 'shareCardResult', error: (e as Error).message });
@@ -151,9 +162,9 @@ export class UsageWebviewProvider {
             vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
             break;
           }
-          const range = String(message.range || 'month');
+          const range = String(message.range || 'last30');
           const avatar = message.avatar ? await this.getAvatarDataUri() : undefined;
-          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>, message.size ? String(message.size) : undefined, avatar);
+          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>, avatar, !!message.fullNumbers);
           const defaultName = shareCardFilename(range).replace(/\.png$/, '.svg');
           const uri = await vscode.window.showSaveDialog({
             defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
@@ -1445,47 +1456,51 @@ export class UsageWebviewProvider {
       const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
       monthOpts.push(`<option value="month:${key}">${esc(label)}${i === 1 ? ' (last month)' : ''}</option>`);
     }
+    // Rehydrate the last config so an auto-refresh re-render doesn't wipe the
+    // user's picks or their generated preview (Carl: refresh shouldn't blow away
+    // human-operated output). Default range is the last 30 days.
+    const cfg = this.lastShareCardConfig;
+    const curRange = cfg?.range || 'last30';
+    const curScope = cfg?.scope || 'all';
+    const secOn = (key: string, dflt: boolean): boolean => (cfg?.sections?.[key] ?? dflt);
+    const sel = (v: string, cur: string): string => (v === cur ? ' selected' : '');
+
     const rangeSelect =
       '<select id="scRange">' +
       '<optgroup label="Rolling">' +
-      '<option value="month" selected>This month</option>' +
-      '<option value="week">Last 7 days</option>' +
-      '<option value="year">Last 12 months</option>' +
-      '<option value="today">Today (hourly)</option>' +
+      '<option value="last30"' + sel('last30', curRange) + '>Last 30 days</option>' +
+      '<option value="week"' + sel('week', curRange) + '>Last 7 days</option>' +
+      '<option value="month"' + sel('month', curRange) + '>This month</option>' +
+      '<option value="year"' + sel('year', curRange) + '>Last 12 months</option>' +
+      '<option value="today"' + sel('today', curRange) + '>Today (hourly)</option>' +
       '</optgroup>' +
-      '<optgroup label="Specific month">' + monthOpts.join('') + '</optgroup>' +
+      '<optgroup label="Specific month">' +
+      monthOpts.map((o) => o.replace('>', sel(o.match(/value="([^"]+)"/)?.[1] || '', curRange) + '>')).join('') +
+      '</optgroup>' +
       '</select>';
 
     // Scope: overall / by project / by session (top few by cost).
     const projectOpts = (this.projectBreakdown || [])
-      .map((g) => `<option value="project:${esc(g.groupPath)}">${esc(g.groupName)}</option>`)
+      .map((g) => `<option value="project:${esc(g.groupPath)}"${sel('project:' + g.groupPath, curScope)}>${esc(g.groupName)}</option>`)
       .join('');
     const sessionOpts = (this.sessionBreakdown || [])
       .slice()
       .sort((a, b) => b.data.totalCost - a.data.totalCost)
       .slice(0, 20)
-      .map((s) => `<option value="session:${esc(s.sessionId)}">${esc((s.title || s.sessionId).slice(0, 48))}</option>`)
+      .map((s) => `<option value="session:${esc(s.sessionId)}"${sel('session:' + s.sessionId, curScope)}>${esc((s.title || s.sessionId).slice(0, 48))}</option>`)
       .join('');
     const scopeSelect =
       '<select id="scScope">' +
-      '<optgroup label="All"><option value="all" selected>Overall</option></optgroup>' +
+      '<optgroup label="All"><option value="all"' + sel('all', curScope) + '>Overall</option></optgroup>' +
       (projectOpts ? '<optgroup label="By project">' + projectOpts + '</optgroup>' : '') +
       (sessionOpts ? '<optgroup label="By session">' + sessionOpts + '</optgroup>' : '') +
       '</select>';
 
-    const sizeSelect =
-      '<select id="scSize">' +
-      '<option value="landscape" selected>Landscape (1200×680)</option>' +
-      '<option value="square">Square (1080×1080)</option>' +
-      '<option value="portrait">Portrait (1080×1350)</option>' +
-      '<option value="story">Story (1080×1920)</option>' +
-      '</select>';
-
     // Section toggles. Default ON: cost, cache-hit, model (+ the token hero,
-    // rhythm, badge, watermark). Optional: sessions, messages, composition, project.
-    const check = (key: string, label: string, on: boolean): string =>
+    // rhythm, badge). Optional: sessions, messages, composition, project.
+    const check = (key: string, label: string, dflt: boolean): string =>
       '<label class="sc-check"><input type="checkbox" class="sc-sec" data-sec="' + key + '"' +
-      (on ? ' checked' : '') + '> ' + esc(label) + '</label>';
+      (secOn(key, dflt) ? ' checked' : '') + '> ' + esc(label) + '</label>';
     const toggles =
       check('totalTokens', 'Total tokens', true) +
       check('estimatedCost', 'Est. cost', true) +
@@ -1497,24 +1512,30 @@ export class UsageWebviewProvider {
       check('messages', 'Message count', false) +
       check('badge', 'Badge', true) +
       check('projectName', 'Project name', false);
+    const avatarChecked = cfg?.avatar ? ' checked' : '';
+    const fullChecked = cfg?.fullNumbers ? ' checked' : '';
+
+    const preview = this.lastShareCardSvg
+      ? this.lastShareCardSvg
+      : '<p class="table-hint">Preview appears here after you click Generate.</p>';
 
     return (
       '<div class="share-panel"><h3>Share card</h3>' +
-      '<p class="table-hint">Pick a range, scope, size and metrics, then Generate. Only aggregate numbers are drawn — no prompts, paths, or session ids.</p>' +
+      '<p class="table-hint">Pick a range, scope and metrics, then Generate. Only aggregate numbers are drawn — no prompts, paths, or session ids.</p>' +
       '<div class="sc-config">' +
       '<div class="sc-grid">' +
       '<label class="sc-field"><span>Range</span>' + rangeSelect + '</label>' +
       '<label class="sc-field"><span>Scope</span>' + scopeSelect + '</label>' +
-      '<label class="sc-field"><span>Size</span>' + sizeSelect + '</label>' +
       '</div>' +
       '<div class="sc-checks">' + toggles +
-      '<label class="sc-check" title="Fetches your GitHub avatar (asks to sign in once)"><input type="checkbox" id="scAvatar"> GitHub avatar</label>' +
+      '<label class="sc-check" title="Show the exact token count instead of 1.2M"><input type="checkbox" id="scFull"' + fullChecked + '> Full numbers</label>' +
+      '<label class="sc-check" title="Fetches your GitHub avatar (asks to sign in once)"><input type="checkbox" id="scAvatar"' + avatarChecked + '> GitHub avatar</label>' +
       '</div>' +
       '<div class="share-actions">' +
       '<button class="btn-secondary btn-small" onclick="generateShareCard()">Generate preview</button>' +
       '<button class="btn-secondary btn-small" onclick="exportShareCardConfigured()">Export as SVG…</button>' +
       '</div></div>' +
-      '<div class="share-preview" id="scPreview"><p class="table-hint">Preview appears here after you click Generate.</p></div>' +
+      '<div class="share-preview" id="scPreview">' + preview + '</div>' +
       '</div>'
     );
   }
@@ -1525,13 +1546,13 @@ export class UsageWebviewProvider {
     range: string,
     scope: string,
     sections: Partial<ShareSections>,
-    size?: string,
-    avatarDataUri?: string
+    avatarDataUri?: string,
+    fullNumbers?: boolean
   ): string {
     const input = ClaudeDataLoader.buildShareInput(this.allRecords, range, scope);
     const merged: ShareSections = { ...DEFAULT_SECTIONS, ...sections };
-    const sz = (['landscape', 'square', 'portrait', 'story'] as const).find((s) => s === size);
-    return renderShareCardSvg(buildShareCardData(input, merged), { size: sz, avatarDataUri });
+    // Landscape only for now (other sizes need per-size tuning — a later patch).
+    return renderShareCardSvg(buildShareCardData(input, merged), { avatarDataUri, fullNumbers });
   }
 
   /** Fetch the signed-in GitHub user's avatar as a data: URI (cached). Only
@@ -1565,8 +1586,10 @@ export class UsageWebviewProvider {
     }
   }
 
-  /** Minimal GET over https returning the raw body + content-type. */
-  private httpsGet(url: string, token?: string): Promise<{ body: Buffer; contentType: string }> {
+  /** Minimal GET over https returning the raw body + content-type. Follows
+   * redirects (GitHub avatar URLs 302 to avatars.githubusercontent.com — not
+   * following them was why the avatar came back empty / broken). */
+  private httpsGet(url: string, token?: string, hops = 0): Promise<{ body: Buffer; contentType: string }> {
     return new Promise((resolve, reject) => {
       const req = https.get(
         url,
@@ -1578,6 +1601,15 @@ export class UsageWebviewProvider {
           timeout: 15000,
         },
         (res) => {
+          const status = res.statusCode || 0;
+          const loc = res.headers.location;
+          if (status >= 300 && status < 400 && loc && hops < 4) {
+            res.resume(); // drain
+            // Don't forward the auth token to a redirected (CDN) host.
+            const next = new URL(loc, url).toString();
+            this.httpsGet(next, undefined, hops + 1).then(resolve, reject);
+            return;
+          }
           const chunks: Buffer[] = [];
           res.on('data', (c) => chunks.push(c as Buffer));
           res.on('end', () =>
@@ -2529,7 +2561,9 @@ export class UsageWebviewProvider {
    * skill — so an expensive turn can be understood, in the same spirit as the
    * AI advice and optimizer cards that live alongside it. */
   private renderCostliestMessages(): string {
-    if (!this.setting<boolean>('showEfficiency', false)) {
+    // Own opt-in (separate from showEfficiency) because it displays your prompt
+    // text — a privacy step above the aggregate efficiency chips.
+    if (!this.setting<boolean>('showCostliestMessages', false)) {
       return '';
     }
     const top = this.costliestMessages || [];
@@ -4638,18 +4672,18 @@ const __dateOpts = (extra) => {
 function scReadConfig() {
   var rangeEl = document.getElementById('scRange');
   var scopeEl = document.getElementById('scScope');
-  var sizeEl = document.getElementById('scSize');
   var sections = {};
   var boxes = document.querySelectorAll('.sc-sec');
   for (var i = 0; i < boxes.length; i++) {
     sections[boxes[i].getAttribute('data-sec')] = boxes[i].checked;
   }
   var avatarEl = document.getElementById('scAvatar');
+  var fullEl = document.getElementById('scFull');
   return {
-    range: rangeEl ? rangeEl.value : 'month',
+    range: rangeEl ? rangeEl.value : 'last30',
     scope: scopeEl ? scopeEl.value : 'all',
-    size: sizeEl ? sizeEl.value : 'landscape',
     avatar: avatarEl ? avatarEl.checked : false,
+    fullNumbers: fullEl ? fullEl.checked : false,
     sections: sections
   };
 }
@@ -4657,11 +4691,11 @@ function generateShareCard() {
   var cfg = scReadConfig();
   var prev = document.getElementById('scPreview');
   if (prev) { prev.innerHTML = '<p class="table-hint">Generating…</p>'; }
-  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, size: cfg.size, avatar: cfg.avatar, sections: cfg.sections });
+  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, avatar: cfg.avatar, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportShareCardConfigured() {
   var cfg = scReadConfig();
-  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, size: cfg.size, avatar: cfg.avatar, sections: cfg.sections });
+  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, avatar: cfg.avatar, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportHeatmap() {
   vscode.postMessage({ command: 'exportHeatmap' });

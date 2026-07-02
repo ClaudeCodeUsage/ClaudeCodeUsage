@@ -1462,6 +1462,9 @@ export class ClaudeDataLoader {
     } else if (range === 'week') {
       const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
       inRange = scoped.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+    } else if (range === 'last30') {
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      inRange = scoped.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
     } else if (range === 'year') {
       const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
       inRange = scoped.filter((r) => new Date(r.timestamp).getTime() >= cutoff);

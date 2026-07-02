@@ -255,6 +255,8 @@ export function rangeLabel(range: ShareRange): string {
       return 'today';
     case 'week':
       return 'the last 7 days';
+    case 'last30':
+      return 'the last 30 days';
     case 'month':
       return 'this month';
     case 'year':

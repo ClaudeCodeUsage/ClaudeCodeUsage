@@ -61,6 +61,7 @@ export interface ShareCardSvgOptions {
   height?: number;
   size?: ShareCardSize; // takes precedence over width/height
   avatarDataUri?: string; // optional embedded avatar (data: URI), top-right
+  fullNumbers?: boolean; // show the exact token count in the hero, not compact
 }
 
 /** Render the share card as an SVG string. */
@@ -72,7 +73,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   const p: string[] = [];
 
   p.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">`
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">`
   );
   p.push('<defs>');
   p.push(`<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7f2"/><stop offset="1" stop-color="#fdeee6"/></linearGradient>`);
@@ -91,7 +92,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
     const s = 76;
     const ax = W - M - s;
     p.push(`<clipPath id="av"><circle cx="${ax + s / 2}" cy="${58 + s / 2}" r="${s / 2}"/></clipPath>`);
-    p.push(`<image x="${ax}" y="58" width="${s}" height="${s}" href="${esc(opts.avatarDataUri)}" clip-path="url(#av)" preserveAspectRatio="xMidYMid slice"/>`);
+    p.push(`<image x="${ax}" y="58" width="${s}" height="${s}" href="${esc(opts.avatarDataUri)}" xlink:href="${esc(opts.avatarDataUri)}" clip-path="url(#av)" preserveAspectRatio="xMidYMid slice"/>`);
     p.push(`<circle cx="${ax + s / 2}" cy="${58 + s / 2}" r="${s / 2}" fill="none" stroke="#f0d8c9" stroke-width="2"/>`);
   } else if (data.badge) {
     const bw = 40 + data.badge.label.length * 11;
@@ -106,11 +107,12 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   type Section = { h: number; draw: (y: number) => void };
   const sections: Section[] = [];
 
-  // Hero.
+  // Hero. `fullNumbers` shows the exact token count instead of a compact form
+  // (Carl wants the option); the font shrinks so long numbers still fit.
   let heroValue = '';
   let heroUnit = '';
   if (data.totalTokens != null) {
-    heroValue = compact(data.totalTokens);
+    heroValue = opts.fullNumbers ? data.totalTokens.toLocaleString('en-US') : compact(data.totalTokens);
     heroUnit = 'tokens';
   } else if (data.estimatedCost != null) {
     heroValue = money(data.estimatedCost);
@@ -120,16 +122,18 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
     heroUnit = 'sessions';
   }
   if (heroValue) {
+    const heroFont = heroValue.length > 11 ? 58 : heroValue.length > 8 ? 78 : 108;
     sections.push({
       h: 150,
       draw: (y) => {
-        p.push(`<text x="${M}" y="${y + 108}" font-size="108" font-weight="800" fill="${ORANGE}">${esc(heroValue)}</text>`);
-        p.push(`<text x="${M}" y="${y + 148}" font-size="24" fill="${MUTED}">${esc(heroUnit)}</text>`);
+        p.push(`<text x="${M}" y="${y + heroFont}" font-size="${heroFont}" font-weight="800" fill="${ORANGE}">${esc(heroValue)}</text>`);
+        p.push(`<text x="${M}" y="${y + heroFont + 36}" font-size="24" fill="${MUTED}">${esc(heroUnit)}</text>`);
       },
     });
   }
 
-  // Stat tiles (priority order, capped at 4).
+  // Stat tiles (priority order). Up to 6 so selecting >4 metrics doesn't drop
+  // the last one — they wrap to a second row (fixes the >4 bug).
   const tiles: { label: string; value: string }[] = [];
   if (data.totalTokens != null && data.estimatedCost != null) tiles.push({ label: 'est. cost', value: money(data.estimatedCost) });
   if (data.cacheSharePct != null) tiles.push({ label: 'from cache', value: data.cacheSharePct + '%' });
@@ -139,7 +143,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   if (data.messages != null) tiles.push({ label: 'messages', value: String(data.messages) });
   if (data.workflowSharePct != null) tiles.push({ label: 'workflows', value: data.workflowSharePct + '%' });
   if (data.peakContextTokens != null) tiles.push({ label: 'peak context', value: compact(data.peakContextTokens) });
-  const shownTiles = tiles.slice(0, 4);
+  const shownTiles = tiles.slice(0, 6);
   if (shownTiles.length > 0) {
     const gap = 16;
     const perRow = Math.max(1, Math.min(shownTiles.length, Math.floor((W - 2 * M + gap) / (200 + gap))));
@@ -219,14 +223,22 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
         p.push(`<text x="${rx + capW}" y="${y}" font-size="15" fill="${MUTED}" text-anchor="end">peak ${esc(compact(max))}</text>`);
         p.push(`<line x1="${rx}" y1="${barsTop}" x2="${rx + capW}" y2="${barsTop}" stroke="#f0d8c9"/>`);
         p.push(`<line x1="${rx}" y1="${barsTop + rh}" x2="${rx + capW}" y2="${barsTop + rh}" stroke="#eccbb9"/>`);
+        let firstBarCx = startX + bw / 2 + (slot - bw) / 2;
+        let lastBarCx = firstBarCx;
         data.rhythm!.forEach((v, i) => {
           const bh = Math.max(2, (v / max) * rh);
           const bx = startX + i * slot + (slot - bw) / 2;
+          if (i === 0) firstBarCx = bx + bw / 2;
+          if (i === n - 1) lastBarCx = bx + bw / 2;
           p.push(`<rect x="${bx.toFixed(1)}" y="${(barsTop + rh - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${ORANGE_SOFT}"/>`);
         });
-        if (data.rhythmStart || data.rhythmEnd) {
-          p.push(`<text x="${rx}" y="${barsTop + rh + 24}" font-size="14" fill="${MUTED}">${esc(shortDay(data.rhythmStart))}</text>`);
-          p.push(`<text x="${rx + capW}" y="${barsTop + rh + 24}" font-size="14" fill="${MUTED}" text-anchor="end">${esc(shortDay(data.rhythmEnd))}</text>`);
+        // First / last date sit UNDER their bars (not pinned to the axis ends),
+        // so short, centred ranges label the right positions.
+        if (data.rhythmStart) {
+          p.push(`<text x="${firstBarCx.toFixed(1)}" y="${barsTop + rh + 24}" font-size="14" fill="${MUTED}" text-anchor="middle">${esc(shortDay(data.rhythmStart))}</text>`);
+        }
+        if (data.rhythmEnd && n > 1) {
+          p.push(`<text x="${lastBarCx.toFixed(1)}" y="${barsTop + rh + 24}" font-size="14" fill="${MUTED}" text-anchor="middle">${esc(shortDay(data.rhythmEnd))}</text>`);
         }
       },
     });
