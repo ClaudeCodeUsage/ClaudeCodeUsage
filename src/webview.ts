@@ -521,7 +521,7 @@ export class UsageWebviewProvider {
         '" onclick="showTab(\'content\')">' + contentTab + '</button>'
       : '';
     const contentTabContent = contentEnabled
-      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + '</div>'
+      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + this.renderCostliestConversations() + '</div>'
       : '';
 
     return (
@@ -2199,6 +2199,56 @@ export class UsageWebviewProvider {
    * tokens (your prompts vs. tool results vs. assistant output), to help spot
    * habits worth optimising. Token figures are estimated from text length.
    */
+  /** Opt-in (showEfficiency) "top 10 costliest conversations" panel for the
+   * Content tab. Ranks sessions by cost; each row expands (native <details>) to
+   * its tokens / top model / cache-hit / duration. */
+  private renderCostliestConversations(): string {
+    if (!this.setting<boolean>('showEfficiency', false)) {
+      return '';
+    }
+    const sessions = this.sessionBreakdown || [];
+    const top = [...sessions]
+      .filter((s) => s.data.totalCost > 0)
+      .sort((a, b) => b.data.totalCost - a.data.totalCost)
+      .slice(0, 10);
+    if (top.length === 0) {
+      return '';
+    }
+    const tokensOf = (d: UsageData): number =>
+      d.totalInputTokens + d.totalOutputTokens + d.totalCacheCreationTokens + d.totalCacheReadTokens;
+    const topModel = (d: UsageData): string => {
+      let best = '';
+      let bestCost = -1;
+      for (const [m, mb] of Object.entries(d.modelBreakdown)) {
+        if (mb.cost > bestCost) {
+          bestCost = mb.cost;
+          best = m;
+        }
+      }
+      return best ? this.escapeHtml(this.shortModelName(best)) : '—';
+    };
+    const detailRow = (label: string, value: string): string =>
+      '<div class="costly-kv"><span>' + label + '</span><span>' + value + '</span></div>';
+    let rows = '';
+    top.forEach((s, i) => {
+      const d = s.data;
+      const name = this.escapeHtml(s.title || s.sessionId);
+      rows +=
+        '<details class="costly-row"><summary>' +
+        '<span class="costly-rank">' + (i + 1) + '</span>' +
+        '<span class="costly-name" title="' + name + '">' + name + '</span>' +
+        '<span class="costly-cost">' + I18n.formatCurrency(d.totalCost) + '</span>' +
+        '</summary><div class="costly-detail">' +
+        detailRow(I18n.t.popup.totalTokens, I18n.formatNumber(tokensOf(d))) +
+        detailRow(I18n.t.popup.cacheHitRate, this.formatPercent(this.cacheHitRate(d))) +
+        detailRow(I18n.t.popup.modelBreakdown, topModel(d)) +
+        detailRow(I18n.t.popup.project, this.escapeHtml(s.projectName)) +
+        detailRow('Session', this.escapeHtml(s.sessionId.slice(0, 12))) +
+        '</div></details>';
+    });
+    return '<div class="costly-panel"><h3>Top 10 costliest conversations</h3>' + rows + '</div>';
+  }
+
   private renderContentData(): string {
     const t = I18n.t.popup;
     const topCards = this.renderAdviceCard() + this.renderOptimizerCard();
@@ -3540,6 +3590,53 @@ export class UsageWebviewProvider {
 
       .composition-chart {
         margin: 12px 0 20px;
+      }
+
+      /* Top-10 costliest conversations (opt-in, Content tab). */
+      .costly-panel { margin: 18px 0 8px; }
+      .costly-row {
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 6px;
+        margin: 6px 0;
+        background: var(--vscode-editorWidget-background, transparent);
+      }
+      .costly-row > summary {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        cursor: pointer;
+        list-style: none;
+      }
+      .costly-row > summary::-webkit-details-marker { display: none; }
+      .costly-rank {
+        flex: 0 0 auto;
+        min-width: 20px;
+        text-align: center;
+        font-weight: bold;
+        color: var(--vscode-descriptionForeground);
+      }
+      .costly-name {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .costly-cost {
+        flex: 0 0 auto;
+        font-weight: bold;
+        color: var(--vscode-charts-green);
+      }
+      .costly-detail {
+        padding: 6px 12px 10px 42px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+      .costly-kv {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        padding: 2px 0;
+        color: var(--vscode-descriptionForeground);
       }
 
       /* Optional token heatmap panel (All tab). The SVG has a fixed size; let it

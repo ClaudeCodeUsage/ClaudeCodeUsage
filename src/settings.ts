@@ -114,6 +114,15 @@ export const SETTINGS: SettingDef[] = [
     help: 'Show a GitHub-style yearly token heatmap on the All tab. Off by default — mainly a shareable view of what you can already see elsewhere. Use "Export Token Heatmap" for a GitHub-profile SVG.',
   },
   {
+    key: 'showEfficiency',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'general',
+    label: 'Show efficiency insights',
+    help: 'Off by default (not everyone wants these). Adds cost-per-message and realised cache savings to Today / projects, and a "top 10 costliest conversations" panel on the Content tab.',
+  },
+  {
     key: 'timezone',
     type: 'enum',
     default: '',

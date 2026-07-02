@@ -28,6 +28,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Share-card + heatmap foundations** — tested pure logic (`src/shareCard.ts`,
   `src/heatmap.ts`) for the upcoming Usage Share Card and Monthly token heatmap.
 
+- **Efficiency insights** (opt-in, `showEfficiency`, default off) — starts with a
+  **top-10 costliest conversations** panel on the Content tab: expandable rows
+  (native disclosure) showing each session's tokens, cache-hit rate, top model
+  and project, ranked by cost. (Cost-per-message + realised cache-savings chips
+  on Today/projects use the same toggle.)
 - **"What's new" prompt after upgrades** — a single, dismissible notification
   the first time you run a new major.minor version, pointing at the dashboard so
   new (including opt-in, default-off) features are discoverable. Shown once per
