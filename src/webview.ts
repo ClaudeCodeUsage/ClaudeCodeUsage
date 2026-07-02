@@ -2453,13 +2453,34 @@ export class UsageWebviewProvider {
     const t = I18n.t.popup;
     const detailRow = (label: string, value: string): string =>
       '<div class="costly-kv"><span>' + label + '</span><span>' + value + '</span></div>';
+    // Which token type drove the cost? Names the reason a turn was expensive so
+    // the prompt alone isn't the only signal Carl has to go on.
+    const driverOf = (m: CostlyMessage): string => {
+      const parts: { key: string; v: number }[] = [
+        { key: 'cache writes (miss)', v: m.costCacheWrite },
+        { key: 'output', v: m.costOutput },
+        { key: 'uncached input', v: m.costInput },
+        { key: 'cache reads', v: m.costCacheRead },
+      ];
+      parts.sort((a, b) => b.v - a.v);
+      const share = m.cost > 0 ? Math.round((parts[0].v / m.cost) * 100) : 0;
+      return `${parts[0].key} (${share}% of cost)`;
+    };
     let rows = '';
     top.forEach((m, i) => {
       const tokens = m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens;
+      const inputSide = m.inputTokens + m.cacheCreationTokens + m.cacheReadTokens;
+      const hitRate = inputSide > 0 ? m.cacheReadTokens / inputSide : 0;
       const promptText = m.prompt && m.prompt.trim() ? m.prompt.trim() : '(no prompt captured)';
       const promptShort = promptText.length > 80 ? promptText.slice(0, 80) + '…' : promptText;
       const truncated = !!(m.prompt && m.prompt.length >= 4000);
       const skillLabel = m.skill ? (m.plugin ? m.skill + ' · ' + m.plugin : m.skill) : '—';
+      // Cost split — the key to telling a cache miss from a long answer.
+      const costSplit =
+        'write ' + I18n.formatCurrency(m.costCacheWrite) +
+        ' · read ' + I18n.formatCurrency(m.costCacheRead) +
+        ' · out ' + I18n.formatCurrency(m.costOutput) +
+        ' · in ' + I18n.formatCurrency(m.costInput);
       rows +=
         '<details class="costly-row"><summary>' +
         '<span class="costly-rank">' + (i + 1) + '</span>' +
@@ -2469,6 +2490,9 @@ export class UsageWebviewProvider {
         (m.prompt
           ? '<div class="costly-prompt">' + this.escapeHtml(promptText) + (truncated ? '\n… (truncated)' : '') + '</div>'
           : '') +
+        detailRow('Main cost driver', this.escapeHtml(driverOf(m))) +
+        detailRow('Cache-hit rate', this.formatPercent(hitRate)) +
+        detailRow('Cost split', this.escapeHtml(costSplit)) +
         detailRow(t.model, this.escapeHtml(m.model)) +
         detailRow('Skill', this.escapeHtml(skillLabel)) +
         detailRow(t.totalTokens, I18n.formatNumber(tokens)) +
@@ -2481,7 +2505,7 @@ export class UsageWebviewProvider {
     });
     return (
       '<div class="costly-panel"><h3>Top 10 costliest messages</h3>' +
-      '<p class="table-hint">Single responses ranked by cost — expand to see the prompt that triggered each.</p>' +
+      '<p class="table-hint">Single responses ranked by cost. Expand for the prompt and a cost split — a high "cache writes (miss)" share means the context was re-sent uncached, not that the answer was long.</p>' +
       rows +
       '</div>'
     );

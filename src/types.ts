@@ -111,6 +111,13 @@ export interface CostlyMessage {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  // Cost split by token type (sums to cost) — lets the panel show *why* a turn
+  // was expensive: fresh cache writes / cache miss vs. long output vs. cheap
+  // cache reads. costCacheWrite dominating = a cache miss, not a big answer.
+  costInput: number;
+  costOutput: number;
+  costCacheWrite: number;
+  costCacheRead: number;
   model: string; // full model id (e.g. "claude-opus-4-8"), not a family
   skill?: string;
   plugin?: string;
