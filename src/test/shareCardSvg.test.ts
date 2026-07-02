@@ -13,14 +13,39 @@ test('renders a well-formed svg with the default size', () => {
   const svg = renderShareCardSvg(base);
   assert.match(svg, /^<svg /);
   assert.match(svg, /<\/svg>$/);
-  assert.match(svg, /width="1200" height="760"/);
+  assert.match(svg, /width="1200" height="680"/);
   assert.match(svg, /My Claude Code usage/);
 });
 
-test('always embeds the repo QR link (drives traffic when shared)', () => {
+test('watermark carries the repo (no QR)', () => {
   const svg = renderShareCardSvg(base);
   assert.match(svg, /github\.com\/ClaudeCodeUsage\/ClaudeCodeUsage/);
-  assert.match(svg, /Star us on GitHub/);
+  assert.doesNotMatch(svg, /<path stroke="#1b1b1b"/); // no QR path
+});
+
+test('composition legend shows both percent and absolute amount', () => {
+  const svg = renderShareCardSvg({
+    ...base,
+    composition: { input: 1_000_000, output: 3_000_000, cacheCreate: 2_000_000, cacheRead: 4_000_000 },
+  });
+  assert.match(svg, /Cache read 40% · 4M/);
+  assert.match(svg, /Input 10% · 1M/);
+});
+
+test('labels the rhythm first/last dates', () => {
+  const svg = renderShareCardSvg({
+    ...base,
+    rhythm: [1, 2, 3],
+    rhythmStart: '2026-06-01',
+    rhythmEnd: '2026-06-30',
+  });
+  assert.match(svg, />Jun 1</);
+  assert.match(svg, />Jun 30</);
+});
+
+test('uses a custom range label when provided (specific month)', () => {
+  const svg = renderShareCardSvg({ ...base, range: 'month:2026-06', rangeLabel: 'June 2026' });
+  assert.match(svg, /June 2026/);
 });
 
 test('shows the full model name, not just the family', () => {

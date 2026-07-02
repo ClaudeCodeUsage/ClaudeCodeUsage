@@ -9,7 +9,7 @@ import { isRetryDuplicatePrompt } from './promptDedup';
 import { dayKeyInZone, monthKeyInZone } from './dateKeys';
 import { I18n } from './i18n';
 import { DayUsage } from './heatmap';
-import { ShareInput, ShareRange } from './shareCard';
+import { ShareInput, ShareRange, rangeLabel as shareRangeLabel } from './shareCard';
 import {
   AttributionEntry,
   AttributionScope,
@@ -1426,30 +1426,55 @@ export class ClaudeDataLoader {
     return top.sort((a, b) => b.cost - a.cost);
   }
 
-  /** Assemble the aggregate inputs for a share card over a range (today / last
-   * 7 days / this month), all bucketed in the configured timezone so they match
-   * the dashboard. Returns only aggregate numbers — no records, no identifiers. */
-  static buildShareInput(records: ClaudeUsageRecord[], range: ShareRange): ShareInput {
+  /** Assemble the aggregate inputs for a share card. `range` is a preset
+   * (today / week / month / year) or `month:YYYY-MM` for a specific calendar
+   * month. `scope` narrows to one project (`project:<path>`) or session
+   * (`session:<id>`); default all. Everything is bucketed in the configured
+   * timezone so it matches the dashboard. Aggregate numbers only — no records. */
+  static buildShareInput(
+    records: ClaudeUsageRecord[],
+    range: ShareRange,
+    scope: string = 'all'
+  ): ShareInput {
     const tz = I18n.getTimezone();
+
+    // Scope filter first (project path or session id).
+    let scoped = records;
+    let projectName: string | undefined;
+    if (scope.startsWith('project:')) {
+      const path = scope.slice('project:'.length);
+      scoped = records.filter((r) => r._projectPath === path || r._projectDirEncoded === path);
+      projectName = scoped.find((r) => r._projectName)?._projectName;
+    } else if (scope.startsWith('session:')) {
+      const sid = scope.slice('session:'.length);
+      scoped = records.filter((r) => r._sessionId === sid);
+    }
+
+    // Range filter.
     let inRange: ClaudeUsageRecord[];
     if (range === 'today') {
       const todayKey = dayKeyInZone(new Date(), tz);
-      inRange = records.filter((r) => dayKeyInZone(new Date(r.timestamp), tz) === todayKey);
+      inRange = scoped.filter((r) => dayKeyInZone(new Date(r.timestamp), tz) === todayKey);
     } else if (range === 'week') {
       const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      inRange = records.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+      inRange = scoped.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+    } else if (range === 'year') {
+      const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+      inRange = scoped.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+    } else if (range.startsWith('month:')) {
+      const monthKey = range.slice('month:'.length); // 'YYYY-MM'
+      inRange = scoped.filter((r) => monthKeyInZone(new Date(r.timestamp), tz) === monthKey);
     } else {
       const monthKey = monthKeyInZone(new Date(), tz);
-      inRange = records.filter((r) => monthKeyInZone(new Date(r.timestamp), tz) === monthKey);
+      inRange = scoped.filter((r) => monthKeyInZone(new Date(r.timestamp), tz) === monthKey);
     }
 
     const rangeData = this.calculateUsageData(inRange);
 
-    // Rhythm: per-day token totals, oldest → newest (the heat strip).
+    // Rhythm: per-day token totals, oldest → newest (+ parallel date keys).
     const dayMap = this.getDailyUsageMap(inRange, tz);
-    const daily = Object.keys(dayMap)
-      .sort()
-      .map((k) => dayMap[k].tokens);
+    const dailyDates = Object.keys(dayMap).sort();
+    const daily = dailyDates.map((k) => dayMap[k].tokens);
 
     // Distinct billable sessions in range (mirrors the getDailyUsageMap filter).
     const sessions = new Set<string>();
@@ -1462,7 +1487,7 @@ export class ClaudeDataLoader {
       sessions.add(r._sessionId);
     }
 
-    // Top model by total tokens (reduced to a family at export time).
+    // Top model by total tokens (reduced to a family/name at export time).
     let topModel: string | undefined;
     let best = -1;
     for (const [m, mb] of Object.entries(rangeData.modelBreakdown)) {
@@ -1473,7 +1498,16 @@ export class ClaudeDataLoader {
       }
     }
 
-    return { range, rangeData, daily, sessionCount: sessions.size, topModel };
+    return {
+      range,
+      rangeData,
+      daily,
+      dailyDates,
+      sessionCount: sessions.size,
+      topModel,
+      projectName,
+      rangeLabel: shareRangeLabel(range),
+    };
   }
 
   /**

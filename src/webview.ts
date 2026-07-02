@@ -5,8 +5,10 @@ import { getModelRatesPerMillion } from './pricing';
 import { SETTINGS, SettingsStore, SettingView } from './settings';
 import { buildResumeCommand, isUsableCwd, isValidSessionId, isUnderDir } from './sessionResume';
 import { renderHeatmapSvg } from './heatmapSvg';
-import { DEFAULT_SECTIONS, buildShareCardData } from './shareCard';
+import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename } from './shareCard';
 import { renderShareCardSvg } from './shareCardSvg';
+import * as os from 'os';
+import * as path from 'path';
 import {
   AttributionScope,
   BranchUsage,
@@ -115,9 +117,52 @@ export class UsageWebviewProvider {
         case 'getAdvice':
           vscode.commands.executeCommand('claudeCodeUsage.getAdvice');
           break;
-        case 'exportShareCard':
-          vscode.commands.executeCommand('claudeCodeUsage.exportShareCard');
+        case 'buildShareCard': {
+          // On-demand preview: build the SVG from the panel's config and send
+          // it back for injection (no full re-render).
+          if (this.panel && this.allRecords && this.allRecords.length > 0) {
+            try {
+              const svg = this.buildShareCardSvgFor(
+                String(message.range || 'month'),
+                String(message.scope || 'all'),
+                (message.sections || {}) as Partial<ShareSections>
+              );
+              this.panel.webview.postMessage({ command: 'shareCardResult', svg });
+            } catch (e) {
+              this.panel.webview.postMessage({ command: 'shareCardResult', error: (e as Error).message });
+            }
+          }
           break;
+        }
+        case 'exportShareCard': {
+          // Export using the panel's config (range / scope / sections).
+          if (!this.allRecords || this.allRecords.length === 0) {
+            vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+            break;
+          }
+          const range = String(message.range || 'month');
+          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>);
+          const defaultName = shareCardFilename(range).replace(/\.png$/, '.svg');
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
+            filters: { 'SVG image': ['svg'] },
+            saveLabel: 'Export share card',
+          });
+          if (!uri) {
+            break;
+          }
+          try {
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
+            const open = 'Open';
+            const pick = await vscode.window.showInformationMessage('Usage share card exported.', open);
+            if (pick === open) {
+              await vscode.commands.executeCommand('vscode.open', uri);
+            }
+          } catch (e) {
+            vscode.window.showErrorMessage(`Share card export failed: ${(e as Error).message}`);
+          }
+          break;
+        }
         case 'setDashboardAutoRefresh':
           // Persist the in-dashboard toggle so it survives reload. Lives in the
           // dashboard-managed store now (no longer in VS Code Settings).
@@ -1355,25 +1400,98 @@ export class UsageWebviewProvider {
     return allTimeSummary + this.renderShareCardPanel() + heatmapPanel + dailyBreakdown;
   }
 
-  /** A discoverable, always-visible "share card" panel (Carl couldn't find the
-   * command). Renders this month's card inline — composition on, so all the
-   * metrics show — with an export button. Privacy-safe by construction: it's
-   * built from buildShareCardData, which only carries aggregate numbers. */
+  /** The "Share card" panel (All tab). Off by default (`enableShareCard`); when
+   * on, a config form — range / scope / which metrics — with a Generate button.
+   * The preview is built on demand (no per-keystroke re-render), and export uses
+   * the same config. Privacy-safe: built from buildShareCardData, aggregate only. */
   private renderShareCardPanel(): string {
+    const esc = (s: string): string => this.escapeHtml(s);
+    if (!this.setting<boolean>('enableShareCard', false)) {
+      // Off by default, but leave a discoverable pointer.
+      return (
+        '<div class="share-panel"><h3>Share card</h3>' +
+        '<p class="table-hint">Turn on <b>Enable usage share card</b> in <a href="#" onclick="openSettings();return false;">⚙ Settings</a> to build a one-page, shareable summary of your usage.</p>' +
+        '</div>'
+      );
+    }
     if (!this.allRecords || this.allRecords.length === 0) {
       return '';
     }
-    const input = ClaudeDataLoader.buildShareInput(this.allRecords, 'month');
-    const sections = { ...DEFAULT_SECTIONS, tokenComposition: true };
-    const svg = renderShareCardSvg(buildShareCardData(input, sections));
+
+    // Range options: presets + the last 12 calendar months (in the configured tz).
+    const now = new Date();
+    const monthOpts: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      monthOpts.push(`<option value="month:${key}">${esc(label)}</option>`);
+    }
+    const rangeSelect =
+      '<select id="scRange">' +
+      '<option value="month" selected>This month</option>' +
+      '<option value="week">Last 7 days</option>' +
+      '<option value="year">Last 12 months</option>' +
+      '<option value="today">Today</option>' +
+      monthOpts.join('') +
+      '</select>';
+
+    // Scope: overall / by project / by session (top few by cost).
+    const projectOpts = (this.projectBreakdown || [])
+      .map((g) => `<option value="project:${esc(g.groupPath)}">${esc(g.groupName)}</option>`)
+      .join('');
+    const sessionOpts = (this.sessionBreakdown || [])
+      .slice()
+      .sort((a, b) => b.data.totalCost - a.data.totalCost)
+      .slice(0, 20)
+      .map((s) => `<option value="session:${esc(s.sessionId)}">${esc((s.title || s.sessionId).slice(0, 48))}</option>`)
+      .join('');
+    const scopeSelect =
+      '<select id="scScope">' +
+      '<option value="all" selected>Overall</option>' +
+      (projectOpts ? '<optgroup label="By project">' + projectOpts + '</optgroup>' : '') +
+      (sessionOpts ? '<optgroup label="By session">' + sessionOpts + '</optgroup>' : '') +
+      '</select>';
+
+    // Section toggles. Default ON: cost, cache-hit, model (+ the token hero,
+    // rhythm, badge, watermark). Optional: sessions, messages, composition, project.
+    const check = (key: string, label: string, on: boolean): string =>
+      '<label class="sc-check"><input type="checkbox" class="sc-sec" data-sec="' + key + '"' +
+      (on ? ' checked' : '') + '> ' + esc(label) + '</label>';
+    const toggles =
+      check('totalTokens', 'Total tokens', true) +
+      check('estimatedCost', 'Est. cost', true) +
+      check('cacheEfficiency', 'Cache-hit rate', true) +
+      check('topModel', 'Top model', true) +
+      check('tokenComposition', 'Token composition', false) +
+      check('rhythm', 'Daily rhythm', true) +
+      check('sessions', 'Session count', false) +
+      check('messages', 'Message count', false) +
+      check('badge', 'Badge', true) +
+      check('projectName', 'Project name', false);
+
     return (
       '<div class="share-panel"><h3>Share card</h3>' +
-      '<p class="table-hint">A one-page summary of your month, ready to post. Only aggregate numbers — no prompts, paths, or session ids. The QR links back to the project.</p>' +
-      '<div class="share-preview">' + svg + '</div>' +
+      '<p class="table-hint">Pick a range, scope and metrics, then Generate. Only aggregate numbers are drawn — no prompts, paths, or session ids.</p>' +
+      '<div class="sc-config">' +
+      '<div class="sc-row"><label class="sc-label">Range</label>' + rangeSelect +
+      '<label class="sc-label">Scope</label>' + scopeSelect + '</div>' +
+      '<div class="sc-checks">' + toggles + '</div>' +
       '<div class="share-actions">' +
-      '<button class="btn-secondary btn-small" onclick="exportShareCard()">Export as SVG…</button>' +
-      '</div></div>'
+      '<button class="btn-secondary btn-small" onclick="generateShareCard()">Generate preview</button>' +
+      '<button class="btn-secondary btn-small" onclick="exportShareCardConfigured()">Export as SVG…</button>' +
+      '</div></div>' +
+      '<div class="share-preview" id="scPreview"><p class="table-hint">Preview appears here after you click Generate.</p></div>' +
+      '</div>'
     );
+  }
+
+  /** Build the share-card SVG for a webview request ({range, scope, sections}).
+   * Shared by the preview (postMessage back) and export paths. */
+  private buildShareCardSvgFor(range: string, scope: string, sections: Partial<ShareSections>): string {
+    const input = ClaudeDataLoader.buildShareInput(this.allRecords, range, scope);
+    const merged: ShareSections = { ...DEFAULT_SECTIONS, ...sections };
+    return renderShareCardSvg(buildShareCardData(input, merged));
   }
 
   private renderSessionData(): string {
@@ -3783,9 +3901,37 @@ export class UsageWebviewProvider {
         color: var(--vscode-foreground);
       }
 
-      /* Share card panel (All tab): a responsive preview of the export SVG. */
+      /* Share card panel (All tab): config form + responsive preview. */
       .share-panel {
         margin: 8px 0 22px;
+      }
+      .sc-config {
+        margin: 8px 0;
+      }
+      .sc-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .sc-label {
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+        margin-left: 6px;
+      }
+      .sc-checks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 18px;
+        margin-bottom: 12px;
+      }
+      .sc-check {
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--vscode-foreground);
       }
       .share-preview {
         max-width: 680px;
@@ -4324,8 +4470,29 @@ const __dateOpts = (extra) => {
 };
 
 // Define basic functions
-function exportShareCard() {
-  vscode.postMessage({ command: 'exportShareCard' });
+function scReadConfig() {
+  var rangeEl = document.getElementById('scRange');
+  var scopeEl = document.getElementById('scScope');
+  var sections = {};
+  var boxes = document.querySelectorAll('.sc-sec');
+  for (var i = 0; i < boxes.length; i++) {
+    sections[boxes[i].getAttribute('data-sec')] = boxes[i].checked;
+  }
+  return {
+    range: rangeEl ? rangeEl.value : 'month',
+    scope: scopeEl ? scopeEl.value : 'all',
+    sections: sections
+  };
+}
+function generateShareCard() {
+  var cfg = scReadConfig();
+  var prev = document.getElementById('scPreview');
+  if (prev) { prev.innerHTML = '<p class="table-hint">Generating…</p>'; }
+  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, sections: cfg.sections });
+}
+function exportShareCardConfigured() {
+  var cfg = scReadConfig();
+  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, sections: cfg.sections });
 }
 function refresh() {
   console.log("[DEBUG] refresh called");
@@ -4893,6 +5060,15 @@ window.closeAllMonthlyDetails = closeAllMonthlyDetails;
 // Handle messages from extension
 window.addEventListener('message', function(event) {
   const message = event.data;
+
+  if (message.command === 'shareCardResult') {
+    const prev = document.getElementById('scPreview');
+    if (prev) {
+      prev.innerHTML = message.error
+        ? '<p class="table-hint">Could not build the card: ' + message.error + '</p>'
+        : (message.svg || '');
+    }
+  }
 
   if (message.command === 'hourlyDataResponse') {
     const container = document.getElementById('hourly-detail-' + message.date);

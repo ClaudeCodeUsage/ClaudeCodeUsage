@@ -192,6 +192,15 @@ export const SETTINGS: SettingDef[] = [
     help: 'Off by default (not everyone wants these). Adds cost/message, tokens/message and realised cache savings to Today / month / all-time and the projects table, plus a "top 10 costliest messages" panel on the Content tab.',
   },
   {
+    key: 'enableShareCard',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'general',
+    label: 'Enable usage share card',
+    help: 'Off by default. When on, the All tab gets a configurable "Share card" — pick a range (week / month / year / a specific month), a scope (overall / a project / a session) and which metrics to show, then generate a one-page SVG to share. Only aggregate numbers leave your machine, and only when you export.',
+  },
+  {
     key: 'enableSessionDelete',
     type: 'boolean',
     default: false,

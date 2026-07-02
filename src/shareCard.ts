@@ -8,40 +8,45 @@
 
 import { UsageData } from './types';
 
-export type ShareRange = 'today' | 'week' | 'month';
+// Preset ranges + `month:YYYY-MM` for a specific calendar month. The `& {}`
+// keeps literal autocomplete while allowing the specific-month string.
+export type ShareRange = 'today' | 'week' | 'month' | 'year' | (string & {});
 
-/** What the user can toggle in the preview. Defaults follow the V2.2 spec:
- * the privacy-safe metrics are on; project name / workflow share / peak context
- * / detailed composition are off. */
+/** What the user can toggle in the preview. Carl's default: est. cost, top
+ * model and cache-hit rate on; everything else (sessions, messages, rhythm,
+ * composition, badge …) is optional. */
 export interface ShareSections {
   totalTokens: boolean;
   estimatedCost: boolean;
   sessions: boolean;
+  messages: boolean;
   topModel: boolean;
   cacheEfficiency: boolean;
   rhythm: boolean;
   badge: boolean;
   watermark: boolean;
+  tokenComposition: boolean;
   // default OFF
   projectName: boolean;
   workflowShare: boolean;
   peakContext: boolean;
-  tokenComposition: boolean;
 }
 
 export const DEFAULT_SECTIONS: ShareSections = {
-  totalTokens: true,
+  totalTokens: true, // the hero metric
   estimatedCost: true,
-  sessions: true,
   topModel: true,
   cacheEfficiency: true,
+  // optional
+  sessions: false,
+  messages: false,
   rhythm: true,
   badge: true,
   watermark: true,
+  tokenComposition: false,
   projectName: false,
   workflowShare: false,
   peakContext: false,
-  tokenComposition: false,
 };
 
 /** Aggregate inputs for a range — all already computed by dataLoader (no raw
@@ -50,24 +55,30 @@ export interface ShareInput {
   range: ShareRange;
   rangeData: UsageData;
   daily: number[]; // per-day token totals across the range (rhythm / heat strip)
+  dailyDates?: string[]; // 'YYYY-MM-DD' parallel to daily (for first/last axis labels)
   sessionCount: number;
   topModel?: string; // raw model id; reduced to a family before export
   workflowShare?: number; // 0..1
   peakContextTokens?: number;
-  projectName?: string; // redacted unless sections.projectName
+  projectName?: string; // redacted unless sections.projectName; also the scope label
+  rangeLabel?: string; // human header, e.g. "June 2026" for a specific month
   now?: number; // for the date label / filename (defaults to Date.now())
 }
 
 /** Render-ready, already-redacted card data. Absent fields = hidden. */
 export interface ShareCardData {
   range: ShareRange;
+  rangeLabel?: string;
   totalTokens?: number;
   estimatedCost?: number;
   sessions?: number;
+  messages?: number;
   topModelFamily?: string;
   topModelName?: string; // pretty full name, e.g. "Opus 4.8" (Carl: show the model, not just "Opus")
   cacheSharePct?: number;
   rhythm?: number[];
+  rhythmStart?: string; // first day label on the rhythm axis
+  rhythmEnd?: string; // last day label on the rhythm axis
   // Token composition (the four billed token types) — off by default.
   composition?: { input: number; output: number; cacheCreate: number; cacheRead: number };
   badge?: { id: string; label: string };
@@ -162,6 +173,9 @@ export function selectShareBadge(input: ShareInput): { id: string; label: string
 export function buildShareCardData(input: ShareInput, sections: ShareSections): ShareCardData {
   const u = input.rangeData;
   const out: ShareCardData = { range: input.range, watermark: sections.watermark };
+  if (input.rangeLabel) {
+    out.rangeLabel = input.rangeLabel;
+  }
   if (sections.totalTokens) {
     out.totalTokens = totalTokens(u);
   }
@@ -170,6 +184,9 @@ export function buildShareCardData(input: ShareInput, sections: ShareSections): 
   }
   if (sections.sessions) {
     out.sessions = input.sessionCount;
+  }
+  if (sections.messages) {
+    out.messages = u.messageCount;
   }
   if (sections.topModel) {
     out.topModelFamily = modelFamily(input.topModel);
@@ -180,6 +197,10 @@ export function buildShareCardData(input: ShareInput, sections: ShareSections): 
   }
   if (sections.rhythm) {
     out.rhythm = input.daily.slice();
+    if (input.dailyDates && input.dailyDates.length > 0) {
+      out.rhythmStart = input.dailyDates[0];
+      out.rhythmEnd = input.dailyDates[input.dailyDates.length - 1];
+    }
   }
   if (sections.tokenComposition) {
     out.composition = {
@@ -210,6 +231,35 @@ export function shareCardFilename(range: ShareRange, date: Date = new Date()): s
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
-  const stamp = range === 'today' ? `${y}-${m}-${d}-day` : `${y}-${m}-${range}`;
+  let stamp: string;
+  if (range.startsWith('month:')) {
+    stamp = range.slice('month:'.length); // already YYYY-MM
+  } else if (range === 'today') {
+    stamp = `${y}-${m}-${d}-day`;
+  } else {
+    stamp = `${y}-${m}-${range}`;
+  }
   return `claude-code-usage-${stamp}.png`;
+}
+
+/** Human header for a range, e.g. "this month", "the last 7 days", "June 2026". */
+export function rangeLabel(range: ShareRange): string {
+  if (range.startsWith('month:')) {
+    const [yy, mm] = range.slice('month:'.length).split('-');
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const idx = Number(mm) - 1;
+    return idx >= 0 && idx < 12 ? `${months[idx]} ${yy}` : range;
+  }
+  switch (range) {
+    case 'today':
+      return 'today';
+    case 'week':
+      return 'the last 7 days';
+    case 'month':
+      return 'this month';
+    case 'year':
+      return 'the last 12 months';
+    default:
+      return String(range);
+  }
 }
