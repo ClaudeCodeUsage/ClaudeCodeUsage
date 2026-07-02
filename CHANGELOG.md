@@ -28,6 +28,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Share-card + heatmap foundations** — tested pure logic (`src/shareCard.ts`,
   `src/heatmap.ts`) for the upcoming Usage Share Card and Monthly token heatmap.
 
+- **"What's new" prompt after upgrades** — a single, dismissible notification
+  the first time you run a new major.minor version, pointing at the dashboard so
+  new (including opt-in, default-off) features are discoverable. Shown once per
+  version; skipped on a fresh install.
+
 ### Changed
 - **`dashboardAutoRefresh`** (positive wording, default true) replaces the
   double-negative `pauseDashboardRefresh`; existing values are migrated.

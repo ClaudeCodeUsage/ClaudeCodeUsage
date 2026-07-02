@@ -20,6 +20,14 @@ import { getDemoBody } from './adviceDemoSample';
 import { ClaudeApiUsageResponse, ContentAnalysis, ExtensionConfig } from './types';
 import { SettingsStore } from './settings';
 
+// One-line "what's new" per major.minor, shown once after an upgrade (see
+// maybeAnnounceWhatsNew) so users discover new — including opt-in — features.
+// Keep it short and point at the dashboard / ⚙ Settings.
+const WHATS_NEW: Record<string, string> = {
+  '2.2':
+    'new token heatmap (All tab) + a GitHub-profile export, per-day cache-hit rates, and efficiency insights — turn on the opt-in ones in ⚙ Settings.',
+};
+
 export class ClaudeCodeUsageExtension {
   private statusBar: StatusBarManager;
   private webviewProvider: UsageWebviewProvider;
@@ -107,7 +115,36 @@ export class ClaudeCodeUsageExtension {
     this.startAutoRefresh();
     this.refreshData().then(() => this.startFileWatching());
     this.startCredentialsWatching();
+    this.maybeAnnounceWhatsNew();
     console.log('Claude Code Usage Extension: Initialization complete');
+  }
+
+  /** After an upgrade, show a single "what's new" notification pointing at the
+   * dashboard — so users discover new features (including opt-in, default-off
+   * ones they'd never find otherwise). Shown once per version; skipped on a
+   * fresh install (no nagging new users). */
+  private maybeAnnounceWhatsNew(): void {
+    const current = (this.context.extension?.packageJSON?.version as string) || '';
+    const last = this.context.globalState.get<string>('ccu.lastSeenVersion');
+    if (!current || last === current) {
+      return;
+    }
+    void this.context.globalState.update('ccu.lastSeenVersion', current);
+    if (!last) {
+      return; // fresh install — don't interrupt
+    }
+    // Keyed by major.minor so patch releases don't re-nag.
+    const mm = current.split('.').slice(0, 2).join('.');
+    const news = WHATS_NEW[mm];
+    if (!news) {
+      return;
+    }
+    const open = I18n.t.popup.title; // "Show details" entry point label
+    void vscode.window.showInformationMessage(`Claude Code Usage ${mm}: ${news}`, open).then((pick) => {
+      if (pick === open) {
+        vscode.commands.executeCommand('claudeCodeUsage.showDetails');
+      }
+    });
   }
 
   private setupCommands(): void {
