@@ -46,7 +46,7 @@ export class UsageWebviewProvider {
   private branchBreakdown: BranchUsage[] = [];
   private workflowBreakdown: WorkflowUsage[] = [];
   private costliestMessages: CostlyMessage[] = [];
-  private avatarCache?: string; // GitHub avatar data: URI, fetched on demand
+  private githubIdentity?: { avatar?: string; name?: string }; // fetched on demand
   // Last generated share card + its config, kept so an auto-refresh re-render
   // doesn't wipe the user's picks or preview (share card / heatmap / optimizer
   // output should survive data refreshes — only usage numbers update).
@@ -56,6 +56,7 @@ export class UsageWebviewProvider {
     scope: string;
     sections: Record<string, boolean>;
     avatar: boolean;
+    username: boolean;
     fullNumbers: boolean;
   };
   // Real quota utilisation (pushed asynchronously) for the workflow quota
@@ -141,14 +142,25 @@ export class UsageWebviewProvider {
           // it back for injection (no full re-render).
           if (this.panel && this.allRecords && this.allRecords.length > 0) {
             try {
-              const avatar = message.avatar ? await this.getAvatarDataUri() : undefined;
+              const id = message.avatar || message.username ? await this.getGithubIdentity() : {};
               const range = String(message.range || 'last30');
               const scope = String(message.scope || 'all');
               const sections = (message.sections || {}) as Record<string, boolean>;
-              const svg = this.buildShareCardSvgFor(range, scope, sections as Partial<ShareSections>, avatar, !!message.fullNumbers);
+              const svg = this.buildShareCardSvgFor(range, scope, sections as Partial<ShareSections>, {
+                avatarDataUri: message.avatar ? id.avatar : undefined,
+                username: message.username ? id.name : undefined,
+                fullNumbers: !!message.fullNumbers,
+              });
               // Remember it so a re-render restores the preview + picks.
               this.lastShareCardSvg = svg;
-              this.lastShareCardConfig = { range, scope, sections, avatar: !!message.avatar, fullNumbers: !!message.fullNumbers };
+              this.lastShareCardConfig = {
+                range,
+                scope,
+                sections,
+                avatar: !!message.avatar,
+                username: !!message.username,
+                fullNumbers: !!message.fullNumbers,
+              };
               this.panel.webview.postMessage({ command: 'shareCardResult', svg });
             } catch (e) {
               this.panel.webview.postMessage({ command: 'shareCardResult', error: (e as Error).message });
@@ -163,8 +175,12 @@ export class UsageWebviewProvider {
             break;
           }
           const range = String(message.range || 'last30');
-          const avatar = message.avatar ? await this.getAvatarDataUri() : undefined;
-          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>, avatar, !!message.fullNumbers);
+          const id = message.avatar || message.username ? await this.getGithubIdentity() : {};
+          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>, {
+            avatarDataUri: message.avatar ? id.avatar : undefined,
+            username: message.username ? id.name : undefined,
+            fullNumbers: !!message.fullNumbers,
+          });
           const defaultName = shareCardFilename(range).replace(/\.png$/, '.svg');
           const uri = await vscode.window.showSaveDialog({
             defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
@@ -1513,6 +1529,7 @@ export class UsageWebviewProvider {
       check('badge', 'Badge', true) +
       check('projectName', 'Project name', false);
     const avatarChecked = cfg?.avatar ? ' checked' : '';
+    const nameChecked = cfg?.username ? ' checked' : '';
     const fullChecked = cfg?.fullNumbers ? ' checked' : '';
 
     const preview = this.lastShareCardSvg
@@ -1530,6 +1547,7 @@ export class UsageWebviewProvider {
       '<div class="sc-checks">' + toggles +
       '<label class="sc-check" title="Show the exact token count instead of 1.2M"><input type="checkbox" id="scFull"' + fullChecked + '> Full numbers</label>' +
       '<label class="sc-check" title="Fetches your GitHub avatar (asks to sign in once)"><input type="checkbox" id="scAvatar"' + avatarChecked + '> GitHub avatar</label>' +
+      '<label class="sc-check" title="Shows your GitHub name next to the badge"><input type="checkbox" id="scName"' + nameChecked + '> GitHub name</label>' +
       '</div>' +
       '<div class="share-actions">' +
       '<button class="btn-secondary btn-small" onclick="generateShareCard()">Generate preview</button>' +
@@ -1546,44 +1564,45 @@ export class UsageWebviewProvider {
     range: string,
     scope: string,
     sections: Partial<ShareSections>,
-    avatarDataUri?: string,
-    fullNumbers?: boolean
+    opts: { avatarDataUri?: string; username?: string; fullNumbers?: boolean } = {}
   ): string {
     const input = ClaudeDataLoader.buildShareInput(this.allRecords, range, scope);
     const merged: ShareSections = { ...DEFAULT_SECTIONS, ...sections };
     // Landscape only for now (other sizes need per-size tuning — a later patch).
-    return renderShareCardSvg(buildShareCardData(input, merged), { avatarDataUri, fullNumbers });
+    return renderShareCardSvg(buildShareCardData(input, merged), opts);
   }
 
-  /** Fetch the signed-in GitHub user's avatar as a data: URI (cached). Only
-   * called when the user ticks "GitHub avatar", so auth is on demand. Needs just
-   * `read:user`. Returns undefined if sign-in is declined or the fetch fails. */
-  private async getAvatarDataUri(): Promise<string | undefined> {
-    if (this.avatarCache) {
-      return this.avatarCache;
+  /** Fetch the signed-in GitHub user's avatar (data: URI) and display name,
+   * cached. Only called when the user ticks "GitHub avatar" / "GitHub name", so
+   * auth is on demand (just `read:user`). Missing parts come back undefined. */
+  private async getGithubIdentity(): Promise<{ avatar?: string; name?: string }> {
+    if (this.githubIdentity) {
+      return this.githubIdentity;
     }
     let session: vscode.AuthenticationSession | undefined;
     try {
       session = await vscode.authentication.getSession('github', ['read:user'], { createIfNone: true });
     } catch {
-      return undefined;
+      return {};
     }
     if (!session) {
-      return undefined;
+      return {};
     }
+    const out: { avatar?: string; name?: string } = {};
     try {
       const user = await this.httpsGet('https://api.github.com/user', session.accessToken);
-      const avatarUrl = JSON.parse(user.body.toString('utf8')).avatar_url as string | undefined;
-      if (!avatarUrl) {
-        return undefined;
+      const parsed = JSON.parse(user.body.toString('utf8')) as { avatar_url?: string; name?: string; login?: string };
+      out.name = (parsed.name && parsed.name.trim()) || parsed.login;
+      if (parsed.avatar_url) {
+        const url = parsed.avatar_url + (parsed.avatar_url.includes('?') ? '&' : '?') + 's=160';
+        const img = await this.httpsGet(url);
+        out.avatar = `data:${img.contentType || 'image/png'};base64,${img.body.toString('base64')}`;
       }
-      const img = await this.httpsGet(avatarUrl + (avatarUrl.includes('?') ? '&' : '?') + 's=160');
-      const ct = img.contentType || 'image/png';
-      this.avatarCache = `data:${ct};base64,${img.body.toString('base64')}`;
-      return this.avatarCache;
     } catch {
-      return undefined;
+      /* keep whatever we got */
     }
+    this.githubIdentity = out;
+    return out;
   }
 
   /** Minimal GET over https returning the raw body + content-type. Follows
@@ -4731,11 +4750,13 @@ function scReadConfig() {
     sections[boxes[i].getAttribute('data-sec')] = boxes[i].checked;
   }
   var avatarEl = document.getElementById('scAvatar');
+  var nameEl = document.getElementById('scName');
   var fullEl = document.getElementById('scFull');
   return {
     range: rangeEl ? rangeEl.value : 'last30',
     scope: scopeEl ? scopeEl.value : 'all',
     avatar: avatarEl ? avatarEl.checked : false,
+    username: nameEl ? nameEl.checked : false,
     fullNumbers: fullEl ? fullEl.checked : false,
     sections: sections
   };
@@ -4744,11 +4765,11 @@ function generateShareCard() {
   var cfg = scReadConfig();
   var prev = document.getElementById('scPreview');
   if (prev) { prev.innerHTML = '<p class="table-hint">Generating…</p>'; }
-  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, avatar: cfg.avatar, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportShareCardConfigured() {
   var cfg = scReadConfig();
-  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, avatar: cfg.avatar, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportHeatmap() {
   vscode.postMessage({ command: 'exportHeatmap' });

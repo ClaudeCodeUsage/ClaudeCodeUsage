@@ -55,11 +55,21 @@ test('size presets set the canvas dimensions', () => {
 });
 
 test('embeds an avatar in the corner when provided', () => {
-  const svg = renderShareCardSvg({ ...base, badge: { id: 'x', label: 'X' } }, { avatarDataUri: 'data:image/png;base64,AAA' });
+  const svg = renderShareCardSvg({ ...base, badge: { id: 'x', label: 'Xyz' } }, { avatarDataUri: 'data:image/png;base64,AAA' });
   assert.match(svg, /<image[^>]+href="data:image\/png;base64,AAA"/);
   assert.match(svg, /clip-path="url\(#av\)"/);
-  // avatar replaces the badge in the corner
-  assert.doesNotMatch(svg, />X<\/text>/);
+  // avatar and badge coexist now
+  assert.match(svg, />Xyz<\/text>/);
+});
+
+test('shows avatar + name + badge together (personalized corner)', () => {
+  const svg = renderShareCardSvg(
+    { ...base, badge: { id: 'x', label: 'Cache Saver' } },
+    { avatarDataUri: 'data:image/png;base64,AAA', username: 'octocat' }
+  );
+  assert.match(svg, /<image[^>]/); // avatar
+  assert.match(svg, />octocat<\/text>/); // name
+  assert.match(svg, />Cache Saver<\/text>/); // badge
 });
 
 test('shows the full model name, not just the family', () => {

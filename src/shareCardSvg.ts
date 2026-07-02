@@ -61,6 +61,7 @@ export interface ShareCardSvgOptions {
   height?: number;
   size?: ShareCardSize; // takes precedence over width/height
   avatarDataUri?: string; // optional embedded avatar (data: URI), top-right
+  username?: string; // optional name shown with the badge (personalization)
   fullNumbers?: boolean; // show the exact token count in the hero, not compact
 }
 
@@ -87,18 +88,28 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   p.push(`<text x="${M}" y="86" font-size="30" font-weight="700" fill="${INK}">My Claude Code usage</text>`);
   p.push(`<text x="${M}" y="120" font-size="20" fill="${MUTED}">${esc(sub)}</text>`);
 
-  // Avatar (optional, top-right) or badge — avatar wins the corner if present.
+  // Personalized corner (top-right): avatar circle + a two-line name / badge
+  // block to its left. Any subset can be present; they no longer exclude each
+  // other (Carl: avatar + badge + name together reads like a personal card).
+  let textRight = W - M;
   if (opts.avatarDataUri) {
     const s = 76;
     const ax = W - M - s;
     p.push(`<clipPath id="av"><circle cx="${ax + s / 2}" cy="${58 + s / 2}" r="${s / 2}"/></clipPath>`);
     p.push(`<image x="${ax}" y="58" width="${s}" height="${s}" href="${esc(opts.avatarDataUri)}" xlink:href="${esc(opts.avatarDataUri)}" clip-path="url(#av)" preserveAspectRatio="xMidYMid slice"/>`);
     p.push(`<circle cx="${ax + s / 2}" cy="${58 + s / 2}" r="${s / 2}" fill="none" stroke="#f0d8c9" stroke-width="2"/>`);
-  } else if (data.badge) {
-    const bw = 40 + data.badge.label.length * 11;
-    const bx = W - M - bw;
-    p.push(`<rect x="${bx}" y="68" width="${bw}" height="40" rx="20" fill="url(#accent)"/>`);
-    p.push(`<text x="${bx + bw / 2}" y="94" font-size="18" font-weight="600" fill="#ffffff" text-anchor="middle">${esc(data.badge.label)}</text>`);
+    textRight = ax - 16;
+  }
+  const hasName = !!(opts.username && opts.username.trim());
+  if (hasName) {
+    p.push(`<text x="${textRight}" y="86" font-size="20" font-weight="600" fill="${INK}" text-anchor="end">${esc(opts.username!.trim())}</text>`);
+  }
+  if (data.badge) {
+    const label = data.badge.label;
+    const bw = 34 + label.length * 10;
+    const by = hasName ? 100 : 76; // below the name, else vertically centred on the avatar band
+    p.push(`<rect x="${textRight - bw}" y="${by}" width="${bw}" height="34" rx="17" fill="url(#accent)"/>`);
+    p.push(`<text x="${textRight - bw / 2}" y="${by + 23}" font-size="16" font-weight="600" fill="#ffffff" text-anchor="middle">${esc(label)}</text>`);
   }
 
   // --- Middle sections, distributed between the header and the footer ---
