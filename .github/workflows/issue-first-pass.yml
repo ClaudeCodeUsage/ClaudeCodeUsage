@@ -1,0 +1,67 @@
+# Auto first-pass reply on every NEW issue (V2.2 automation — Carl's opt-in).
+#
+# When an issue is opened, the assistant reads the project's architecture docs
+# and posts ONE helpful first-pass comment: what it understands, where in the
+# code/architecture it points, and either a suggested direction or a clarifying
+# question. Every comment is clearly labelled automated and ends with a
+# disclaimer that a maintainer follows up.
+#
+# SAFE BY DEFAULT — inert until the owner sets:
+#   1. Repo variable  AUTOMATION_ENABLED = 'true'   (kill switch)
+#   2. Repo secret     ANTHROPIC_API_KEY            (official or third-party key)
+# Optional: repo variable ANTHROPIC_BASE_URL for a third-party Anthropic-format
+# endpoint. Bot-authored issues are skipped (no loops).
+name: Issue first-pass (auto)
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read # read repo files to answer accurately (never guess)
+  issues: write # post the reply
+
+concurrency:
+  group: issue-first-pass-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  reply:
+    if: vars.AUTOMATION_ENABLED == 'true' && github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: First-pass reply
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 15"
+          prompt: |
+            You are the ClaudeCodeUsage repository assistant, running via Claude Code
+            (the model may be a third-party Anthropic-format model, so do not claim to
+            be Anthropic's Claude specifically).
+
+            A new issue was just opened (title/body in the event context). Post ONE
+            comment as a first-pass response. Rules:
+            - First read ARCHITECTURE.md, CLAUDE.md and CONTRIBUTING.md for context.
+            - If those docs are NOT enough to answer accurately, READ the relevant
+              repository files to find the real answer. Never guess or invent an
+              answer — if you still can't determine it, say what's unclear and ask a
+              specific clarifying question instead of speculating.
+            - Be concrete and concise: what you understand the request to be, where in
+              the code/architecture it relates, and a suggested direction OR the
+              clarifying question needed. No filler, no AI-flavoured padding.
+            - Reply in the same language the issue author used.
+            - START the comment with: "🤖 Automated first-pass reply (via Claude Code)".
+            - END the comment with this disclaimer on its own line:
+              "_This is model-generated from the repository's architecture docs and
+              the issue description — not a final decision. A maintainer will review
+              and follow up._"
+            - Do not change labels, close the issue, or open PRs. Just the one comment.

@@ -1,6 +1,6 @@
-# Mention-driven Claude agent (V2.2 automation — Track 2, A1).
+# Mention-driven assistant (V2.2 automation — Track 2, A1).
 #
-# Lets a MAINTAINER summon Claude by writing "@claude ..." in an issue, an issue
+# Lets a MAINTAINER summon the assistant by writing "@ccu-bot ..." in an issue, an issue
 # comment, or a PR review/comment. Claude reads the repo (incl. CLAUDE.md /
 # ARCHITECTURE.md / CONTRIBUTING.md) and can open commits/PRs or reply.
 #
@@ -17,9 +17,9 @@
 # unset to use the official API.
 #
 # It also only responds to OWNER / MEMBER / COLLABORATOR authors, so a random
-# visitor can't spend the API budget by typing "@claude". Every other automation
+# visitor can't spend the API budget by typing "@ccu-bot". Every other automation
 # piece (auto-triage A2, PR first-pass A3) is separate and still drafts-only.
-name: Claude Mention
+name: CCU Bot (mention)
 
 on:
   issue_comment:
@@ -45,13 +45,13 @@ concurrency:
 
 jobs:
   claude:
-    # Kill switch + "@claude" present + author is a maintainer.
+    # Kill switch + "@ccu-bot" present + author is a maintainer.
     if: |
       vars.AUTOMATION_ENABLED == 'true' && (
-        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
-        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
-        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@ccu-bot') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@ccu-bot') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@ccu-bot') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@ccu-bot') || contains(github.event.issue.title, '@ccu-bot')) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
       )
     runs-on: ubuntu-latest
     timeout-minutes: 15
