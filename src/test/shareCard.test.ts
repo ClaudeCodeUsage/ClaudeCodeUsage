@@ -12,6 +12,7 @@ import {
   buildShareCardData,
   cacheSharePct,
   modelFamily,
+  prettyModelName,
   selectShareBadge,
   shareCardFilename,
   totalTokens,
@@ -52,6 +53,15 @@ test('modelFamily reduces Claude to a family, keeps third-party', () => {
   assert.equal(modelFamily('claude-fable-5'), 'Fable');
   assert.equal(modelFamily('deepseek-v4-pro'), 'deepseek-v4-pro');
   assert.equal(modelFamily(undefined), undefined);
+});
+
+test('prettyModelName keeps the version (Carl: show the model, not just the family)', () => {
+  assert.equal(prettyModelName('claude-opus-4-8'), 'Opus 4.8');
+  assert.equal(prettyModelName('claude-sonnet-4-6'), 'Sonnet 4.6');
+  assert.equal(prettyModelName('claude-fable-5'), 'Fable 5');
+  assert.equal(prettyModelName('claude-3-5-sonnet-20241022'), 'Sonnet 3.5');
+  assert.equal(prettyModelName('deepseek-v4-pro'), 'deepseek-v4-pro');
+  assert.equal(prettyModelName(undefined), undefined);
 });
 
 test('DEFAULT_SECTIONS redacts project name / workflow / peak / composition', () => {

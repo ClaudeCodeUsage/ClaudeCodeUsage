@@ -5,6 +5,8 @@ import { getModelRatesPerMillion } from './pricing';
 import { SETTINGS, SettingsStore, SettingView } from './settings';
 import { buildResumeCommand, isUsableCwd, isValidSessionId, isUnderDir } from './sessionResume';
 import { renderHeatmapSvg } from './heatmapSvg';
+import { DEFAULT_SECTIONS, buildShareCardData } from './shareCard';
+import { renderShareCardSvg } from './shareCardSvg';
 import {
   AttributionScope,
   BranchUsage,
@@ -112,6 +114,9 @@ export class UsageWebviewProvider {
           break;
         case 'getAdvice':
           vscode.commands.executeCommand('claudeCodeUsage.getAdvice');
+          break;
+        case 'exportShareCard':
+          vscode.commands.executeCommand('claudeCodeUsage.exportShareCard');
           break;
         case 'setDashboardAutoRefresh':
           // Persist the in-dashboard toggle so it survives reload. Lives in the
@@ -1339,7 +1344,28 @@ export class UsageWebviewProvider {
         : '';
 
     // Heatmap sits right above the "monthly usage" breakdown, below the totals.
-    return allTimeSummary + heatmapPanel + dailyBreakdown;
+    return allTimeSummary + this.renderShareCardPanel() + heatmapPanel + dailyBreakdown;
+  }
+
+  /** A discoverable, always-visible "share card" panel (Carl couldn't find the
+   * command). Renders this month's card inline — composition on, so all the
+   * metrics show — with an export button. Privacy-safe by construction: it's
+   * built from buildShareCardData, which only carries aggregate numbers. */
+  private renderShareCardPanel(): string {
+    if (!this.allRecords || this.allRecords.length === 0) {
+      return '';
+    }
+    const input = ClaudeDataLoader.buildShareInput(this.allRecords, 'month');
+    const sections = { ...DEFAULT_SECTIONS, tokenComposition: true };
+    const svg = renderShareCardSvg(buildShareCardData(input, sections));
+    return (
+      '<div class="share-panel"><h3>Share card</h3>' +
+      '<p class="table-hint">A one-page summary of your month, ready to post. Only aggregate numbers — no prompts, paths, or session ids. The QR links back to the project.</p>' +
+      '<div class="share-preview">' + svg + '</div>' +
+      '<div class="share-actions">' +
+      '<button class="btn-secondary btn-small" onclick="exportShareCard()">Export as SVG…</button>' +
+      '</div></div>'
+    );
   }
 
   private renderSessionData(): string {
@@ -3728,6 +3754,27 @@ export class UsageWebviewProvider {
         color: var(--vscode-foreground);
       }
 
+      /* Share card panel (All tab): a responsive preview of the export SVG. */
+      .share-panel {
+        margin: 8px 0 22px;
+      }
+      .share-preview {
+        max-width: 680px;
+        margin: 10px 0;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #fff;
+      }
+      .share-preview svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .share-actions {
+        margin-top: 8px;
+      }
+
       /* Optional token heatmap panel (All tab). The SVG has a fixed size; let it
        * scroll horizontally on narrow panels rather than squash. */
       .heatmap-panel {
@@ -4248,6 +4295,9 @@ const __dateOpts = (extra) => {
 };
 
 // Define basic functions
+function exportShareCard() {
+  vscode.postMessage({ command: 'exportShareCard' });
+}
 function refresh() {
   console.log("[DEBUG] refresh called");
   vscode.postMessage({ command: 'refresh' });

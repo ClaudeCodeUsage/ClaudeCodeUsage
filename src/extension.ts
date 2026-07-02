@@ -268,7 +268,8 @@ export class ClaudeCodeUsageExtension {
       return;
     }
     const input = ClaudeDataLoader.buildShareInput(records, picked.range);
-    const data = buildShareCardData(input, DEFAULT_SECTIONS);
+    // Match the dashboard preview: defaults + token composition on.
+    const data = buildShareCardData(input, { ...DEFAULT_SECTIONS, tokenComposition: true });
     const svg = renderShareCardSvg(data);
     const defaultName = shareCardFilename(picked.range).replace(/\.png$/, '.svg');
     const uri = await vscode.window.showSaveDialog({

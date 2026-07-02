@@ -13,8 +13,34 @@ test('renders a well-formed svg with the default size', () => {
   const svg = renderShareCardSvg(base);
   assert.match(svg, /^<svg /);
   assert.match(svg, /<\/svg>$/);
-  assert.match(svg, /width="1200" height="630"/);
+  assert.match(svg, /width="1200" height="760"/);
   assert.match(svg, /My Claude Code usage/);
+});
+
+test('always embeds the repo QR link (drives traffic when shared)', () => {
+  const svg = renderShareCardSvg(base);
+  assert.match(svg, /github\.com\/ClaudeCodeUsage\/ClaudeCodeUsage/);
+  assert.match(svg, /Star us on GitHub/);
+});
+
+test('shows the full model name, not just the family', () => {
+  const svg = renderShareCardSvg({ ...base, totalTokens: 1, topModelName: 'Opus 4.8', topModelFamily: 'Opus' });
+  assert.match(svg, />Opus 4\.8</);
+});
+
+test('renders the token composition bar + legend when present', () => {
+  const svg = renderShareCardSvg({
+    ...base,
+    composition: { input: 10, output: 30, cacheCreate: 20, cacheRead: 40 },
+  });
+  assert.match(svg, /Token composition/);
+  assert.match(svg, /Cache read 40%/);
+  assert.match(svg, /Input 10%/);
+});
+
+test('labels the rhythm peak', () => {
+  const svg = renderShareCardSvg({ ...base, rhythm: [1, 2, 5_300_000] });
+  assert.match(svg, /peak 5\.3M/);
 });
 
 test('draws the total-tokens hero in compact form', () => {

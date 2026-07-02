@@ -65,8 +65,11 @@ export interface ShareCardData {
   estimatedCost?: number;
   sessions?: number;
   topModelFamily?: string;
+  topModelName?: string; // pretty full name, e.g. "Opus 4.8" (Carl: show the model, not just "Opus")
   cacheSharePct?: number;
   rhythm?: number[];
+  // Token composition (the four billed token types) — off by default.
+  composition?: { input: number; output: number; cacheCreate: number; cacheRead: number };
   badge?: { id: string; label: string };
   workflowSharePct?: number;
   peakContextTokens?: number;
@@ -85,6 +88,24 @@ export function totalTokens(u: UsageData): number {
 export function cacheSharePct(u: UsageData): number {
   const inputSide = u.totalInputTokens + u.totalCacheCreationTokens + u.totalCacheReadTokens;
   return inputSide > 0 ? Math.round((u.totalCacheReadTokens / inputSide) * 100) : 0;
+}
+
+/** A pretty full model name from a raw id, e.g. "claude-opus-4-8" → "Opus 4.8",
+ * "claude-fable-5" → "Fable 5". Third-party ids are kept verbatim. */
+export function prettyModelName(model: string | undefined): string | undefined {
+  if (!model) {
+    return undefined;
+  }
+  const s = model.toLowerCase();
+  const fam = (s.match(/opus|sonnet|haiku|fable|mythos/) || [])[0];
+  if (!fam) {
+    return model;
+  }
+  const pair = s.match(/(\d+)[-.](\d+)/);
+  const single = s.match(/-(\d+)(?!\d)/);
+  const ver = pair ? `${pair[1]}.${pair[2]}` : single ? single[1] : '';
+  const Fam = fam[0].toUpperCase() + fam.slice(1);
+  return ver ? `${Fam} ${ver}` : Fam;
 }
 
 /** Reduce a model id to a family name (no version exposed); third-party kept. */
@@ -152,12 +173,21 @@ export function buildShareCardData(input: ShareInput, sections: ShareSections): 
   }
   if (sections.topModel) {
     out.topModelFamily = modelFamily(input.topModel);
+    out.topModelName = prettyModelName(input.topModel);
   }
   if (sections.cacheEfficiency) {
     out.cacheSharePct = cacheSharePct(u);
   }
   if (sections.rhythm) {
     out.rhythm = input.daily.slice();
+  }
+  if (sections.tokenComposition) {
+    out.composition = {
+      input: u.totalInputTokens,
+      output: u.totalOutputTokens,
+      cacheCreate: u.totalCacheCreationTokens,
+      cacheRead: u.totalCacheReadTokens,
+    };
   }
   if (sections.badge) {
     out.badge = selectShareBadge(input);
