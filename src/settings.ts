@@ -28,8 +28,11 @@ export interface SettingDef {
   group: SettingGroup;
   label: string; // short English label shown in the panel
   help?: string; // one-line English help
-  enumValues?: string[]; // for type 'enum'
+  enumValues?: string[]; // for type 'enum' (the full set of valid values)
   enumLabels?: string[]; // optional display labels (defaults to enumValues)
+  // Optional <optgroup> structure for a long enum (e.g. timezone: Common vs All
+  // zones). Purely presentational — enumValues stays the flat validation set.
+  enumGroups?: { label: string; values: string[]; labels: string[] }[];
   min?: number;
   max?: number;
   secret?: boolean; // mask the input (apiKey)
@@ -97,13 +100,35 @@ function utcOffsetLabel(zone: string): string {
   }
 }
 
-const TIMEZONE_VALUES: string[] = ['', ...CURATED_ZONES.map((z) => z.zone)];
+/** Every IANA zone (ES2023); falls back to the curated set on old runtimes. */
+const ALL_ZONES: string[] = (() => {
+  try {
+    return (Intl as unknown as { supportedValuesOf(k: string): string[] }).supportedValuesOf('timeZone');
+  } catch {
+    return CURATED_ZONES.map((z) => z.zone);
+  }
+})();
+
+const offLabel = (zone: string, name: string): string => {
+  const off = utcOffsetLabel(zone);
+  return off ? `(${off}) ${name}` : name;
+};
+
+const curatedSet = new Set(CURATED_ZONES.map((z) => z.zone));
+const otherZones = ALL_ZONES.filter((z) => !curatedSet.has(z)).sort();
+
+// Flat set (validation accepts any zone) + labels; the dropdown groups them.
+const TIMEZONE_VALUES: string[] = ['', ...CURATED_ZONES.map((z) => z.zone), ...otherZones];
 const TIMEZONE_LABELS: string[] = [
   'System default',
-  ...CURATED_ZONES.map((z) => {
-    const off = utcOffsetLabel(z.zone);
-    return off ? `(${off}) ${z.city}` : z.city;
-  }),
+  ...CURATED_ZONES.map((z) => offLabel(z.zone, z.city)),
+  ...otherZones.map((z) => offLabel(z, z)),
+];
+// Common zones stay handy at the top; every other zone is reachable below.
+const TIMEZONE_GROUPS = [
+  { label: 'System', values: [''], labels: ['System default'] },
+  { label: 'Common', values: CURATED_ZONES.map((z) => z.zone), labels: CURATED_ZONES.map((z) => offLabel(z.zone, z.city)) },
+  { label: 'All zones', values: otherZones, labels: otherZones.map((z) => offLabel(z, z)) },
 ];
 
 export const SETTINGS: SettingDef[] = [
@@ -182,9 +207,10 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'general',
     label: 'Timezone for dates',
-    help: 'Pick a zone (labelled with its current UTC offset), or the system default. A previously-set zone outside this list stays selectable.',
+    help: 'Pick a zone (labelled with its current UTC offset), or the system default. Common zones are at the top; every IANA zone is under "All zones".',
     enumValues: TIMEZONE_VALUES,
     enumLabels: TIMEZONE_LABELS,
+    enumGroups: TIMEZONE_GROUPS,
   },
   {
     key: 'projectGroupingMode',

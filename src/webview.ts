@@ -752,22 +752,30 @@ export class UsageWebviewProvider {
         onCh('boolean') +
         '><span class="set-slider"></span></label>';
     } else if (it.type === 'enum') {
-      const values = (it.enumValues || []).slice();
-      const labels = (it.enumLabels || []).slice();
-      // Keep a previously-stored value selectable even if it isn't in the
-      // curated list (e.g. an exotic timezone set before the list was trimmed).
       const cur = String(it.value);
-      if (cur && !values.includes(cur)) {
-        values.unshift(cur);
-        labels.unshift(cur + ' (current)');
+      const option = (v: string, lbl: string): string =>
+        '<option value="' + esc(v) + '"' + (cur === v ? ' selected' : '') + '>' + esc(lbl) + '</option>';
+      let opts = '';
+      // Keep a previously-stored value selectable even if it's not in the list.
+      const known = new Set(it.enumValues || []);
+      if (cur && !known.has(cur)) {
+        opts += option(cur, cur + ' (current)');
       }
-      const opts = values
-        .map((v, i) => {
-          const label = labels[i] || (v === '' ? '(default)' : v);
-          const sel = String(it.value) === v ? ' selected' : '';
-          return '<option value="' + esc(v) + '"' + sel + '>' + esc(label) + '</option>';
-        })
-        .join('');
+      if (it.enumGroups && it.enumGroups.length > 0) {
+        // Grouped <optgroup> rendering (e.g. timezone: Common / All zones).
+        opts += it.enumGroups
+          .map(
+            (g) =>
+              '<optgroup label="' + esc(g.label) + '">' +
+              g.values.map((v, i) => option(v, g.labels[i] || (v === '' ? '(default)' : v))).join('') +
+              '</optgroup>'
+          )
+          .join('');
+      } else {
+        const values = it.enumValues || [];
+        const labels = it.enumLabels || [];
+        opts += values.map((v, i) => option(v, labels[i] || (v === '' ? '(default)' : v))).join('');
+      }
       control = '<select id="' + id + '"' + onCh('string') + '>' + opts + '</select>';
     } else if (it.type === 'number') {
       control =
