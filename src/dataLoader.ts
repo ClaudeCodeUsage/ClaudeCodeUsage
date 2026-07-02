@@ -15,6 +15,7 @@ import {
   AttributionScope,
   BranchUsage,
   ClaudeUsageRecord,
+  CostlyMessage,
   ContentAnalysis,
   ContextWindowInfo,
   ContentSlice,
@@ -689,6 +690,7 @@ export class ClaudeDataLoader {
                     timestamp: lineAny.timestamp,
                     message: { usage: { input_tokens: 0, output_tokens: 0 } },
                     _isUserPrompt: true,
+                    _promptText: text.trim().slice(0, 300),
                     _sessionId: sessionInfo.sessionId,
                     _projectDirEncoded: sessionInfo.projectPath,
                   };
@@ -1346,6 +1348,69 @@ export class ClaudeDataLoader {
 
   static getAllTimeData(records: ClaudeUsageRecord[]): UsageData {
     return this.calculateUsageData(records);
+  }
+
+  /** The costliest individual assistant turns (single billed responses), each
+   * with the user prompt that triggered it and the skill/plugin/model in play.
+   * Walks each session in timestamp order to attach the preceding prompt; keeps
+   * only the top `limit` by cost (bounded insertion, no full-array sort). */
+  static getCostliestMessages(records: ClaudeUsageRecord[], limit: number = 10): CostlyMessage[] {
+    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    for (const r of records) {
+      const sid = r._sessionId || 'unknown';
+      (bySession[sid] ?? (bySession[sid] = [])).push(r);
+    }
+
+    const top: CostlyMessage[] = [];
+    const consider = (m: CostlyMessage): void => {
+      if (top.length < limit) {
+        top.push(m);
+        top.sort((a, b) => b.cost - a.cost);
+      } else if (m.cost > top[top.length - 1].cost) {
+        top[top.length - 1] = m;
+        top.sort((a, b) => b.cost - a.cost);
+      }
+    };
+
+    for (const sid of Object.keys(bySession)) {
+      const recs = bySession[sid]
+        .slice()
+        .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+      let lastPrompt: string | undefined;
+      for (const r of recs) {
+        if (r._isUserPrompt) {
+          if (r._promptText) {
+            lastPrompt = r._promptText;
+          }
+          continue;
+        }
+        const u = r.message.usage;
+        const model = r.message.model;
+        if (!u || !model || model === '<synthetic>' || r.isApiErrorMessage) {
+          continue;
+        }
+        const cb = calculateCostBreakdown(u, model);
+        const cost = cb.input + cb.output + cb.cacheWrite + cb.cacheRead;
+        if (cost <= 0) {
+          continue;
+        }
+        consider({
+          timestamp: r.timestamp,
+          cost,
+          inputTokens: u.input_tokens,
+          outputTokens: u.output_tokens,
+          cacheCreationTokens: u.cache_creation_input_tokens || 0,
+          cacheReadTokens: u.cache_read_input_tokens || 0,
+          model,
+          skill: r._skill,
+          plugin: r._plugin,
+          prompt: lastPrompt,
+          projectName: r._projectName || '',
+          sessionId: sid,
+        });
+      }
+    }
+    return top.sort((a, b) => b.cost - a.cost);
   }
 
   /** Assemble the aggregate inputs for a share card over a range (today / last

@@ -8,6 +8,7 @@ import { renderHeatmapSvg } from './heatmapSvg';
 import {
   AttributionScope,
   BranchUsage,
+  CostlyMessage,
   ClaudeApiUsageResponse,
   ContentAnalysis,
   ProjectGroup,
@@ -39,6 +40,7 @@ export class UsageWebviewProvider {
   private contentAnalysis: ContentAnalysis | null = null;
   private branchBreakdown: BranchUsage[] = [];
   private workflowBreakdown: WorkflowUsage[] = [];
+  private costliestMessages: CostlyMessage[] = [];
   // Real quota utilisation (pushed asynchronously) for the workflow quota
   // guard banner; dismissal lasts for the lifetime of this window.
   private usageLimits: ClaudeApiUsageResponse | null = null;
@@ -305,7 +307,8 @@ export class UsageWebviewProvider {
     projectBreakdown: ProjectGroup[] = [],
     contentAnalysis: ContentAnalysis | null = null,
     branchBreakdown: BranchUsage[] = [],
-    workflowBreakdown: WorkflowUsage[] = []
+    workflowBreakdown: WorkflowUsage[] = [],
+    costliestMessages: CostlyMessage[] = []
   ): void {
     this.currentSessionData = sessionData;
     this.todayData = todayData;
@@ -325,6 +328,7 @@ export class UsageWebviewProvider {
     this.contentAnalysis = contentAnalysis;
     this.branchBreakdown = branchBreakdown;
     this.workflowBreakdown = workflowBreakdown;
+    this.costliestMessages = costliestMessages;
 
     if (this.panel) {
       this.updateWebview();
@@ -521,7 +525,7 @@ export class UsageWebviewProvider {
         '" onclick="showTab(\'content\')">' + contentTab + '</button>'
       : '';
     const contentTabContent = contentEnabled
-      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + this.renderCostliestConversations() + '</div>'
+      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + this.renderCostliestMessages() + '</div>'
       : '';
 
     return (
@@ -2256,54 +2260,51 @@ export class UsageWebviewProvider {
    * tokens (your prompts vs. tool results vs. assistant output), to help spot
    * habits worth optimising. Token figures are estimated from text length.
    */
-  /** Opt-in (showEfficiency) "top 10 costliest conversations" panel for the
-   * Content tab. Ranks sessions by cost; each row expands (native <details>) to
-   * its tokens / top model / cache-hit / duration. */
-  private renderCostliestConversations(): string {
+  /** Opt-in (showEfficiency) "top 10 costliest messages" panel for the Content
+   * tab. Ranks single assistant turns by cost; each row expands (native
+   * <details>) to the prompt that triggered it, its token breakdown, model and
+   * skill — so an expensive turn can be understood, in the same spirit as the
+   * AI advice and optimizer cards that live alongside it. */
+  private renderCostliestMessages(): string {
     if (!this.setting<boolean>('showEfficiency', false)) {
       return '';
     }
-    const sessions = this.sessionBreakdown || [];
-    const top = [...sessions]
-      .filter((s) => s.data.totalCost > 0)
-      .sort((a, b) => b.data.totalCost - a.data.totalCost)
-      .slice(0, 10);
+    const top = this.costliestMessages || [];
     if (top.length === 0) {
       return '';
     }
-    const tokensOf = (d: UsageData): number =>
-      d.totalInputTokens + d.totalOutputTokens + d.totalCacheCreationTokens + d.totalCacheReadTokens;
-    const topModel = (d: UsageData): string => {
-      let best = '';
-      let bestCost = -1;
-      for (const [m, mb] of Object.entries(d.modelBreakdown)) {
-        if (mb.cost > bestCost) {
-          bestCost = mb.cost;
-          best = m;
-        }
-      }
-      return best ? this.escapeHtml(this.shortModelName(best)) : '—';
-    };
+    const t = I18n.t.popup;
     const detailRow = (label: string, value: string): string =>
       '<div class="costly-kv"><span>' + label + '</span><span>' + value + '</span></div>';
     let rows = '';
-    top.forEach((s, i) => {
-      const d = s.data;
-      const name = this.escapeHtml(s.title || s.sessionId);
+    top.forEach((m, i) => {
+      const tokens = m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens;
+      const promptText = m.prompt && m.prompt.trim() ? m.prompt.trim() : '(no prompt captured)';
+      const promptShort = promptText.length > 80 ? promptText.slice(0, 80) + '…' : promptText;
+      const skillLabel = m.skill ? (m.plugin ? m.skill + ' · ' + m.plugin : m.skill) : '—';
       rows +=
         '<details class="costly-row"><summary>' +
         '<span class="costly-rank">' + (i + 1) + '</span>' +
-        '<span class="costly-name" title="' + name + '">' + name + '</span>' +
-        '<span class="costly-cost">' + I18n.formatCurrency(d.totalCost) + '</span>' +
+        '<span class="costly-name" title="' + this.escapeHtml(promptText) + '">' + this.escapeHtml(promptShort) + '</span>' +
+        '<span class="costly-cost">' + I18n.formatCurrency(m.cost) + '</span>' +
         '</summary><div class="costly-detail">' +
-        detailRow(I18n.t.popup.totalTokens, I18n.formatNumber(tokensOf(d))) +
-        detailRow(I18n.t.popup.cacheHitRate, this.formatPercent(this.cacheHitRate(d))) +
-        detailRow(I18n.t.popup.modelBreakdown, topModel(d)) +
-        detailRow(I18n.t.popup.project, this.escapeHtml(s.projectName)) +
-        detailRow('Session', this.escapeHtml(s.sessionId.slice(0, 12))) +
+        (m.prompt ? '<div class="costly-prompt">' + this.escapeHtml(promptText) + '</div>' : '') +
+        detailRow(t.model, this.escapeHtml(m.model)) +
+        detailRow('Skill', this.escapeHtml(skillLabel)) +
+        detailRow(t.totalTokens, I18n.formatNumber(tokens)) +
+        detailRow(t.inputTokens, I18n.formatNumber(m.inputTokens)) +
+        detailRow(t.outputTokens, I18n.formatNumber(m.outputTokens)) +
+        detailRow(t.cacheCreation, I18n.formatNumber(m.cacheCreationTokens)) +
+        detailRow(t.cacheRead, I18n.formatNumber(m.cacheReadTokens)) +
+        detailRow(t.project, this.escapeHtml(m.projectName || '—')) +
         '</div></details>';
     });
-    return '<div class="costly-panel"><h3>Top 10 costliest conversations</h3>' + rows + '</div>';
+    return (
+      '<div class="costly-panel"><h3>Top 10 costliest messages</h3>' +
+      '<p class="table-hint">Single responses ranked by cost — expand to see the prompt that triggered each.</p>' +
+      rows +
+      '</div>'
+    );
   }
 
   private renderContentData(): string {
@@ -3713,6 +3714,18 @@ export class UsageWebviewProvider {
         font-size: 12px;
         padding: 2px 0;
         color: var(--vscode-descriptionForeground);
+      }
+      .costly-prompt {
+        font-size: 12px;
+        line-height: 1.4;
+        margin: 0 0 8px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: var(--vscode-textBlockQuote-background);
+        border-left: 3px solid var(--vscode-textBlockQuote-border);
+        color: var(--vscode-foreground);
       }
 
       /* Optional token heatmap panel (All tab). The SVG has a fixed size; let it

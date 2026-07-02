@@ -30,6 +30,9 @@ export interface ClaudeUsageRecord {
   // Synthetic marker record for one genuine user prompt (zero usage).
   // messageCount counts these, so "Messages" means what users typed.
   _isUserPrompt?: boolean;
+  // Truncated text of a user prompt (only on _isUserPrompt records) — lets the
+  // "costliest messages" panel show what triggered an expensive turn.
+  _promptText?: string;
   // --- Sub-agent attribution (set when the source file sits under a
   // `subagents/` directory; see V2.1-WORKFLOW-SPEC §2) ---
   // Workflow run id ("wf_…") when the file sits under subagents/workflows/.
@@ -95,6 +98,25 @@ export interface SessionUsage {
   // Largest context window observed in the session
   // (input + cache read + cache creation tokens of a single request).
   peakContextTokens: number;
+}
+
+// One expensive assistant turn, for the Content tab's "costliest messages"
+// panel. A single billed response, with the user prompt that triggered it and
+// the skill/plugin/model in play — so a costly turn can be understood, not just
+// counted. (Content-analysis theme, alongside AI advice + the optimizer.)
+export interface CostlyMessage {
+  timestamp: string;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  model: string; // full model id (e.g. "claude-opus-4-8"), not a family
+  skill?: string;
+  plugin?: string;
+  prompt?: string; // truncated text of the triggering user prompt
+  projectName: string;
+  sessionId: string;
 }
 
 // Per-project breakdown: usage aggregated across every session of a project.

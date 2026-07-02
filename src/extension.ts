@@ -985,6 +985,7 @@ export class ClaudeCodeUsageExtension {
       const projectBreakdown = ClaudeDataLoader.getProjectBreakdown(records, undefined, config.projectGroupingMode);
       const branchBreakdown = ClaudeDataLoader.getBranchBreakdown(records);
       const workflowBreakdown = ClaudeDataLoader.getWorkflowBreakdown(records);
+      const costliestMessages = ClaudeDataLoader.getCostliestMessages(records);
 
       // Update UI. Quota is pushed asynchronously by the fire-and-forget fetch
       // above; passing undefined leaves the quota item untouched here.
@@ -993,7 +994,7 @@ export class ClaudeCodeUsageExtension {
         ClaudeDataLoader.getCurrentContextInfo(records, workspacePath, config.contextWindowOverride)
       );
       if (updateWebview) {
-        this.webviewProvider.updateData(sessionData, todayData, monthData, allTimeData, dailyDataForMonth, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown);
+        this.webviewProvider.updateData(sessionData, todayData, monthData, allTimeData, dailyDataForMonth, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages);
       }
 
     } catch (error) {
