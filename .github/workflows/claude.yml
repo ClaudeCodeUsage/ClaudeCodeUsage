@@ -1,0 +1,65 @@
+# Mention-driven Claude agent (V2.2 automation — Track 2, A1).
+#
+# Lets a MAINTAINER summon Claude by writing "@claude ..." in an issue, an issue
+# comment, or a PR review/comment. Claude reads the repo (incl. CLAUDE.md /
+# ARCHITECTURE.md / CONTRIBUTING.md) and can open commits/PRs or reply.
+#
+# SAFE BY DEFAULT — this job is INERT until the owner opts in:
+#   1. Repo variable  AUTOMATION_ENABLED = 'true'   (Settings → Variables) — kill switch.
+#   2. Repo secret     ANTHROPIC_API_KEY             (Settings → Secrets).
+# With neither set, the `if:` gate is false and nothing runs / no budget is spent.
+#
+# It also only responds to OWNER / MEMBER / COLLABORATOR authors, so a random
+# visitor can't spend the API budget by typing "@claude". Every other automation
+# piece (auto-triage A2, PR first-pass A3) is separate and still drafts-only.
+name: Claude Mention
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, assigned]
+
+# Least privilege: enough to comment / open a PR branch, nothing more.
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: claude-mention-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    # Kill switch + "@claude" present + author is a maintainer.
+    if: |
+      vars.AUTOMATION_ENABLED == 'true' && (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude') && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')) && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Cap the agent loop so a single mention can't run away with the budget.
+          # Pin a model here if you want (e.g. --model claude-sonnet-4-5); the
+          # action otherwise picks a sensible default. Repo guidance (compile
+          # clean, 7-language i18n, opt-in defaults) is read from CLAUDE.md.
+          claude_args: "--max-turns 12"
