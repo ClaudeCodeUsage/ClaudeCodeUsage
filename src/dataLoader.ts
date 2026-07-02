@@ -1391,6 +1391,7 @@ export class ClaudeDataLoader {
         .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
       let lastPrompt: string | undefined;
       let prevTurnMs: number | undefined; // previous billable turn's timestamp
+      let prevModel: string | undefined; // previous billable turn's model
       for (const r of recs) {
         if (r._isUserPrompt) {
           if (r._promptText) {
@@ -1407,9 +1408,11 @@ export class ClaudeDataLoader {
         const cost = cb.input + cb.output + cb.cacheWrite + cb.cacheRead;
         const nowMs = Date.parse(r.timestamp);
         const gapMs = prevTurnMs !== undefined && !isNaN(nowMs) ? nowMs - prevTurnMs : undefined;
+        const priorModel = prevModel;
         if (!isNaN(nowMs)) {
           prevTurnMs = nowMs;
         }
+        prevModel = model;
         if (cost <= 0) {
           continue;
         }
@@ -1417,6 +1420,7 @@ export class ClaudeDataLoader {
           timestamp: r.timestamp,
           cost,
           gapMs,
+          prevModel: priorModel,
           inputTokens: u.input_tokens,
           outputTokens: u.output_tokens,
           cacheCreationTokens: u.cache_creation_input_tokens || 0,
@@ -1435,6 +1439,88 @@ export class ClaudeDataLoader {
       }
     }
     return top.sort((a, b) => b.cost - a.cost);
+  }
+
+  /** Estimate how long the prompt cache stays warm while idle, inferred from the
+   * user's own turns (the TTL is platform-side and may be dynamic, so we measure
+   * it rather than assume "5 min"). Method: for consecutive SAME-model turns
+   * where a cache already existed, a turn that mostly READS cache = still warm;
+   * one that only WRITES cache (0 reads) = went cold. The boundary between the
+   * longest warm gap and the shortest cold gap ≈ the TTL. Returns null when there
+   * aren't enough clean samples. */
+  static estimateCacheTtl(
+    records: ClaudeUsageRecord[]
+  ): { estimateMin: number; coldFromMin: number; sampleN: number } | null {
+    // Bucket same-model consecutive turns by idle gap and measure the hit rate
+    // per bucket. The cache is warm while the hit rate stays high; the bucket
+    // where it drops marks the TTL. (A big new context is a rare miss at small
+    // gaps — it doesn't move the small buckets, which stay ~100%.)
+    const edges = [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, Infinity]; // minutes
+    const warm = new Array(edges.length - 1).fill(0);
+    const cold = new Array(edges.length - 1).fill(0);
+
+    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    for (const r of records) {
+      const sid = r._sessionId || 'unknown';
+      (bySession[sid] ?? (bySession[sid] = [])).push(r);
+    }
+    for (const sid of Object.keys(bySession)) {
+      const recs = bySession[sid]
+        .filter((r) => {
+          const u = r.message.usage;
+          const m = r.message.model;
+          return u && m && m !== '<synthetic>' && !r.isApiErrorMessage;
+        })
+        .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+      for (let i = 1; i < recs.length; i++) {
+        const prev = recs[i - 1];
+        const cur = recs[i];
+        if (prev.message.model !== cur.message.model) {
+          continue; // model switch flushes the cache — not an idle-TTL sample
+        }
+        const pu = prev.message.usage;
+        if ((pu.cache_creation_input_tokens || 0) + (pu.cache_read_input_tokens || 0) < 1000) {
+          continue; // no meaningful cache existed to keep warm
+        }
+        const gapMin = (Date.parse(cur.timestamp) - Date.parse(prev.timestamp)) / 60000;
+        if (!(gapMin >= 0)) {
+          continue;
+        }
+        let bi = edges.findIndex((_, idx) => idx < edges.length - 1 && gapMin >= edges[idx] && gapMin < edges[idx + 1]);
+        if (bi < 0) {
+          bi = edges.length - 2;
+        }
+        const cu = cur.message.usage;
+        if ((cu.cache_read_input_tokens || 0) > 0) {
+          warm[bi]++; // read the cache → warm
+        } else if ((cu.cache_creation_input_tokens || 0) > 0) {
+          cold[bi]++; // had to rewrite → cold
+        }
+      }
+    }
+
+    // Walk buckets ascending; the cache is warm while hit rate stays ≥ 85% in
+    // buckets with enough samples. The first qualifying drop marks the TTL.
+    let warmUpTo = 0;
+    let coldFrom = Infinity;
+    let total = 0;
+    for (let i = 0; i < edges.length - 1; i++) {
+      const n = warm[i] + cold[i];
+      total += n;
+      if (n < 8) {
+        continue;
+      }
+      const hit = warm[i] / n;
+      if (hit >= 0.85) {
+        warmUpTo = edges[i + 1] === Infinity ? edges[i] : edges[i + 1];
+      } else if (coldFrom === Infinity) {
+        coldFrom = edges[i];
+      }
+    }
+    if (total < 40 || coldFrom === Infinity || warmUpTo === 0) {
+      return null; // not a clean enough boundary to claim a number
+    }
+    return { estimateMin: warmUpTo, coldFromMin: coldFrom, sampleN: total };
   }
 
   /** Assemble the aggregate inputs for a share card. `range` is a preset

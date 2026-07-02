@@ -614,7 +614,7 @@ export class UsageWebviewProvider {
         '" onclick="showTab(\'content\')">' + contentTab + '</button>'
       : '';
     const contentTabContent = contentEnabled
-      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + this.renderCostliestMessages() + '</div>'
+      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + this.renderCacheWarmth() + this.renderCostliestMessages() + '</div>'
       : '';
 
     return (
@@ -2579,6 +2579,28 @@ export class UsageWebviewProvider {
    * <details>) to the prompt that triggered it, its token breakdown, model and
    * skill — so an expensive turn can be understood, in the same spirit as the
    * AI advice and optimizer cards that live alongside it. */
+  /** Opt-in (showEfficiency) "cache warmth" insight: an estimate of how long the
+   * prompt cache stays warm while idle, measured from the user's own turns.
+   * Aggregate only (no prompts) — so it rides on the efficiency toggle. */
+  private renderCacheWarmth(): string {
+    if (!this.setting<boolean>('showEfficiency', false) || !this.allRecords || this.allRecords.length === 0) {
+      return '';
+    }
+    const est = ClaudeDataLoader.estimateCacheTtl(this.allRecords);
+    if (!est) {
+      return '';
+    }
+    return (
+      '<div class="costly-panel"><h3>Cache warmth</h3>' +
+      '<p class="table-hint">Estimated from ' + I18n.formatNumber(est.sampleN) +
+      ' of your same-model turns — the cache TTL is platform-side and can vary, so this is a measurement, not a guarantee.</p>' +
+      '<div class="cache-warmth">Your prompt cache appears to stay warm for about <strong>' + est.estimateMin +
+      ' min</strong> of idle; the hit rate drops off after ~' + est.coldFromMin +
+      ' min. Keep a complex task moving within that window to avoid re-paying for cold-cache rewrites.</div>' +
+      '</div>'
+    );
+  }
+
   private renderCostliestMessages(): string {
     // Own opt-in (separate from showEfficiency) because it displays your prompt
     // text — a privacy step above the aggregate efficiency chips.
@@ -2648,6 +2670,12 @@ export class UsageWebviewProvider {
         detailRowBold('Cache-hit rate', this.formatPercent(hitRate)) +
         detailRowBold('Time since last turn', this.escapeHtml(fmtGap(m.gapMs)) +
           (m.gapMs !== undefined && m.gapMs > 5 * 60000 ? ' ⚠ past cache TTL' : '')) +
+        // Name the likely cache-miss cause when the hit rate is low.
+        (hitRate < 0.2 && m.prevModel && m.prevModel !== m.model
+          ? detailRowBold('Likely cause', 'model switch (' + this.escapeHtml(this.shortModelName(m.prevModel)) + ' → ' + this.escapeHtml(this.shortModelName(m.model)) + ') flushed the cache')
+          : hitRate < 0.2 && m.gapMs !== undefined && m.gapMs > 5 * 60000
+            ? detailRowBold('Likely cause', 'idle ' + this.escapeHtml(fmtGap(m.gapMs)) + ' — cache went cold')
+            : '') +
         detailRow('Cost split', this.escapeHtml(costSplit)) +
         detailRow(t.model, this.escapeHtml(m.model)) +
         detailRow('Skill', this.escapeHtml(skillLabel)) +
@@ -4077,6 +4105,15 @@ export class UsageWebviewProvider {
       }
       .costly-kv-strong {
         font-weight: 700;
+        color: var(--vscode-foreground);
+      }
+      .cache-warmth {
+        font-size: 13px;
+        line-height: 1.5;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: var(--vscode-textBlockQuote-background);
+        border-left: 3px solid var(--vscode-textBlockQuote-border);
         color: var(--vscode-foreground);
       }
       .costly-prompt {

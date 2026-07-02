@@ -126,9 +126,12 @@ export interface CostlyMessage {
   sessionId: string;
   // Gap since the previous billable turn in the same session (ms). undefined =
   // this was the session's first turn (a new conversation). A gap past the
-  // cache TTL (~5 min) is a strong cache-miss signal — pairs with the low
-  // cache-hit rate to explain a costly turn.
+  // cache TTL is a strong cache-miss signal — pairs with the low cache-hit rate.
   gapMs?: number;
+  // The previous billable turn's model (same session). If it differs from
+  // `model`, the switch flushed the (per-model) cache — another cache-miss
+  // cause distinct from an idle gap. undefined on a session's first turn.
+  prevModel?: string;
 }
 
 // Per-project breakdown: usage aggregated across every session of a project.
