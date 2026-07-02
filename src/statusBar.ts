@@ -298,19 +298,18 @@ export class StatusBarManager {
       if (t > now) {
         return limit; // still current
       }
-      // Expired. If it reset only recently (within ~2 periods), the data is
-      // simply waiting for the next refetch — show 0% for the fresh window.
-      // But if it expired long ago, the fetch has been failing for ages and we
-      // have no trustworthy data: drop it rather than assert a fabricated 0%
-      // (which would falsely imply "full quota available").
+      // Expired. If it expired long ago the fetch has been failing for ages and
+      // we have no trustworthy data: drop it rather than assert a fabricated 0%.
       if (now - t > 2 * periodMs) {
         return undefined;
       }
-      let next = t;
-      while (next <= now) {
-        next += periodMs;
-      }
-      return { utilization: 0, resets_at: new Date(next).toISOString() };
+      // Expired recently: the window rolled over, so utilisation is back to 0.
+      // But these windows are USAGE-anchored — the next window (and its reset)
+      // only starts when you next send a message. Fabricating "reset = old + 5h"
+      // showed a countdown that was wrong until the next real fetch (the reset
+      // appeared to already be ticking before any message). So show 0% with NO
+      // countdown (resets_at cleared → "—"); the real reset lands on next use.
+      return { utilization: 0, resets_at: '' };
     };
     const out: ClaudeApiUsageResponse = {
       five_hour: roll(usageLimits.five_hour, H5),
