@@ -743,9 +743,18 @@ export class UsageWebviewProvider {
         onCh('boolean') +
         '><span class="set-slider"></span></label>';
     } else if (it.type === 'enum') {
-      const opts = (it.enumValues || [])
+      const values = (it.enumValues || []).slice();
+      const labels = (it.enumLabels || []).slice();
+      // Keep a previously-stored value selectable even if it isn't in the
+      // curated list (e.g. an exotic timezone set before the list was trimmed).
+      const cur = String(it.value);
+      if (cur && !values.includes(cur)) {
+        values.unshift(cur);
+        labels.unshift(cur + ' (current)');
+      }
+      const opts = values
         .map((v, i) => {
-          const label = (it.enumLabels && it.enumLabels[i]) || (v === '' ? '(default)' : v);
+          const label = labels[i] || (v === '' ? '(default)' : v);
           const sel = String(it.value) === v ? ' selected' : '';
           return '<option value="' + esc(v) + '"' + sel + '>' + esc(label) + '</option>';
         })
@@ -796,7 +805,7 @@ export class UsageWebviewProvider {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
     }
 
-    const todaySummary = this.renderUsageData(this.todayData, { efficiency: true }) + this.renderTodayInsights();
+    const todaySummary = this.renderUsageData(this.todayData) + this.renderTodayInsights();
 
     let hourlyBreakdown = '';
     if (this.hourlyDataForToday.length > 0) {
@@ -913,6 +922,9 @@ export class UsageWebviewProvider {
       return '';
     }
     const costPerMsg = data.totalCost / data.messageCount;
+    const totalTokens =
+      data.totalInputTokens + data.totalOutputTokens + data.totalCacheCreationTokens + data.totalCacheReadTokens;
+    const tokensPerMsg = totalTokens / data.messageCount;
     let savings = 0;
     for (const [model, mb] of Object.entries(data.modelBreakdown)) {
       if (mb.cacheReadTokens > 0) {
@@ -926,13 +938,14 @@ export class UsageWebviewProvider {
       '<span class="eff-chip" title="' + this.escapeHtml(title) + '"><span class="eff-label">' + label +
       '</span><span class="eff-value">' + value + '</span></span>';
     let chips = chip('Cost / message', I18n.formatCurrency(costPerMsg), 'Total cost ÷ messages you sent');
+    chips += chip('Tokens / message', I18n.formatNumber(Math.round(tokensPerMsg)), 'All tokens (in + out + cache) ÷ messages you sent');
     if (savings > 0) {
       chips += chip('Cache savings', I18n.formatCurrency(savings), 'What cache reads saved vs. paying full input price');
     }
     return '<div class="eff-chips">' + chips + '</div>';
   }
 
-  private renderUsageData(data: UsageData | null, opts: { efficiency?: boolean } = {}): string {
+  private renderUsageData(data: UsageData | null): string {
     if (!data) {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
     }
@@ -1130,9 +1143,7 @@ export class UsageWebviewProvider {
       html += '</div></div>';
     }
 
-    if (opts.efficiency) {
-      html += this.renderEfficiencyChips(data);
-    }
+    html += this.renderEfficiencyChips(data);
     return html;
   }
 
@@ -1342,6 +1353,9 @@ export class UsageWebviewProvider {
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
     let currentCount = 0;
 
+    // The delete action touches local Claude Code history files, so it's
+    // opt-in (enableSessionDelete, off by default) — see settings.
+    const showDelete = this.setting<boolean>('enableSessionDelete', false);
     let rows = '';
     this.sessionBreakdown.forEach((s) => {
       const d = s.data;
@@ -1399,9 +1413,11 @@ export class UsageWebviewProvider {
         '<button class="session-action" title="' + this.escapeHtml(t.resumeSession) +
         '" data-session-id="' + this.escapeHtml(s.sessionId) +
         '" data-cwd="' + this.escapeHtml(s.projectPath || '') + '" onclick="resumeSession(this)">▶</button>' +
-        '<button class="session-action session-delete" title="' + this.escapeHtml(t.deleteSession) +
-        '" data-session-id="' + this.escapeHtml(s.sessionId) +
-        '" data-title="' + this.escapeHtml(fullName) + '" onclick="deleteSession(this)">🗑</button>' +
+        (showDelete
+          ? '<button class="session-action session-delete" title="' + this.escapeHtml(t.deleteSession) +
+            '" data-session-id="' + this.escapeHtml(s.sessionId) +
+            '" data-title="' + this.escapeHtml(fullName) + '" onclick="deleteSession(this)">🗑</button>'
+          : '') +
         '</td>' +
         '</tr>';
     });

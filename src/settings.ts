@@ -45,22 +45,66 @@ const MIGRATION_FLAG = 'ccu.settingsMigrated.v1';
 // already passed the v1 migration.
 const AUTOREFRESH_MIGRATION_FLAG = 'ccu.migrated.dashboardAutoRefresh';
 
-// Valid IANA zones for the timezone dropdown ('' = system default). A dropdown
-// (not free text) means an invalid value can never be entered (#51).
-// `Intl.supportedValuesOf` is ES2023; fall back to a small common set on older
-// runtimes.
-const TIMEZONE_VALUES: string[] = (() => {
+// Timezone dropdown ('' = system default). A dropdown (not free text) means an
+// invalid value can never be entered (#51). Rather than dump all ~400 IANA
+// zones, we curate the common ones — like a typical app's timezone picker — and
+// label each with its current UTC offset so it's easy to find (#: "地点 + 时区
+// 括号"). An exotic zone set earlier still stays selectable (the settings UI
+// injects the stored value if it's not in this list).
+//
+// Ordered roughly west → east. Offsets are computed live (DST-aware) at load.
+const CURATED_ZONES: { zone: string; city: string }[] = [
+  { zone: 'Pacific/Honolulu', city: 'Honolulu' },
+  { zone: 'America/Anchorage', city: 'Anchorage' },
+  { zone: 'America/Los_Angeles', city: 'Los Angeles (Pacific)' },
+  { zone: 'America/Denver', city: 'Denver (Mountain)' },
+  { zone: 'America/Chicago', city: 'Chicago (Central)' },
+  { zone: 'America/New_York', city: 'New York (Eastern)' },
+  { zone: 'America/Sao_Paulo', city: 'São Paulo' },
+  { zone: 'UTC', city: 'UTC' },
+  { zone: 'Europe/London', city: 'London' },
+  { zone: 'Europe/Paris', city: 'Paris / Madrid' },
+  { zone: 'Europe/Berlin', city: 'Berlin' },
+  { zone: 'Europe/Athens', city: 'Athens' },
+  { zone: 'Europe/Moscow', city: 'Moscow' },
+  { zone: 'Asia/Dubai', city: 'Dubai' },
+  { zone: 'Asia/Karachi', city: 'Karachi' },
+  { zone: 'Asia/Kolkata', city: 'India' },
+  { zone: 'Asia/Dhaka', city: 'Dhaka' },
+  { zone: 'Asia/Bangkok', city: 'Bangkok / Jakarta' },
+  { zone: 'Asia/Shanghai', city: 'Shanghai / Beijing' },
+  { zone: 'Asia/Hong_Kong', city: 'Hong Kong' },
+  { zone: 'Asia/Singapore', city: 'Singapore' },
+  { zone: 'Asia/Tokyo', city: 'Tokyo' },
+  { zone: 'Asia/Seoul', city: 'Seoul' },
+  { zone: 'Australia/Sydney', city: 'Sydney' },
+  { zone: 'Pacific/Auckland', city: 'Auckland' },
+];
+
+/** Current UTC offset of a zone as "UTC+08:00" (DST-aware), or '' if unknown. */
+function utcOffsetLabel(zone: string): string {
   try {
-    const zones = (Intl as unknown as { supportedValuesOf(key: string): string[] }).supportedValuesOf('timeZone');
-    return ['', ...zones];
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      timeZoneName: 'longOffset',
+    }).formatToParts(new Date());
+    const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+    // "GMT+08:00" → "UTC+08:00"; bare "GMT" (UTC) → "UTC+00:00".
+    const norm = raw.replace('GMT', 'UTC');
+    return norm === 'UTC' ? 'UTC+00:00' : norm;
   } catch {
-    return [
-      '', 'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-      'Europe/London', 'Europe/Berlin', 'Europe/Paris', 'Asia/Shanghai', 'Asia/Hong_Kong',
-      'Asia/Tokyo', 'Asia/Kolkata', 'Australia/Sydney',
-    ];
+    return '';
   }
-})();
+}
+
+const TIMEZONE_VALUES: string[] = ['', ...CURATED_ZONES.map((z) => z.zone)];
+const TIMEZONE_LABELS: string[] = [
+  'System default',
+  ...CURATED_ZONES.map((z) => {
+    const off = utcOffsetLabel(z.zone);
+    return off ? `(${off}) ${z.city}` : z.city;
+  }),
+];
 
 export const SETTINGS: SettingDef[] = [
   // --- General ---
@@ -120,7 +164,16 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'general',
     label: 'Show efficiency insights',
-    help: 'Off by default (not everyone wants these). Adds cost-per-message and realised cache savings to Today / projects, and a "top 10 costliest conversations" panel on the Content tab.',
+    help: 'Off by default (not everyone wants these). Adds cost/message, tokens/message and realised cache savings to Today / month / all-time and the projects table, plus a "top 10 costliest messages" panel on the Content tab.',
+  },
+  {
+    key: 'enableSessionDelete',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'general',
+    label: 'Enable "delete session" action',
+    help: 'Off by default. When on, the Sessions tab shows a delete button that moves a conversation\'s log file to the OS trash. This touches your local Claude Code history files, so it stays opt-in.',
   },
   {
     key: 'timezone',
@@ -129,9 +182,9 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'general',
     label: 'Timezone for dates',
-    help: 'Pick an IANA zone, or the system default. (#51: a dropdown so an invalid value can never be entered.)',
+    help: 'Pick a zone (labelled with its current UTC offset), or the system default. A previously-set zone outside this list stays selectable.',
     enumValues: TIMEZONE_VALUES,
-    enumLabels: ['System default', ...TIMEZONE_VALUES.slice(1)],
+    enumLabels: TIMEZONE_LABELS,
   },
   {
     key: 'projectGroupingMode',

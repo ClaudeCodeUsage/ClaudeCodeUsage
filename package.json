@@ -108,6 +108,11 @@
         "command": "claudeCodeUsage.exportShareCard",
         "title": "Export Usage Share Card (SVG)",
         "category": "Claude Code Usage"
+      },
+      {
+        "command": "claudeCodeUsage.previewWhatsNew",
+        "title": "Preview What's New",
+        "category": "Claude Code Usage"
       }
     ]
   },

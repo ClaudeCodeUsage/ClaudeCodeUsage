@@ -137,6 +137,11 @@ export class ClaudeCodeUsageExtension {
     }
     // Keyed by major.minor so patch releases don't re-nag.
     const mm = current.split('.').slice(0, 2).join('.');
+    this.showWhatsNew(mm);
+  }
+
+  /** Show the what's-new toast for a given major.minor, if one exists. */
+  private showWhatsNew(mm: string): void {
     const news = WHATS_NEW[mm];
     if (!news) {
       return;
@@ -147,6 +152,18 @@ export class ClaudeCodeUsageExtension {
         vscode.commands.executeCommand('claudeCodeUsage.showDetails');
       }
     });
+  }
+
+  /** Force-show the newest what's-new entry, ignoring the once-per-version
+   * guard — for re-reading the announcement or testing it during development
+   * (a fresh F5 install otherwise just sets the baseline and shows nothing). */
+  private previewWhatsNew(): void {
+    const latest = Object.keys(WHATS_NEW).sort().pop();
+    if (latest) {
+      this.showWhatsNew(latest);
+    } else {
+      void vscode.window.showInformationMessage('No what’s-new entry yet.');
+    }
   }
 
   private setupCommands(): void {
@@ -176,6 +193,9 @@ export class ClaudeCodeUsageExtension {
       }),
       vscode.commands.registerCommand('claudeCodeUsage.exportShareCard', () => {
         this.exportShareCard();
+      }),
+      vscode.commands.registerCommand('claudeCodeUsage.previewWhatsNew', () => {
+        this.previewWhatsNew();
       })
     ];
 
