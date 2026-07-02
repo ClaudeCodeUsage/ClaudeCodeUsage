@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { renderHeatmapSvg } from './heatmapSvg';
+import { DEFAULT_SECTIONS, ShareRange, buildShareCardData, shareCardFilename } from './shareCard';
+import { renderShareCardSvg } from './shareCardSvg';
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import { StatusBarManager } from './statusBar';
@@ -171,6 +173,9 @@ export class ClaudeCodeUsageExtension {
       }),
       vscode.commands.registerCommand('claudeCodeUsage.exportHeatmap', () => {
         this.exportHeatmap();
+      }),
+      vscode.commands.registerCommand('claudeCodeUsage.exportShareCard', () => {
+        this.exportShareCard();
       })
     ];
 
@@ -219,6 +224,51 @@ export class ClaudeCodeUsageExtension {
     const pick = await vscode.window.showInformationMessage('Token heatmap exported.', copy);
     if (pick === copy) {
       await vscode.env.clipboard.writeText(`![Claude Code token heatmap](${path.basename(uri.fsPath)})`);
+    }
+  }
+
+  /** Export a one-page usage share card as a self-contained SVG. Only aggregate,
+   * non-identifying metrics are drawn (privacy is enforced by ShareCardData's
+   * shape). The user picks the range; the card opens for review after saving. */
+  private async exportShareCard(): Promise<void> {
+    const records = this.cache.records;
+    if (!records || records.length === 0) {
+      vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+      return;
+    }
+    const ranges: (vscode.QuickPickItem & { range: ShareRange })[] = [
+      { label: 'This month', range: 'month' },
+      { label: 'Last 7 days', range: 'week' },
+      { label: 'Today', range: 'today' },
+    ];
+    const picked = await vscode.window.showQuickPick(ranges, {
+      placeHolder: 'Share card range',
+    });
+    if (!picked) {
+      return;
+    }
+    const input = ClaudeDataLoader.buildShareInput(records, picked.range);
+    const data = buildShareCardData(input, DEFAULT_SECTIONS);
+    const svg = renderShareCardSvg(data);
+    const defaultName = shareCardFilename(picked.range).replace(/\.png$/, '.svg');
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
+      filters: { 'SVG image': ['svg'] },
+      saveLabel: 'Export share card',
+    });
+    if (!uri) {
+      return;
+    }
+    try {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
+    } catch (e) {
+      vscode.window.showErrorMessage(`Share card export failed: ${(e as Error).message}`);
+      return;
+    }
+    const open = 'Open';
+    const pick = await vscode.window.showInformationMessage('Usage share card exported.', open);
+    if (pick === open) {
+      await vscode.commands.executeCommand('vscode.open', uri);
     }
   }
 

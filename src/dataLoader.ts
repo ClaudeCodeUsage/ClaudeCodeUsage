@@ -9,6 +9,7 @@ import { isRetryDuplicatePrompt } from './promptDedup';
 import { dayKeyInZone, monthKeyInZone } from './dateKeys';
 import { I18n } from './i18n';
 import { DayUsage } from './heatmap';
+import { ShareInput, ShareRange } from './shareCard';
 import {
   AttributionEntry,
   AttributionScope,
@@ -1345,6 +1346,56 @@ export class ClaudeDataLoader {
 
   static getAllTimeData(records: ClaudeUsageRecord[]): UsageData {
     return this.calculateUsageData(records);
+  }
+
+  /** Assemble the aggregate inputs for a share card over a range (today / last
+   * 7 days / this month), all bucketed in the configured timezone so they match
+   * the dashboard. Returns only aggregate numbers — no records, no identifiers. */
+  static buildShareInput(records: ClaudeUsageRecord[], range: ShareRange): ShareInput {
+    const tz = I18n.getTimezone();
+    let inRange: ClaudeUsageRecord[];
+    if (range === 'today') {
+      const todayKey = dayKeyInZone(new Date(), tz);
+      inRange = records.filter((r) => dayKeyInZone(new Date(r.timestamp), tz) === todayKey);
+    } else if (range === 'week') {
+      const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      inRange = records.filter((r) => new Date(r.timestamp).getTime() >= cutoff);
+    } else {
+      const monthKey = monthKeyInZone(new Date(), tz);
+      inRange = records.filter((r) => monthKeyInZone(new Date(r.timestamp), tz) === monthKey);
+    }
+
+    const rangeData = this.calculateUsageData(inRange);
+
+    // Rhythm: per-day token totals, oldest → newest (the heat strip).
+    const dayMap = this.getDailyUsageMap(inRange, tz);
+    const daily = Object.keys(dayMap)
+      .sort()
+      .map((k) => dayMap[k].tokens);
+
+    // Distinct billable sessions in range (mirrors the getDailyUsageMap filter).
+    const sessions = new Set<string>();
+    for (const r of inRange) {
+      const u = r.message.usage;
+      const model = r.message.model;
+      if (!u || !model || model === '<synthetic>' || r.isApiErrorMessage || !r._sessionId) {
+        continue;
+      }
+      sessions.add(r._sessionId);
+    }
+
+    // Top model by total tokens (reduced to a family at export time).
+    let topModel: string | undefined;
+    let best = -1;
+    for (const [m, mb] of Object.entries(rangeData.modelBreakdown)) {
+      const t = mb.inputTokens + mb.outputTokens + mb.cacheCreationTokens + mb.cacheReadTokens;
+      if (t > best) {
+        best = t;
+        topModel = m;
+      }
+    }
+
+    return { range, rangeData, daily, sessionCount: sessions.size, topModel };
   }
 
   /**

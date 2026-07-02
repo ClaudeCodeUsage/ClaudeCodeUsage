@@ -103,6 +103,11 @@
         "command": "claudeCodeUsage.exportHeatmap",
         "title": "Export Token Heatmap (GitHub style SVG)",
         "category": "Claude Code Usage"
+      },
+      {
+        "command": "claudeCodeUsage.exportShareCard",
+        "title": "Export Usage Share Card (SVG)",
+        "category": "Claude Code Usage"
       }
     ]
   },
