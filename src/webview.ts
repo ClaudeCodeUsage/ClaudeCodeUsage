@@ -904,6 +904,34 @@ export class UsageWebviewProvider {
     return todaySummary + hourlyBreakdown;
   }
 
+  /** Opt-in (showEfficiency) efficiency chips appended to a usage summary:
+   * cost per message (exact: cost ÷ messages) and realised cache savings
+   * (cacheRead tokens × the input−cacheRead price gap, per model). Off by
+   * default — not everyone wants cost-efficiency framing. */
+  private renderEfficiencyChips(data: UsageData): string {
+    if (!this.setting<boolean>('showEfficiency', false) || !data || data.messageCount <= 0) {
+      return '';
+    }
+    const costPerMsg = data.totalCost / data.messageCount;
+    let savings = 0;
+    for (const [model, mb] of Object.entries(data.modelBreakdown)) {
+      if (mb.cacheReadTokens > 0) {
+        const r = getModelRatesPerMillion(model);
+        if (r) {
+          savings += (mb.cacheReadTokens * Math.max(0, r.input - r.cacheRead)) / 1_000_000;
+        }
+      }
+    }
+    const chip = (label: string, value: string, title: string): string =>
+      '<span class="eff-chip" title="' + this.escapeHtml(title) + '"><span class="eff-label">' + label +
+      '</span><span class="eff-value">' + value + '</span></span>';
+    let chips = chip('Cost / message', I18n.formatCurrency(costPerMsg), 'Total cost ÷ messages you sent');
+    if (savings > 0) {
+      chips += chip('Cache savings', I18n.formatCurrency(savings), 'What cache reads saved vs. paying full input price');
+    }
+    return '<div class="eff-chips">' + chips + '</div>';
+  }
+
   private renderUsageData(data: UsageData | null): string {
     if (!data) {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
@@ -1102,6 +1130,7 @@ export class UsageWebviewProvider {
       html += '</div></div>';
     }
 
+    html += this.renderEfficiencyChips(data);
     return html;
   }
 
@@ -3591,6 +3620,25 @@ export class UsageWebviewProvider {
       .composition-chart {
         margin: 12px 0 20px;
       }
+
+      /* Efficiency chips (opt-in), appended under a usage summary. */
+      .eff-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0 2px;
+      }
+      .eff-chip {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 6px;
+        padding: 4px 10px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 999px;
+        font-size: 12px;
+      }
+      .eff-chip .eff-label { color: var(--vscode-descriptionForeground); }
+      .eff-chip .eff-value { font-weight: bold; }
 
       /* Top-10 costliest conversations (opt-in, Content tab). */
       .costly-panel { margin: 18px 0 8px; }
