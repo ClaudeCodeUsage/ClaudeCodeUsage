@@ -22,6 +22,7 @@ export interface Translations {
     settingsIntro: string;
     settingsResetAll: string;
     settingsGroupGeneral: string;
+    settingsGroupFeatures: string;
     settingsGroupStatusBar: string;
     settingsGroupData: string;
     settingsGroupAdvice: string;
@@ -215,6 +216,7 @@ const translations: Record<SupportedLanguage, Translations> = {
         'Settings live here now. Only language, data directory and API key remain in VS Code Settings (so they sync). Changes apply immediately.',
       settingsResetAll: 'Reset all to defaults',
       settingsGroupGeneral: 'General',
+      settingsGroupFeatures: 'Optional features',
       settingsGroupStatusBar: 'Status bar',
       settingsGroupData: 'Data & refresh',
       settingsGroupAdvice: 'AI advice & Optimizer',
@@ -432,6 +434,7 @@ const translations: Record<SupportedLanguage, Translations> = {
         "Die Einstellungen sind jetzt hier. Nur Sprache, Datenverzeichnis und API-Schlüssel bleiben in den VS-Code-Einstellungen (damit sie synchronisiert werden). Änderungen wirken sofort.",
       settingsResetAll: "Alle zurücksetzen",
       settingsGroupGeneral: "Allgemein",
+      settingsGroupFeatures: "Optionale Funktionen",
       settingsGroupStatusBar: "Statusleiste",
       settingsGroupData: "Daten & Aktualisierung",
       settingsGroupAdvice: "KI-Beratung & Optimizer",
@@ -652,6 +655,7 @@ const translations: Record<SupportedLanguage, Translations> = {
         '設定現在都在這裡。只有語言、資料目錄與 API 金鑰仍留在 VS Code 設定中(以便同步)。變更會立即生效。',
       settingsResetAll: '全部還原為預設',
       settingsGroupGeneral: '一般',
+      settingsGroupFeatures: '選用功能',
       settingsGroupStatusBar: '狀態列',
       settingsGroupData: '資料與重新整理',
       settingsGroupAdvice: 'AI 建議與最佳化工具',
@@ -865,6 +869,7 @@ const translations: Record<SupportedLanguage, Translations> = {
         '设置现在都在这里。只有语言、数据目录和 API key 仍留在 VS Code 设置中(便于同步)。更改即时生效。',
       settingsResetAll: '全部恢复默认',
       settingsGroupGeneral: '常规',
+      settingsGroupFeatures: '可选功能',
       settingsGroupStatusBar: '状态栏',
       settingsGroupData: '数据与刷新',
       settingsGroupAdvice: 'AI 建议与优化器',
@@ -1078,6 +1083,7 @@ const translations: Record<SupportedLanguage, Translations> = {
         '設定はここにまとまりました。言語・データディレクトリ・API キーのみ VS Code 設定に残ります(同期のため)。変更は即時反映されます。',
       settingsResetAll: 'すべて既定値に戻す',
       settingsGroupGeneral: '一般',
+      settingsGroupFeatures: 'オプション機能',
       settingsGroupStatusBar: 'ステータスバー',
       settingsGroupData: 'データと更新',
       settingsGroupAdvice: 'AI アドバイス & オプティマイザー',
@@ -1296,6 +1302,7 @@ const translations: Record<SupportedLanguage, Translations> = {
         '설정이 이제 여기로 모였습니다. 언어, 데이터 디렉터리, API 키만 VS Code 설정에 남습니다(동기화를 위해). 변경은 즉시 적용됩니다.',
       settingsResetAll: '모두 기본값으로',
       settingsGroupGeneral: '일반',
+      settingsGroupFeatures: '선택 기능',
       settingsGroupStatusBar: '상태 표시줄',
       settingsGroupData: '데이터 및 새로고침',
       settingsGroupAdvice: 'AI 조언 & 옵티마이저',
@@ -1514,6 +1521,7 @@ const translations: Record<SupportedLanguage, Translations> = {
         'As configurações agora ficam aqui. Apenas idioma, diretório de dados e chave de API permanecem nas Configurações do VS Code (para sincronizar). As alterações são aplicadas imediatamente.',
       settingsResetAll: 'Restaurar tudo para os padrões',
       settingsGroupGeneral: 'Geral',
+      settingsGroupFeatures: 'Recursos opcionais',
       settingsGroupStatusBar: 'Barra de status',
       settingsGroupData: 'Dados e atualização',
       settingsGroupAdvice: 'Conselho de IA e Optimizer',

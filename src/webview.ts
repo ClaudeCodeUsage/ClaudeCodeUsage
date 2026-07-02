@@ -760,6 +760,7 @@ export class UsageWebviewProvider {
     const snap: SettingView[] = this.settings ? this.settings.snapshot() : [];
     const groups: { key: string; label: string }[] = [
       { key: 'general', label: t.settingsGroupGeneral },
+      { key: 'features', label: t.settingsGroupFeatures },
       { key: 'statusBar', label: t.settingsGroupStatusBar },
       { key: 'data', label: t.settingsGroupData },
       { key: 'advice', label: t.settingsGroupAdvice },

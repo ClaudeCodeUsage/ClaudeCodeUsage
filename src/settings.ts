@@ -18,7 +18,7 @@ import * as vscode from 'vscode';
 
 export type SettingType = 'boolean' | 'number' | 'enum' | 'string';
 export type SettingStorage = 'config' | 'state';
-export type SettingGroup = 'general' | 'statusBar' | 'data' | 'advice';
+export type SettingGroup = 'general' | 'features' | 'statusBar' | 'data' | 'advice';
 
 export interface SettingDef {
   key: string; // dotted config key, e.g. 'advice.backend'
@@ -189,7 +189,7 @@ export const SETTINGS: SettingDef[] = [
     type: 'boolean',
     default: false,
     storage: 'state',
-    group: 'general',
+    group: 'features',
     label: 'Show token heatmap (All tab)',
     help: 'Show a GitHub-style yearly token heatmap on the All tab. Off by default — mainly a shareable view of what you can already see elsewhere. Use "Export Token Heatmap" for a GitHub-profile SVG.',
   },
@@ -198,7 +198,7 @@ export const SETTINGS: SettingDef[] = [
     type: 'boolean',
     default: false,
     storage: 'state',
-    group: 'general',
+    group: 'features',
     label: 'Show efficiency insights',
     help: 'Off by default (not everyone wants these). Adds cost/message, tokens/message and realised cache savings to Today / month / all-time and the projects table, plus a "top 10 costliest messages" panel on the Content tab.',
   },
@@ -207,7 +207,7 @@ export const SETTINGS: SettingDef[] = [
     type: 'boolean',
     default: false,
     storage: 'state',
-    group: 'general',
+    group: 'features',
     label: 'Enable usage share card',
     help: 'Off by default. When on, the All tab gets a configurable "Share card" — pick a range (week / month / year / a specific month), a scope (overall / a project / a session) and which metrics to show, then generate a one-page SVG to share. Only aggregate numbers leave your machine, and only when you export.',
   },
@@ -216,7 +216,7 @@ export const SETTINGS: SettingDef[] = [
     type: 'boolean',
     default: false,
     storage: 'state',
-    group: 'general',
+    group: 'features',
     label: 'Enable "delete session" action',
     help: 'Off by default. When on, the Sessions tab shows a delete button that moves a conversation\'s log file to the OS trash. This touches your local Claude Code history files, so it stays opt-in.',
   },
