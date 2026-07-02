@@ -9,6 +9,13 @@
 #   2. Repo secret     ANTHROPIC_API_KEY             (Settings → Secrets).
 # With neither set, the `if:` gate is false and nothing runs / no budget is spent.
 #
+# THIRD-PARTY / NON-OFFICIAL MODELS: a Claude subscription (OAuth) can't be used
+# in CI — Actions needs a key. If you don't have an official Anthropic key, point
+# this at any Anthropic-format-compatible endpoint: set repo variable
+# ANTHROPIC_BASE_URL to that provider's base URL and store its key as the
+# ANTHROPIC_API_KEY secret (see the env: on the step below). Leave the variable
+# unset to use the official API.
+#
 # It also only responds to OWNER / MEMBER / COLLABORATOR authors, so a random
 # visitor can't spend the API budget by typing "@claude". Every other automation
 # piece (auto-triage A2, PR first-pass A3) is separate and still drafts-only.
@@ -56,10 +63,16 @@ jobs:
 
       - name: Run Claude Code
         uses: anthropics/claude-code-action@v1
+        env:
+          # Empty by default → official API. Set the repo variable to use a
+          # third-party Anthropic-compatible endpoint (see header).
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Cap the agent loop so a single mention can't run away with the budget.
-          # Pin a model here if you want (e.g. --model claude-sonnet-4-5); the
-          # action otherwise picks a sensible default. Repo guidance (compile
-          # clean, 7-language i18n, opt-in defaults) is read from CLAUDE.md.
+          # Pin a model here if you want (e.g. --model claude-sonnet-4-5, or a
+          # third-party model id); the action otherwise picks a sensible default.
+          # Repo guidance (architecture, compile-clean, 7-language i18n, opt-in
+          # defaults) is read from CLAUDE.md / ARCHITECTURE.md — so it doesn't
+          # re-read the whole repo every time.
           claude_args: "--max-turns 12"
