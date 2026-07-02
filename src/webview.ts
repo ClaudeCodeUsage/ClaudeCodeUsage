@@ -117,6 +117,12 @@ export class UsageWebviewProvider {
         case 'getAdvice':
           vscode.commands.executeCommand('claudeCodeUsage.getAdvice');
           break;
+        case 'exportHeatmap':
+          vscode.commands.executeCommand('claudeCodeUsage.exportHeatmap');
+          break;
+        case 'publishHeatmap':
+          vscode.commands.executeCommand('claudeCodeUsage.publishHeatmapToGitHub');
+          break;
         case 'buildShareCard': {
           // On-demand preview: build the SVG from the panel's config and send
           // it back for injection (no full re-render).
@@ -1313,7 +1319,11 @@ export class UsageWebviewProvider {
       const daily = ClaudeDataLoader.getDailyUsageMap(this.allRecords, I18n.getTimezone());
       heatmapPanel =
         '<div class="heatmap-panel"><h3>Token heatmap</h3>' +
-        '<div class="heatmap-svg">' + renderHeatmapSvg(daily) + '</div></div>';
+        '<div class="heatmap-svg">' + renderHeatmapSvg(daily) + '</div>' +
+        '<div class="share-actions">' +
+        '<button class="btn-secondary btn-small" onclick="exportHeatmap()">Export as SVG…</button>' +
+        '<button class="btn-secondary btn-small" onclick="publishHeatmap()">Publish to GitHub…</button>' +
+        '</div></div>';
     }
 
     const dailyBreakdown =
@@ -4493,6 +4503,12 @@ function generateShareCard() {
 function exportShareCardConfigured() {
   var cfg = scReadConfig();
   vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, sections: cfg.sections });
+}
+function exportHeatmap() {
+  vscode.postMessage({ command: 'exportHeatmap' });
+}
+function publishHeatmap() {
+  vscode.postMessage({ command: 'publishHeatmap' });
 }
 function refresh() {
   console.log("[DEBUG] refresh called");

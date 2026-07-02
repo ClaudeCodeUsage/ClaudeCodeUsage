@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as https from 'https';
 import * as path from 'path';
 import * as os from 'os';
 import { renderHeatmapSvg } from './heatmapSvg';
@@ -191,6 +192,9 @@ export class ClaudeCodeUsageExtension {
       vscode.commands.registerCommand('claudeCodeUsage.exportHeatmap', () => {
         this.exportHeatmap();
       }),
+      vscode.commands.registerCommand('claudeCodeUsage.publishHeatmapToGitHub', () => {
+        this.publishHeatmapToGitHub();
+      }),
       vscode.commands.registerCommand('claudeCodeUsage.exportShareCard', () => {
         this.exportShareCard();
       }),
@@ -244,6 +248,140 @@ export class ClaudeCodeUsageExtension {
     const pick = await vscode.window.showInformationMessage('Token heatmap exported.', copy);
     if (pick === copy) {
       await vscode.env.clipboard.writeText(`![Claude Code token heatmap](${path.basename(uri.fsPath)})`);
+    }
+  }
+
+  /** Minimal GitHub REST call over https (the codebase avoids fetch for
+   * older-runtime safety). Returns the status + raw body. */
+  private githubApi(
+    method: string,
+    apiPath: string,
+    token: string,
+    body?: unknown
+  ): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const data = body ? JSON.stringify(body) : undefined;
+      const req = https.request(
+        {
+          hostname: 'api.github.com',
+          path: apiPath,
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'ClaudeCodeUsage-VSCode',
+            'X-GitHub-Api-Version': '2022-11-28',
+            ...(data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}),
+          },
+          timeout: 20000,
+        },
+        (res) => {
+          let b = '';
+          res.on('data', (c) => (b += c));
+          res.on('end', () => resolve({ status: res.statusCode || 0, body: b }));
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error('GitHub request timed out')));
+      if (data) {
+        req.write(data);
+      }
+      req.end();
+    });
+  }
+
+  /** Publish the token heatmap SVG to a GitHub repo (e.g. the user's profile
+   * repo, so it shows on their GitHub home) using VS Code's built-in GitHub
+   * auth — no PAT handling. Creates or updates the file via the Contents API. */
+  private async publishHeatmapToGitHub(): Promise<void> {
+    const records = this.cache.records;
+    if (!records || records.length === 0) {
+      vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+      return;
+    }
+
+    let session: vscode.AuthenticationSession | undefined;
+    try {
+      // 'repo' so private profile repos work too; VS Code shows its own consent.
+      session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
+    } catch {
+      vscode.window.showErrorMessage('GitHub sign-in was cancelled.');
+      return;
+    }
+    if (!session) {
+      return;
+    }
+    const token = session.accessToken;
+    const login = session.account.label.split(/\s/)[0];
+
+    const repo = await vscode.window.showInputBox({
+      prompt: 'Target repo (owner/name). Your profile repo (name = username) shows the heatmap on your GitHub home page.',
+      value: this.context.globalState.get<string>('ccu.heatmapRepo') || `${login}/${login}`,
+      validateInput: (v) => (/^[^/\s]+\/[^/\s]+$/.test(v.trim()) ? undefined : 'Use the form owner/name'),
+    });
+    if (!repo) {
+      return;
+    }
+    const filePath =
+      (await vscode.window.showInputBox({
+        prompt: 'File path in the repo',
+        value: this.context.globalState.get<string>('ccu.heatmapPath') || 'claude-code-heatmap.svg',
+      })) || '';
+    if (!filePath) {
+      return;
+    }
+    await this.context.globalState.update('ccu.heatmapRepo', repo.trim());
+    await this.context.globalState.update('ccu.heatmapPath', filePath.trim());
+
+    const [owner, name] = repo.trim().split('/');
+    const svg = renderHeatmapSvg(ClaudeDataLoader.getDailyUsageMap(records, I18n.getTimezone()));
+    const contentB64 = Buffer.from(svg, 'utf8').toString('base64');
+    const apiPath = `/repos/${owner}/${name}/contents/${filePath.trim().split('/').map(encodeURIComponent).join('/')}`;
+
+    try {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Publishing heatmap to GitHub…' },
+        async () => {
+          // Look up the current sha (needed to update an existing file).
+          let sha: string | undefined;
+          const getRes = await this.githubApi('GET', apiPath, token);
+          if (getRes.status === 200) {
+            sha = JSON.parse(getRes.body).sha as string;
+          } else if (getRes.status !== 404) {
+            throw new Error(this.githubError(getRes));
+          }
+          const putRes = await this.githubApi('PUT', apiPath, token, {
+            message: 'Update Claude Code usage heatmap',
+            content: contentB64,
+            sha,
+          });
+          if (putRes.status !== 200 && putRes.status !== 201) {
+            throw new Error(this.githubError(putRes));
+          }
+        }
+      );
+    } catch (e) {
+      vscode.window.showErrorMessage(`Heatmap publish failed: ${(e as Error).message}`);
+      return;
+    }
+
+    const view = 'View on GitHub';
+    const pick = await vscode.window.showInformationMessage(
+      `Heatmap published to ${repo.trim()}.`,
+      view
+    );
+    if (pick === view) {
+      void vscode.env.openExternal(vscode.Uri.parse(`https://github.com/${owner}/${name}/blob/HEAD/${filePath.trim()}`));
+    }
+  }
+
+  /** Pull a human message out of a GitHub error response. */
+  private githubError(res: { status: number; body: string }): string {
+    try {
+      const msg = JSON.parse(res.body).message;
+      return `GitHub ${res.status}: ${msg || res.body.slice(0, 120)}`;
+    } catch {
+      return `GitHub ${res.status}`;
     }
   }
 

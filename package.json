@@ -110,6 +110,11 @@
         "category": "Claude Code Usage"
       },
       {
+        "command": "claudeCodeUsage.publishHeatmapToGitHub",
+        "title": "Publish Token Heatmap to GitHub",
+        "category": "Claude Code Usage"
+      },
+      {
         "command": "claudeCodeUsage.previewWhatsNew",
         "title": "Preview What's New",
         "category": "Claude Code Usage"
