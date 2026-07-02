@@ -124,6 +124,11 @@ export interface CostlyMessage {
   prompt?: string; // truncated text of the triggering user prompt
   projectName: string;
   sessionId: string;
+  // Gap since the previous billable turn in the same session (ms). undefined =
+  // this was the session's first turn (a new conversation). A gap past the
+  // cache TTL (~5 min) is a strong cache-miss signal — pairs with the low
+  // cache-hit rate to explain a costly turn.
+  gapMs?: number;
 }
 
 // Per-project breakdown: usage aggregated across every session of a project.

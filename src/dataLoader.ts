@@ -1390,6 +1390,7 @@ export class ClaudeDataLoader {
         .slice()
         .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
       let lastPrompt: string | undefined;
+      let prevTurnMs: number | undefined; // previous billable turn's timestamp
       for (const r of recs) {
         if (r._isUserPrompt) {
           if (r._promptText) {
@@ -1404,12 +1405,18 @@ export class ClaudeDataLoader {
         }
         const cb = calculateCostBreakdown(u, model);
         const cost = cb.input + cb.output + cb.cacheWrite + cb.cacheRead;
+        const nowMs = Date.parse(r.timestamp);
+        const gapMs = prevTurnMs !== undefined && !isNaN(nowMs) ? nowMs - prevTurnMs : undefined;
+        if (!isNaN(nowMs)) {
+          prevTurnMs = nowMs;
+        }
         if (cost <= 0) {
           continue;
         }
         consider({
           timestamp: r.timestamp,
           cost,
+          gapMs,
           inputTokens: u.input_tokens,
           outputTokens: u.output_tokens,
           cacheCreationTokens: u.cache_creation_input_tokens || 0,

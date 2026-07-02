@@ -498,7 +498,7 @@ export class UsageWebviewProvider {
       <html>
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
         <title>${I18n.t.popup.title}</title>
         <style>${this.getStyles()}</style>
       </head>
@@ -520,7 +520,7 @@ export class UsageWebviewProvider {
       <html>
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
         <title>${I18n.t.popup.title}</title>
         <style>${this.getStyles()}</style>
       </head>
@@ -544,7 +544,7 @@ export class UsageWebviewProvider {
       <html>
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
         <title>${I18n.t.popup.title}</title>
         <style>${this.getStyles()}</style>
       </head>
@@ -607,7 +607,7 @@ export class UsageWebviewProvider {
       <html>
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
         <title>` +
       title +
       `</title>
@@ -2573,6 +2573,21 @@ export class UsageWebviewProvider {
     const t = I18n.t.popup;
     const detailRow = (label: string, value: string): string =>
       '<div class="costly-kv"><span>' + label + '</span><span>' + value + '</span></div>';
+    // Bold row for the two signals that explain a costly turn.
+    const detailRowBold = (label: string, value: string): string =>
+      '<div class="costly-kv costly-kv-strong"><span>' + label + '</span><span>' + value + '</span></div>';
+    // Human gap since the previous turn; "New conversation" for a session's first.
+    const fmtGap = (ms: number | undefined): string => {
+      if (ms === undefined) {
+        return 'New conversation';
+      }
+      const m = Math.round(ms / 60000);
+      if (m < 60) {
+        return m + 'm';
+      }
+      const h = Math.floor(m / 60);
+      return h < 24 ? h + 'h ' + (m % 60) + 'm' : (h / 24).toFixed(1) + 'd';
+    };
     // Which token type drove the cost? Names the reason a turn was expensive so
     // the prompt alone isn't the only signal Carl has to go on.
     const driverOf = (m: CostlyMessage): string => {
@@ -2602,7 +2617,7 @@ export class UsageWebviewProvider {
         ' · out ' + I18n.formatCurrency(m.costOutput) +
         ' · in ' + I18n.formatCurrency(m.costInput);
       rows +=
-        '<details class="costly-row"><summary>' +
+        '<details class="costly-row" data-persist="costly-' + i + '"><summary>' +
         '<span class="costly-rank">' + (i + 1) + '</span>' +
         '<span class="costly-name" title="' + this.escapeHtml(promptText) + '">' + this.escapeHtml(promptShort) + '</span>' +
         '<span class="costly-cost">' + I18n.formatCurrency(m.cost) + '</span>' +
@@ -2611,7 +2626,9 @@ export class UsageWebviewProvider {
           ? '<div class="costly-prompt">' + this.escapeHtml(promptText) + (truncated ? '\n… (truncated)' : '') + '</div>'
           : '') +
         detailRow('Main cost driver', this.escapeHtml(driverOf(m))) +
-        detailRow('Cache-hit rate', this.formatPercent(hitRate)) +
+        detailRowBold('Cache-hit rate', this.formatPercent(hitRate)) +
+        detailRowBold('Time since last turn', this.escapeHtml(fmtGap(m.gapMs)) +
+          (m.gapMs !== undefined && m.gapMs > 5 * 60000 ? ' ⚠ past cache TTL' : '')) +
         detailRow('Cost split', this.escapeHtml(costSplit)) +
         detailRow(t.model, this.escapeHtml(m.model)) +
         detailRow('Skill', this.escapeHtml(skillLabel)) +
@@ -4039,6 +4056,10 @@ export class UsageWebviewProvider {
         padding: 2px 0;
         color: var(--vscode-descriptionForeground);
       }
+      .costly-kv-strong {
+        font-weight: 700;
+        color: var(--vscode-foreground);
+      }
       .costly-prompt {
         font-size: 12px;
         line-height: 1.4;
@@ -4641,6 +4662,38 @@ console.log("[DEBUG] === JAVASCRIPT INITIALIZATION START ===");
 const vscode = acquireVsCodeApi();
 console.log("[DEBUG] VSCode API acquired");
 
+// Keep expanded <details data-persist> open across auto-refresh re-renders — a
+// data refresh shouldn't collapse something you're reading. Only a tab switch
+// resets to the default (see clearPersistedDetails in showTab).
+function savePersistedDetails() {
+  try {
+    var open = [];
+    document.querySelectorAll('details[data-persist]').forEach(function(d){
+      if (d.open) { open.push(d.getAttribute('data-persist')); }
+    });
+    var st = vscode.getState() || {};
+    st.openDetails = open;
+    vscode.setState(st);
+  } catch (e) {}
+}
+function restorePersistedDetails() {
+  try {
+    var st = vscode.getState() || {};
+    var open = st.openDetails || [];
+    if (!open.length) { return; }
+    document.querySelectorAll('details[data-persist]').forEach(function(d){
+      if (open.indexOf(d.getAttribute('data-persist')) !== -1) { d.open = true; }
+    });
+  } catch (e) {}
+}
+function clearPersistedDetails() {
+  try { var st = vscode.getState() || {}; st.openDetails = []; vscode.setState(st); } catch (e) {}
+}
+// 'toggle' doesn't bubble — listen in the capture phase.
+document.addEventListener('toggle', function(e){
+  if (e.target && e.target.matches && e.target.matches('details[data-persist]')) { savePersistedDetails(); }
+}, true);
+
 // Restore the active tab from localStorage before first paint, so a reload can't change it.
 function restoreActiveTab() {
   try {
@@ -4650,7 +4703,7 @@ function restoreActiveTab() {
     }
   } catch (e) {}
 }
-function restoreUi() { restoreActiveTab(); restoreSessionFilter(); }
+function restoreUi() { restoreActiveTab(); restoreSessionFilter(); restorePersistedDetails(); }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', restoreUi);
 } else {
@@ -5020,6 +5073,8 @@ function showTab(tabName) {
       console.log("[DEBUG] Tab switched successfully to:", tabName);
 
       vscode.postMessage({ command: 'tabChanged', tab: tabName });
+      // Switching tabs resets expanded rows to their default (Carl's rule).
+      clearPersistedDetails();
       // Persist in localStorage too — survives the reload, restored before paint.
       try { localStorage.setItem('ccu.activeTab', tabName); } catch (e) {}
     } else {
