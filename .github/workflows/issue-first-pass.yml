@@ -50,7 +50,8 @@ jobs:
 
             A new issue was just opened (title/body in the event context). Post ONE
             comment as a first-pass response. Rules:
-            - First read ARCHITECTURE.md, CLAUDE.md and CONTRIBUTING.md for context.
+            - First read CLAUDE.md and CONTRIBUTING.md (and ARCHITECTURE.md if present)
+            for context.
             - If those docs are NOT enough to answer accurately, READ the relevant
               repository files to find the real answer. Never guess or invent an
               answer — if you still can't determine it, say what's unclear and ask a

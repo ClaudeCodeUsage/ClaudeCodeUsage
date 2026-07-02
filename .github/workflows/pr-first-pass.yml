@@ -50,7 +50,8 @@ jobs:
             SECURITY: never execute the PR's code. Read the PR DIFF via the GitHub API
             and the repository's own files only.
             Rules:
-            - First read ARCHITECTURE.md, CLAUDE.md and CONTRIBUTING.md for the
+            - First read CLAUDE.md and CONTRIBUTING.md (and ARCHITECTURE.md if present)
+            for the
               conventions (compile-clean, node:test green, 7-language i18n, opt-in
               defaults, CHANGELOG). If those aren't enough to judge accurately, read
               the relevant base-repo files — never guess.
