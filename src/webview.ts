@@ -796,7 +796,7 @@ export class UsageWebviewProvider {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
     }
 
-    const todaySummary = this.renderUsageData(this.todayData) + this.renderTodayInsights();
+    const todaySummary = this.renderUsageData(this.todayData, { efficiency: true }) + this.renderTodayInsights();
 
     let hourlyBreakdown = '';
     if (this.hourlyDataForToday.length > 0) {
@@ -932,7 +932,7 @@ export class UsageWebviewProvider {
     return '<div class="eff-chips">' + chips + '</div>';
   }
 
-  private renderUsageData(data: UsageData | null): string {
+  private renderUsageData(data: UsageData | null, opts: { efficiency?: boolean } = {}): string {
     if (!data) {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
     }
@@ -1130,7 +1130,9 @@ export class UsageWebviewProvider {
       html += '</div></div>';
     }
 
-    html += this.renderEfficiencyChips(data);
+    if (opts.efficiency) {
+      html += this.renderEfficiencyChips(data);
+    }
     return html;
   }
 
