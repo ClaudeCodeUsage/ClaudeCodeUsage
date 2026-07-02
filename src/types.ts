@@ -157,6 +157,10 @@ export interface ContentSlice {
 export interface ThinkingShare {
   thinking: number;
   assistantTotal: number;
+  // True when a thinking block was present but its text was empty (raw CoT not
+  // exposed — Fable 5, Opus 4.8 default). We know thinking happened but can't
+  // size it, so the UI shows "hidden" rather than a misleading 0%.
+  hiddenThinking?: boolean;
 }
 
 // One skill / slash-command invocation, detected in the logs (assistant

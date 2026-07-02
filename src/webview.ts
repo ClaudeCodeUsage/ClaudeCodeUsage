@@ -1399,15 +1399,30 @@ export class UsageWebviewProvider {
       const displayName = fullName.length > 40 ? fullName.slice(0, 40) + '…' : fullName;
       const ts = thinkingMap ? thinkingMap[s.sessionId] : undefined;
       const thinkingShare = ts && ts.assistantTotal > 0 ? ts.thinking / ts.assistantTotal : null;
+      // Models that omit their raw reasoning (Fable 5 / Opus 4.8) log empty
+      // thinking text, so the estimate reads ~0 even though thinking was on.
+      const thinkingHidden = !!(ts && ts.hiddenThinking);
       // Calibrated absolute (Phase 8): thinking share × the session's EXACT
       // output tokens = a billing-anchored "real thinking tokens" figure.
       const realThinkingTokens =
         thinkingShare !== null ? Math.round(thinkingShare * d.totalOutputTokens) : null;
-      // Tooltip: calibrated token figure + (for heavy sessions) the effort hint.
+      // Tooltip: calibrated token figure + (for heavy sessions) the effort hint
+      // + a note when part/all of the thinking is hidden by the model.
       const thinkingTitle = [
-        realThinkingTokens !== null ? '~' + I18n.formatNumber(realThinkingTokens) + ' ' + t.thinkingTokensCalibrated : '',
+        realThinkingTokens !== null && realThinkingTokens > 0
+          ? '~' + I18n.formatNumber(realThinkingTokens) + ' ' + t.thinkingTokensCalibrated
+          : '',
         thinkingShare !== null && thinkingShare > 0.6 ? t.effortHint : '',
+        thinkingHidden ? t.thinkingHidden : '',
       ].filter((x) => x).join(' · ');
+      // Cell text: a measurable share wins; else "hidden" when the model hid it;
+      // else "-". A "*" marks a partial measurement when some turns were hidden.
+      const thinkingCell =
+        thinkingShare !== null && thinkingShare > 0
+          ? this.formatPercent(thinkingShare) + (thinkingHidden ? '*' : '') + (thinkingShare > 0.6 ? ' ⚠' : '')
+          : thinkingHidden
+            ? t.thinkingHiddenShort
+            : '-';
       rows +=
         '<tr class="sort-row' + (foreign ? ' session-foreign' : '') + '"' +
         ' data-sort-time="' + s.startTime.getTime() + '"' +
@@ -1432,7 +1447,7 @@ export class UsageWebviewProvider {
         '<td class="number-cell">' + I18n.formatNumber(d.totalCacheReadTokens) + '</td>' +
         '<td class="number-cell">' + I18n.formatNumber(s.peakContextTokens) + '</td>' +
         '<td class="number-cell"' + (thinkingTitle ? ' title="' + this.escapeHtml(thinkingTitle) + '"' : '') + '>' +
-        (thinkingShare !== null ? this.formatPercent(thinkingShare) + (thinkingShare > 0.6 ? ' ⚠' : '') : '-') +
+        this.escapeHtml(thinkingCell) +
         '</td>' +
         '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>' +
         '<td class="number-cell">' + this.escapeHtml(this.formatDuration(s.startTime, s.endTime)) + '</td>' +
@@ -2307,6 +2322,7 @@ export class UsageWebviewProvider {
       const tokens = m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens;
       const promptText = m.prompt && m.prompt.trim() ? m.prompt.trim() : '(no prompt captured)';
       const promptShort = promptText.length > 80 ? promptText.slice(0, 80) + '…' : promptText;
+      const truncated = !!(m.prompt && m.prompt.length >= 4000);
       const skillLabel = m.skill ? (m.plugin ? m.skill + ' · ' + m.plugin : m.skill) : '—';
       rows +=
         '<details class="costly-row"><summary>' +
@@ -2314,7 +2330,9 @@ export class UsageWebviewProvider {
         '<span class="costly-name" title="' + this.escapeHtml(promptText) + '">' + this.escapeHtml(promptShort) + '</span>' +
         '<span class="costly-cost">' + I18n.formatCurrency(m.cost) + '</span>' +
         '</summary><div class="costly-detail">' +
-        (m.prompt ? '<div class="costly-prompt">' + this.escapeHtml(promptText) + '</div>' : '') +
+        (m.prompt
+          ? '<div class="costly-prompt">' + this.escapeHtml(promptText) + (truncated ? '\n… (truncated)' : '') + '</div>'
+          : '') +
         detailRow(t.model, this.escapeHtml(m.model)) +
         detailRow('Skill', this.escapeHtml(skillLabel)) +
         detailRow(t.totalTokens, I18n.formatNumber(tokens)) +
@@ -3749,6 +3767,9 @@ export class UsageWebviewProvider {
         border-radius: 6px;
         white-space: pre-wrap;
         word-break: break-word;
+        /* Show the whole prompt, but cap the height and scroll long ones. */
+        max-height: 220px;
+        overflow-y: auto;
         background: var(--vscode-textBlockQuote-background);
         border-left: 3px solid var(--vscode-textBlockQuote-border);
         color: var(--vscode-foreground);

@@ -300,7 +300,7 @@ function analyzeLine(parsed: any, acc: AnalysisAcc, isSubagentFile = false, sess
   if (role === 'assistant') {
     // Thinking share: estimated thinking tokens vs. all assistant output
     // (text + thinking + tool-call JSON), per session and per local day.
-    const trackThinking = (thinkingTokens: number, totalTokens: number): void => {
+    const trackThinking = (thinkingTokens: number, totalTokens: number, hidden = false): void => {
       if (totalTokens <= 0) {
         return;
       }
@@ -313,6 +313,9 @@ function analyzeLine(parsed: any, acc: AnalysisAcc, isSubagentFile = false, sess
         }
         map[key].thinking += thinkingTokens;
         map[key].assistantTotal += totalTokens;
+        if (hidden) {
+          map[key].hiddenThinking = true;
+        }
       };
       add(acc.thinkingBySession, sessionId);
       add(acc.thinkingByDay, localDayKey(parsed.timestamp));
@@ -320,6 +323,7 @@ function analyzeLine(parsed: any, acc: AnalysisAcc, isSubagentFile = false, sess
     if (Array.isArray(content)) {
       let thinkingTokens = 0;
       let totalTokens = 0;
+      let hiddenThinking = false;
       for (const block of content) {
         if (!block || typeof block !== 'object') {
           continue;
@@ -332,6 +336,12 @@ function analyzeLine(parsed: any, acc: AnalysisAcc, isSubagentFile = false, sess
           const est = estimateTokens(block.thinking);
           thinkingTokens += est;
           totalTokens += est;
+          // Thinking happened but the raw text isn't exposed (Fable 5 / Opus 4.8
+          // omit it, leaving "" + an encrypted signature). Flag it so the UI can
+          // say "hidden" instead of an untrue 0%.
+          if (est === 0 && typeof (block as { signature?: unknown }).signature === 'string') {
+            hiddenThinking = true;
+          }
         } else if (block.type === 'tool_use') {
           if (typeof block.id === 'string' && typeof block.name === 'string') {
             acc.toolIdToName[block.id] = block.name;
@@ -355,7 +365,7 @@ function analyzeLine(parsed: any, acc: AnalysisAcc, isSubagentFile = false, sess
           totalTokens += estimateTokens(inputJson);
         }
       }
-      trackThinking(thinkingTokens, totalTokens);
+      trackThinking(thinkingTokens, totalTokens, hiddenThinking);
     } else if (typeof content === 'string') {
       addToBucket(acc.cat, 'assistantText', content);
       trackThinking(0, estimateTokens(content));
@@ -690,7 +700,10 @@ export class ClaudeDataLoader {
                     timestamp: lineAny.timestamp,
                     message: { usage: { input_tokens: 0, output_tokens: 0 } },
                     _isUserPrompt: true,
-                    _promptText: text.trim().slice(0, 300),
+                    // Kept generous so the "costliest messages" panel can show
+                    // the whole triggering prompt (scrollable); giant pastes are
+                    // capped so a few huge prompts can't bloat memory.
+                    _promptText: text.trim().slice(0, 4000),
                     _sessionId: sessionInfo.sessionId,
                     _projectDirEncoded: sessionInfo.projectPath,
                   };

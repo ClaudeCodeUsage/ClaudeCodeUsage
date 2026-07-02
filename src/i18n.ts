@@ -99,6 +99,8 @@ export interface Translations {
     commonTaskPrefix: string;
     thinkingShare: string;
     effortHint: string;
+    thinkingHidden: string;
+    thinkingHiddenShort: string;
     quotaWarnBanner: string;
     dismiss: string;
     attribution: string;
@@ -293,6 +295,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       commonTaskPrefix: 'Shared task text',
       thinkingShare: 'Thinking %',
       effortHint: 'High thinking share — consider /effort high instead of xhigh for tasks like this.',
+      thinkingHidden: 'Thinking was on, but this model (e.g. Fable 5 / Opus 4.8) does not expose its reasoning text, so the share can’t be measured — the real value is higher than shown.',
+      thinkingHiddenShort: 'hidden',
       quotaWarnBanner:
         'Only {remaining}% of your 5-hour window is left. A workflow run can consume a large share of it — consider waiting for the reset: interrupted runs lose their prompt cache and re-run ~40% more expensive.',
       dismiss: 'Dismiss',
@@ -508,6 +512,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       commonTaskPrefix: "Gemeinsamer Aufgabentext",
       thinkingShare: "Denkanteil",
       effortHint: "Hoher Denkanteil — für solche Aufgaben /effort high statt xhigh erwägen.",
+      thinkingHidden: 'Denkmodus war aktiv, aber dieses Modell (z. B. Fable 5 / Opus 4.8) gibt den Denktext nicht preis, daher ist der Anteil nicht messbar — der echte Wert ist höher als angezeigt.',
+      thinkingHiddenShort: 'verborgen',
       quotaWarnBanner:
         "Nur noch {remaining}% des 5-Stunden-Fensters übrig. Ein Workflow-Lauf kann einen großen Teil davon verbrauchen — besser auf den Reset warten: unterbrochene Läufe verlieren ihren Prompt-Cache und kosten beim Neustart ~40% mehr.",
       dismiss: "Ausblenden",
@@ -726,6 +732,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       commonTaskPrefix: '共同任務文字',
       thinkingShare: '思考佔比',
       effortHint: '思考佔比偏高——此類任務可考慮用 /effort high 取代 xhigh。',
+      thinkingHidden: '思考已開啟,但此模型(如 Fable 5 / Opus 4.8)不會輸出思考文字,因此無法計算佔比——實際值高於此處顯示。',
+      thinkingHiddenShort: '隱藏',
       quotaWarnBanner:
         '5 小時窗口僅剩 {remaining}%。一次工作流運行可能消耗其中很大一部分——建議等待重置後再啟動：中斷的運行會遺失提示快取，重跑成本約高 40%。',
       dismiss: '關閉',
@@ -937,6 +945,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       commonTaskPrefix: '共同任务文字',
       thinkingShare: '思考占比',
       effortHint: '思考占比偏高——此类任务可考虑用 /effort high 取代 xhigh。',
+      thinkingHidden: '思考已开启,但此模型(如 Fable 5 / Opus 4.8)不会输出思考文字,因此无法计算占比——实际值高于此处显示。',
+      thinkingHiddenShort: '隐藏',
       quotaWarnBanner:
         '5 小时窗口仅剩 {remaining}%。一次工作流运行可能消耗其中很大一部分——建议等待重置后再启动：中断的运行会丢失提示缓存，重跑成本约高 40%。',
       dismiss: '关闭',
@@ -1148,6 +1158,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       commonTaskPrefix: '共通タスクテキスト',
       thinkingShare: '思考割合',
       effortHint: '思考割合が高め — このようなタスクでは xhigh ではなく /effort high の利用を検討してください。',
+      thinkingHidden: '思考は有効でしたが、このモデル(Fable 5 / Opus 4.8 など)は思考テキストを出力しないため割合を測定できません — 実際の値は表示より高くなります。',
+      thinkingHiddenShort: '非表示',
       quotaWarnBanner:
         '5 時間ウィンドウの残りは {remaining}% のみです。ワークフロー実行はその大部分を消費する可能性があります — リセットを待つことを検討してください。中断された実行はプロンプトキャッシュを失い、再実行は約 40% 高くなります。',
       dismiss: '閉じる',
@@ -1364,6 +1376,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       commonTaskPrefix: '공통 작업 텍스트',
       thinkingShare: '사고 비율',
       effortHint: '사고 비율이 높습니다 — 이런 작업에는 xhigh 대신 /effort high를 고려하세요.',
+      thinkingHidden: '사고가 켜져 있었지만 이 모델(예: Fable 5 / Opus 4.8)은 사고 텍스트를 노출하지 않아 비율을 측정할 수 없습니다 — 실제 값은 표시된 것보다 높습니다.',
+      thinkingHiddenShort: '숨김',
       quotaWarnBanner:
         '5시간 윈도우가 {remaining}%만 남았습니다. 워크플로 실행은 그중 큰 부분을 소비할 수 있습니다 — 리셋을 기다리는 것을 고려하세요. 중단된 실행은 프롬프트 캐시를 잃어 재실행 비용이 약 40% 더 듭니다.',
       dismiss: '닫기',
@@ -1580,6 +1594,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       commonTaskPrefix: 'Texto de tarefa compartilhado',
       thinkingShare: '% de raciocínio',
       effortHint: 'Alta proporção de raciocínio — considere /effort high em vez de xhigh para tarefas como esta.',
+      thinkingHidden: 'O raciocínio estava ativo, mas este modelo (por ex. Fable 5 / Opus 4.8) não expõe o texto do raciocínio, então a proporção não pode ser medida — o valor real é maior que o exibido.',
+      thinkingHiddenShort: 'oculto',
       quotaWarnBanner:
         'Resta apenas {remaining}% da sua janela de 5 horas. Uma execução de workflow pode consumir grande parte dela — considere esperar o reset: execuções interrompidas perdem o cache de prompt e refazem ~40% mais caro.',
       dismiss: 'Dispensar',
