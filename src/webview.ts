@@ -1540,6 +1540,14 @@ export class UsageWebviewProvider {
     }
 
     const t = I18n.t.popup;
+    // Opt-in efficiency column (cost per message), gated like the Today chips.
+    const showEff = this.setting<boolean>('showEfficiency', false);
+    const effCell = (d: UsageData): string =>
+      showEff
+        ? '<td class="number-cell">' +
+          (d.messageCount > 0 ? I18n.formatCurrency(d.totalCost / d.messageCount) : '—') +
+          '</td>'
+        : '';
 
     const usageCells = (d: UsageData): string =>
       '<td class="cost-cell">' + I18n.formatCurrency(d.totalCost) + '</td>' +
@@ -1547,7 +1555,8 @@ export class UsageWebviewProvider {
       '<td class="number-cell">' + I18n.formatNumber(d.totalOutputTokens) + '</td>' +
       '<td class="number-cell">' + I18n.formatNumber(d.totalCacheCreationTokens) + '</td>' +
       '<td class="number-cell">' + I18n.formatNumber(d.totalCacheReadTokens) + '</td>' +
-      '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>';
+      '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>' +
+      effCell(d);
 
     let rows = '';
     this.projectBreakdown.forEach((group, idx) => {
@@ -1620,6 +1629,7 @@ export class UsageWebviewProvider {
       th('cachecreate', t.cacheCreation) +
       th('cacheread', t.cacheRead) +
       th('messages', t.messages) +
+      (showEff ? '<th title="Total cost ÷ messages">Cost/msg</th>' : '') +
       th('lastactive', t.lastActive) +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
