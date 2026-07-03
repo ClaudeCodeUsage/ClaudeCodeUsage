@@ -73,10 +73,15 @@ test('daily pulse labels the peak and first/last dates', () => {
   assert.match(svg, />Jun 30</);
 });
 
-test('badge uses the on-brand copy (title + explanation line)', () => {
-  const svg = renderShareCardSvg({ ...base, badge: { id: 'cache-saver', label: 'Cache Saver' } });
-  assert.match(svg, />Cache Alchemist</);
-  assert.match(svg, /缓存命中高/);
+test('badge uses the on-brand copy in the UI language (no mixing)', () => {
+  const en = renderShareCardSvg({ ...base, badge: { id: 'cache-saver', label: 'Cache Saver' } });
+  assert.match(en, />Cache Alchemist</); // en title
+  assert.match(en, /barely a token wasted/); // en line, NOT the zh one
+  assert.doesNotMatch(en, /缓存命中高/);
+
+  const zh = renderShareCardSvg({ ...base, badge: { id: 'cache-saver', label: 'x' } }, { lang: 'zh-CN' });
+  assert.match(zh, /缓存日子人/); // zh title
+  assert.match(zh, /缓存命中高/); // zh line
 });
 
 test('avatar + name + badge coexist in the corner', () => {
@@ -130,8 +135,24 @@ test('hidden project / cost stay hidden in both themes', () => {
   }
 });
 
-test('BADGE_COPY covers every badge id', () => {
+test('BADGE_COPY covers every badge id in en / zh-CN / zh-TW', () => {
   for (const id of ['context-marathoner', 'cache-saver', 'token-sprinter', 'workflow-pilot', 'steady-builder']) {
-    assert.ok(BADGE_COPY[id] && BADGE_COPY[id].en && BADGE_COPY[id].line, id);
+    for (const lang of ['en', 'zh-CN', 'zh-TW'] as const) {
+      assert.ok(BADGE_COPY[id]?.[lang]?.title && BADGE_COPY[id]?.[lang]?.line, `${id} ${lang}`);
+    }
   }
+});
+
+test('card text follows the UI language', () => {
+  const data = { ...base, totalTokens: 1_000_000, estimatedCost: 5, cacheSharePct: 90 };
+  const en = renderShareCardSvg(data, { lang: 'en' });
+  assert.match(en, />total tokens</);
+  assert.match(en, />cache hit</);
+  const zh = renderShareCardSvg(data, { lang: 'zh-CN' });
+  assert.match(zh, />总 token</);
+  assert.match(zh, />缓存命中</);
+  assert.doesNotMatch(zh, />total tokens</);
+  // unknown UI language falls back to English (never mixed)
+  const de = renderShareCardSvg(data, { lang: 'de-DE' });
+  assert.match(de, />total tokens</);
 });

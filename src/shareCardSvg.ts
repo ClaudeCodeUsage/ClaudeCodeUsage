@@ -139,15 +139,90 @@ export function resolveShareCardTheme(theme: ShareCardTheme | undefined, isDark?
   return isDark ? 'auroraDark' : 'claudeClassic'; // 'auto' / undefined
 }
 
-// On-brand badge copy (title + one-line explanation), keyed by selectShareBadge
-// ids. English title (international) + a Chinese personality line. Localizable
-// later via the zh field.
-export const BADGE_COPY: Record<string, { en: string; zh: string; line: string }> = {
-  'context-marathoner': { en: 'Context Marathon', zh: 'Context马拉松', line: '上下文跑了个半马，模型还在喘。' },
-  'cache-saver': { en: 'Cache Alchemist', zh: '缓存日子人', line: '缓存命中高，token 没白烧。' },
-  'token-sprinter': { en: 'Token Sprinter', zh: '无限火力', line: '开炮！！！' },
-  'workflow-pilot': { en: 'Workflow Pilot', zh: 'Agent 包工头', line: '你不是在写代码，你是在使唤一支小队。' },
-  'steady-builder': { en: 'Steady Builder', zh: '节奏大师', line: '不卷不燥，代码稳步推进。' },
+// The card renders in the UI language (Carl: no en/zh mixing). Fully localized
+// for en / zh-CN / zh-TW (the maintainer's languages); other UI languages fall
+// back to en so a card never mixes languages. Card-specific strings live here
+// (self-contained + testable) rather than bloating the shared i18n table.
+export type CardLang = 'en' | 'zh-CN' | 'zh-TW';
+export function cardLang(lang?: string): CardLang {
+  return lang === 'zh-CN' || lang === 'zh-TW' ? lang : 'en';
+}
+
+interface CardStrings {
+  subtitle: string;
+  totalTokens: string;
+  spent: string;
+  sessionsUnit: string;
+  estCost: string;
+  cacheHit: string;
+  topModel: string;
+  sessions: string;
+  messages: string;
+  workflows: string;
+  peakCtx: string;
+  tokenMix: string;
+  input: string;
+  output: string;
+  cacheWrite: string;
+  cacheRead: string;
+  daily: string;
+  hourly: string;
+  peak: string;
+  madeWith: string;
+}
+
+const CARD_STRINGS: Record<CardLang, CardStrings> = {
+  en: {
+    subtitle: 'AI coding usage snapshot', totalTokens: 'total tokens', spent: 'estimated spend', sessionsUnit: 'sessions',
+    estCost: 'est. cost', cacheHit: 'cache hit', topModel: 'top model', sessions: 'sessions', messages: 'messages',
+    workflows: 'workflows', peakCtx: 'peak ctx', tokenMix: 'Token mix', input: 'Input', output: 'Output',
+    cacheWrite: 'Cache write', cacheRead: 'Cache read', daily: 'Daily pulse', hourly: 'Hourly pulse', peak: 'peak',
+    madeWith: 'Made with Claude Code Usage',
+  },
+  'zh-CN': {
+    subtitle: 'AI 编程用量快照', totalTokens: '总 token', spent: '预计花费', sessionsUnit: '会话',
+    estCost: '预计成本', cacheHit: '缓存命中', topModel: '主力模型', sessions: '会话数', messages: '消息数',
+    workflows: '工作流', peakCtx: '峰值上下文', tokenMix: 'Token 组成', input: '输入', output: '输出',
+    cacheWrite: '缓存写入', cacheRead: '缓存读取', daily: '每日节奏', hourly: '每小时节奏', peak: '峰值',
+    madeWith: '由 Claude Code Usage 制作',
+  },
+  'zh-TW': {
+    subtitle: 'AI 程式設計用量快照', totalTokens: '總 token', spent: '預計花費', sessionsUnit: '會話',
+    estCost: '預計成本', cacheHit: '快取命中', topModel: '主力模型', sessions: '會話數', messages: '訊息數',
+    workflows: '工作流', peakCtx: '峰值上下文', tokenMix: 'Token 組成', input: '輸入', output: '輸出',
+    cacheWrite: '快取寫入', cacheRead: '快取讀取', daily: '每日節奏', hourly: '每小時節奏', peak: '峰值',
+    madeWith: '由 Claude Code Usage 製作',
+  },
+};
+
+// On-brand badge copy per language (title + one-line personality), keyed by
+// selectShareBadge ids. Title AND line use the same language — no mixing.
+export const BADGE_COPY: Record<string, Record<CardLang, { title: string; line: string }>> = {
+  'context-marathoner': {
+    en: { title: 'Context Marathon', line: "Half-marathon of context — the model's still catching its breath." },
+    'zh-CN': { title: 'Context 马拉松', line: '上下文跑了个半马，模型还在喘。' },
+    'zh-TW': { title: 'Context 馬拉松', line: '上下文跑了個半馬，模型還在喘。' },
+  },
+  'cache-saver': {
+    en: { title: 'Cache Alchemist', line: 'High cache hits — barely a token wasted.' },
+    'zh-CN': { title: '缓存日子人', line: '缓存命中高，token 没白烧。' },
+    'zh-TW': { title: '快取日子人', line: '快取命中高，token 沒白燒。' },
+  },
+  'token-sprinter': {
+    en: { title: 'Token Sprinter', line: 'Full throttle. 🔥' },
+    'zh-CN': { title: '无限火力', line: '开炮！！！' },
+    'zh-TW': { title: '無限火力', line: '開炮！！！' },
+  },
+  'workflow-pilot': {
+    en: { title: 'Workflow Pilot', line: "You're not coding — you're running a crew." },
+    'zh-CN': { title: 'Agent 包工头', line: '你不是在写代码，你是在使唤一支小队。' },
+    'zh-TW': { title: 'Agent 包工頭', line: '你不是在寫程式，你是在使喚一支小隊。' },
+  },
+  'steady-builder': {
+    en: { title: 'Steady Builder', line: 'No rush, no burnout — steady progress.' },
+    'zh-CN': { title: '节奏大师', line: '不卷不燥，代码稳步推进。' },
+    'zh-TW': { title: '節奏大師', line: '不捲不燥，程式碼穩步推進。' },
+  },
 };
 
 const REPO = 'github.com/ClaudeCodeUsage';
@@ -162,6 +237,7 @@ export interface ShareCardSvgOptions {
   avatarDataUri?: string;
   username?: string;
   fullNumbers?: boolean;
+  lang?: string; // UI language; the card renders in it (en fallback)
 }
 
 export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOptions = {}): string {
@@ -169,6 +245,8 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   const H = opts.height ?? 680;
   const M = 60;
   const T = SHARE_CARD_THEMES[resolveShareCardTheme(opts.theme, opts.isDark)];
+  const L = cardLang(opts.lang);
+  const S = CARD_STRINGS[L];
   const p: string[] = [];
 
   p.push(
@@ -188,7 +266,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
 
   // --- Brand block (top-left) ---
   p.push(`<text x="${M}" y="74" font-size="22" font-weight="700" fill="${T.primaryText}">Claude Code Usage</text>`);
-  p.push(`<text x="${M}" y="100" font-size="16" font-weight="500" fill="${T.secondaryText}">AI coding usage snapshot</text>`);
+  p.push(`<text x="${M}" y="100" font-size="16" font-weight="500" fill="${T.secondaryText}">${esc(S.subtitle)}</text>`);
   const range = (data.rangeLabel || rangeLabel(data.range)) + (data.projectName ? ' · ' + truncate(data.projectName, 28) : '');
   p.push(`<text x="${M}" y="124" font-size="15" font-weight="500" fill="${T.mutedText}">${esc(range)}</text>`);
 
@@ -205,9 +283,9 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
     avatarBottom = ay + s;
   }
   if (data.badge) {
-    const copy = BADGE_COPY[data.badge.id] || { en: data.badge.label, line: '' };
+    const copy = BADGE_COPY[data.badge.id]?.[L] || { title: data.badge.label, line: '' };
     const hasName = !!(opts.username && opts.username.trim());
-    const titleW = 16 + copy.en.length * 11;
+    const titleW = 16 + copy.title.length * 11;
     const lineW = copy.line ? 24 + copy.line.length * 15 : 0;
     const nameW = hasName ? 24 + truncate(opts.username!.trim(), 22).length * 10 : 0;
     const cardW = Math.min(380, Math.max(160, titleW, lineW, nameW) + 28);
@@ -224,9 +302,9 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
       ty += 8;
     }
     p.push(`<circle cx="${cardX + 20}" cy="${ty - 6}" r="6" fill="url(#hero)"/>`);
-    p.push(`<text x="${cardX + 34}" y="${ty}" font-size="18" font-weight="700" fill="${T.primaryText}">${esc(truncate(copy.en, 22))}</text>`);
+    p.push(`<text x="${cardX + 34}" y="${ty}" font-size="18" font-weight="700" fill="${T.primaryText}">${esc(truncate(copy.title, 22))}</text>`);
     if (copy.line) {
-      p.push(`<text x="${cardX + 16}" y="${ty + 26}" font-size="13" font-weight="500" fill="${T.secondaryText}">${esc(truncate(copy.line, 24))}</text>`);
+      p.push(`<text x="${cardX + 16}" y="${ty + 26}" font-size="13" font-weight="500" fill="${T.secondaryText}">${esc(truncate(copy.line, 44))}</text>`);
     }
     cornerBottom = Math.max(cornerBottom, cardY + cardH);
   } else {
@@ -248,13 +326,13 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   let heroUnit = '';
   if (data.totalTokens != null) {
     heroValue = opts.fullNumbers ? data.totalTokens.toLocaleString('en-US') : compact(data.totalTokens);
-    heroUnit = 'total tokens';
+    heroUnit = S.totalTokens;
   } else if (data.estimatedCost != null) {
     heroValue = money(data.estimatedCost);
-    heroUnit = 'estimated spend';
+    heroUnit = S.spent;
   } else if (data.sessions != null) {
     heroValue = String(data.sessions);
-    heroUnit = 'sessions';
+    heroUnit = S.sessionsUnit;
   }
   let heroBottom = contentTop;
   if (heroValue) {
@@ -266,14 +344,14 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
 
   // Stat tiles — 4 by default (cost / cache / model / sessions), glass panels.
   const tiles: { label: string; value: string; accent?: string }[] = [];
-  if (data.totalTokens != null && data.estimatedCost != null) tiles.push({ label: 'est. cost', value: money(data.estimatedCost) });
-  if (data.cacheSharePct != null) tiles.push({ label: 'cache hit', value: data.cacheSharePct + '%', accent: T.cacheAccent });
+  if (data.totalTokens != null && data.estimatedCost != null) tiles.push({ label: S.estCost, value: money(data.estimatedCost) });
+  if (data.cacheSharePct != null) tiles.push({ label: S.cacheHit, value: data.cacheSharePct + '%', accent: T.cacheAccent });
   const modelLabel = data.topModelName || data.topModelFamily;
-  if (modelLabel) tiles.push({ label: 'top model', value: truncate(modelLabel, 12), accent: T.modelAccent });
-  if (data.sessions != null) tiles.push({ label: 'sessions', value: String(data.sessions) });
-  if (data.messages != null) tiles.push({ label: 'messages', value: String(data.messages) });
-  if (data.workflowSharePct != null) tiles.push({ label: 'workflows', value: data.workflowSharePct + '%' });
-  if (data.peakContextTokens != null) tiles.push({ label: 'peak ctx', value: compact(data.peakContextTokens) });
+  if (modelLabel) tiles.push({ label: S.topModel, value: truncate(modelLabel, 12), accent: T.modelAccent });
+  if (data.sessions != null) tiles.push({ label: S.sessions, value: String(data.sessions) });
+  if (data.messages != null) tiles.push({ label: S.messages, value: String(data.messages) });
+  if (data.workflowSharePct != null) tiles.push({ label: S.workflows, value: data.workflowSharePct + '%' });
+  if (data.peakContextTokens != null) tiles.push({ label: S.peakCtx, value: compact(data.peakContextTokens) });
   const shownTiles = tiles.slice(0, 4);
   if (shownTiles.length > 0) {
     const gap = 18;
@@ -298,10 +376,10 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   if (data.composition) {
     const c = data.composition;
     const segs = [
-      { v: c.input, label: 'Input', color: T.primaryAccent },
-      { v: c.output, label: 'Output', color: T.modelAccent },
-      { v: c.cacheCreate, label: 'Cache write', color: T.secondaryAccent },
-      { v: c.cacheRead, label: 'Cache read', color: T.cacheAccent },
+      { v: c.input, label: S.input, color: T.primaryAccent },
+      { v: c.output, label: S.output, color: T.modelAccent },
+      { v: c.cacheCreate, label: S.cacheWrite, color: T.secondaryAccent },
+      { v: c.cacheRead, label: S.cacheRead, color: T.cacheAccent },
     ];
     const total = segs.reduce((a, b) => a + b.v, 0);
     if (total > 0) {
@@ -313,7 +391,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
           const barY = y + 30;
           const barW = W - 2 * M;
           const barH = 22;
-          p.push(`<text x="${M}" y="${y + 12}" font-size="15" font-weight="700" fill="${T.secondaryText}">Token mix</text>`);
+          p.push(`<text x="${M}" y="${y + 12}" font-size="15" font-weight="700" fill="${T.secondaryText}">${esc(S.tokenMix)}</text>`);
           let x = M;
           segs.forEach((s) => {
             const w = (s.v / total) * barW;
@@ -351,8 +429,8 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
         const usedW = slot * nn;
         const startX = M + (capW - usedW) / 2;
         const bw = Math.max(3, Math.min(slot - 6, 28));
-        p.push(`<text x="${M}" y="${y}" font-size="15" font-weight="700" fill="${T.secondaryText}">${nn <= 24 && data.range === 'today' ? 'Hourly' : 'Daily'} pulse</text>`);
-        p.push(`<text x="${M + capW}" y="${y}" font-size="14" font-weight="500" fill="${T.mutedText}" text-anchor="end">peak ${esc(compact(max))}</text>`);
+        p.push(`<text x="${M}" y="${y}" font-size="15" font-weight="700" fill="${T.secondaryText}">${esc(nn <= 24 && data.range === 'today' ? S.hourly : S.daily)}</text>`);
+        p.push(`<text x="${M + capW}" y="${y}" font-size="14" font-weight="500" fill="${T.mutedText}" text-anchor="end">${esc(S.peak)} ${esc(compact(max))}</text>`);
         p.push(`<line x1="${M}" y1="${barsTop + rh}" x2="${M + capW}" y2="${barsTop + rh}" stroke="${T.softLine}"/>`);
         let firstCx = startX;
         let lastCx = startX;
@@ -390,7 +468,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
 
   // --- Footer (brand signature) ---
   if (data.watermark) {
-    p.push(`<text x="${M}" y="${H - 28}" font-size="13" font-weight="500" fill="${T.watermark}">Made with Claude Code Usage · ${esc(REPO)}</text>`);
+    p.push(`<text x="${M}" y="${H - 28}" font-size="13" font-weight="500" fill="${T.watermark}">${esc(S.madeWith)} · ${esc(REPO)}</text>`);
   }
 
   p.push('</svg>');

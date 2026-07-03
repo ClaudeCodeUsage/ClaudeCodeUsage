@@ -425,7 +425,7 @@ export class ClaudeCodeUsageExtension {
     const data = buildShareCardData(input, DEFAULT_SECTIONS);
     const kind = vscode.window.activeColorTheme?.kind;
     const isDark = kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
-    const svg = renderShareCardSvg(data, { theme: 'claudeClassic', isDark });
+    const svg = renderShareCardSvg(data, { theme: 'claudeClassic', isDark, lang: I18n.getLocale() });
     const defaultName = shareCardFilename(picked.range).replace(/\.png$/, '.svg');
     const uri = await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),

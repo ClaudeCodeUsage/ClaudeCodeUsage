@@ -1585,7 +1585,7 @@ export class UsageWebviewProvider {
     const kind = vscode.window.activeColorTheme?.kind;
     const isDark = kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
     // Landscape only for now (other sizes need per-size tuning — a later patch).
-    return renderShareCardSvg(buildShareCardData(input, merged), { ...opts, isDark });
+    return renderShareCardSvg(buildShareCardData(input, merged), { ...opts, isDark, lang: I18n.getLocale() });
   }
 
   /** Fetch the signed-in GitHub user's avatar (data: URI) and display name,
