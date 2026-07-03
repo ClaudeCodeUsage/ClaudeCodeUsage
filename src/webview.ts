@@ -2615,14 +2615,13 @@ export class UsageWebviewProvider {
           '<div class="insight-head"><span class="insight-title">Cache-churn bill</span>' +
           '<span class="insight-tag">estimate · last 30 days</span></div>' +
           '<div class="insight-hero">' + money(churn.wastedUsd) + '</div>' +
-          '<div class="insight-sub">spent re-writing cache a warm cache would have served cheaply</div>' +
+          '<div class="insight-sub">wasted re-writing cache a warm cache would have served cheaply</div>' +
           '<div class="insight-split">' +
-          '<span class="insight-pill"><b>' + money(churn.idleUsd) + '</b> idle gaps · ' + churn.idleCount + '×</span>' +
-          '<span class="insight-pill"><b>' + money(churn.switchUsd) + '</b> model switches · ' + churn.switchCount + '×</span>' +
+          '<span class="insight-pill"><b>' + money(churn.idleUsd) + '</b> · idle gaps · ' + churn.idleCount + '×</span>' +
+          '<span class="insight-pill"><b>' + money(churn.switchUsd) + '</b> · model switches · ' + churn.switchCount + '×</span>' +
           '</div>' +
-          '<div class="insight-note">A per-model cache is flushed on a model switch, and cools after ~60 min idle. ' +
-          'Keeping momentum in the warm window (and batching same-model work) recovers most of this. ' +
-          'Note: a switch can still be worth it if the other model is cheaper per token — this is only the churn cost.</div>' +
+          '<div class="insight-tip">💡 Most is recoverable — keep momentum inside the ~60-min warm window and batch same-model work.</div>' +
+          '<div class="insight-note">A switch can still be worth it if the other model is cheaper per token; this counts only the churn cost.</div>' +
           '</div>'
       );
     }
@@ -4218,7 +4217,20 @@ export class UsageWebviewProvider {
         color: var(--vscode-badge-foreground);
       }
       .insight-pill b { font-weight: 700; }
-      .insight-note { font-size: 12px; line-height: 1.5; color: var(--vscode-descriptionForeground); }
+      .insight-tip {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--vscode-foreground);
+        margin-bottom: 8px;
+      }
+      .insight-note {
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--vscode-descriptionForeground);
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
       .costly-prompt {
         font-size: 12px;
         line-height: 1.4;
