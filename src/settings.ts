@@ -224,6 +224,15 @@ export const SETTINGS: SettingDef[] = [
     help: 'Off by default. Adds a panel on the Content tab that ranks your single most expensive turns and, on expand, shows the prompt that triggered each (plus a cost split so you can tell a cache miss from a long answer). It reads and displays your own prompt text, so it stays opt-in.',
   },
   {
+    key: 'showInsights',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'features',
+    label: 'Show experimental insights',
+    help: 'Off by default. Adds an "Experimental insights" section to the Content tab — our own estimates from your local logs (e.g. a cache-churn bill: $ spent re-writing cache after model switches / idle gaps). These are computed heuristics, not standardized metrics, so they stay opt-in and are labelled as estimates.',
+  },
+  {
     key: 'enableSessionDelete',
     type: 'boolean',
     default: false,

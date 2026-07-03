@@ -619,7 +619,7 @@ export class UsageWebviewProvider {
         '" onclick="showTab(\'content\')">' + contentTab + '</button>'
       : '';
     const contentTabContent = contentEnabled
-      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + this.renderCacheWarmth() + this.renderCostliestMessages() + '</div>'
+      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + this.renderCacheWarmth() + this.renderInsights() + this.renderCostliestMessages() + '</div>'
       : '';
 
     return (
@@ -2595,6 +2595,49 @@ export class UsageWebviewProvider {
    * <details>) to the prompt that triggered it, its token breakdown, model and
    * skill — so an expensive turn can be understood, in the same spirit as the
    * AI advice and optimizer cards that live alongside it. */
+  /** Opt-in (showInsights) "Experimental insights" section on the Content tab.
+   * Our own heuristic estimates from the local logs — labelled as estimates,
+   * off by default, no prompts. First card: the cache-churn bill. Styled to the
+   * plugin's existing card language (theme vars), with a small "estimate" tag
+   * as the honest signature. */
+  private renderInsights(): string {
+    if (!this.setting<boolean>('showInsights', false) || !this.allRecords || this.allRecords.length === 0) {
+      return '';
+    }
+    const cards: string[] = [];
+
+    // Cache-churn bill (缓存损耗账单).
+    const churn = ClaudeDataLoader.estimateCacheChurnCost(this.allRecords, 30);
+    if (churn && churn.wastedUsd >= 0.5) {
+      const money = (n: number): string => I18n.formatCurrency(n);
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Cache-churn bill</span>' +
+          '<span class="insight-tag">estimate · last 30 days</span></div>' +
+          '<div class="insight-hero">' + money(churn.wastedUsd) + '</div>' +
+          '<div class="insight-sub">spent re-writing cache a warm cache would have served cheaply</div>' +
+          '<div class="insight-split">' +
+          '<span class="insight-pill"><b>' + money(churn.idleUsd) + '</b> idle gaps · ' + churn.idleCount + '×</span>' +
+          '<span class="insight-pill"><b>' + money(churn.switchUsd) + '</b> model switches · ' + churn.switchCount + '×</span>' +
+          '</div>' +
+          '<div class="insight-note">A per-model cache is flushed on a model switch, and cools after ~60 min idle. ' +
+          'Keeping momentum in the warm window (and batching same-model work) recovers most of this. ' +
+          'Note: a switch can still be worth it if the other model is cheaper per token — this is only the churn cost.</div>' +
+          '</div>'
+      );
+    }
+
+    if (cards.length === 0) {
+      return '';
+    }
+    return (
+      '<div class="insights-panel"><h3>Experimental insights</h3>' +
+      '<p class="table-hint">Our own estimates from your local logs — heuristics, not standardized metrics (hence opt-in + labelled). No prompts leave your machine.</p>' +
+      cards.join('') +
+      '</div>'
+    );
+  }
+
   /** Opt-in (showEfficiency) "cache warmth" insight: an estimate of how long the
    * prompt cache stays warm while idle, measured from the user's own turns.
    * Aggregate only (no prompts) — so it rides on the efficiency toggle. */
@@ -4132,6 +4175,50 @@ export class UsageWebviewProvider {
         border-left: 3px solid var(--vscode-textBlockQuote-border);
         color: var(--vscode-foreground);
       }
+      /* Experimental insights section — cards in the plugin's existing language. */
+      .insights-panel { margin: 18px 0 8px; }
+      .insight-card {
+        margin: 10px 0;
+        padding: 14px 16px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 10px;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+      }
+      .insight-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .insight-title { font-size: 14px; font-weight: 700; color: var(--vscode-foreground); }
+      .insight-tag {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 2px 8px;
+        border-radius: 999px;
+        color: var(--vscode-descriptionForeground);
+        border: 1px solid var(--vscode-panel-border);
+        white-space: nowrap;
+      }
+      .insight-hero {
+        font-size: 34px;
+        font-weight: 800;
+        line-height: 1.1;
+        margin: 8px 0 2px;
+        color: var(--vscode-charts-orange, var(--vscode-foreground));
+      }
+      .insight-sub { font-size: 12px; color: var(--vscode-descriptionForeground); margin-bottom: 10px; }
+      .insight-split { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+      .insight-pill {
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: var(--vscode-badge-background);
+        color: var(--vscode-badge-foreground);
+      }
+      .insight-pill b { font-weight: 700; }
+      .insight-note { font-size: 12px; line-height: 1.5; color: var(--vscode-descriptionForeground); }
       .costly-prompt {
         font-size: 12px;
         line-height: 1.4;
