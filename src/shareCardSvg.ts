@@ -1,15 +1,22 @@
 // Usage Share Card renderer — turns the redacted ShareCardData into a
-// self-contained SVG (no DOM, no html-to-image dependency, no CSP concerns).
-// Pure and unit-testable. Privacy is already enforced by ShareCardData's shape
-// (see shareCard.ts); this only draws what's present.
+// self-contained SVG (no DOM, no html-to-image, no network, no web fonts).
+// Pure & deterministic: same data + options ⇒ same SVG. Privacy is enforced by
+// ShareCardData's shape; this only draws what's present.
 //
-// Layout flows vertically and distributes spare height as even gaps, so the
-// same content reads well in landscape, square, portrait and story sizes.
+// Visual direction: "Code Pulse · Aurora Console" (GPT design, docs/
+// V2.2-ShareCard-GPT-design.md). Two themes share ONE renderer via a token set:
+//   • claudeCream (default) — warm, editorial, Claude-like.
+//   • auroraDark — technical, high-contrast, social-share ready.
+// Landscape 1200×680 only for now (square/portrait/story = a later patch).
 
 import { ShareCardData, rangeLabel } from './shareCard';
 
+const FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI","Inter","Microsoft YaHei","PingFang SC",sans-serif';
+
 const esc = (s: string): string =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const truncate = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 function compact(n: number): string {
   const a = Math.abs(n);
@@ -25,249 +32,330 @@ function money(n: number): string {
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-/** 'YYYY-MM-DD' → 'Jun 3'; 'HH:00' passthrough; else the raw string. */
 function shortDay(iso: string | undefined): string {
   if (!iso) return '';
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (!m) return iso;
-  return `${MONTHS[Number(m[2]) - 1] || m[2]} ${Number(m[3])}`;
+  return m ? `${MONTHS[Number(m[2]) - 1] || m[2]} ${Number(m[3])}` : iso;
 }
 
-// Palette (Claude orange family + heatmap tones for composition segments).
-const ORANGE = '#c85a2b';
-const ORANGE_SOFT = '#e07d4f';
-const INK = '#2b2b2b';
-const MUTED = '#6b6b6b';
-const COMPOSITION = [
-  { key: 'input', label: 'Input', color: '#e07d4f' },
-  { key: 'output', label: 'Output', color: '#c85a2b' },
-  { key: 'cacheCreate', label: 'Cache write', color: '#f0aa82' },
-  { key: 'cacheRead', label: 'Cache read', color: '#f7cbb0' },
-] as const;
+// ---- Theme tokens -----------------------------------------------------------
 
-const REPO = 'github.com/ClaudeCodeUsage/ClaudeCodeUsage';
+export type ShareCardTheme = 'auto' | 'claudeCream' | 'auroraDark';
 
-/** Named size presets (Carl: portrait for phones + multiple sizes). */
-export type ShareCardSize = 'landscape' | 'square' | 'portrait' | 'story';
-export const SHARE_CARD_SIZES: Record<ShareCardSize, { width: number; height: number }> = {
-  landscape: { width: 1200, height: 680 }, // 16:9-ish, X / blog
-  square: { width: 1080, height: 1080 }, // Instagram feed
-  portrait: { width: 1080, height: 1350 }, // Instagram portrait
-  story: { width: 1080, height: 1920 }, // stories / phone full-screen
+interface ThemeTokens {
+  bgTop: string;
+  bgBottom: string;
+  blobWarm: string;
+  blobCool: string;
+  primaryAccent: string;
+  primaryAccentBright: string;
+  secondaryAccent: string;
+  cacheAccent: string;
+  modelAccent: string;
+  panelFill: string;
+  panelBorder: string;
+  primaryText: string;
+  secondaryText: string;
+  mutedText: string;
+  softLine: string;
+  watermark: string;
+  badgeFill: string;
+  badgeBorder: string;
+}
+
+export const SHARE_CARD_THEMES: Record<'claudeCream' | 'auroraDark', ThemeTokens> = {
+  claudeCream: {
+    bgTop: '#FFF8F3',
+    bgBottom: '#FDEEE6',
+    blobWarm: '#FFE1D2',
+    blobCool: '#F6C177',
+    primaryAccent: '#C85A2B',
+    primaryAccentBright: '#E07D4F',
+    secondaryAccent: '#F6C177',
+    cacheAccent: '#5FAE8F',
+    modelAccent: '#8B7CF6',
+    panelFill: 'rgba(255,255,255,0.82)',
+    panelBorder: 'rgba(200,90,43,0.14)',
+    primaryText: '#6B341F',
+    secondaryText: '#9A6A55',
+    mutedText: '#B9907E',
+    softLine: '#EFD8CB',
+    watermark: 'rgba(107,52,31,0.58)',
+    badgeFill: 'rgba(255,255,255,0.86)',
+    badgeBorder: 'rgba(200,90,43,0.20)',
+  },
+  auroraDark: {
+    bgTop: '#111827',
+    bgBottom: '#1E1B4B',
+    blobWarm: '#C85A2B',
+    blobCool: '#312E81',
+    primaryAccent: '#E07D4F',
+    primaryAccentBright: '#F6A06F',
+    secondaryAccent: '#F6C177',
+    cacheAccent: '#5CC8A7',
+    modelAccent: '#8B7CF6',
+    panelFill: 'rgba(255,255,255,0.10)',
+    panelBorder: 'rgba(255,255,255,0.20)',
+    primaryText: '#FFF7F2',
+    secondaryText: '#C9D1D9',
+    mutedText: '#9CA3AF',
+    softLine: 'rgba(255,255,255,0.18)',
+    watermark: 'rgba(255,247,242,0.62)',
+    badgeFill: 'rgba(255,255,255,0.12)',
+    badgeBorder: 'rgba(255,255,255,0.24)',
+  },
 };
+
+/** Resolve 'auto' deterministically: dark VS Code → auroraDark, else claudeCream. */
+export function resolveShareCardTheme(theme: ShareCardTheme | undefined, isDark?: boolean): 'claudeCream' | 'auroraDark' {
+  if (theme === 'auroraDark') return 'auroraDark';
+  if (theme === 'claudeCream') return 'claudeCream';
+  return isDark ? 'auroraDark' : 'claudeCream'; // 'auto' / undefined
+}
+
+// On-brand badge copy (title + one-line explanation), keyed by selectShareBadge
+// ids. English title (international) + a Chinese personality line. Localizable
+// later via the zh field.
+export const BADGE_COPY: Record<string, { en: string; zh: string; line: string }> = {
+  'context-marathoner': { en: 'Context Marathon', zh: 'Context马拉松', line: '上下文跑了个半马，模型还在喘。' },
+  'cache-saver': { en: 'Cache Alchemist', zh: '缓存日子人', line: '缓存命中高，token 没白烧。' },
+  'token-sprinter': { en: 'Token Sprinter', zh: '无限火力', line: '开炮！！！' },
+  'workflow-pilot': { en: 'Workflow Pilot', zh: 'Agent 包工头', line: '你不是在写代码，你是在使唤一支小队。' },
+  'steady-builder': { en: 'Steady Builder', zh: '节奏大师', line: '不卷不燥，代码稳步推进。' },
+};
+
+const REPO = 'github.com/ClaudeCodeUsage';
+
+// ---- Renderer ---------------------------------------------------------------
 
 export interface ShareCardSvgOptions {
   width?: number;
   height?: number;
-  size?: ShareCardSize; // takes precedence over width/height
-  avatarDataUri?: string; // optional embedded avatar (data: URI), top-right
-  username?: string; // optional name shown with the badge (personalization)
-  fullNumbers?: boolean; // show the exact token count in the hero, not compact
+  theme?: ShareCardTheme; // default claudeCream
+  isDark?: boolean; // used only when theme === 'auto'
+  avatarDataUri?: string;
+  username?: string;
+  fullNumbers?: boolean;
 }
 
-/** Render the share card as an SVG string. */
 export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOptions = {}): string {
-  const preset = opts.size ? SHARE_CARD_SIZES[opts.size] : undefined;
-  const W = preset?.width ?? opts.width ?? 1200;
-  const H = preset?.height ?? opts.height ?? 680;
-  const M = Math.round(W * 0.055); // margin scales with width
+  const W = opts.width ?? 1200;
+  const H = opts.height ?? 680;
+  const M = 60;
+  const T = SHARE_CARD_THEMES[resolveShareCardTheme(opts.theme, opts.isDark)];
   const p: string[] = [];
 
   p.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif">`
+    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family='${FONT}'>`
   );
+
+  // Aurora background: vertical gradient + two soft radial blobs (deterministic).
   p.push('<defs>');
-  p.push(`<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff7f2"/><stop offset="1" stop-color="#fdeee6"/></linearGradient>`);
-  p.push(`<linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${ORANGE}"/><stop offset="1" stop-color="${ORANGE_SOFT}"/></linearGradient>`);
+  p.push(`<linearGradient id="bg" x1="0" y1="0" x2="0.3" y2="1"><stop offset="0" stop-color="${T.bgTop}"/><stop offset="1" stop-color="${T.bgBottom}"/></linearGradient>`);
+  p.push(`<radialGradient id="blobA" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="${T.blobWarm}" stop-opacity="0.55"/><stop offset="1" stop-color="${T.blobWarm}" stop-opacity="0"/></radialGradient>`);
+  p.push(`<radialGradient id="blobB" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="${T.blobCool}" stop-opacity="0.5"/><stop offset="1" stop-color="${T.blobCool}" stop-opacity="0"/></radialGradient>`);
+  p.push(`<linearGradient id="hero" x1="0" y1="0" x2="1" y2="0.6"><stop offset="0" stop-color="${T.primaryAccent}"/><stop offset="1" stop-color="${T.primaryAccentBright}"/></linearGradient>`);
   p.push('</defs>');
   p.push(`<rect width="${W}" height="${H}" fill="url(#bg)"/>`);
-  p.push(`<rect width="${W}" height="10" fill="url(#accent)"/>`);
+  p.push(`<circle cx="${W - 120}" cy="90" r="360" fill="url(#blobA)"/>`);
+  p.push(`<circle cx="140" cy="${H - 40}" r="340" fill="url(#blobB)"/>`);
 
-  // --- Header (pinned top) ---
-  const sub = (data.rangeLabel || rangeLabel(data.range)) + (data.projectName ? ' · ' + data.projectName : '');
-  p.push(`<text x="${M}" y="86" font-size="30" font-weight="700" fill="${INK}">My Claude Code usage</text>`);
-  p.push(`<text x="${M}" y="120" font-size="20" fill="${MUTED}">${esc(sub)}</text>`);
+  // --- Brand block (top-left) ---
+  p.push(`<text x="${M}" y="74" font-size="22" font-weight="700" fill="${T.primaryText}">Claude Code Usage</text>`);
+  p.push(`<text x="${M}" y="100" font-size="16" font-weight="500" fill="${T.secondaryText}">AI coding usage snapshot</text>`);
+  const range = (data.rangeLabel || rangeLabel(data.range)) + (data.projectName ? ' · ' + truncate(data.projectName, 28) : '');
+  p.push(`<text x="${M}" y="124" font-size="15" font-weight="500" fill="${T.mutedText}">${esc(range)}</text>`);
 
-  // Personalized corner (top-right): avatar circle + a two-line name / badge
-  // block to its left. Any subset can be present; they no longer exclude each
-  // other (Carl: avatar + badge + name together reads like a personal card).
-  let textRight = W - M;
+  // --- Corner (top-right): avatar + badge card + optional name ---
+  let cornerBottom = 130;
+  let avatarBottom = 0;
   if (opts.avatarDataUri) {
-    const s = 76;
+    const s = 60;
     const ax = W - M - s;
-    p.push(`<clipPath id="av"><circle cx="${ax + s / 2}" cy="${58 + s / 2}" r="${s / 2}"/></clipPath>`);
-    p.push(`<image x="${ax}" y="58" width="${s}" height="${s}" href="${esc(opts.avatarDataUri)}" xlink:href="${esc(opts.avatarDataUri)}" clip-path="url(#av)" preserveAspectRatio="xMidYMid slice"/>`);
-    p.push(`<circle cx="${ax + s / 2}" cy="${58 + s / 2}" r="${s / 2}" fill="none" stroke="#f0d8c9" stroke-width="2"/>`);
-    textRight = ax - 16;
-  }
-  const hasName = !!(opts.username && opts.username.trim());
-  if (hasName) {
-    p.push(`<text x="${textRight}" y="86" font-size="20" font-weight="600" fill="${INK}" text-anchor="end">${esc(opts.username!.trim())}</text>`);
+    const ay = 46;
+    p.push(`<clipPath id="av"><circle cx="${ax + s / 2}" cy="${ay + s / 2}" r="${s / 2}"/></clipPath>`);
+    p.push(`<image x="${ax}" y="${ay}" width="${s}" height="${s}" href="${esc(opts.avatarDataUri)}" xlink:href="${esc(opts.avatarDataUri)}" clip-path="url(#av)" preserveAspectRatio="xMidYMid slice"/>`);
+    p.push(`<circle cx="${ax + s / 2}" cy="${ay + s / 2}" r="${s / 2}" fill="none" stroke="${T.badgeBorder}" stroke-width="2"/>`);
+    avatarBottom = ay + s;
   }
   if (data.badge) {
-    const label = data.badge.label;
-    const bw = 34 + label.length * 10;
-    const by = hasName ? 100 : 76; // below the name, else vertically centred on the avatar band
-    p.push(`<rect x="${textRight - bw}" y="${by}" width="${bw}" height="34" rx="17" fill="url(#accent)"/>`);
-    p.push(`<text x="${textRight - bw / 2}" y="${by + 23}" font-size="16" font-weight="600" fill="#ffffff" text-anchor="middle">${esc(label)}</text>`);
+    const copy = BADGE_COPY[data.badge.id] || { en: data.badge.label, line: '' };
+    const hasName = !!(opts.username && opts.username.trim());
+    const titleW = 16 + copy.en.length * 11;
+    const lineW = copy.line ? 24 + copy.line.length * 15 : 0;
+    const nameW = hasName ? 24 + truncate(opts.username!.trim(), 22).length * 10 : 0;
+    const cardW = Math.min(380, Math.max(160, titleW, lineW, nameW) + 28);
+    const cardX = W - M - cardW;
+    const cardY = avatarBottom ? avatarBottom + 12 : 52;
+    const cardH = (hasName ? 26 : 0) + (copy.line ? 62 : 42);
+    p.push(`<rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="16" fill="${T.badgeFill}" stroke="${T.badgeBorder}"/>`);
+    // Accent dot + title.
+    let ty = cardY + (hasName ? 24 : 20);
+    if (hasName) {
+      p.push(`<text x="${cardX + cardW - 16}" y="${ty}" font-size="13" font-weight="600" fill="${T.mutedText}" text-anchor="end">${esc(truncate(opts.username!.trim(), 24))}</text>`);
+      ty += 28;
+    } else {
+      ty += 8;
+    }
+    p.push(`<circle cx="${cardX + 20}" cy="${ty - 6}" r="6" fill="url(#hero)"/>`);
+    p.push(`<text x="${cardX + 34}" y="${ty}" font-size="18" font-weight="700" fill="${T.primaryText}">${esc(truncate(copy.en, 22))}</text>`);
+    if (copy.line) {
+      p.push(`<text x="${cardX + 16}" y="${ty + 26}" font-size="13" font-weight="500" fill="${T.secondaryText}">${esc(truncate(copy.line, 24))}</text>`);
+    }
+    cornerBottom = Math.max(cornerBottom, cardY + cardH);
+  } else {
+    cornerBottom = Math.max(cornerBottom, avatarBottom);
   }
 
   // --- Middle sections, distributed between the header and the footer ---
-  const headerBottom = 150;
-  const footerTop = H - 64; // watermark zone
+  const headerBottom = Math.max(150, cornerBottom + 8);
+  const footerTop = H - 60;
   type Section = { h: number; draw: (y: number) => void };
   const sections: Section[] = [];
 
-  // Hero. `fullNumbers` shows the exact token count instead of a compact form
-  // (Carl wants the option); the font shrinks so long numbers still fit.
+  // Hero.
   let heroValue = '';
   let heroUnit = '';
   if (data.totalTokens != null) {
     heroValue = opts.fullNumbers ? data.totalTokens.toLocaleString('en-US') : compact(data.totalTokens);
-    heroUnit = 'tokens';
+    heroUnit = 'total tokens';
   } else if (data.estimatedCost != null) {
     heroValue = money(data.estimatedCost);
-    heroUnit = 'spent';
+    heroUnit = 'estimated spend';
   } else if (data.sessions != null) {
     heroValue = String(data.sessions);
     heroUnit = 'sessions';
   }
   if (heroValue) {
-    const heroFont = heroValue.length > 11 ? 58 : heroValue.length > 8 ? 78 : 108;
+    const heroFont = heroValue.length > 11 ? 60 : heroValue.length > 8 ? 82 : 104;
     sections.push({
-      h: 150,
+      h: 148,
       draw: (y) => {
-        p.push(`<text x="${M}" y="${y + heroFont}" font-size="${heroFont}" font-weight="800" fill="${ORANGE}">${esc(heroValue)}</text>`);
-        p.push(`<text x="${M}" y="${y + heroFont + 36}" font-size="24" fill="${MUTED}">${esc(heroUnit)}</text>`);
+        p.push(`<text x="${M}" y="${y + heroFont}" font-size="${heroFont}" font-weight="800" fill="url(#hero)">${esc(heroValue)}</text>`);
+        p.push(`<text x="${M}" y="${y + heroFont + 34}" font-size="22" font-weight="600" fill="${T.secondaryText}">${esc(heroUnit)}</text>`);
       },
     });
   }
 
-  // Stat tiles (priority order). Up to 6 so selecting >4 metrics doesn't drop
-  // the last one — they wrap to a second row (fixes the >4 bug).
-  const tiles: { label: string; value: string }[] = [];
+  // Stat tiles — 4 by default (cost / cache / model / sessions), glass panels.
+  const tiles: { label: string; value: string; accent?: string }[] = [];
   if (data.totalTokens != null && data.estimatedCost != null) tiles.push({ label: 'est. cost', value: money(data.estimatedCost) });
-  if (data.cacheSharePct != null) tiles.push({ label: 'from cache', value: data.cacheSharePct + '%' });
+  if (data.cacheSharePct != null) tiles.push({ label: 'cache hit', value: data.cacheSharePct + '%', accent: T.cacheAccent });
   const modelLabel = data.topModelName || data.topModelFamily;
-  if (modelLabel) tiles.push({ label: 'top model', value: modelLabel });
+  if (modelLabel) tiles.push({ label: 'top model', value: truncate(modelLabel, 12), accent: T.modelAccent });
   if (data.sessions != null) tiles.push({ label: 'sessions', value: String(data.sessions) });
   if (data.messages != null) tiles.push({ label: 'messages', value: String(data.messages) });
   if (data.workflowSharePct != null) tiles.push({ label: 'workflows', value: data.workflowSharePct + '%' });
-  if (data.peakContextTokens != null) tiles.push({ label: 'peak context', value: compact(data.peakContextTokens) });
-  const shownTiles = tiles.slice(0, 6);
+  if (data.peakContextTokens != null) tiles.push({ label: 'peak ctx', value: compact(data.peakContextTokens) });
+  const shownTiles = tiles.slice(0, 4);
   if (shownTiles.length > 0) {
-    const gap = 16;
-    const perRow = Math.max(1, Math.min(shownTiles.length, Math.floor((W - 2 * M + gap) / (200 + gap))));
-    const rows = Math.ceil(shownTiles.length / perRow);
-    const tileW = (W - 2 * M - (perRow - 1) * gap) / perRow;
-    const rowH = 92;
+    const gap = 18;
+    const n = shownTiles.length;
+    const tileW = (W - 2 * M - (n - 1) * gap) / n;
+    const rowH = 96;
     sections.push({
-      h: rows * rowH + (rows - 1) * 12,
+      h: rowH,
       draw: (y) => {
         shownTiles.forEach((t, i) => {
-          const r = Math.floor(i / perRow);
-          const c = i % perRow;
-          const x = M + c * (tileW + gap);
-          const ty = y + r * (rowH + 12);
-          p.push(`<rect x="${x.toFixed(1)}" y="${ty}" width="${tileW.toFixed(1)}" height="${rowH}" rx="14" fill="#ffffff" fill-opacity="0.72" stroke="#f0d8c9"/>`);
-          p.push(`<text x="${(x + 18).toFixed(1)}" y="${ty + 40}" font-size="28" font-weight="700" fill="${INK}">${esc(t.value)}</text>`);
-          p.push(`<text x="${(x + 18).toFixed(1)}" y="${ty + 68}" font-size="17" fill="${MUTED}">${esc(t.label)}</text>`);
+          const x = M + i * (tileW + gap);
+          p.push(`<rect x="${x.toFixed(1)}" y="${y}" width="${tileW.toFixed(1)}" height="${rowH}" rx="16" fill="${T.panelFill}" stroke="${T.panelBorder}"/>`);
+          p.push(`<rect x="${x.toFixed(1)}" y="${y + 16}" width="4" height="${rowH - 32}" rx="2" fill="${t.accent || T.primaryAccent}"/>`);
+          p.push(`<text x="${(x + 22).toFixed(1)}" y="${y + 46}" font-size="30" font-weight="750" fill="${T.primaryText}">${esc(t.value)}</text>`);
+          p.push(`<text x="${(x + 22).toFixed(1)}" y="${y + 74}" font-size="14" font-weight="500" fill="${T.mutedText}">${esc(t.label)}</text>`);
         });
       },
     });
   }
 
-  // Token composition (stacked bar + legend with % and amount).
+  // Token composition — stacked bar (theme-aware segment colors) + legend.
   if (data.composition) {
     const c = data.composition;
-    const segs = [c.input, c.output, c.cacheCreate, c.cacheRead];
-    const total = segs.reduce((a, b) => a + b, 0);
+    const segs = [
+      { v: c.input, label: 'Input', color: T.primaryAccent },
+      { v: c.output, label: 'Output', color: T.modelAccent },
+      { v: c.cacheCreate, label: 'Cache write', color: T.secondaryAccent },
+      { v: c.cacheRead, label: 'Cache read', color: T.cacheAccent },
+    ];
+    const total = segs.reduce((a, b) => a + b.v, 0);
     if (total > 0) {
       sections.push({
-        h: 66,
+        h: 64,
         draw: (y) => {
-          const barX = M;
-          const barY = y + 20;
+          const barY = y + 22;
           const barW = W - 2 * M;
-          const barH = 26;
-          p.push(`<text x="${barX}" y="${y + 6}" font-size="17" fill="${MUTED}">Token composition</text>`);
-          let x = barX;
-          segs.forEach((v, i) => {
-            const w = (v / total) * barW;
+          const barH = 22;
+          p.push(`<text x="${M}" y="${y + 6}" font-size="15" font-weight="700" fill="${T.secondaryText}">Token mix</text>`);
+          let x = M;
+          segs.forEach((s) => {
+            const w = (s.v / total) * barW;
             if (w > 0) {
-              p.push(`<rect x="${x.toFixed(1)}" y="${barY}" width="${w.toFixed(1)}" height="${barH}" fill="${COMPOSITION[i].color}"/>`);
+              p.push(`<rect x="${x.toFixed(1)}" y="${barY}" width="${w.toFixed(1)}" height="${barH}" fill="${s.color}"/>`);
               x += w;
             }
           });
-          p.push(`<rect x="${barX}" y="${barY}" width="${barW}" height="${barH}" rx="6" fill="none" stroke="#f0d8c9"/>`);
-          let lx = barX;
-          const ly = barY + barH + 20;
-          segs.forEach((v, i) => {
-            const pct = Math.round((v / total) * 100);
-            const label = `${COMPOSITION[i].label} ${pct}% · ${compact(v)}`;
-            p.push(`<rect x="${lx}" y="${ly - 11}" width="13" height="13" rx="3" fill="${COMPOSITION[i].color}"/>`);
-            p.push(`<text x="${lx + 19}" y="${ly}" font-size="15" fill="${MUTED}">${esc(label)}</text>`);
-            lx += 40 + label.length * 8;
+          p.push(`<rect x="${M}" y="${barY}" width="${barW}" height="${barH}" rx="6" fill="none" stroke="${T.softLine}"/>`);
+          let lx = M;
+          const ly = barY + barH + 22;
+          segs.forEach((s) => {
+            const pct = Math.round((s.v / total) * 100);
+            const label = `${s.label} ${pct}% · ${compact(s.v)}`;
+            p.push(`<rect x="${lx}" y="${ly - 11}" width="12" height="12" rx="3" fill="${s.color}"/>`);
+            p.push(`<text x="${lx + 18}" y="${ly}" font-size="14" font-weight="500" fill="${T.mutedText}">${esc(label)}</text>`);
+            lx += 38 + label.length * 7.6;
           });
         },
       });
     }
   }
 
-  // Rhythm strip (per-day/-hour tokens), centred + capped bars, with a scale
-  // and first/last labels so short ranges don't look sparse.
+  // Daily pulse strip — centred + width-capped bars, peak + first/last labels.
   if (data.rhythm && data.rhythm.length > 0) {
     sections.push({
-      h: 118,
+      h: 110,
       draw: (y) => {
-        const rx = M;
         const capW = W - 2 * M;
-        const rh = 76;
-        const barsTop = y + 12;
+        const rh = 70;
+        const barsTop = y + 14;
         const max = Math.max(...data.rhythm!, 1);
-        const n = data.rhythm!.length;
-        const slot = Math.min(capW / n, 46);
-        const usedW = slot * n;
-        const startX = rx + (capW - usedW) / 2; // centre when few bars
-        const bw = Math.max(3, Math.min(slot - 6, 30));
-        p.push(`<text x="${rx}" y="${y}" font-size="15" fill="${MUTED}">${n > 26 ? 'Daily' : n <= 24 && data.range === 'today' ? 'Hourly' : 'Daily'} tokens</text>`);
-        p.push(`<text x="${rx + capW}" y="${y}" font-size="15" fill="${MUTED}" text-anchor="end">peak ${esc(compact(max))}</text>`);
-        p.push(`<line x1="${rx}" y1="${barsTop}" x2="${rx + capW}" y2="${barsTop}" stroke="#f0d8c9"/>`);
-        p.push(`<line x1="${rx}" y1="${barsTop + rh}" x2="${rx + capW}" y2="${barsTop + rh}" stroke="#eccbb9"/>`);
-        let firstBarCx = startX + bw / 2 + (slot - bw) / 2;
-        let lastBarCx = firstBarCx;
+        const nn = data.rhythm!.length;
+        const slot = Math.min(capW / nn, 46);
+        const usedW = slot * nn;
+        const startX = M + (capW - usedW) / 2;
+        const bw = Math.max(3, Math.min(slot - 6, 28));
+        p.push(`<text x="${M}" y="${y}" font-size="15" font-weight="700" fill="${T.secondaryText}">${nn <= 24 && data.range === 'today' ? 'Hourly' : 'Daily'} pulse</text>`);
+        p.push(`<text x="${M + capW}" y="${y}" font-size="14" font-weight="500" fill="${T.mutedText}" text-anchor="end">peak ${esc(compact(max))}</text>`);
+        p.push(`<line x1="${M}" y1="${barsTop + rh}" x2="${M + capW}" y2="${barsTop + rh}" stroke="${T.softLine}"/>`);
+        let firstCx = startX;
+        let lastCx = startX;
         data.rhythm!.forEach((v, i) => {
           const bh = Math.max(2, (v / max) * rh);
           const bx = startX + i * slot + (slot - bw) / 2;
-          if (i === 0) firstBarCx = bx + bw / 2;
-          if (i === n - 1) lastBarCx = bx + bw / 2;
-          p.push(`<rect x="${bx.toFixed(1)}" y="${(barsTop + rh - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${ORANGE_SOFT}"/>`);
+          if (i === 0) firstCx = bx + bw / 2;
+          if (i === nn - 1) lastCx = bx + bw / 2;
+          const col = i === data.rhythm!.indexOf(max) ? T.primaryAccentBright : T.primaryAccent;
+          p.push(`<rect x="${bx.toFixed(1)}" y="${(barsTop + rh - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${col}"/>`);
         });
-        // First / last date sit UNDER their bars (not pinned to the axis ends),
-        // so short, centred ranges label the right positions.
         if (data.rhythmStart) {
-          p.push(`<text x="${firstBarCx.toFixed(1)}" y="${barsTop + rh + 24}" font-size="14" fill="${MUTED}" text-anchor="middle">${esc(shortDay(data.rhythmStart))}</text>`);
+          p.push(`<text x="${firstCx.toFixed(1)}" y="${barsTop + rh + 22}" font-size="13" font-weight="500" fill="${T.mutedText}" text-anchor="middle">${esc(shortDay(data.rhythmStart))}</text>`);
         }
-        if (data.rhythmEnd && n > 1) {
-          p.push(`<text x="${lastBarCx.toFixed(1)}" y="${barsTop + rh + 24}" font-size="14" fill="${MUTED}" text-anchor="middle">${esc(shortDay(data.rhythmEnd))}</text>`);
+        if (data.rhythmEnd && nn > 1) {
+          p.push(`<text x="${lastCx.toFixed(1)}" y="${barsTop + rh + 22}" font-size="13" font-weight="500" fill="${T.mutedText}" text-anchor="middle">${esc(shortDay(data.rhythmEnd))}</text>`);
         }
       },
     });
   }
 
-  // Distribute the spare vertical space as even gaps.
   const sumH = sections.reduce((a, s) => a + s.h, 0);
-  const avail = footerTop - headerBottom;
-  const gap = Math.max(16, (avail - sumH) / (sections.length + 1));
+  const gap = Math.max(14, (footerTop - headerBottom - sumH) / (sections.length + 1));
   let cursor = headerBottom + gap;
   for (const s of sections) {
     s.draw(cursor);
     cursor += s.h + gap;
   }
 
-  // --- Footer (pinned bottom, clear of the rhythm dates) ---
+  // --- Footer (brand signature) ---
   if (data.watermark) {
-    p.push(`<text x="${M}" y="${H - 30}" font-size="16" fill="${MUTED}">Made with Claude Code Usage · ${esc(REPO)}</text>`);
+    p.push(`<text x="${M}" y="${H - 28}" font-size="13" font-weight="500" fill="${T.watermark}">Made with Claude Code Usage · ${esc(REPO)}</text>`);
   }
 
   p.push('</svg>');

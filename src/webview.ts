@@ -6,7 +6,7 @@ import { SETTINGS, SettingsStore, SettingView } from './settings';
 import { buildResumeCommand, isUsableCwd, isValidSessionId, isUnderDir } from './sessionResume';
 import { renderHeatmapSvg } from './heatmapSvg';
 import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename } from './shareCard';
-import { renderShareCardSvg } from './shareCardSvg';
+import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
 import * as os from 'os';
 import * as path from 'path';
 import * as https from 'https';
@@ -58,6 +58,7 @@ export class UsageWebviewProvider {
     avatar: boolean;
     username: boolean;
     fullNumbers: boolean;
+    theme: string;
   };
   // Real quota utilisation (pushed asynchronously) for the workflow quota
   // guard banner; dismissal lasts for the lifetime of this window.
@@ -146,10 +147,12 @@ export class UsageWebviewProvider {
               const range = String(message.range || 'last30');
               const scope = String(message.scope || 'all');
               const sections = (message.sections || {}) as Record<string, boolean>;
+              const theme = (message.theme as ShareCardTheme) || 'claudeCream';
               const svg = this.buildShareCardSvgFor(range, scope, sections as Partial<ShareSections>, {
                 avatarDataUri: message.avatar ? id.avatar : undefined,
                 username: message.username ? id.name : undefined,
                 fullNumbers: !!message.fullNumbers,
+                theme,
               });
               // Remember it so a re-render restores the preview + picks.
               this.lastShareCardSvg = svg;
@@ -160,6 +163,7 @@ export class UsageWebviewProvider {
                 avatar: !!message.avatar,
                 username: !!message.username,
                 fullNumbers: !!message.fullNumbers,
+                theme,
               };
               this.panel.webview.postMessage({ command: 'shareCardResult', svg });
             } catch (e) {
@@ -180,6 +184,7 @@ export class UsageWebviewProvider {
             avatarDataUri: message.avatar ? id.avatar : undefined,
             username: message.username ? id.name : undefined,
             fullNumbers: !!message.fullNumbers,
+            theme: (message.theme as ShareCardTheme) || 'claudeCream',
           });
           const defaultName = shareCardFilename(range).replace(/\.png$/, '.svg');
           const uri = await vscode.window.showSaveDialog({
@@ -1522,15 +1527,22 @@ export class UsageWebviewProvider {
       check('estimatedCost', 'Est. cost', true) +
       check('cacheEfficiency', 'Cache-hit rate', true) +
       check('topModel', 'Top model', true) +
-      check('tokenComposition', 'Token composition', false) +
-      check('rhythm', 'Daily rhythm', true) +
-      check('sessions', 'Session count', false) +
-      check('messages', 'Message count', false) +
+      check('sessions', 'Session count', true) +
+      check('tokenComposition', 'Token mix', true) +
+      check('rhythm', 'Daily pulse', true) +
       check('badge', 'Badge', true) +
+      check('messages', 'Message count', false) +
       check('projectName', 'Project name', false);
     const avatarChecked = cfg?.avatar ? ' checked' : '';
     const nameChecked = cfg?.username ? ' checked' : '';
     const fullChecked = cfg?.fullNumbers ? ' checked' : '';
+    const curTheme = cfg?.theme || 'claudeCream';
+    const themeSelect =
+      '<select id="scTheme">' +
+      '<option value="claudeCream"' + sel('claudeCream', curTheme) + '>Claude Cream</option>' +
+      '<option value="auroraDark"' + sel('auroraDark', curTheme) + '>Aurora Dark</option>' +
+      '<option value="auto"' + sel('auto', curTheme) + '>Auto (follow VS Code)</option>' +
+      '</select>';
 
     const preview = this.lastShareCardSvg
       ? this.lastShareCardSvg
@@ -1543,6 +1555,7 @@ export class UsageWebviewProvider {
       '<div class="sc-grid">' +
       '<label class="sc-field"><span>Range</span>' + rangeSelect + '</label>' +
       '<label class="sc-field"><span>Scope</span>' + scopeSelect + '</label>' +
+      '<label class="sc-field"><span>Theme</span>' + themeSelect + '</label>' +
       '</div>' +
       '<div class="sc-checks">' + toggles +
       '<label class="sc-check" title="Show the exact token count instead of 1.2M"><input type="checkbox" id="scFull"' + fullChecked + '> Full numbers</label>' +
@@ -1564,12 +1577,14 @@ export class UsageWebviewProvider {
     range: string,
     scope: string,
     sections: Partial<ShareSections>,
-    opts: { avatarDataUri?: string; username?: string; fullNumbers?: boolean } = {}
+    opts: { avatarDataUri?: string; username?: string; fullNumbers?: boolean; theme?: ShareCardTheme } = {}
   ): string {
     const input = ClaudeDataLoader.buildShareInput(this.allRecords, range, scope);
     const merged: ShareSections = { ...DEFAULT_SECTIONS, ...sections };
+    const kind = vscode.window.activeColorTheme?.kind;
+    const isDark = kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
     // Landscape only for now (other sizes need per-size tuning — a later patch).
-    return renderShareCardSvg(buildShareCardData(input, merged), opts);
+    return renderShareCardSvg(buildShareCardData(input, merged), { ...opts, isDark });
   }
 
   /** Fetch the signed-in GitHub user's avatar (data: URI) and display name,
@@ -4789,9 +4804,11 @@ function scReadConfig() {
   var avatarEl = document.getElementById('scAvatar');
   var nameEl = document.getElementById('scName');
   var fullEl = document.getElementById('scFull');
+  var themeEl = document.getElementById('scTheme');
   return {
     range: rangeEl ? rangeEl.value : 'last30',
     scope: scopeEl ? scopeEl.value : 'all',
+    theme: themeEl ? themeEl.value : 'claudeCream',
     avatar: avatarEl ? avatarEl.checked : false,
     username: nameEl ? nameEl.checked : false,
     fullNumbers: fullEl ? fullEl.checked : false,
@@ -4802,11 +4819,11 @@ function generateShareCard() {
   var cfg = scReadConfig();
   var prev = document.getElementById('scPreview');
   if (prev) { prev.innerHTML = '<p class="table-hint">Generating…</p>'; }
-  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportShareCardConfigured() {
   var cfg = scReadConfig();
-  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportHeatmap() {
   vscode.postMessage({ command: 'exportHeatmap' });

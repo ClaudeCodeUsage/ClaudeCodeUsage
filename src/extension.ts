@@ -422,9 +422,10 @@ export class ClaudeCodeUsageExtension {
       return;
     }
     const input = ClaudeDataLoader.buildShareInput(records, picked.range);
-    // Match the dashboard preview: defaults + token composition on.
-    const data = buildShareCardData(input, { ...DEFAULT_SECTIONS, tokenComposition: true });
-    const svg = renderShareCardSvg(data);
+    const data = buildShareCardData(input, DEFAULT_SECTIONS);
+    const kind = vscode.window.activeColorTheme?.kind;
+    const isDark = kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
+    const svg = renderShareCardSvg(data, { theme: 'claudeCream', isDark });
     const defaultName = shareCardFilename(picked.range).replace(/\.png$/, '.svg');
     const uri = await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),

@@ -32,18 +32,20 @@ export interface ShareSections {
   peakContext: boolean;
 }
 
+// Defaults follow the GPT card design: hero + 4 tiles (cost / cache / model /
+// sessions) + token mix + daily pulse + badge. Everything else opt-in.
 export const DEFAULT_SECTIONS: ShareSections = {
   totalTokens: true, // the hero metric
   estimatedCost: true,
-  topModel: true,
   cacheEfficiency: true,
-  // optional
-  sessions: false,
-  messages: false,
-  rhythm: true,
+  topModel: true,
+  sessions: true, // the 4th default tile
+  tokenComposition: true, // the token-mix bar
+  rhythm: true, // the daily pulse
   badge: true,
   watermark: true,
-  tokenComposition: false,
+  // opt-in
+  messages: false,
   projectName: false,
   workflowShare: false,
   peakContext: false,
