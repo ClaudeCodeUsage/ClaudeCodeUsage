@@ -28,7 +28,7 @@ import { SettingsStore } from './settings';
 // Keep it short and point at the dashboard / ⚙ Settings.
 const WHATS_NEW: Record<string, string> = {
   '2.2':
-    'new token heatmap (All tab) + a GitHub-profile export, per-day cache-hit rates, and efficiency insights — turn on the opt-in ones in ⚙ Settings.',
+    'a shareable usage card (themed), a token heatmap you can publish to your GitHub profile, and efficiency + cache insights (top-10 costliest messages, cache warmth ~how long your cache stays warm). Turn on the opt-in ones in ⚙ Settings.',
 };
 
 export class ClaudeCodeUsageExtension {

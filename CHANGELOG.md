@@ -37,14 +37,48 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   the first time you run a new major.minor version, pointing at the dashboard so
   new (including opt-in, default-off) features are discoverable. Shown once per
   version; skipped on a fresh install.
+- **Usage Share Card** (opt-in, `enableShareCard`, default off) — a configurable
+  one-page SVG you can generate and export/share: pick a range (last 30 days /
+  week / month / year / a specific month), a scope (overall / a project / a
+  session), which metrics to show, and a **theme** — **Claude Classic** (orange,
+  default), **Claude Cream**, **Aurora Dark**, or **Auto**. Self-contained SVG;
+  optional GitHub **avatar + name**; deterministic; privacy by construction (no
+  prompts/paths/ids). Built on demand; config + preview survive a refresh.
+- **Publish Token Heatmap to GitHub** — one-click publish of the heatmap SVG to
+  a repo (default: your profile repo) via VS Code's built-in GitHub auth (no
+  PAT). Shows a consent modal first.
+- **Top-10 costliest *messages*** (opt-in, `showCostliestMessages`, default off,
+  Content tab) — ranks single turns by cost; expand for the triggering prompt,
+  model, skill, a **cost split** that distinguishes a **cache miss** from a long
+  answer, the **cache-hit rate**, and the **time since the last turn** (+ a
+  "model switch flushed the cache" / "idle past cache TTL" cause). (Reworked from
+  the earlier costliest-*conversations* panel.)
+- **Cache warmth estimate** (`showEfficiency`) — infers how long your prompt
+  cache stays warm while idle from your own turns (measured **~60 min**, not 5).
+- **Efficiency chips** — cost/message, **tokens/message**, realised cache savings
+  on Today / month / all-time; a **Cost/msg** column in the projects table.
+- **`enableSessionDelete`** (default off) — the Sessions "delete" action is now
+  opt-in, since it touches local history files.
 
 ### Changed
+- **Timezone dropdown = full UTC-offset coverage** — common zones plus every UTC
+  offset (grouped Common / UTC offset), each labelled with its current offset;
+  IANA identifiers only (no editorialised place names).
 - **`dashboardAutoRefresh`** (positive wording, default true) replaces the
   double-negative `pauseDashboardRefresh`; existing values are migrated.
 - Repository metadata (`repository` / `bugs` / `homepage`) now points at the
   `ClaudeCodeUsage` organization.
 
 ### Fixed
+- **Thinking share reads "hidden", not a false 0%,** for models that omit their
+  reasoning text (Fable 5 / Opus 4.8 — `"thinking":""` + a signature).
+- **Quota reset countdown** in the tooltip now reads `4d 12h` (the compact
+  status-bar form keeps `4.5d`); a recently-expired usage-anchored window no
+  longer shows a fabricated countdown while idle.
+- **Auto-refresh no longer wipes** the generated share card or collapses expanded
+  Content rows (reset only on tab switch); the GitHub avatar renders (webview CSP
+  now allows `data:` images).
+- Message counts exclude api_error retries and the compaction summary line.
 - **Timezone is a validated dropdown** — the Timezone setting is now a picker of
   valid IANA zones (`Intl.supportedValuesOf`) instead of free text, so an invalid
   value can't be entered; a guard also rejects any old bad synced value. Fixes a
