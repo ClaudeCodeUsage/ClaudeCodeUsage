@@ -102,23 +102,24 @@ test('escapes angle brackets in project names', () => {
 
 // --- Themes ---
 
-test('theme resolution: default is claudeCream; auto follows VS Code', () => {
-  assert.equal(resolveShareCardTheme(undefined), 'claudeCream');
+test('theme resolution: default is claudeClassic; auto follows VS Code', () => {
+  assert.equal(resolveShareCardTheme(undefined), 'claudeClassic');
   assert.equal(resolveShareCardTheme('claudeCream'), 'claudeCream');
+  assert.equal(resolveShareCardTheme('claudeClassic'), 'claudeClassic');
   assert.equal(resolveShareCardTheme('auroraDark'), 'auroraDark');
   assert.equal(resolveShareCardTheme('auto', true), 'auroraDark');
-  assert.equal(resolveShareCardTheme('auto', false), 'claudeCream');
+  assert.equal(resolveShareCardTheme('auto', false), 'claudeClassic');
 });
 
-test('default theme paints the Claude Cream background', () => {
+test('default theme paints the Claude Classic background', () => {
   const svg = renderShareCardSvg(base);
-  assert.match(svg, new RegExp(SHARE_CARD_THEMES.claudeCream.bgTop));
+  assert.match(svg, new RegExp(SHARE_CARD_THEMES.claudeClassic.bgTop));
 });
 
 test('aurora dark theme paints the navy background', () => {
   const svg = renderShareCardSvg(base, { theme: 'auroraDark' });
-  assert.match(svg, new RegExp(SHARE_CARD_THEMES.auroraDark.bgTop));
-  assert.doesNotMatch(svg, new RegExp(SHARE_CARD_THEMES.claudeCream.bgTop));
+  assert.match(svg, new RegExp(SHARE_CARD_THEMES.auroraDark.bgTop)); // #111827
+  assert.doesNotMatch(svg, new RegExp(SHARE_CARD_THEMES.claudeClassic.bgBottom)); // #FDEEE6 not in dark
 });
 
 test('hidden project / cost stay hidden in both themes', () => {

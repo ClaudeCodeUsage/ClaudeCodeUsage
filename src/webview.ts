@@ -147,7 +147,7 @@ export class UsageWebviewProvider {
               const range = String(message.range || 'last30');
               const scope = String(message.scope || 'all');
               const sections = (message.sections || {}) as Record<string, boolean>;
-              const theme = (message.theme as ShareCardTheme) || 'claudeCream';
+              const theme = (message.theme as ShareCardTheme) || 'claudeClassic';
               const svg = this.buildShareCardSvgFor(range, scope, sections as Partial<ShareSections>, {
                 avatarDataUri: message.avatar ? id.avatar : undefined,
                 username: message.username ? id.name : undefined,
@@ -184,7 +184,7 @@ export class UsageWebviewProvider {
             avatarDataUri: message.avatar ? id.avatar : undefined,
             username: message.username ? id.name : undefined,
             fullNumbers: !!message.fullNumbers,
-            theme: (message.theme as ShareCardTheme) || 'claudeCream',
+            theme: (message.theme as ShareCardTheme) || 'claudeClassic',
           });
           const defaultName = shareCardFilename(range).replace(/\.png$/, '.svg');
           const uri = await vscode.window.showSaveDialog({
@@ -1536,11 +1536,11 @@ export class UsageWebviewProvider {
     const avatarChecked = cfg?.avatar ? ' checked' : '';
     const nameChecked = cfg?.username ? ' checked' : '';
     const fullChecked = cfg?.fullNumbers ? ' checked' : '';
-    const curTheme = cfg?.theme || 'claudeCream';
+    const curTheme = cfg?.theme || 'claudeClassic';
     const themeSelect =
       '<select id="scTheme">' +
-      '<option value="claudeCream"' + sel('claudeCream', curTheme) + '>Claude Cream</option>' +
       '<option value="claudeClassic"' + sel('claudeClassic', curTheme) + '>Claude Classic (orange)</option>' +
+      '<option value="claudeCream"' + sel('claudeCream', curTheme) + '>Claude Cream</option>' +
       '<option value="auroraDark"' + sel('auroraDark', curTheme) + '>Aurora Dark</option>' +
       '<option value="auto"' + sel('auto', curTheme) + '>Auto (follow VS Code)</option>' +
       '</select>';

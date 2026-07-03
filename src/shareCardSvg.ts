@@ -130,12 +130,13 @@ export const SHARE_CARD_THEMES: Record<ConcreteTheme, ThemeTokens> = {
   },
 };
 
-/** Resolve 'auto' deterministically: dark VS Code → auroraDark, else claudeCream. */
+/** Resolve the theme. Explicit themes pass through; 'auto'/undefined follow VS
+ * Code (dark → auroraDark) and otherwise use the default, Claude Classic. */
 export function resolveShareCardTheme(theme: ShareCardTheme | undefined, isDark?: boolean): ConcreteTheme {
   if (theme === 'auroraDark' || theme === 'claudeCream' || theme === 'claudeClassic') {
     return theme;
   }
-  return isDark ? 'auroraDark' : 'claudeCream'; // 'auto' / undefined
+  return isDark ? 'auroraDark' : 'claudeClassic'; // 'auto' / undefined
 }
 
 // On-brand badge copy (title + one-line explanation), keyed by selectShareBadge
