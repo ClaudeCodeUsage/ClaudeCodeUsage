@@ -6,12 +6,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
+### Fixed
 - **Sonnet 5 context window** — `contextWindowFor()` only recognised the 1M
   window via a "4.6+" pattern (e.g. `sonnet-4-6`), so `claude-sonnet-5` — which
   has no `-4-` segment — fell through to the 200K legacy default. The dashboard
   and status-bar context bar now correctly show a 1M window for Sonnet 5.
-
-### Fixed
 - **Timezone setting now drives cost bucketing** — the `timezone` setting only
   affected date *formatting* before; the Today / This Month / daily / hourly
   aggregations bucketed by machine-local midnight (Today) or UTC (the charts),
