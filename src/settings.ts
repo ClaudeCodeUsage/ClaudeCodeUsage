@@ -193,7 +193,7 @@ export const SETTINGS: SettingDef[] = [
     default: false,
     storage: 'state',
     group: 'features',
-    label: 'Show token heatmap (All tab)',
+    label: 'Show token heatmap (All-time tab)',
     help: 'Show a GitHub-style yearly token heatmap on the All tab. Off by default — mainly a shareable view of what you can already see elsewhere. Use "Export Token Heatmap" for a GitHub-profile SVG.',
   },
   {
