@@ -18,10 +18,17 @@ test('renders a well-formed 1200x680 svg with the brand', () => {
   assert.match(svg, />AI coding usage snapshot</);
 });
 
-test('draws the total-tokens hero compactly with its label', () => {
-  const svg = renderShareCardSvg({ ...base, totalTokens: 5_300_000_000 });
-  assert.match(svg, />5\.3B</);
+test('draws the total-tokens hero compactly with its label + one decimal', () => {
+  const svg = renderShareCardSvg({ ...base, totalTokens: 5_000_000_000 });
+  assert.match(svg, />5\.0B</); // hero keeps one decimal even when round
   assert.match(svg, />total tokens</);
+});
+
+test('Chinese cards use 万 / 亿 units', () => {
+  const zh = renderShareCardSvg({ ...base, totalTokens: 512_400_000 }, { lang: 'zh-CN' });
+  assert.match(zh, />5\.1亿</); // hero in 亿, one decimal
+  const tw = renderShareCardSvg({ ...base, totalTokens: 34_000 }, { lang: 'zh-TW' });
+  assert.match(tw, />3\.4萬</); // Traditional uses 萬
 });
 
 test('full-numbers shows the exact token count', () => {

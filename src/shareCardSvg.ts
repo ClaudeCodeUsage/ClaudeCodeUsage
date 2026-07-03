@@ -18,9 +18,19 @@ const esc = (s: string): string =>
 
 const truncate = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
-function compact(n: number): string {
+// Compact token count. Chinese cards use 万 / 亿 (万 / 億 for Traditional) to fit
+// the language; others use K / M / B. `keepDecimal` forces one decimal (the hero
+// keeps it even for round values, e.g. "5.0亿").
+function compact(n: number, lang: 'en' | 'zh-CN' | 'zh-TW' = 'en', keepDecimal = false): string {
   const a = Math.abs(n);
-  const t = (x: number): string => x.toFixed(1).replace(/\.0$/, '');
+  const t = (x: number): string => (keepDecimal ? x.toFixed(1) : x.toFixed(1).replace(/\.0$/, ''));
+  if (lang === 'zh-CN' || lang === 'zh-TW') {
+    const yi = lang === 'zh-TW' ? '億' : '亿';
+    const wan = lang === 'zh-TW' ? '萬' : '万';
+    if (a >= 1e8) return t(n / 1e8) + yi;
+    if (a >= 1e4) return t(n / 1e4) + wan;
+    return String(Math.round(n));
+  }
   if (a >= 1e9) return t(n / 1e9) + 'B';
   if (a >= 1e6) return t(n / 1e6) + 'M';
   if (a >= 1e3) return t(n / 1e3) + 'K';
@@ -325,7 +335,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   let heroValue = '';
   let heroUnit = '';
   if (data.totalTokens != null) {
-    heroValue = opts.fullNumbers ? data.totalTokens.toLocaleString('en-US') : compact(data.totalTokens);
+    heroValue = opts.fullNumbers ? data.totalTokens.toLocaleString('en-US') : compact(data.totalTokens, L, true);
     heroUnit = S.totalTokens;
   } else if (data.estimatedCost != null) {
     heroValue = money(data.estimatedCost);
@@ -351,7 +361,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
   if (data.sessions != null) tiles.push({ label: S.sessions, value: String(data.sessions) });
   if (data.messages != null) tiles.push({ label: S.messages, value: String(data.messages) });
   if (data.workflowSharePct != null) tiles.push({ label: S.workflows, value: data.workflowSharePct + '%' });
-  if (data.peakContextTokens != null) tiles.push({ label: S.peakCtx, value: compact(data.peakContextTokens) });
+  if (data.peakContextTokens != null) tiles.push({ label: S.peakCtx, value: compact(data.peakContextTokens, L) });
   const shownTiles = tiles.slice(0, 4);
   if (shownTiles.length > 0) {
     const gap = 18;
@@ -405,7 +415,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
           const ly = barY + barH + 22;
           segs.forEach((s) => {
             const pct = Math.round((s.v / total) * 100);
-            const label = `${s.label} ${pct}% · ${compact(s.v)}`;
+            const label = `${s.label} ${pct}% · ${compact(s.v, L)}`;
             p.push(`<rect x="${lx}" y="${ly - 11}" width="12" height="12" rx="3" fill="${s.color}"/>`);
             p.push(`<text x="${lx + 18}" y="${ly}" font-size="14" font-weight="500" fill="${T.mutedText}">${esc(label)}</text>`);
             lx += 38 + label.length * 7.6;
@@ -430,7 +440,7 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
         const startX = M + (capW - usedW) / 2;
         const bw = Math.max(3, Math.min(slot - 6, 28));
         p.push(`<text x="${M}" y="${y}" font-size="15" font-weight="700" fill="${T.secondaryText}">${esc(nn <= 24 && data.range === 'today' ? S.hourly : S.daily)}</text>`);
-        p.push(`<text x="${M + capW}" y="${y}" font-size="14" font-weight="500" fill="${T.mutedText}" text-anchor="end">${esc(S.peak)} ${esc(compact(max))}</text>`);
+        p.push(`<text x="${M + capW}" y="${y}" font-size="14" font-weight="500" fill="${T.mutedText}" text-anchor="end">${esc(S.peak)} ${esc(compact(max, L))}</text>`);
         p.push(`<line x1="${M}" y1="${barsTop + rh}" x2="${M + capW}" y2="${barsTop + rh}" stroke="${T.softLine}"/>`);
         let firstCx = startX;
         let lastCx = startX;
