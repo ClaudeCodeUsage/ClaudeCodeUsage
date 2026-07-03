@@ -16,6 +16,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write # claude-code-action mints its GitHub token via OIDC
 
 concurrency:
   group: pr-first-pass-${{ github.event.pull_request.number }}

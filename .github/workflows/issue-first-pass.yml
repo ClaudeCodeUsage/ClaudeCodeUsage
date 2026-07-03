@@ -20,6 +20,7 @@ on:
 permissions:
   contents: read # read repo files to answer accurately (never guess)
   issues: write # post the reply
+  id-token: write # claude-code-action mints its GitHub token via OIDC
 
 concurrency:
   group: issue-first-pass-${{ github.event.issue.number }}
