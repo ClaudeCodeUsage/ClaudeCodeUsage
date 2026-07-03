@@ -93,6 +93,30 @@ tags:
 Because changes ship by **merging** your PR — not by re-applying it — your commit
 authorship and the PR's *merged* status are preserved.
 
+## Automated first-pass replies (@ccu-bot)
+
+New issues and pull requests may get an **automated first-pass reply** from
+`@ccu-bot` — an assistant run via [Claude Code](https://github.com/anthropics/claude-code-action)
+that reads the project's architecture docs to help triage faster.
+
+What to expect and its limits:
+
+- Every automated comment is clearly labelled **"🤖 Automated first-pass reply
+  (via Claude Code)"** and ends with a note that it is model-generated and a
+  **maintainer reviews everything** — it is not a decision.
+- It reads `ARCHITECTURE.md`, `CLAUDE.md`, `CONTRIBUTING.md` and, when those
+  aren't enough, the relevant repository files. It should **ask rather than
+  guess** when unsure — if it ever states something wrong, just correct it; a
+  maintainer will confirm.
+- It only **comments**. It does not label, close, merge, approve, or push. For
+  PRs it reads the diff via the API and **never runs your code**.
+- You can summon it in a comment with `@ccu-bot ...` (maintainer-gated).
+- The whole thing is **off unless the maintainer enables it** (a repo variable
+  kill switch), and the model may be a third-party Anthropic-compatible one, so
+  "Claude Code" refers to the tooling, not necessarily Anthropic's Claude.
+
+Treat its replies as a helpful starting point, not authority.
+
 ## Code of conduct
 
 Be kind and constructive. We're all here to make a useful tool.
