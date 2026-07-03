@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 // Removed tinyglobby dependency - using native fs instead
 // Removed zod dependency - using native validation instead
-import { calculateCostBreakdown } from './pricing';
+import { calculateCostBreakdown, getModelRatesPerMillion } from './pricing';
 import { isRetryDuplicatePrompt } from './promptDedup';
 import { dayKeyInZone, monthKeyInZone } from './dateKeys';
 import { I18n } from './i18n';
@@ -1521,6 +1521,85 @@ export class ClaudeDataLoader {
       return null; // not a clean enough boundary to claim a number
     }
     return { estimateMin: warmUpTo, coldFromMin: coldFrom, sampleN: total };
+  }
+
+  /** "Cache-churn bill" (缓存损耗账单): estimate the $ spent RE-writing cache that
+   * a warm cache would have served cheaply, split by the two AVOIDABLE causes —
+   * a model switch (per-model cache flushed) and an idle gap past the cache TTL.
+   * A turn counts only if the previous same-session turn had a real cache AND
+   * this turn had to rewrite it (read≈0, write>0), so a genuine big-new-context
+   * (which still reads the reused prefix) isn't blamed. Waste per turn ≈
+   * cacheCreationTokens × (writeRate − readRate). NOTE for the caller: a switch
+   * can still be net-worth-it if the other model is cheaper per token — this is
+   * the churn cost, not a "never switch" verdict. `ttlMin` defaults to 60
+   * (the measured warm window). Returns null when there isn't enough signal. */
+  static estimateCacheChurnCost(
+    records: ClaudeUsageRecord[],
+    windowDays = 30,
+    ttlMin = 60
+  ): { wastedUsd: number; switchUsd: number; idleUsd: number; switchCount: number; idleCount: number } | null {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    for (const r of records) {
+      if (new Date(r.timestamp).getTime() < cutoff) {
+        continue;
+      }
+      const sid = r._sessionId || 'unknown';
+      (bySession[sid] ?? (bySession[sid] = [])).push(r);
+    }
+
+    let switchUsd = 0;
+    let idleUsd = 0;
+    let switchCount = 0;
+    let idleCount = 0;
+    let considered = 0;
+    for (const sid of Object.keys(bySession)) {
+      const recs = bySession[sid]
+        .filter((r) => {
+          const u = r.message.usage;
+          const m = r.message.model;
+          return u && m && m !== '<synthetic>' && !r.isApiErrorMessage;
+        })
+        .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+      for (let i = 1; i < recs.length; i++) {
+        const prev = recs[i - 1];
+        const cur = recs[i];
+        const pu = prev.message.usage;
+        const cu = cur.message.usage;
+        const model = cur.message.model as string;
+        const prevCache = (pu.cache_creation_input_tokens || 0) + (pu.cache_read_input_tokens || 0);
+        const write = cu.cache_creation_input_tokens || 0;
+        const read = cu.cache_read_input_tokens || 0;
+        // A rewrite of a cache that existed just before, with ~no reads = churn.
+        if (prevCache < 1000 || write <= 0 || read > write * 0.1) {
+          continue;
+        }
+        const switched = prev.message.model !== model;
+        const gapMin = (Date.parse(cur.timestamp) - Date.parse(prev.timestamp)) / 60000;
+        const idled = gapMin > ttlMin;
+        if (!switched && !idled) {
+          continue; // rewrite for some other reason — don't blame churn
+        }
+        const rates = getModelRatesPerMillion(model);
+        if (!rates) {
+          continue;
+        }
+        const waste = (write * Math.max(0, rates.cacheWrite - rates.cacheRead)) / 1_000_000;
+        considered++;
+        // Attribute to model switch first (it's the harder flush), else idle.
+        if (switched) {
+          switchUsd += waste;
+          switchCount++;
+        } else {
+          idleUsd += waste;
+          idleCount++;
+        }
+      }
+    }
+    if (considered < 3) {
+      return null;
+    }
+    return { wastedUsd: switchUsd + idleUsd, switchUsd, idleUsd, switchCount, idleCount };
   }
 
   /** Assemble the aggregate inputs for a share card. `range` is a preset
