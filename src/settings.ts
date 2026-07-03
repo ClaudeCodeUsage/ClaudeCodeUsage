@@ -79,7 +79,7 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'general',
     label: 'Timezone for dates',
-    help: 'IANA zone (e.g. Asia/Hong_Kong). Empty = system.',
+    help: 'IANA zone (e.g. Asia/Hong_Kong). Sets the day boundary for the Today / month / daily totals. Empty = system.',
   },
   {
     key: 'projectGroupingMode',

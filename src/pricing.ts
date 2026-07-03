@@ -13,6 +13,45 @@ export interface TokenUsage {
   output_tokens: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
+  // Optional TTL split of cache_creation_input_tokens, as Claude Code writes
+  // it. When present, the 1-hour portion is billed at 2x base input and the
+  // 5-minute portion at 1.25x; when absent, the whole total uses the 5-minute
+  // rate (see cacheCreationCost).
+  cache_creation?: {
+    ephemeral_1h_input_tokens?: number;
+    ephemeral_5m_input_tokens?: number;
+  };
+}
+
+/**
+ * Cost of the cache-write (cache_creation) tokens, splitting the 1-hour and
+ * 5-minute TTL portions when the usage record carries them
+ * (usage.cache_creation.ephemeral_1h/5m). Claude bills a 1-hour write at 2x
+ * base input versus the 5-minute write's 1.25x, so lumping both at the 5-minute
+ * rate under-counts any 1-hour writes. Falls back to the 5-minute rate for the
+ * whole total when the split (or the 1-hour rate) is unavailable — matching
+ * Claude Code's default 5-minute writes and every older/proxy log.
+ */
+function cacheCreationCost(tokens: TokenUsage, pricing: ModelPricing): number {
+  const fiveMRate = pricing.cache_creation_input_token_cost;
+  if (fiveMRate == null) {
+    return 0;
+  }
+  const split = tokens.cache_creation;
+  const oneH = split?.ephemeral_1h_input_tokens || 0;
+  const fiveMExplicit = split?.ephemeral_5m_input_tokens;
+  // Total is the max of the flat field and the split's sum, so a record that
+  // carries only one of the two shapes is still priced fully.
+  const total = Math.max(
+    tokens.cache_creation_input_tokens || 0,
+    oneH + (fiveMExplicit || 0)
+  );
+  if (total <= 0) {
+    return 0;
+  }
+  const oneHRate = pricing.cache_creation_1h_input_token_cost ?? fiveMRate;
+  const fiveM = fiveMExplicit != null ? fiveMExplicit : Math.max(0, total - oneH);
+  return fiveM * fiveMRate + oneH * oneHRate;
 }
 
 const MILL = 1_000_000;
@@ -23,8 +62,13 @@ const MILL = 1_000_000;
 //
 // Cache pricing follows Anthropic's standard multipliers vs base input price:
 //   - 5-minute cache write : 1.25x base input  (what Claude Code writes by default)
+//   - 1-hour cache write   : 2.00x base input  (used when a 1h TTL is requested)
 //   - cache read (hit)     : 0.10x base input
-// `cache_creation_input_token_cost` below uses the 5-minute write rate.
+// `cache_creation_input_token_cost` below is the 5-minute write rate;
+// `cache_creation_1h_input_token_cost` is the 1-hour write rate. When a log
+// record carries the TTL split (usage.cache_creation.ephemeral_1h/5m), each
+// portion is billed at its own rate; otherwise the whole cache-write total
+// falls back to the 5-minute rate (what Claude Code writes by default).
 // =====================================================================
 
 // Fable 5 / Mythos 5 — frontier tier ($10 / $50), verified 2026-06-09
@@ -33,6 +77,7 @@ const FABLE_5: ModelPricing = {
   input_cost_per_token: 10 / MILL,
   output_cost_per_token: 50 / MILL,
   cache_creation_input_token_cost: 12.5 / MILL,
+  cache_creation_1h_input_token_cost: 20 / MILL,
   cache_read_input_token_cost: 1 / MILL,
 };
 
@@ -41,6 +86,7 @@ const OPUS_CURRENT: ModelPricing = {
   input_cost_per_token: 5 / MILL,
   output_cost_per_token: 25 / MILL,
   cache_creation_input_token_cost: 6.25 / MILL,
+  cache_creation_1h_input_token_cost: 10 / MILL,
   cache_read_input_token_cost: 0.5 / MILL,
 };
 
@@ -49,6 +95,7 @@ const OPUS_LEGACY: ModelPricing = {
   input_cost_per_token: 15 / MILL,
   output_cost_per_token: 75 / MILL,
   cache_creation_input_token_cost: 18.75 / MILL,
+  cache_creation_1h_input_token_cost: 30 / MILL,
   cache_read_input_token_cost: 1.5 / MILL,
 };
 
@@ -57,6 +104,7 @@ const SONNET: ModelPricing = {
   input_cost_per_token: 3 / MILL,
   output_cost_per_token: 15 / MILL,
   cache_creation_input_token_cost: 3.75 / MILL,
+  cache_creation_1h_input_token_cost: 6 / MILL,
   cache_read_input_token_cost: 0.3 / MILL,
 };
 
@@ -65,6 +113,7 @@ const HAIKU_45: ModelPricing = {
   input_cost_per_token: 1 / MILL,
   output_cost_per_token: 5 / MILL,
   cache_creation_input_token_cost: 1.25 / MILL,
+  cache_creation_1h_input_token_cost: 2 / MILL,
   cache_read_input_token_cost: 0.1 / MILL,
 };
 
@@ -73,6 +122,7 @@ const HAIKU_35: ModelPricing = {
   input_cost_per_token: 0.8 / MILL,
   output_cost_per_token: 4 / MILL,
   cache_creation_input_token_cost: 1.0 / MILL,
+  cache_creation_1h_input_token_cost: 1.6 / MILL,
   cache_read_input_token_cost: 0.08 / MILL,
 };
 
@@ -358,10 +408,8 @@ export function calculateCostFromPricing(tokens: TokenUsage, pricing: ModelPrici
     cost += tokens.output_tokens * pricing.output_cost_per_token;
   }
 
-  // Cache creation tokens cost
-  if (tokens.cache_creation_input_tokens != null && pricing.cache_creation_input_token_cost != null) {
-    cost += tokens.cache_creation_input_tokens * pricing.cache_creation_input_token_cost;
-  }
+  // Cache creation tokens cost (splits 1-hour vs 5-minute writes when known)
+  cost += cacheCreationCost(tokens, pricing);
 
   // Cache read tokens cost
   if (tokens.cache_read_input_tokens != null && pricing.cache_read_input_token_cost != null) {
@@ -402,7 +450,7 @@ export function calculateCostBreakdown(
   return {
     input: tokens.input_tokens * (pricing.input_cost_per_token || 0),
     output: tokens.output_tokens * (pricing.output_cost_per_token || 0),
-    cacheWrite: (tokens.cache_creation_input_tokens || 0) * (pricing.cache_creation_input_token_cost || 0),
+    cacheWrite: cacheCreationCost(tokens, pricing),
     cacheRead: (tokens.cache_read_input_tokens || 0) * (pricing.cache_read_input_token_cost || 0),
   };
 }
