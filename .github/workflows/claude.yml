@@ -69,6 +69,9 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Use the workflow token so no Claude GitHub App install is needed
+          # (we drive a third-party model; the app is only Anthropic's GitHub auth).
+          github_token: ${{ github.token }}
           # Cap the agent loop so a single mention can't run away with the budget.
           # Pin a model here if you want (e.g. --model claude-sonnet-4-5, or a
           # third-party model id); the action otherwise picks a sensible default.
