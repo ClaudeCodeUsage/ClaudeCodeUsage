@@ -40,7 +40,8 @@ function shortDay(iso: string | undefined): string {
 
 // ---- Theme tokens -----------------------------------------------------------
 
-export type ShareCardTheme = 'auto' | 'claudeCream' | 'auroraDark';
+export type ShareCardTheme = 'auto' | 'claudeCream' | 'claudeClassic' | 'auroraDark';
+type ConcreteTheme = 'claudeCream' | 'claudeClassic' | 'auroraDark';
 
 interface ThemeTokens {
   bgTop: string;
@@ -63,7 +64,30 @@ interface ThemeTokens {
   badgeBorder: string;
 }
 
-export const SHARE_CARD_THEMES: Record<'claudeCream' | 'auroraDark', ThemeTokens> = {
+export const SHARE_CARD_THEMES: Record<ConcreteTheme, ThemeTokens> = {
+  // Classic: the pre-redesign single-hue orange — fewer colours, more refined.
+  // A monochrome orange ramp for the token mix (no violet/mint), on the cream
+  // background, so it keeps the older "high-end" restraint.
+  claudeClassic: {
+    bgTop: '#FFF7F2',
+    bgBottom: '#FDEEE6',
+    blobWarm: '#FFE6D8',
+    blobCool: '#FAD9C6',
+    primaryAccent: '#C85A2B',
+    primaryAccentBright: '#E07D4F',
+    secondaryAccent: '#F0AA82',
+    cacheAccent: '#F7CBB0',
+    modelAccent: '#E07D4F',
+    panelFill: 'rgba(255,255,255,0.74)',
+    panelBorder: '#F0D8C9',
+    primaryText: '#2B2B2B',
+    secondaryText: '#6B6B6B',
+    mutedText: '#9A8478',
+    softLine: '#F0D8C9',
+    watermark: 'rgba(43,43,43,0.50)',
+    badgeFill: 'rgba(255,255,255,0.86)',
+    badgeBorder: 'rgba(200,90,43,0.16)',
+  },
   claudeCream: {
     bgTop: '#FFF8F3',
     bgBottom: '#FDEEE6',
@@ -107,9 +131,10 @@ export const SHARE_CARD_THEMES: Record<'claudeCream' | 'auroraDark', ThemeTokens
 };
 
 /** Resolve 'auto' deterministically: dark VS Code → auroraDark, else claudeCream. */
-export function resolveShareCardTheme(theme: ShareCardTheme | undefined, isDark?: boolean): 'claudeCream' | 'auroraDark' {
-  if (theme === 'auroraDark') return 'auroraDark';
-  if (theme === 'claudeCream') return 'claudeCream';
+export function resolveShareCardTheme(theme: ShareCardTheme | undefined, isDark?: boolean): ConcreteTheme {
+  if (theme === 'auroraDark' || theme === 'claudeCream' || theme === 'claudeClassic') {
+    return theme;
+  }
   return isDark ? 'auroraDark' : 'claudeCream'; // 'auto' / undefined
 }
 
@@ -207,13 +232,17 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
     cornerBottom = Math.max(cornerBottom, avatarBottom);
   }
 
-  // --- Middle sections, distributed between the header and the footer ---
-  const headerBottom = Math.max(150, cornerBottom + 8);
-  const footerTop = H - 60;
+  // --- Middle sections ---
+  // The hero sits top-left and the corner block sits top-right, so they can
+  // overlap VERTICALLY without colliding. The remaining (full-width) sections
+  // flow below whichever reaches lower — so turning on the avatar only nudges
+  // the tiles down a little instead of pushing the whole card off the canvas.
+  const contentTop = 134;
+  const footerTop = H - 56;
   type Section = { h: number; draw: (y: number) => void };
-  const sections: Section[] = [];
+  const sections: Section[] = []; // tiles / composition / pulse (flowed)
 
-  // Hero.
+  // Hero (drawn at a fixed top position).
   let heroValue = '';
   let heroUnit = '';
   if (data.totalTokens != null) {
@@ -226,15 +255,12 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
     heroValue = String(data.sessions);
     heroUnit = 'sessions';
   }
+  let heroBottom = contentTop;
   if (heroValue) {
     const heroFont = heroValue.length > 11 ? 60 : heroValue.length > 8 ? 82 : 104;
-    sections.push({
-      h: 148,
-      draw: (y) => {
-        p.push(`<text x="${M}" y="${y + heroFont}" font-size="${heroFont}" font-weight="800" fill="url(#hero)">${esc(heroValue)}</text>`);
-        p.push(`<text x="${M}" y="${y + heroFont + 34}" font-size="22" font-weight="600" fill="${T.secondaryText}">${esc(heroUnit)}</text>`);
-      },
-    });
+    p.push(`<text x="${M}" y="${contentTop + heroFont}" font-size="${heroFont}" font-weight="800" fill="url(#hero)">${esc(heroValue)}</text>`);
+    p.push(`<text x="${M}" y="${contentTop + heroFont + 34}" font-size="22" font-weight="600" fill="${T.secondaryText}">${esc(heroUnit)}</text>`);
+    heroBottom = contentTop + heroFont + 48;
   }
 
   // Stat tiles — 4 by default (cost / cache / model / sessions), glass panels.
@@ -278,13 +304,15 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
     ];
     const total = segs.reduce((a, b) => a + b.v, 0);
     if (total > 0) {
+      // A touch of internal padding (label at y+10, legend at y+74) so the block
+      // doesn't crowd the tiles above / pulse below.
       sections.push({
-        h: 64,
+        h: 84,
         draw: (y) => {
-          const barY = y + 22;
+          const barY = y + 30;
           const barW = W - 2 * M;
           const barH = 22;
-          p.push(`<text x="${M}" y="${y + 6}" font-size="15" font-weight="700" fill="${T.secondaryText}">Token mix</text>`);
+          p.push(`<text x="${M}" y="${y + 12}" font-size="15" font-weight="700" fill="${T.secondaryText}">Token mix</text>`);
           let x = M;
           segs.forEach((s) => {
             const w = (s.v / total) * barW;
@@ -345,9 +373,15 @@ export function renderShareCardSvg(data: ShareCardData, opts: ShareCardSvgOption
     });
   }
 
+  // Flow the full-width sections below whichever of the hero / corner reaches
+  // lower, distributing the spare height as even gaps clamped to a sane band
+  // (so a card with few sections isn't hollow and a full one isn't cramped).
+  const restTop = Math.max(heroBottom, cornerBottom + 12);
   const sumH = sections.reduce((a, s) => a + s.h, 0);
-  const gap = Math.max(14, (footerTop - headerBottom - sumH) / (sections.length + 1));
-  let cursor = headerBottom + gap;
+  const n = sections.length;
+  let gap = n > 0 ? (footerTop - restTop - sumH) / (n + 1) : 0;
+  gap = Math.max(14, Math.min(38, gap));
+  let cursor = restTop + gap;
   for (const s of sections) {
     s.draw(cursor);
     cursor += s.h + gap;

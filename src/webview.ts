@@ -1540,6 +1540,7 @@ export class UsageWebviewProvider {
     const themeSelect =
       '<select id="scTheme">' +
       '<option value="claudeCream"' + sel('claudeCream', curTheme) + '>Claude Cream</option>' +
+      '<option value="claudeClassic"' + sel('claudeClassic', curTheme) + '>Claude Classic (orange)</option>' +
       '<option value="auroraDark"' + sel('auroraDark', curTheme) + '>Aurora Dark</option>' +
       '<option value="auto"' + sel('auto', curTheme) + '>Auto (follow VS Code)</option>' +
       '</select>';
