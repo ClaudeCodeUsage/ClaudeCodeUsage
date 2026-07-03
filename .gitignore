@@ -18,10 +18,10 @@ CLAUDE.local.md
 # samples. Curated excerpts may be hand-copied into the README, but the raw
 # reports must never be committed.
 
-# Local-only planning / architecture / dev-reference docs. The whole docs/
-# tree is the maintainer's private context pack — synced to a personal repo,
-# never shipped to the public repo. README / CHANGELOG live at the repo root.
-# (Re-track a specific doc later with `!docs/<name>` if it should become public.)
+# Local-only planning / dev-reference docs. The whole docs/ tree is the
+# maintainer's private context pack (product direction lives in
+# docs/ARCHITECTURE-private.md) — synced to a personal repo, never public.
+# README / CHANGELOG / ARCHITECTURE live at the repo root and ARE public:
+# ARCHITECTURE.md is the technical map the @ccu-bot automation + contributors
+# read (product strategy is kept out of it, in docs/ARCHITECTURE-private.md).
 docs/
-/ARCHITECTURE.md
-/ARCHITECTURE-zh-CN.md
