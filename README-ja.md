@@ -51,7 +51,7 @@ Cursor / Windsurf 向けに [Open VSX Registry](https://open-vsx.org/extension/G
 設定（`Ctrl+,`）を開き **`Claude Code Usage`** を検索。すべて任意です。よく使うもの：
 
 - `language` — UI 言語（`auto` / `en` / `zh-TW` / `zh-CN` / `ja` / `ko`）。
-- `timezone` — 日付表示用の IANA タイムゾーン（例 `Asia/Tokyo`）。
+- `timezone` — 日付表示と「今日/今月/日次」合計の日付境界に使う IANA タイムゾーン（例 `Asia/Tokyo`）。
 - `usageLimitTracking` — 実際の 5 時間 / 週間クォータ表示。
 - `showCost` / `showContext` — ステータスバーのコスト表示と、コンテキストウィンドウ使用率（`/context` 風）の切り替え。
 - これらのステータスバー項目は個別に非表示にできます。`usageLimitTracking` / `showCost` / `showContext` を `false` にすると、その項目だけ消えます。

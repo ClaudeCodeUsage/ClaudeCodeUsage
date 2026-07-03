@@ -169,7 +169,7 @@ consent prompt.
   against Anthropic's public pricing); reference rates for proxied setups
   (OpenAI, Gemini, DeepSeek, Kimi, GLM, Qwen) with family-aware fallback.
   `Refresh Token Pricing` pulls live LiteLLM data as runtime overrides.
-- **Custom timezone** for date display (`claudeCodeUsage.timezone`).
+- **Custom timezone** for dates and the day boundary of the Today / month / daily cost totals (`claudeCodeUsage.timezone`).
 - **Light-theme tab readability** fixed.
 - **Locale-aware numbers and dates** throughout (German `.`, English `,`).
 - **Real-time status bar** via `fs.watch` (1.5 s debounce) + idle-aware
