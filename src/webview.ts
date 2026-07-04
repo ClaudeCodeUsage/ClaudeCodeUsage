@@ -1698,6 +1698,9 @@ export class UsageWebviewProvider {
     // Read-only conversation viewer — opt-in (off by default); re-read a past
     // session without loading it back into the model context.
     const showViewer = this.setting<boolean>('showConversationViewer', false);
+    // Active (hands-on) time per session — idle-capped, so it's not the raw
+    // first→last span. Computed once for the whole table.
+    const activeMap = ClaudeDataLoader.activeDurationBySession(this.allRecords);
     let rows = '';
     this.sessionBreakdown.forEach((s) => {
       const d = s.data;
@@ -1743,6 +1746,7 @@ export class UsageWebviewProvider {
         ' data-sort-context="' + s.peakContextTokens + '"' +
         ' data-sort-thinking="' + (thinkingShare ?? -1) + '"' +
         ' data-sort-duration="' + (s.endTime.getTime() - s.startTime.getTime()) + '"' +
+        ' data-sort-active="' + (activeMap[s.sessionId] || 0) + '"' +
         this.usageSortAttrs(d) +
         '>' +
         '<td class="date-cell" title="' + this.escapeHtml(s.sessionId) + '">' +
@@ -1763,6 +1767,9 @@ export class UsageWebviewProvider {
         '</td>' +
         '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>' +
         '<td class="number-cell">' + this.escapeHtml(this.formatDuration(s.startTime, s.endTime)) + '</td>' +
+        '<td class="number-cell" title="' + this.escapeHtml(t.activeDurationHelp) + '">' +
+        this.escapeHtml(this.formatDurationMs(activeMap[s.sessionId] || 0)) +
+        '</td>' +
         // Copy id / resume / delete actions; id re-validated host-side.
         '<td class="actions-cell">' +
         '<button class="session-action" title="' + this.escapeHtml(t.copySessionId) +
@@ -1821,6 +1828,7 @@ export class UsageWebviewProvider {
       th('thinking', t.thinkingShare) +
       th('messages', t.messages) +
       th('duration', t.duration) +
+      th('active', t.activeDuration) +
       '<th>' + t.sessionActions + '</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
@@ -1927,6 +1935,14 @@ export class UsageWebviewProvider {
     const hours = Math.floor(totalMinutes / 60);
     const minutes = totalMinutes % 60;
     return minutes > 0 ? hours + 'h ' + minutes + 'm' : hours + 'h';
+  }
+
+  /** Same formatting as formatDuration but from a raw millisecond span. */
+  private formatDurationMs(ms: number): string {
+    if (!(ms > 0)) {
+      return '<1m';
+    }
+    return this.formatDuration(new Date(0), new Date(ms));
   }
 
   /** A table cell showing the project's friendly name with its full path beneath. */

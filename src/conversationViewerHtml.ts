@@ -1,15 +1,21 @@
 // Read-only conversation viewer — renders a ParsedConversation to a full HTML
-// document for a VS Code webview (no scripts: collapsibles use <details>,
-// navigation uses in-page anchors). Frontend goal (Carl's ask): make the two
-// things that matter easy to spot — the USER's prompts (the star element) and
-// the model's substantive TEXT answers — while keeping thinking and tool
-// traffic present but quiet (collapsed / muted).
+// document for a VS Code webview. No scripts: collapsibles use <details>, the
+// "show thinking / tools" switches are a pure-CSS checkbox toggle, navigation
+// uses in-page anchors.
+//
+// Frontend goal (Carl's asks): a user-friendly CHAT view. By default it shows
+// only what he reads — his PROMPTS (accent card) and the model's TEXT answers
+// (filled card, Markdown-rendered) — with thinking and tool traffic hidden
+// behind toggles. It opens on the last ~10 rounds; earlier ones collapse.
 
 import { ConversationTurn, ParsedConversation } from './conversationLog';
+import { renderMarkdown } from './miniMarkdown';
 
 export interface ViewerOptions {
   sessionId: string;
   timezone?: string;
+  /** Rounds (prompt → next prompt) shown expanded on open; older ones collapse. */
+  recentRounds?: number;
 }
 
 function esc(s: string): string {
@@ -49,14 +55,13 @@ function fmtTime(ts: string | undefined, timezone?: string): string {
   }
 }
 
-/** One turn → its HTML block, styled by kind. */
+/** One turn → its HTML block, styled by kind. `idx` anchors prompts for the nav. */
 function renderTurn(t: ConversationTurn, idx: number, timezone?: string): string {
   const time = fmtTime(t.ts, timezone);
   const timeTag = time ? `<span class="ts">${esc(time)}</span>` : '';
   const trunc = t.truncated ? ' <span class="trunc">… (truncated)</span>' : '';
 
   if (t.kind === 'prompt') {
-    // The star element — anchored so the top nav can jump to it.
     return (
       `<div class="turn prompt" id="p${idx}">` +
       `<div class="who"><span class="tag you">👤 You</span>${timeTag}</div>` +
@@ -65,10 +70,11 @@ function renderTurn(t: ConversationTurn, idx: number, timezone?: string): string
     );
   }
   if (t.kind === 'text') {
+    // Model output is Markdown — render it (renderMarkdown escapes internally).
     return (
       `<div class="turn assistant">` +
       `<div class="who"><span class="tag bot">🤖 ${esc(shortModel(t.model))}</span>${timeTag}</div>` +
-      `<div class="body">${esc(t.text)}${trunc}</div>` +
+      `<div class="body md">${renderMarkdown(t.text)}${trunc}</div>` +
       `</div>`
     );
   }
@@ -84,12 +90,11 @@ function renderTurn(t: ConversationTurn, idx: number, timezone?: string): string
   if (t.kind === 'tool_use') {
     return (
       `<div class="turn tool">` +
-      `<span class="tag tool">🔧 ${esc(t.toolName || 'tool')}</span>` +
+      `<span class="tag muted">🔧 ${esc(t.toolName || 'tool')}</span>` +
       `<code class="toolarg">${esc(t.text)}${trunc}</code>${timeTag}` +
       `</div>`
     );
   }
-  // tool_result
   const cls = t.isError ? 'toolres err' : 'toolres';
   const preview = t.text.replace(/\s+/g, ' ').slice(0, 60);
   return (
@@ -101,14 +106,46 @@ function renderTurn(t: ConversationTurn, idx: number, timezone?: string): string
 }
 
 export function renderConversationViewer(parsed: ParsedConversation, opts: ViewerOptions): string {
-  const turnsHtml = parsed.turns.map((t, i) => renderTurn(t, i, opts.timezone)).join('\n');
+  const recentRounds = opts.recentRounds ?? 10;
 
-  // Top nav: jump straight to each of your prompts (re-reading what you asked
-  // is the main use case).
+  // Group turns into rounds: a new round begins at each user prompt (anything
+  // before the first prompt forms an initial round).
+  const rounds: { html: string; hasPrompt: boolean }[] = [];
+  let cur: { html: string; hasPrompt: boolean } | null = null;
+  parsed.turns.forEach((t, i) => {
+    if (t.kind === 'prompt' || !cur) {
+      cur = { html: '', hasPrompt: false };
+      rounds.push(cur);
+    }
+    if (t.kind === 'prompt') {
+      cur.hasPrompt = true;
+    }
+    cur.html += renderTurn(t, i, opts.timezone);
+  });
+
+  const recentCount = Math.min(recentRounds, rounds.length);
+  const earlier = rounds.slice(0, rounds.length - recentCount);
+  const recent = rounds.slice(rounds.length - recentCount);
+  const earlierHtml = earlier.length
+    ? `<details class="earlier"><summary>▾ Show earlier conversation (${earlier.length} round${earlier.length === 1 ? '' : 's'})</summary>${earlier.map((r) => r.html).join('\n')}</details>`
+    : '';
+  const recentHtml = recent.map((r) => r.html).join('\n');
+
+  // Top nav: each of your prompts, expandable to the full text, with a jump link.
   const promptNav = parsed.turns
     .map((t, i) => (t.kind === 'prompt' ? { i, text: t.text } : null))
     .filter((x): x is { i: number; text: string } => x != null)
-    .map((p, n) => `<a href="#p${p.i}" class="navitem"><b>${n + 1}.</b> ${esc(p.text.replace(/\s+/g, ' ').slice(0, 80))}</a>`)
+    .map((p, n) => {
+      const oneLine = p.text.replace(/\s+/g, ' ');
+      const short = oneLine.slice(0, 80);
+      const needsExpand = oneLine.length > 80;
+      return (
+        `<details class="navitem">` +
+        `<summary><b>${n + 1}.</b> ${esc(short)}${needsExpand ? '…' : ''} <a class="jump" href="#p${p.i}">jump ↓</a></summary>` +
+        (needsExpand ? `<div class="navfull">${esc(p.text)}</div>` : '') +
+        `</details>`
+      );
+    })
     .join('');
 
   const range =
@@ -116,6 +153,7 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
     (parsed.lastTs && parsed.lastTs !== parsed.firstTs ? ' – ' + fmtTime(parsed.lastTs, opts.timezone) : '');
   const shown = parsed.turns.length;
   const more = parsed.totalTurns > shown ? ` · showing last ${shown} of ${parsed.totalTurns}` : '';
+  const roundWord = rounds.length === 1 ? 'round' : 'rounds';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -129,10 +167,11 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
     font-size: var(--vscode-font-size, 13px);
     color: var(--vscode-foreground);
     background: var(--vscode-editor-background);
-    margin: 0;
-    padding: 0 0 60px;
-    line-height: 1.55;
+    margin: 0; padding: 0 0 60px; line-height: 1.55;
   }
+  /* Pure-CSS toggles: the checkboxes live before .wrap so their :checked state
+     can drive descendant visibility via general-sibling selectors. */
+  .toggle-src { position: absolute; opacity: 0; pointer-events: none; }
   .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px; }
   header {
     position: sticky; top: 0; z-index: 5;
@@ -141,54 +180,95 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
     padding: 14px 0 10px;
   }
   h1 { font-size: 16px; margin: 0 0 4px; font-weight: 600; }
-  .meta { color: var(--vscode-descriptionForeground); font-size: 12px; }
+  .meta { color: var(--vscode-descriptionForeground); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
   .badge {
-    display: inline-block; margin-top: 8px; padding: 3px 9px; border-radius: 10px;
-    background: var(--vscode-textBlockQuote-background);
-    border: 1px solid var(--vscode-panel-border);
+    display: inline-block; padding: 4px 10px; border-radius: 10px;
+    background: var(--vscode-textBlockQuote-background); border: 1px solid var(--vscode-panel-border);
     color: var(--vscode-descriptionForeground); font-size: 11px;
   }
-  nav {
-    margin: 12px 0 4px; border: 1px solid var(--vscode-panel-border);
-    border-radius: 8px; overflow: hidden;
+  .chip {
+    cursor: pointer; user-select: none; font-size: 11px; padding: 4px 10px; border-radius: 10px;
+    border: 1px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground);
+    background: transparent;
   }
-  nav > .navhead {
-    padding: 7px 12px; font-size: 11px; font-weight: 700; letter-spacing: .04em;
-    text-transform: uppercase; color: var(--vscode-descriptionForeground);
-    background: var(--vscode-textBlockQuote-background);
+  .chip:hover { background: var(--vscode-list-hoverBackground); }
+  #ccu-thinking:checked ~ .wrap label[for="ccu-thinking"],
+  #ccu-tools:checked ~ .wrap label[for="ccu-tools"] {
+    color: var(--vscode-editor-background); background: var(--vscode-textLink-foreground);
+    border-color: var(--vscode-textLink-foreground);
   }
-  .navitem {
-    display: block; padding: 6px 12px; font-size: 12px;
-    color: var(--vscode-foreground); text-decoration: none;
-    border-top: 1px solid var(--vscode-panel-border);
+  /* Hidden by default → clean chat view; toggles reveal. */
+  #ccu-thinking:not(:checked) ~ .wrap .turn.thinking { display: none; }
+  #ccu-tools:not(:checked) ~ .wrap .turn.tool,
+  #ccu-tools:not(:checked) ~ .wrap .turn.toolres { display: none; }
+
+  nav { margin: 12px 0 4px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; overflow: hidden; }
+  .navhead {
+    padding: 7px 12px; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--vscode-descriptionForeground); background: var(--vscode-textBlockQuote-background);
+  }
+  details.navitem { border-top: 1px solid var(--vscode-panel-border); }
+  details.navitem > summary {
+    cursor: pointer; list-style: none; padding: 7px 12px; font-size: 12px; color: var(--vscode-foreground);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .navitem b { color: var(--vscode-textLink-foreground); margin-right: 4px; }
-  .navitem:hover { background: var(--vscode-list-hoverBackground); }
+  details.navitem > summary::-webkit-details-marker { display: none; }
+  details.navitem > summary:hover { background: var(--vscode-list-hoverBackground); }
+  details.navitem b { color: var(--vscode-textLink-foreground); margin-right: 5px; }
+  .navitem .jump { color: var(--vscode-textLink-foreground); text-decoration: none; font-size: 11px; margin-left: 6px; }
+  .navfull { padding: 4px 12px 10px 24px; white-space: pre-wrap; color: var(--vscode-descriptionForeground); font-size: 12px; }
 
-  .turn { margin: 12px 0; }
-  .who { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-  .tag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+  details.earlier { margin: 8px 0; }
+  details.earlier > summary {
+    cursor: pointer; list-style: none; color: var(--vscode-textLink-foreground); font-size: 12px; padding: 6px 0;
+  }
+  details.earlier > summary::-webkit-details-marker { display: none; }
+
+  .turn { margin: 13px 0; }
+  .who { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+  .tag { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 6px; white-space: nowrap; }
   .tag.you { color: var(--vscode-editor-background); background: var(--vscode-textLink-foreground); }
   .tag.bot { color: var(--vscode-textLink-foreground); background: var(--vscode-textBlockQuote-background); }
-  .tag.muted, .tag.tool { color: var(--vscode-descriptionForeground); background: var(--vscode-textBlockQuote-background); }
-  .ts { color: var(--vscode-descriptionForeground); font-size: 10.5px; margin-left: auto; }
-  .body { white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
+  .tag.muted { color: var(--vscode-descriptionForeground); background: var(--vscode-textBlockQuote-background); }
+  .ts { color: var(--vscode-descriptionForeground); font-size: 10.5px; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .body { word-wrap: break-word; overflow-wrap: anywhere; }
   .trunc { color: var(--vscode-descriptionForeground); font-style: italic; }
 
-  /* USER prompt — the star: strong accent rail + tint, so it's instantly findable. */
+  /* USER prompt — accent rail + tint: instantly findable. */
   .turn.prompt {
     border-left: 3px solid var(--vscode-textLink-foreground);
     background: var(--vscode-textBlockQuote-background);
-    border-radius: 0 8px 8px 0; padding: 8px 14px; margin: 20px 0 12px;
+    border-radius: 0 8px 8px 0; padding: 9px 15px; margin: 22px 0 13px; scroll-margin-top: 96px;
   }
-  .promptbody { font-weight: 500; }
+  .promptbody { font-weight: 500; white-space: pre-wrap; }
 
-  /* Assistant substantive text — readable card. */
-  .turn.assistant { padding: 2px 2px 2px 14px; border-left: 3px solid var(--vscode-panel-border); }
+  /* Assistant answer — its OWN filled card, distinct from prompts and from the
+     (muted, unfilled) tool traffic. */
+  .turn.assistant {
+    border: 1px solid var(--vscode-panel-border); border-left: 3px solid var(--vscode-descriptionForeground);
+    background: var(--vscode-editorWidget-background, var(--vscode-textBlockQuote-background));
+    border-radius: 0 8px 8px 0; padding: 9px 15px;
+  }
+  /* Rendered Markdown inside an answer. */
+  .md p { margin: 0 0 8px; }
+  .md p:last-child { margin-bottom: 0; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 10px 0 6px; font-size: 13.5px; font-weight: 600; }
+  .md ul, .md ol { margin: 4px 0 8px; padding-left: 22px; }
+  .md li { margin: 2px 0; }
+  .md code { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px;
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.18)); padding: 1px 5px; border-radius: 4px; }
+  .md pre {
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,.14)); border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px; padding: 10px 12px; overflow-x: auto; margin: 6px 0;
+  }
+  .md pre code { background: none; padding: 0; font-size: 12px; }
+  .md a { color: var(--vscode-textLink-foreground); }
+  .md blockquote { margin: 6px 0; padding: 2px 12px; border-left: 3px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); }
+  .md hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 10px 0; }
 
-  /* Thinking + tool_result — present but quiet; expand on demand. */
-  details.turn { border-left: 3px solid transparent; padding-left: 14px; }
+  /* Thinking + tool_result — quiet; expand on demand. */
+  details.turn { border-left: 3px solid transparent; padding-left: 15px; }
   details.turn > summary {
     cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
     color: var(--vscode-descriptionForeground); font-size: 12px; padding: 2px 0;
@@ -196,28 +276,35 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
   details.turn > summary::-webkit-details-marker { display: none; }
   details.turn[open] > summary { margin-bottom: 6px; }
   .peek { color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mono { font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; color: var(--vscode-descriptionForeground); }
+  .mono { font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; color: var(--vscode-descriptionForeground); white-space: pre-wrap; }
   .toolres.err > summary .tag { color: var(--vscode-errorForeground); }
 
   /* Tool call — compact one-liner. */
-  .turn.tool { display: flex; align-items: center; gap: 8px; padding-left: 14px; font-size: 12px; }
+  .turn.tool { display: flex; align-items: center; gap: 8px; padding-left: 15px; font-size: 12px; }
   .toolarg {
-    font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px;
-    color: var(--vscode-descriptionForeground);
+    font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; color: var(--vscode-descriptionForeground);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
   }
+  a:focus-visible, summary:focus-visible, label:focus-visible { outline: 2px solid var(--vscode-focusBorder, var(--vscode-textLink-foreground)); outline-offset: 2px; border-radius: 3px; }
 </style>
 </head>
 <body>
+<input type="checkbox" id="ccu-thinking" class="toggle-src">
+<input type="checkbox" id="ccu-tools" class="toggle-src">
 <div class="wrap">
   <header>
     <h1>${esc(parsed.title || 'Conversation')}</h1>
-    <div class="meta">${esc(range)} · ${parsed.promptCount} prompt${parsed.promptCount === 1 ? '' : 's'} · ${parsed.totalTurns} turns${esc(more)}</div>
-    <span class="badge">📖 Read-only — nothing here is loaded back into the model's context</span>
+    <div class="meta">${esc(range)} · ${parsed.promptCount} prompt${parsed.promptCount === 1 ? '' : 's'} · ${rounds.length} ${roundWord} · ${parsed.totalTurns} turns${esc(more)}</div>
+    <div class="controls">
+      <span class="badge">📖 Read-only — nothing here is loaded back into the model's context</span>
+      <label class="chip" for="ccu-thinking" tabindex="0">💭 thinking</label>
+      <label class="chip" for="ccu-tools" tabindex="0">🔧 tool activity</label>
+    </div>
   </header>
-  ${promptNav ? `<nav><div class="navhead">Your prompts — jump to one</div>${promptNav}</nav>` : ''}
+  ${promptNav ? `<nav><div class="navhead">Your prompts — expand or jump</div>${promptNav}</nav>` : ''}
   <main>
-    ${turnsHtml || '<p class="meta">No readable turns in this session log.</p>'}
+    ${earlierHtml}
+    ${recentHtml || '<p class="meta">No readable turns in this session log.</p>'}
   </main>
 </div>
 </body>
