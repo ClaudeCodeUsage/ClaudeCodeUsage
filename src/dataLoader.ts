@@ -1602,18 +1602,36 @@ export class ClaudeDataLoader {
     return { wastedUsd: switchUsd + idleUsd, switchUsd, idleUsd, switchCount, idleCount };
   }
 
-  /** Cache hit rate per MODEL over a window — so the user can see which models
-   * (and, nominally, providers) actually serve from cache vs. re-write it. The
-   * serving provider isn't recorded in the logs, so `provider` is the model
-   * family's nominal vendor; a true cross-provider comparison (which vendor's
-   * cache lasts longest) needs pooled cross-user data — see dataContribution.ts.
-   * hitRate = cache-read ÷ all input-side tokens. Sorted by token volume. */
+  /** Per-MODEL cache stats over a window. Primary metric is `ttlMin` — how long
+   * that model's cache stays warm (the idle gap at which reads stop and rewrites
+   * begin), measured the same way as estimateCacheTtl but grouped by model. This
+   * is the durable, cross-user-comparable signal: how long each model/provider's
+   * cache actually lives (and it drifts over time, so it's worth tracking). We
+   * also carry `hitRate` (read ÷ input-side) and `tokens` (volume) as secondary.
+   * The serving provider isn't logged, so `provider` is the family's nominal
+   * vendor; a true cross-provider verdict needs pooled data — see
+   * dataContribution.ts. `ttlMin` is null when a model lacks enough idle-gap
+   * samples to claim a boundary. Sorted by token volume, top 8. */
   static cacheStatsByModel(
     records: ClaudeUsageRecord[],
     windowDays = 30
-  ): { model: string; provider: string; hitRate: number; tokens: number; turns: number }[] {
+  ): { model: string; provider: string; ttlMin: number | null; hitRate: number; tokens: number; turns: number }[] {
     const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
-    const agg: Record<string, { read: number; inputSide: number; total: number; turns: number }> = {};
+    const edges = [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, Infinity]; // minutes
+    type Stat = {
+      read: number; inputSide: number; total: number; turns: number;
+      warm: number[]; cold: number[];
+    };
+    const agg: Record<string, Stat> = {};
+    const ensure = (m: string): Stat =>
+      agg[m] ?? (agg[m] = {
+        read: 0, inputSide: 0, total: 0, turns: 0,
+        warm: new Array(edges.length - 1).fill(0),
+        cold: new Array(edges.length - 1).fill(0),
+      });
+
+    // Volume + hit-rate aggregate, and collect per-session series for TTL.
+    const bySession: Record<string, ClaudeUsageRecord[]> = {};
     for (const r of records) {
       const u = r.message.usage;
       const m = r.message.model;
@@ -1630,17 +1648,69 @@ export class ClaudeDataLoader {
       if (total <= 0) {
         continue;
       }
-      const a = agg[m] ?? (agg[m] = { read: 0, inputSide: 0, total: 0, turns: 0 });
+      const a = ensure(m);
       a.read += read;
       a.inputSide += inputSide;
       a.total += total;
       a.turns += 1;
+      const sid = r._sessionId || 'unknown';
+      (bySession[sid] ?? (bySession[sid] = [])).push(r);
     }
+
+    // TTL buckets: same-model consecutive turns, bucketed by idle gap; warm if
+    // the next turn read the cache, cold if it had to rewrite it.
+    for (const sid of Object.keys(bySession)) {
+      const recs = bySession[sid].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+      for (let i = 1; i < recs.length; i++) {
+        const prev = recs[i - 1];
+        const cur = recs[i];
+        if (prev.message.model !== cur.message.model) {
+          continue; // model switch flushes the cache — not an idle-TTL sample
+        }
+        const pu = prev.message.usage;
+        if ((pu.cache_creation_input_tokens || 0) + (pu.cache_read_input_tokens || 0) < 1000) {
+          continue;
+        }
+        const gapMin = (Date.parse(cur.timestamp) - Date.parse(prev.timestamp)) / 60000;
+        if (!(gapMin >= 0)) {
+          continue;
+        }
+        let bi = edges.findIndex((_, idx) => idx < edges.length - 1 && gapMin >= edges[idx] && gapMin < edges[idx + 1]);
+        if (bi < 0) {
+          bi = edges.length - 2;
+        }
+        const cu = cur.message.usage;
+        const a = ensure(cur.message.model as string);
+        if ((cu.cache_read_input_tokens || 0) > 0) {
+          a.warm[bi]++;
+        } else if ((cu.cache_creation_input_tokens || 0) > 0) {
+          a.cold[bi]++;
+        }
+      }
+    }
+
+    const ttlOf = (warm: number[], cold: number[]): number | null => {
+      let warmUpTo = 0;
+      let total = 0;
+      for (let i = 0; i < edges.length - 1; i++) {
+        const n = warm[i] + cold[i];
+        total += n;
+        if (n < 5) {
+          continue;
+        }
+        if (warm[i] / n >= 0.85) {
+          warmUpTo = edges[i + 1] === Infinity ? edges[i] : edges[i + 1];
+        }
+      }
+      return total >= 20 && warmUpTo > 0 ? warmUpTo : null;
+    };
+
     return Object.entries(agg)
       .filter(([, a]) => a.turns >= 3 && a.inputSide > 0)
       .map(([model, a]) => ({
         model,
         provider: ClaudeDataLoader.providerOf(model),
+        ttlMin: ttlOf(a.warm, a.cold),
         hitRate: a.read / a.inputSide,
         tokens: a.total,
         turns: a.turns,

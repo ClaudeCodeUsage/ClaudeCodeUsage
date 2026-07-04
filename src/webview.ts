@@ -2649,33 +2649,41 @@ export class UsageWebviewProvider {
       );
     }
 
-    // Cache hit rate by model / provider — which models actually serve from
-    // cache. (Provider is the model family's nominal vendor; the serving
-    // endpoint isn't logged — a true cross-provider comparison needs pooled
-    // cross-user data, reserved via dataContribution.ts.)
+    // Cache TTL by model / provider — how long each model's cache stays warm
+    // (the durable, cross-user-comparable signal; it drifts over time). Bar and
+    // number are the SAME metric (TTL) so there's no ambiguity; hit rate and
+    // volume ride along as secondary. (Provider is the family's nominal vendor;
+    // the serving endpoint isn't logged — a true cross-provider comparison needs
+    // pooled cross-user data, reserved via dataContribution.ts.)
     const byModel = analysis.byModel;
-    if (byModel.length >= 2) {
-      const maxTok = Math.max(...byModel.map((s) => s.tokens), 1);
+    const withTtl = byModel.filter((s) => s.ttlMin != null);
+    if (byModel.length >= 2 && withTtl.length >= 1) {
+      const maxTtl = Math.max(...withTtl.map((s) => s.ttlMin as number), 60);
       const rows = byModel
         .map((s) => {
-          const pct = Math.round(s.hitRate * 100);
+          const ttl = s.ttlMin;
+          const w = ttl != null ? Math.max(4, Math.round((ttl / maxTtl) * 100)) : 0;
+          const ttlLabel = ttl != null ? '~' + ttl + ' min' : '—';
+          const sub = Math.round(s.hitRate * 100) + '% hit · ' + I18n.formatNumber(s.tokens) + ' tok';
           return (
-            '<div class="cbm-row" title="' + this.escapeHtml(s.provider + ' · ' + I18n.formatNumber(s.tokens) + ' tokens · ' + s.turns + ' turns') + '">' +
+            '<div class="cbm-row" title="' + this.escapeHtml(s.provider + ' · warm ' + ttlLabel + ' · ' + Math.round(s.hitRate * 100) + '% cache hit · ' + I18n.formatNumber(s.tokens) + ' tokens · ' + s.turns + ' turns') + '">' +
             '<div class="cbm-label">' + this.escapeHtml(this.shortModelName(s.model)) +
             '<span class="cbm-provider">' + this.escapeHtml(s.provider) + '</span></div>' +
-            '<div class="cbm-track"><div class="cbm-fill" style="width:' + Math.max(3, Math.round((s.tokens / maxTok) * 100)) + '%"></div></div>' +
-            '<div class="cbm-pct">' + pct + '%</div>' +
+            '<div class="cbm-mid"><div class="cbm-track"><div class="cbm-fill" style="width:' + w + '%"></div></div>' +
+            '<div class="cbm-sub">' + this.escapeHtml(sub) + '</div></div>' +
+            '<div class="cbm-pct">' + this.escapeHtml(ttlLabel) + '</div>' +
             '</div>'
           );
         })
         .join('');
       cards.push(
         '<div class="insight-card">' +
-          '<div class="insight-head"><span class="insight-title">Cache hit rate by model</span>' +
+          '<div class="insight-head"><span class="insight-title">Cache warmth by model</span>' +
           '<span class="insight-tag">last 30 days</span></div>' +
-          '<div class="insight-sub">how much of each model\'s input was served from cache (bar = your token volume on it)</div>' +
+          '<div class="insight-sub">how long each model keeps your cache warm (bar &amp; number = estimated warm window; hit rate + volume below)</div>' +
           '<div class="cbm-list">' + rows + '</div>' +
-          '<div class="insight-tip">💡 A low-hit model means its context is being re-sent uncached — favour it for short, self-contained tasks, or keep long tasks on the model that caches best for you.</div>' +
+          '<div class="insight-tip">💡 A shorter warm window means that model re-writes cache sooner after an idle gap — keep momentum tighter on it, or lean on the longer-lived model for stop-start work.</div>' +
+          '<div class="insight-note">Warm window is inferred from idle-gap hit rates; “—” means too few gaps to estimate yet. The serving provider isn\'t logged, so provider is nominal.</div>' +
           '</div>'
       );
     }
@@ -4297,15 +4305,16 @@ export class UsageWebviewProvider {
         overflow: hidden;
       }
       .cbm-provider { color: var(--vscode-descriptionForeground); font-size: 11px; white-space: nowrap; }
+      .cbm-mid { flex: 1 1 auto; min-width: 0; }
       .cbm-track {
-        flex: 1 1 auto;
         height: 8px;
         border-radius: 4px;
         background: var(--vscode-panel-border);
         overflow: hidden;
       }
       .cbm-fill { height: 100%; background: var(--vscode-charts-orange, var(--vscode-badge-background)); }
-      .cbm-pct { flex: 0 0 40px; text-align: right; font-size: 12px; font-weight: 700; color: var(--vscode-foreground); }
+      .cbm-sub { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 3px; }
+      .cbm-pct { flex: 0 0 64px; text-align: right; font-size: 12px; font-weight: 700; color: var(--vscode-foreground); }
       .costly-prompt {
         font-size: 12px;
         line-height: 1.4;
