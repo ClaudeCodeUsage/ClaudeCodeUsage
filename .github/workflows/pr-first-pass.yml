@@ -4,7 +4,8 @@
 # API, asks the model once, and posts one comment. No tools → injection-safe.
 #
 # INERT until AUTOMATION_ENABLED = 'true' + the ANTHROPIC_API_KEY secret.
-# Optional repo vars: ANTHROPIC_BASE_URL, CCU_BOT_MODEL (default deepseek-v4-flash).
+# Optional repo vars: ANTHROPIC_BASE_URL, CCU_BOT_MODEL (cheap tier, default
+# deepseek-v4-flash), CCU_BOT_MODEL_PRO (escalation tier, default deepseek-v4-pro).
 name: PR first-pass (auto)
 
 on:
@@ -48,4 +49,5 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
           CCU_BOT_MODEL: ${{ vars.CCU_BOT_MODEL }}
+          CCU_BOT_MODEL_PRO: ${{ vars.CCU_BOT_MODEL_PRO }}
         run: node .github/scripts/first-pass.mjs
