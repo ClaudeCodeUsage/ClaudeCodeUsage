@@ -42,6 +42,8 @@ export interface Translations {
     project: string;
     startTime: string;
     duration: string;
+    activeDuration: string;
+    activeDurationHelp: string;
     hour: string;
     projects: string;
     projectBreakdown: string;
@@ -237,6 +239,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       project: 'Project',
       startTime: 'Start Time',
       duration: 'Duration',
+      activeDuration: 'Active',
+      activeDurationHelp: 'Estimated hands-on time — the gaps between turns summed, with each idle gap capped at 5 min so long breaks don\'t inflate it. (Duration is the full first-to-last span.)',
       hour: 'Hour',
       projects: 'Projects',
       projectBreakdown: 'Project Usage',
@@ -456,6 +460,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       project: "Projekt",
       startTime: "Startzeit",
       duration: "Dauer",
+      activeDuration: 'Aktiv',
+      activeDurationHelp: 'Geschätzte aktive Zeit — die Abstände zwischen den Zügen summiert, jede Leerlauflücke auf 5 Min. begrenzt, damit lange Pausen sie nicht aufblähen. (Dauer ist die gesamte Spanne.)',
       hour: "Stunde",
       projects: "Projekte",
       projectBreakdown: "Nutzung nach Projekt",
@@ -678,6 +684,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       project: '專案',
       startTime: '開始時間',
       duration: '時長',
+      activeDuration: '活躍時長',
+      activeDurationHelp: '估算的實際操作時間——把各輪之間的間隔加總，每段閒置間隔上限 5 分鐘，避免長時間中斷灌水。（時長是首尾完整跨度。）',
       hour: '小時',
       projects: '專案',
       projectBreakdown: '各專案使用量',
@@ -893,6 +901,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       project: '项目',
       startTime: '开始时间',
       duration: '时长',
+      activeDuration: '活跃时长',
+      activeDurationHelp: '估算的实际操作时间——把各轮之间的间隔加总，每段空闲间隔上限 5 分钟，避免长时间中断灌水。（时长是首尾完整跨度。）',
       hour: '小时',
       projects: '项目',
       projectBreakdown: '各项目使用量',
@@ -1108,6 +1118,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       project: 'プロジェクト',
       startTime: '開始時刻',
       duration: '期間',
+      activeDuration: 'アクティブ',
+      activeDurationHelp: '実作業時間の推定——各ターン間の間隔を合計し、アイドルは1回あたり5分で上限を設けて長い中断で膨らまないようにしています。（期間は最初から最後までの全体です。）',
       hour: '時刻',
       projects: 'プロジェクト',
       projectBreakdown: 'プロジェクト別使用量',
@@ -1328,6 +1340,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       project: '프로젝트',
       startTime: '시작 시간',
       duration: '사용 시간',
+      activeDuration: '활성 시간',
+      activeDurationHelp: '실제 작업 시간 추정 — 턴 사이 간격을 합산하되, 유휴 간격은 5분으로 상한을 두어 긴 중단이 부풀리지 않도록 했습니다. (사용 시간은 처음부터 끝까지 전체 구간입니다.)',
       hour: '시각',
       projects: '프로젝트',
       projectBreakdown: '프로젝트별 사용량',
@@ -1548,6 +1562,8 @@ const translations: Record<SupportedLanguage, Translations> = {
       project: 'Projeto',
       startTime: 'Início',
       duration: 'Duração',
+      activeDuration: 'Ativo',
+      activeDurationHelp: 'Tempo de uso estimado — a soma dos intervalos entre turnos, com cada intervalo ocioso limitado a 5 min para que pausas longas não o inflem. (Duração é o intervalo completo do início ao fim.)',
       hour: 'Hora',
       projects: 'Projetos',
       projectBreakdown: 'Uso por projeto',

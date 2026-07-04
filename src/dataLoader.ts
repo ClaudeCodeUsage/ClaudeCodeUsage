@@ -1719,6 +1719,39 @@ export class ClaudeDataLoader {
       .slice(0, 8);
   }
 
+  /** Estimated hands-on ("active") time per session, in ms. Sums the gaps
+   * between consecutive turns of a session, but caps each gap at `idleCapMin`
+   * (default 5) so a long break doesn't count as work. This is closer to time
+   * actually spent than the first→last wall-clock span (which the Duration
+   * column shows). Keyed by sessionId. */
+  static activeDurationBySession(
+    records: ClaudeUsageRecord[],
+    idleCapMin = 5
+  ): Record<string, number> {
+    const capMs = idleCapMin * 60000;
+    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    for (const r of records) {
+      const sid = r._sessionId || 'unknown';
+      (bySession[sid] ?? (bySession[sid] = [])).push(r);
+    }
+    const out: Record<string, number> = {};
+    for (const sid of Object.keys(bySession)) {
+      const ts = bySession[sid]
+        .map((r) => Date.parse(r.timestamp))
+        .filter((n) => !isNaN(n))
+        .sort((a, b) => a - b);
+      let active = 0;
+      for (let i = 1; i < ts.length; i++) {
+        const gap = ts[i] - ts[i - 1];
+        if (gap > 0) {
+          active += Math.min(gap, capMs);
+        }
+      }
+      out[sid] = active;
+    }
+    return out;
+  }
+
   /** Nominal vendor of a model id (the logs don't record the serving endpoint). */
   private static providerOf(model: string): string {
     const s = model.toLowerCase();
