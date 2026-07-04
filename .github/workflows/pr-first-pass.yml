@@ -22,7 +22,13 @@ concurrency:
 
 jobs:
   review:
-    if: vars.AUTOMATION_ENABLED == 'true' && github.event.pull_request.user.type != 'Bot'
+    # Skip PRs from maintainers (OWNER / MEMBER / COLLABORATOR): their PRs are
+    # usually finished work that doesn't need an auto first-pass — the review is
+    # for external contributors. Also skip bot-authored PRs.
+    if: >-
+      vars.AUTOMATION_ENABLED == 'true'
+      && github.event.pull_request.user.type != 'Bot'
+      && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
