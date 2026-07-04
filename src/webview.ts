@@ -7,6 +7,8 @@ import { buildResumeCommand, isUsableCwd, isValidSessionId, isUnderDir } from '.
 import { renderHeatmapSvg } from './heatmapSvg';
 import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename } from './shareCard';
 import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
+import { parseConversation } from './conversationLog';
+import { renderConversationViewer } from './conversationViewerHtml';
 import * as os from 'os';
 import * as path from 'path';
 import * as https from 'https';
@@ -286,6 +288,16 @@ export class UsageWebviewProvider {
           } else {
             vscode.window.showWarningMessage(I18n.t.popup.deleteSessionNotFound);
           }
+          break;
+        }
+        case 'viewConversation': {
+          // Read-only: read the session .jsonl, parse it, open a viewer panel.
+          const sessionId = message.sessionId;
+          if (!isValidSessionId(sessionId)) {
+            vscode.window.showWarningMessage(I18n.t.popup.resumeInvalid);
+            break;
+          }
+          await this.openConversationViewer(sessionId, String(message.title || sessionId));
           break;
         }
         case 'updateSetting':
@@ -1683,6 +1695,9 @@ export class UsageWebviewProvider {
     // The delete action touches local Claude Code history files, so it's
     // opt-in (enableSessionDelete, off by default) — see settings.
     const showDelete = this.setting<boolean>('enableSessionDelete', false);
+    // Read-only conversation viewer — opt-in (off by default); re-read a past
+    // session without loading it back into the model context.
+    const showViewer = this.setting<boolean>('showConversationViewer', false);
     let rows = '';
     this.sessionBreakdown.forEach((s) => {
       const d = s.data;
@@ -1752,6 +1767,11 @@ export class UsageWebviewProvider {
         '<td class="actions-cell">' +
         '<button class="session-action" title="' + this.escapeHtml(t.copySessionId) +
         '" data-session-id="' + this.escapeHtml(s.sessionId) + '" onclick="copySession(this)">⧉</button>' +
+        (showViewer
+          ? '<button class="session-action" title="' + this.escapeHtml(t.viewConversation) +
+            '" data-session-id="' + this.escapeHtml(s.sessionId) +
+            '" data-title="' + this.escapeHtml(fullName) + '" onclick="viewConversation(this)">👁</button>'
+          : '') +
         '<button class="session-action" title="' + this.escapeHtml(t.resumeSession) +
         '" data-session-id="' + this.escapeHtml(s.sessionId) +
         '" data-cwd="' + this.escapeHtml(s.projectPath || '') + '" onclick="resumeSession(this)">▶</button>' +
@@ -1852,6 +1872,41 @@ export class UsageWebviewProvider {
       '" data-sort-cacheread="' + d.totalCacheReadTokens +
       '" data-sort-messages="' + d.messageCount + '"'
     );
+  }
+
+  /** Open a read-only viewer for a past conversation. Reads the session's
+   * .jsonl, parses it, and shows it in a new webview panel — nothing is loaded
+   * back into any model context (that's the whole point vs. resume). */
+  private async openConversationViewer(sessionId: string, title: string): Promise<void> {
+    const files = await ClaudeDataLoader.findSessionFiles(sessionId, this.dataDirectory);
+    // Prefer the main session file (basename === sessionId.jsonl); else the
+    // largest match. Sub-agent side files can share the id but aren't the chat.
+    const main =
+      files.find((f) => path.basename(f).toLowerCase() === sessionId.toLowerCase() + '.jsonl') || files[0];
+    if (!main) {
+      vscode.window.showWarningMessage(I18n.t.popup.deleteSessionNotFound);
+      return;
+    }
+    let text = '';
+    try {
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(main));
+      text = Buffer.from(bytes).toString('utf8');
+    } catch {
+      vscode.window.showWarningMessage(I18n.t.popup.deleteSessionNotFound);
+      return;
+    }
+    const parsed = parseConversation(text, { maxTurns: 500, maxCharsPerTurn: 4000 });
+    const panelTitle = parsed.title || title || sessionId;
+    const panel = vscode.window.createWebviewPanel(
+      'ccuConversation',
+      panelTitle.slice(0, 60),
+      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+      { enableScripts: false, retainContextWhenHidden: false }
+    );
+    panel.webview.html = renderConversationViewer(parsed, {
+      sessionId,
+      timezone: I18n.getTimezone(),
+    });
   }
 
   private formatDuration(start: Date, end: Date): string {
@@ -5178,6 +5233,18 @@ function deleteSession(btn) {
   // The host shows a modal confirm before anything is removed.
   vscode.postMessage({
     command: 'deleteSession',
+    sessionId: id,
+    title: btn.getAttribute('data-title') || ''
+  });
+}
+
+function viewConversation(btn) {
+  if (!btn) { return; }
+  var id = btn.getAttribute('data-session-id') || '';
+  if (!id) { return; }
+  // Host reads the .jsonl, parses it, and opens a read-only viewer panel.
+  vscode.postMessage({
+    command: 'viewConversation',
     sessionId: id,
     title: btn.getAttribute('data-title') || ''
   });

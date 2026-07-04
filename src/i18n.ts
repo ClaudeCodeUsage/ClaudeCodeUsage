@@ -138,6 +138,7 @@ export interface Translations {
     copySessionId: string;
     copyPath: string;
     resumeSession: string;
+    viewConversation: string;
     resumeInvalid: string;
     sessionFilterCurrent: string;
     sessionFilterAll: string;
@@ -338,6 +339,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       sessionTitle: 'Session',
       sessionActions: 'Actions',
       copySessionId: 'Copy session ID',
+      viewConversation: 'View this conversation (read-only) — re-read your prompts and the model\'s answers without loading them back into context.',
       copyPath: 'Copy path',
       resumeSession: 'Resume this conversation — reopens it in Claude Code (same project) or a terminal via "claude --resume", so you can continue where you left off.',
       resumeInvalid: 'Invalid session id — cannot resume.',
@@ -556,6 +558,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       sessionTitle: "Sitzung",
       sessionActions: 'Aktionen',
       copySessionId: 'Sitzungs-ID kopieren',
+      viewConversation: 'Dieses Gespräch ansehen (schreibgeschützt) — lies deine Prompts und die Antworten des Modells erneut, ohne sie zurück in den Kontext zu laden.',
       copyPath: 'Pfad kopieren',
       resumeSession: 'Dieses Gespräch fortsetzen — öffnet es erneut in Claude Code (gleiches Projekt) oder in einem Terminal via "claude --resume", um dort weiterzumachen, wo du aufgehört hast.',
       resumeInvalid: 'Ungültige Sitzungs-ID — Fortsetzen nicht möglich.',
@@ -773,6 +776,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       sessionTitle: '會話',
       sessionActions: '操作',
       copySessionId: '複製會話 ID',
+      viewConversation: '檢視這個對話（唯讀）— 重新閱讀你的提示與模型回覆，而不會重新載入到上下文中。',
       copyPath: '複製路徑',
       resumeSession: '恢復此對話 —— 在 Claude Code(同一專案)中重新開啟,或透過終端機 “claude --resume” 繼續先前中斷的會話。',
       resumeInvalid: '無效的會話 ID,無法恢復。',
@@ -987,6 +991,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       sessionTitle: '会话',
       sessionActions: '操作',
       copySessionId: '复制会话 ID',
+      viewConversation: '查看这个对话（只读）— 重新阅读你的提示词和模型回复，而不会重新载入到上下文中。',
       copyPath: '复制路径',
       resumeSession: '恢复此对话 —— 在 Claude Code(同一项目)中重新打开,或通过终端 “claude --resume” 继续之前中断的会话。',
       resumeInvalid: '无效的会话 ID,无法恢复。',
@@ -1205,6 +1210,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       sessionTitle: 'セッション',
       sessionActions: '操作',
       copySessionId: 'セッションIDをコピー',
+      viewConversation: 'この会話を表示（読み取り専用）— プロンプトとモデルの回答を、コンテキストに再読み込みせずに読み返せます。',
       copyPath: 'パスをコピー',
       resumeSession: 'この会話を再開 — Claude Code(同じプロジェクト)で開き直すか、ターミナルで "claude --resume" を実行し、中断したところから続けます。',
       resumeInvalid: '無効なセッションIDのため再開できません。',
@@ -1424,6 +1430,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       sessionTitle: '세션',
       sessionActions: '작업',
       copySessionId: '세션 ID 복사',
+      viewConversation: '이 대화 보기(읽기 전용) — 프롬프트와 모델 답변을 컨텍스트에 다시 불러오지 않고 다시 읽어볼 수 있습니다.',
       copyPath: '경로 복사',
       resumeSession: '이 대화 재개 — Claude Code(같은 프로젝트)에서 다시 열거나 터미널에서 "claude --resume"으로 중단한 지점부터 이어갑니다.',
       resumeInvalid: '잘못된 세션 ID입니다 — 재개할 수 없습니다.',
@@ -1643,6 +1650,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       sessionTitle: 'Sessão',
       sessionActions: 'Ações',
       copySessionId: 'Copiar ID da sessão',
+      viewConversation: 'Ver esta conversa (somente leitura) — releia seus prompts e as respostas do modelo sem recarregá-los no contexto.',
       copyPath: 'Copiar caminho',
       resumeSession: 'Retomar esta conversa — reabre no Claude Code (mesmo projeto) ou num terminal via "claude --resume", para continuar de onde parou.',
       resumeInvalid: 'ID de sessão inválido — não é possível retomar.',

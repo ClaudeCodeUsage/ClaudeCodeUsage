@@ -242,6 +242,15 @@ export const SETTINGS: SettingDef[] = [
     help: 'Off by default. When on, the Sessions tab shows a delete button that moves a conversation\'s log file to the OS trash. This touches your local Claude Code history files, so it stays opt-in.',
   },
   {
+    key: 'showConversationViewer',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'features',
+    label: 'Enable conversation viewer',
+    help: 'Off by default. When on, the Sessions tab shows a "view" button that opens a read-only reader for a past conversation — so you can re-read your prompts and the model\'s answers to jog your memory WITHOUT loading them back into the model\'s context (unlike resume). It reads your local log files, so it stays opt-in.',
+  },
+  {
     key: 'timezone',
     type: 'enum',
     default: '',
