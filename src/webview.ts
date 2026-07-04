@@ -47,6 +47,14 @@ export class UsageWebviewProvider {
   private workflowBreakdown: WorkflowUsage[] = [];
   private costliestMessages: CostlyMessage[] = [];
   private githubIdentity?: { avatar?: string; name?: string }; // fetched on demand
+  // Cache the (slow-moving) cache analyses so they recompute at most weekly, not
+  // every render — Carl: a weekly refresh is plenty for these estimates.
+  private analysisCache?: {
+    at: number;
+    ttl: ReturnType<typeof ClaudeDataLoader.estimateCacheTtl>;
+    churn: ReturnType<typeof ClaudeDataLoader.estimateCacheChurnCost>;
+    byModel: ReturnType<typeof ClaudeDataLoader.cacheStatsByModel>;
+  };
   // Last generated share card + its config, kept so an auto-refresh re-render
   // doesn't wipe the user's picks or preview (share card / heatmap / optimizer
   // output should survive data refreshes — only usage numbers update).
@@ -2600,14 +2608,29 @@ export class UsageWebviewProvider {
    * off by default, no prompts. First card: the cache-churn bill. Styled to the
    * plugin's existing card language (theme vars), with a small "estimate" tag
    * as the honest signature. */
+  /** The cache analyses, recomputed at most once a week (they move slowly). */
+  private getAnalysis(): NonNullable<UsageWebviewProvider['analysisCache']> {
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    if (!this.analysisCache || Date.now() - this.analysisCache.at > WEEK) {
+      this.analysisCache = {
+        at: Date.now(),
+        ttl: ClaudeDataLoader.estimateCacheTtl(this.allRecords),
+        churn: ClaudeDataLoader.estimateCacheChurnCost(this.allRecords, 30),
+        byModel: ClaudeDataLoader.cacheStatsByModel(this.allRecords, 30),
+      };
+    }
+    return this.analysisCache;
+  }
+
   private renderInsights(): string {
     if (!this.setting<boolean>('showInsights', false) || !this.allRecords || this.allRecords.length === 0) {
       return '';
     }
     const cards: string[] = [];
+    const analysis = this.getAnalysis();
 
     // Cache-churn bill (缓存损耗账单).
-    const churn = ClaudeDataLoader.estimateCacheChurnCost(this.allRecords, 30);
+    const churn = analysis.churn;
     if (churn && churn.wastedUsd >= 0.5) {
       const money = (n: number): string => I18n.formatCurrency(n);
       cards.push(
@@ -2622,6 +2645,37 @@ export class UsageWebviewProvider {
           '</div>' +
           '<div class="insight-tip">💡 Most is recoverable — keep momentum inside the ~60-min warm window and batch same-model work.</div>' +
           '<div class="insight-note">A switch can still be worth it if the other model is cheaper per token; this counts only the churn cost.</div>' +
+          '</div>'
+      );
+    }
+
+    // Cache hit rate by model / provider — which models actually serve from
+    // cache. (Provider is the model family's nominal vendor; the serving
+    // endpoint isn't logged — a true cross-provider comparison needs pooled
+    // cross-user data, reserved via dataContribution.ts.)
+    const byModel = analysis.byModel;
+    if (byModel.length >= 2) {
+      const maxTok = Math.max(...byModel.map((s) => s.tokens), 1);
+      const rows = byModel
+        .map((s) => {
+          const pct = Math.round(s.hitRate * 100);
+          return (
+            '<div class="cbm-row" title="' + this.escapeHtml(s.provider + ' · ' + I18n.formatNumber(s.tokens) + ' tokens · ' + s.turns + ' turns') + '">' +
+            '<div class="cbm-label">' + this.escapeHtml(this.shortModelName(s.model)) +
+            '<span class="cbm-provider">' + this.escapeHtml(s.provider) + '</span></div>' +
+            '<div class="cbm-track"><div class="cbm-fill" style="width:' + Math.max(3, Math.round((s.tokens / maxTok) * 100)) + '%"></div></div>' +
+            '<div class="cbm-pct">' + pct + '%</div>' +
+            '</div>'
+          );
+        })
+        .join('');
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Cache hit rate by model</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-sub">how much of each model\'s input was served from cache (bar = your token volume on it)</div>' +
+          '<div class="cbm-list">' + rows + '</div>' +
+          '<div class="insight-tip">💡 A low-hit model means its context is being re-sent uncached — favour it for short, self-contained tasks, or keep long tasks on the model that caches best for you.</div>' +
           '</div>'
       );
     }
@@ -2644,7 +2698,7 @@ export class UsageWebviewProvider {
     if (!this.setting<boolean>('showEfficiency', false) || !this.allRecords || this.allRecords.length === 0) {
       return '';
     }
-    const est = ClaudeDataLoader.estimateCacheTtl(this.allRecords);
+    const est = this.getAnalysis().ttl; // recomputed at most weekly
     if (!est) {
       return '';
     }
@@ -4231,6 +4285,27 @@ export class UsageWebviewProvider {
         padding-top: 8px;
         border-top: 1px solid var(--vscode-panel-border);
       }
+      .cbm-list { margin: 6px 0 4px; }
+      .cbm-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+      .cbm-label {
+        flex: 0 0 190px;
+        font-size: 12px;
+        color: var(--vscode-foreground);
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+        overflow: hidden;
+      }
+      .cbm-provider { color: var(--vscode-descriptionForeground); font-size: 11px; white-space: nowrap; }
+      .cbm-track {
+        flex: 1 1 auto;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--vscode-panel-border);
+        overflow: hidden;
+      }
+      .cbm-fill { height: 100%; background: var(--vscode-charts-orange, var(--vscode-badge-background)); }
+      .cbm-pct { flex: 0 0 40px; text-align: right; font-size: 12px; font-weight: 700; color: var(--vscode-foreground); }
       .costly-prompt {
         font-size: 12px;
         line-height: 1.4;

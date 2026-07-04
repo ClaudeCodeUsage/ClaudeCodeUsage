@@ -1602,6 +1602,66 @@ export class ClaudeDataLoader {
     return { wastedUsd: switchUsd + idleUsd, switchUsd, idleUsd, switchCount, idleCount };
   }
 
+  /** Cache hit rate per MODEL over a window — so the user can see which models
+   * (and, nominally, providers) actually serve from cache vs. re-write it. The
+   * serving provider isn't recorded in the logs, so `provider` is the model
+   * family's nominal vendor; a true cross-provider comparison (which vendor's
+   * cache lasts longest) needs pooled cross-user data — see dataContribution.ts.
+   * hitRate = cache-read ÷ all input-side tokens. Sorted by token volume. */
+  static cacheStatsByModel(
+    records: ClaudeUsageRecord[],
+    windowDays = 30
+  ): { model: string; provider: string; hitRate: number; tokens: number; turns: number }[] {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    const agg: Record<string, { read: number; inputSide: number; total: number; turns: number }> = {};
+    for (const r of records) {
+      const u = r.message.usage;
+      const m = r.message.model;
+      if (!u || !m || m === '<synthetic>' || r.isApiErrorMessage) {
+        continue;
+      }
+      if (new Date(r.timestamp).getTime() < cutoff) {
+        continue;
+      }
+      const read = u.cache_read_input_tokens || 0;
+      const write = u.cache_creation_input_tokens || 0;
+      const inputSide = u.input_tokens + write + read;
+      const total = inputSide + u.output_tokens;
+      if (total <= 0) {
+        continue;
+      }
+      const a = agg[m] ?? (agg[m] = { read: 0, inputSide: 0, total: 0, turns: 0 });
+      a.read += read;
+      a.inputSide += inputSide;
+      a.total += total;
+      a.turns += 1;
+    }
+    return Object.entries(agg)
+      .filter(([, a]) => a.turns >= 3 && a.inputSide > 0)
+      .map(([model, a]) => ({
+        model,
+        provider: ClaudeDataLoader.providerOf(model),
+        hitRate: a.read / a.inputSide,
+        tokens: a.total,
+        turns: a.turns,
+      }))
+      .sort((x, y) => y.tokens - x.tokens)
+      .slice(0, 8);
+  }
+
+  /** Nominal vendor of a model id (the logs don't record the serving endpoint). */
+  private static providerOf(model: string): string {
+    const s = model.toLowerCase();
+    if (/opus|sonnet|haiku|fable|mythos|claude/.test(s)) return 'Anthropic';
+    if (/deepseek/.test(s)) return 'DeepSeek';
+    if (/gpt|openai|o1|o3|o4/.test(s)) return 'OpenAI';
+    if (/gemini/.test(s)) return 'Google';
+    if (/glm|zhipu/.test(s)) return 'Zhipu';
+    if (/qwen/.test(s)) return 'Qwen';
+    if (/kimi|moonshot/.test(s)) return 'Moonshot';
+    return 'Other';
+  }
+
   /** Assemble the aggregate inputs for a share card. `range` is a preset
    * (today / week / month / year) or `month:YYYY-MM` for a specific calendar
    * month. `scope` narrows to one project (`project:<path>`) or session
