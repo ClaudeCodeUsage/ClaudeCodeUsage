@@ -7,7 +7,9 @@
 #   AUTOMATION_ENABLED = 'true'   (repo variable, kill switch)
 #   ANTHROPIC_API_KEY             (repo secret — official or third-party key)
 # Optional repo variables: ANTHROPIC_BASE_URL (third-party Anthropic-format
-# endpoint), CCU_BOT_MODEL (defaults to deepseek-v4-flash).
+# endpoint), CCU_BOT_MODEL (cheap tier, default deepseek-v4-flash),
+# CCU_BOT_MODEL_PRO (escalation tier used when the cheap tier can't answer from
+# the docs, default deepseek-v4-pro).
 name: Issue first-pass (auto)
 
 on:
@@ -44,4 +46,5 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
           CCU_BOT_MODEL: ${{ vars.CCU_BOT_MODEL }}
+          CCU_BOT_MODEL_PRO: ${{ vars.CCU_BOT_MODEL_PRO }}
         run: node .github/scripts/first-pass.mjs
