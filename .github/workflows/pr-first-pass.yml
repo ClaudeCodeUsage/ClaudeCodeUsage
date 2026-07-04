@@ -1,12 +1,10 @@
-# Auto first-pass review on every NEW pull request (V2.2 automation — opt-in).
+# Auto first-pass review on every NEW pull request — a CONTROLLED single model
+# call (not an autonomous agent). Uses pull_request_target for the token but
+# NEVER runs the PR's code: it checks out the BASE repo, fetches the diff via the
+# API, asks the model once, and posts one comment. No tools → injection-safe.
 #
-# Uses pull_request_target so it has the token to comment, but it must NEVER run
-# the PR's code with that token. We check out the BASE repo (the default for
-# pull_request_target), read the PR diff via the API, and post ONE first-pass
-# review comment. Fork code is never executed here.
-#
-# SAFE BY DEFAULT — inert until the owner sets AUTOMATION_ENABLED='true' and the
-# ANTHROPIC_API_KEY secret (official or third-party). Bot-authored PRs skipped.
+# INERT until AUTOMATION_ENABLED = 'true' + the ANTHROPIC_API_KEY secret.
+# Optional repo vars: ANTHROPIC_BASE_URL, CCU_BOT_MODEL (default deepseek-v4-flash).
 name: PR first-pass (auto)
 
 on:
@@ -16,7 +14,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  id-token: write # claude-code-action mints its GitHub token via OIDC
 
 concurrency:
   group: pr-first-pass-${{ github.event.pull_request.number }}
@@ -24,44 +21,31 @@ concurrency:
 
 jobs:
   review:
-    # Skip bots and huge diffs (a > ~3000-line PR wants a human first).
     if: vars.AUTOMATION_ENABLED == 'true' && github.event.pull_request.user.type != 'Bot'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     steps:
-      # Base repo only — do NOT check out or run the PR head with the token.
+      # Base repo only — never checks out or runs the PR head with the token.
       - name: Checkout base repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
-      - name: First-pass review
-        uses: anthropics/claude-code-action@v1
+      - name: Fetch PR diff (via API, no code run)
         env:
-          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--max-turns 15"
-          prompt: |
-            You are the ClaudeCodeUsage repository assistant, running via Claude Code
-            (the model may be a third-party Anthropic-format model; do not claim to be
-            Anthropic's Claude specifically).
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} > /tmp/pr.diff || true
 
-            A new pull request was opened. Do a first-pass review and post ONE comment.
-            SECURITY: never execute the PR's code. Read the PR DIFF via the GitHub API
-            and the repository's own files only.
-            Rules:
-            - First read CLAUDE.md and CONTRIBUTING.md (and ARCHITECTURE.md if present)
-            for the
-              conventions (compile-clean, node:test green, 7-language i18n, opt-in
-              defaults, CHANGELOG). If those aren't enough to judge accurately, read
-              the relevant base-repo files — never guess.
-            - Cover: correctness risks, convention/i18n/CHANGELOG gaps, and
-              merge-readiness. Be specific and concise; skip praise padding.
-            - If the diff is very large (> ~3000 lines) or you're unsure, say a human
-              should review rather than speculate.
-            - START with: "🤖 Automated first-pass review (via Claude Code)".
-            - END with: "_This is model-generated from the architecture docs and the
-              PR diff — not a merge decision. A maintainer reviews everything._"
-            - Do not approve, request changes as a formal review, merge, or push. One
-              comment only.
+      - name: First-pass review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_KIND: pr
+          ITEM_NUMBER: ${{ github.event.pull_request.number }}
+          ITEM_TITLE: ${{ github.event.pull_request.title }}
+          ITEM_BODY: ${{ github.event.pull_request.body }}
+          DIFF_FILE: /tmp/pr.diff
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+          CCU_BOT_MODEL: ${{ vars.CCU_BOT_MODEL }}
+        run: node .github/scripts/first-pass.mjs
