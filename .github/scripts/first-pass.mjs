@@ -211,7 +211,11 @@ try {
   fail(`Model call failed: ${e.message}`);
 }
 if (!reply) {
-  fail('Empty model reply.');
+  // A blank reply is a soft no-op, not a failure: posting nothing is fine, and
+  // we don't want a red ✗ check on the PR/issue just because the model returned
+  // no text (e.g. a huge or self-referential diff).
+  console.warn('Empty model reply — nothing to post.');
+  process.exit(0);
 }
 
 // Post ONE comment via the GitHub API (issues + PRs share this endpoint).
