@@ -55,8 +55,9 @@ function fmtTime(ts: string | undefined, timezone?: string): string {
   }
 }
 
-/** One turn → its HTML block, styled by kind. `idx` anchors prompts for the nav. */
-function renderTurn(t: ConversationTurn, idx: number, timezone?: string): string {
+/** One turn → its HTML block, styled by kind. `idx` anchors prompts for the nav.
+ * `intermediate` marks an assistant answer that isn't the round's final one. */
+function renderTurn(t: ConversationTurn, idx: number, timezone?: string, intermediate = false): string {
   const time = fmtTime(t.ts, timezone);
   const timeTag = time ? `<span class="ts">${esc(time)}</span>` : '';
   const trunc = t.truncated ? ' <span class="trunc">… (truncated)</span>' : '';
@@ -71,9 +72,10 @@ function renderTurn(t: ConversationTurn, idx: number, timezone?: string): string
   }
   if (t.kind === 'text') {
     // Model output is Markdown — render it (renderMarkdown escapes internally).
+    const interTag = intermediate ? ' <span class="tag interim">interim</span>' : '';
     return (
-      `<div class="turn assistant">` +
-      `<div class="who"><span class="tag bot">🤖 ${esc(shortModel(t.model))}</span>${timeTag}</div>` +
+      `<div class="turn assistant${intermediate ? ' intermediate' : ''}">` +
+      `<div class="who"><span class="tag bot">🤖 ${esc(shortModel(t.model))}</span>${interTag}${timeTag}</div>` +
       `<div class="body md">${renderMarkdown(t.text)}${trunc}</div>` +
       `</div>`
     );
@@ -109,39 +111,54 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
   const recentRounds = opts.recentRounds ?? 10;
 
   // Group turns into rounds: a new round begins at each user prompt (anything
-  // before the first prompt forms an initial round).
-  const rounds: { html: string; hasPrompt: boolean }[] = [];
-  let cur: { html: string; hasPrompt: boolean } | null = null;
+  // before the first prompt forms an initial round). Keep the turn + its global
+  // index so the round's FINAL answer can be told from its intermediate ones.
+  const rounds: { t: ConversationTurn; i: number }[][] = [];
+  let cur: { t: ConversationTurn; i: number }[] | null = null;
   parsed.turns.forEach((t, i) => {
     if (t.kind === 'prompt' || !cur) {
-      cur = { html: '', hasPrompt: false };
+      cur = [];
       rounds.push(cur);
     }
-    if (t.kind === 'prompt') {
-      cur.hasPrompt = true;
-    }
-    cur.html += renderTurn(t, i, opts.timezone);
+    cur.push({ t, i });
   });
+
+  // Within a round, the last assistant-text turn is the "final answer"; earlier
+  // text turns are intermediate narration between tool calls.
+  const intermediate = new Set<number>();
+  for (const r of rounds) {
+    const textIdx = r.filter((x) => x.t.kind === 'text').map((x) => x.i);
+    for (let k = 0; k < textIdx.length - 1; k++) {
+      intermediate.add(textIdx[k]);
+    }
+  }
+  const renderRound = (r: { t: ConversationTurn; i: number }[]): string =>
+    r.map(({ t, i }) => renderTurn(t, i, opts.timezone, intermediate.has(i))).join('');
 
   const recentCount = Math.min(recentRounds, rounds.length);
   const earlier = rounds.slice(0, rounds.length - recentCount);
   const recent = rounds.slice(rounds.length - recentCount);
   const earlierHtml = earlier.length
-    ? `<details class="earlier"><summary>▾ Show earlier conversation (${earlier.length} round${earlier.length === 1 ? '' : 's'})</summary>${earlier.map((r) => r.html).join('\n')}</details>`
+    ? `<details class="earlier"><summary>▾ Show earlier conversation (${earlier.length} round${earlier.length === 1 ? '' : 's'})</summary>${earlier.map(renderRound).join('\n')}</details>`
     : '';
-  const recentHtml = recent.map((r) => r.html).join('\n');
+  const recentHtml = recent.map(renderRound).join('\n');
 
   // Top nav: each of your prompts, expandable to the full text, with a jump link.
-  const promptNav = parsed.turns
+  const promptItems = parsed.turns
     .map((t, i) => (t.kind === 'prompt' ? { i, text: t.text } : null))
-    .filter((x): x is { i: number; text: string } => x != null)
+    .filter((x): x is { i: number; text: string } => x != null);
+  const promptNav = promptItems
     .map((p, n) => {
       const oneLine = p.text.replace(/\s+/g, ' ');
       const short = oneLine.slice(0, 80);
       const needsExpand = oneLine.length > 80;
+      const latest = n === promptItems.length - 1 ? '<span class="latest">latest</span>' : '';
+      // Jump link sits OUTSIDE the truncating text so it's never clipped; the
+      // caret expands the full prompt text.
       return (
         `<details class="navitem">` +
-        `<summary><b>${n + 1}.</b> ${esc(short)}${needsExpand ? '…' : ''} <a class="jump" href="#p${p.i}">jump ↓</a></summary>` +
+        `<summary><span class="navtext"><b>${n + 1}.</b> ${esc(short)}${needsExpand ? '…' : ''}</span>${latest}` +
+        `<a class="jump" href="#p${p.i}">jump ↓</a></summary>` +
         (needsExpand ? `<div class="navfull">${esc(p.text)}</div>` : '') +
         `</details>`
       );
@@ -194,14 +211,19 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
   }
   .chip:hover { background: var(--vscode-list-hoverBackground); }
   #ccu-thinking:checked ~ .wrap label[for="ccu-thinking"],
-  #ccu-tools:checked ~ .wrap label[for="ccu-tools"] {
+  #ccu-tools:checked ~ .wrap label[for="ccu-tools"],
+  #ccu-interim:checked ~ .wrap label[for="ccu-interim"] {
     color: var(--vscode-editor-background); background: var(--vscode-textLink-foreground);
     border-color: var(--vscode-textLink-foreground);
   }
-  /* Hidden by default → clean chat view; toggles reveal. */
+  /* Thinking + tools hidden by default → clean chat view; toggles reveal.
+     Interim answers are shown by default; the toggle can hide them to leave
+     only each round's final answer. */
   #ccu-thinking:not(:checked) ~ .wrap .turn.thinking { display: none; }
   #ccu-tools:not(:checked) ~ .wrap .turn.tool,
   #ccu-tools:not(:checked) ~ .wrap .turn.toolres { display: none; }
+  #ccu-interim:not(:checked) ~ .wrap .turn.assistant.intermediate { display: none; }
+  .tag.interim { color: var(--vscode-descriptionForeground); background: var(--vscode-textBlockQuote-background); font-weight: 600; }
 
   nav { margin: 12px 0 4px; border: 1px solid var(--vscode-panel-border); border-radius: 8px; overflow: hidden; }
   .navhead {
@@ -211,12 +233,18 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
   details.navitem { border-top: 1px solid var(--vscode-panel-border); }
   details.navitem > summary {
     cursor: pointer; list-style: none; padding: 7px 12px; font-size: 12px; color: var(--vscode-foreground);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 8px;
   }
   details.navitem > summary::-webkit-details-marker { display: none; }
   details.navitem > summary:hover { background: var(--vscode-list-hoverBackground); }
+  .navtext { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   details.navitem b { color: var(--vscode-textLink-foreground); margin-right: 5px; }
-  .navitem .jump { color: var(--vscode-textLink-foreground); text-decoration: none; font-size: 11px; margin-left: 6px; }
+  /* Jump link is flex:none so it's ALWAYS visible, never clipped by the text. */
+  .navitem .jump { flex: none; color: var(--vscode-textLink-foreground); text-decoration: none; font-size: 11px; }
+  .latest {
+    flex: none; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px;
+    color: var(--vscode-editor-background); background: var(--vscode-textLink-foreground);
+  }
   .navfull { padding: 4px 12px 10px 24px; white-space: pre-wrap; color: var(--vscode-descriptionForeground); font-size: 12px; }
 
   details.earlier { margin: 8px 0; }
@@ -266,6 +294,9 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
   .md a { color: var(--vscode-textLink-foreground); }
   .md blockquote { margin: 6px 0; padding: 2px 12px; border-left: 3px solid var(--vscode-panel-border); color: var(--vscode-descriptionForeground); }
   .md hr { border: none; border-top: 1px solid var(--vscode-panel-border); margin: 10px 0; }
+  .md table { border-collapse: collapse; margin: 8px 0; font-size: 12px; display: block; overflow-x: auto; max-width: 100%; }
+  .md th, .md td { border: 1px solid var(--vscode-panel-border); padding: 4px 10px; text-align: left; }
+  .md th { background: var(--vscode-textBlockQuote-background); font-weight: 600; }
 
   /* Thinking + tool_result — quiet; expand on demand. */
   details.turn { border-left: 3px solid transparent; padding-left: 15px; }
@@ -291,12 +322,14 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
 <body>
 <input type="checkbox" id="ccu-thinking" class="toggle-src">
 <input type="checkbox" id="ccu-tools" class="toggle-src">
+<input type="checkbox" id="ccu-interim" class="toggle-src" checked>
 <div class="wrap">
   <header>
     <h1>${esc(parsed.title || 'Conversation')}</h1>
     <div class="meta">${esc(range)} · ${parsed.promptCount} prompt${parsed.promptCount === 1 ? '' : 's'} · ${rounds.length} ${roundWord} · ${parsed.totalTurns} turns${esc(more)}</div>
     <div class="controls">
       <span class="badge">📖 Read-only — nothing here is loaded back into the model's context</span>
+      <label class="chip" for="ccu-interim" tabindex="0">💬 interim replies</label>
       <label class="chip" for="ccu-thinking" tabindex="0">💭 thinking</label>
       <label class="chip" for="ccu-tools" tabindex="0">🔧 tool activity</label>
     </div>

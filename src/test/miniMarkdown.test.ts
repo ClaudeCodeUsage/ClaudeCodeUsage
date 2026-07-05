@@ -55,3 +55,18 @@ test('empty / null input is safe', () => {
   assert.equal(renderMarkdown(''), '');
   assert.equal(renderMarkdown(null as unknown as string), '');
 });
+
+test('GFM table renders with header, rows and alignment', () => {
+  const md = ['| Model | TTL |', '| :--- | ---: |', '| opus | 60m |', '| deepseek | 240m |'].join('\n');
+  const html = renderMarkdown(md);
+  assert.ok(html.includes('<table>'));
+  assert.ok(html.includes('<thead><tr><th style="text-align:left">Model</th><th style="text-align:right">TTL</th></tr></thead>'));
+  assert.ok(html.includes('<td style="text-align:left">opus</td>'));
+  assert.ok(html.includes('<td style="text-align:right">240m</td>'));
+});
+
+test('a lone pipe line is not treated as a table', () => {
+  const html = renderMarkdown('a | b is just text');
+  assert.ok(!html.includes('<table>'));
+  assert.ok(html.includes('<p>'));
+});
