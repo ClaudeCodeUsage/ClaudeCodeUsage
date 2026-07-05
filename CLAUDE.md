@@ -74,8 +74,11 @@ npx @vscode/vsce package   # build a .vsix
   of "fix the previous fix" commits. RC branches squash-merge to `main`.
 - **Tests:** a `node:test` suite runs against compiled output (`npm test`; see
   `src/test/` and CONTRIBUTING). Pure-logic modules (pricing, aggregation,
-  quota-window handling, i18n) are the high-value targets; `pricing.ts` has the
-  first coverage, the rest are still open.
+  timezone/date keys, dedup, share-card, heatmap, conversation-log, mini-markdown)
+  are the high-value targets and now carry most of the coverage. **One concern per
+  test file, named `camelCase.test.ts`** to match the module (e.g. `pricing.test.ts`,
+  `dateKeys.test.ts`) — don't add dotted `x.y.test.ts` files; fold new cases into
+  the existing file for that area.
 - **Data is read-only:** the extension never writes to `~/.claude/`.
 
 ## Documentation Maintenance

@@ -55,6 +55,10 @@ token insight, attribution, or the advice experience are the right fit.
 | `promptDedup.ts` | Dedups api_error retry re-logs so message counts aren't inflated. |
 | `quotaFormat.ts` | Pure status-bar quota text formatter (kept clean; reset detail lives in the tooltip). |
 | `dataContribution.ts` | Opt-in, OFF-by-default SCAFFOLD for future authorized cross-user signals (e.g. cache-TTL by tier). No endpoint / no-op; the Observation type has no identifying field. |
+| `sessionResume.ts` | **(v2.2)** Pure guards for the Sessions resume/copy actions: `isValidSessionId`, `isUsableCwd`, `buildResumeCommand`, `isUnderDir` (shell-injection-safe id/cwd validation). |
+| `conversationLog.ts` | **(v2.2)** Pure parser for the read-only conversation viewer: a session `.jsonl` → ordered display turns (prompt / text / thinking / tool_use / tool_result). Skips meta/sidechain, dedups by uuid, caps by ROUNDS (`maxRounds`) so prompts aren't starved, truncates per turn. Unit-tested. |
+| `conversationViewerHtml.ts` | **(v2.2)** Renders a `ParsedConversation` to a full read-only webview page (no scripts): prompts as the star, Markdown-rendered answers, thinking/tools behind pure-CSS toggles, a prompt jump-nav. |
+| `miniMarkdown.ts` | **(v2.2)** Dependency-free Markdown→HTML (headings, lists, GFM tables, code, links, blockquotes) used by the conversation viewer; escapes before formatting, scheme-checks links. Unit-tested. |
 
 New data-layer methods on `dataLoader.ts`: `getCostliestMessages` (top-N single
 turns + prompt + skill + cost split + gap + prev-model, for the Content tab's
@@ -63,7 +67,12 @@ estimate; measured ~60 min), `buildShareInput` (range today/week/last30/month/
 year/`month:YYYY-MM` + scope all/project/session). Efficiency insights
 (cost/tokens per message, realised cache savings, "Cache warmth"), thinking-share
 "hidden" handling (Fable 5 / Opus omit CoT text), and timezone = full UTC-offset
-coverage are all V2.2. CI: `@ccu-bot` first-pass automation (`claude.yml`,
+coverage are all V2.2. The opt-in **Experimental insights** (`showInsights`) draw
+on `estimateCacheChurnCost`, `cacheStatsByModel` (per-model warm window),
+`sessionHealth` (big one-shot turns), `activeHours`, and `skillRoi`; plus
+`activeDurationBySession` for the Sessions "Active" column and `modelRightsizing`
+(computed but not shown — reserved for an AI-judged v2). All weekly-cached in the
+webview. CI: `@ccu-bot` first-pass automation (`claude.yml`,
 `issue-first-pass.yml`, `pr-first-pass.yml`) — INERT unless `AUTOMATION_ENABLED`;
 official or third-party (`ANTHROPIC_BASE_URL`) key; reads this file.
 
