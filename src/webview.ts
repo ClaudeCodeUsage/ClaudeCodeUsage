@@ -2763,25 +2763,16 @@ export class UsageWebviewProvider {
       );
     }
 
-    // Model right-sizing (C5): premium model spent on lightweight (small-output)
-    // turns — the "Opus for a translation" pattern.
-    const rs = analysis.rightsizing;
-    if (rs) {
-      cards.push(
-        '<div class="insight-card">' +
-          '<div class="insight-head"><span class="insight-title">Premium models on lightweight turns</span>' +
-          '<span class="insight-tag">last 30 days</span></div>' +
-          '<div class="insight-hero">' + money(rs.grossUsd) + '</div>' +
-          '<div class="insight-sub">the compute premium on ' + rs.count + ' small-output turns run on a top-tier model — about what a cheaper model would have saved</div>' +
-          '<div class="insight-split">' +
-          '<span class="insight-pill">mostly <b>' + this.escapeHtml(this.shortModelName(rs.topModel)) + '</b> · ' + money(rs.topUsd) + '</span>' +
-          '<span class="insight-pill">switch cost ≈ <b>' + money(rs.switchCostPer) + '</b> / flip</span>' +
-          '</div>' +
-          '<div class="insight-tip">💡 Route simple, self-contained tasks — translation, formatting, quick edits — to a cheaper model. BATCH them: a per-turn flip flushes the cache (~the switch cost above), so grouping simple work on the cheap model is what actually nets the saving.</div>' +
-          '<div class="insight-note">"Lightweight" = a small answer (≤800 output tokens) on a premium model; compared against Haiku-4.5 rates on compute only (cache handled by the switch-cost caveat). An estimate, not a directive — some short turns genuinely need the stronger model.</div>' +
-          '</div>'
-      );
-    }
+    // Model right-sizing (C5) is DEFERRED, not rendered. Carl's call: output size
+    // is a weak proxy for task difficulty, and "use a cheaper model for simple
+    // tasks" isn't an insight users lack — in practice they habitually stay on
+    // the top model and just tack a simple task onto a long one. A worthwhile
+    // version needs a real judgement of each task's "difficulty", which means
+    // sampling prompt text through the (opt-in, user-key) AI-advice API — and
+    // that upload must be clearly labelled. `modelRightsizing` stays in
+    // dataLoader as dormant scaffolding for that v2. (analysis.rightsizing is
+    // still computed weekly but intentionally not shown.)
+    void analysis.rightsizing;
 
     if (cards.length === 0) {
       return '';

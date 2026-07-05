@@ -143,27 +143,37 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
     : '';
   const recentHtml = recent.map(renderRound).join('\n');
 
-  // Top nav: each of your prompts, expandable to the full text, with a jump link.
-  const promptItems = parsed.turns
+  // Top nav: your prompts, expandable to full text, each with a jump link.
+  // Capped to the last `recentRounds` (default 10) so the list is a consistent
+  // length and every jump target is inside the expanded recent rounds (jumping
+  // into a collapsed <details> doesn't scroll reliably). Numbering stays global
+  // so "latest" is unambiguous; a note flags any older prompts not listed.
+  const allPrompts = parsed.turns
     .map((t, i) => (t.kind === 'prompt' ? { i, text: t.text } : null))
     .filter((x): x is { i: number; text: string } => x != null);
-  const promptNav = promptItems
-    .map((p, n) => {
-      const oneLine = p.text.replace(/\s+/g, ' ');
-      const short = oneLine.slice(0, 80);
-      const needsExpand = oneLine.length > 80;
-      const latest = n === promptItems.length - 1 ? '<span class="latest">latest</span>' : '';
-      // Jump link sits OUTSIDE the truncating text so it's never clipped; the
-      // caret expands the full prompt text.
-      return (
-        `<details class="navitem">` +
-        `<summary><span class="navtext"><b>${n + 1}.</b> ${esc(short)}${needsExpand ? '…' : ''}</span>${latest}` +
-        `<a class="jump" href="#p${p.i}">jump ↓</a></summary>` +
-        (needsExpand ? `<div class="navfull">${esc(p.text)}</div>` : '') +
-        `</details>`
-      );
-    })
-    .join('');
+  const navStart = Math.max(0, allPrompts.length - recentRounds);
+  const hiddenEarlier = navStart;
+  const promptNav =
+    (hiddenEarlier > 0
+      ? `<div class="navmore">+ ${hiddenEarlier} earlier prompt${hiddenEarlier === 1 ? '' : 's'} above — open “Show earlier conversation”</div>`
+      : '') +
+    allPrompts
+      .slice(navStart)
+      .map((p) => {
+        const n = allPrompts.indexOf(p); // global prompt number
+        const oneLine = p.text.replace(/\s+/g, ' ');
+        const short = oneLine.slice(0, 80);
+        const needsExpand = oneLine.length > 80;
+        const latest = n === allPrompts.length - 1 ? '<span class="latest">latest</span>' : '';
+        return (
+          `<details class="navitem">` +
+          `<summary><span class="navtext"><b>${n + 1}.</b> ${esc(short)}${needsExpand ? '…' : ''}</span>${latest}` +
+          `<a class="jump" href="#p${p.i}">jump ↓</a></summary>` +
+          (needsExpand ? `<div class="navfull">${esc(p.text)}</div>` : '') +
+          `</details>`
+        );
+      })
+      .join('');
 
   const range =
     fmtTime(parsed.firstTs, opts.timezone) +
@@ -246,6 +256,7 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
     color: var(--vscode-editor-background); background: var(--vscode-textLink-foreground);
   }
   .navfull { padding: 4px 12px 10px 24px; white-space: pre-wrap; color: var(--vscode-descriptionForeground); font-size: 12px; }
+  .navmore { padding: 6px 12px; font-size: 11px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); }
 
   details.earlier { margin: 8px 0; }
   details.earlier > summary {
