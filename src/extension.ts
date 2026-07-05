@@ -724,7 +724,7 @@ export class ClaudeCodeUsageExtension {
       advicePromptWindowDays: s.get<number>('advice.promptWindowDays'),
       enableContentAnalysis: s.get<boolean>('enableContentAnalysis'),
       projectGroupingMode: s.get<'git' | 'folder' | 'flat'>('projectGroupingMode'),
-      fileWatching: s.get<boolean>('fileWatching'),
+      fileWatchSeconds: Number(s.get<string>('fileWatchSeconds') ?? '2') || 0,
       dashboardAutoRefresh: s.get<boolean>('dashboardAutoRefresh')
     };
   }
@@ -781,8 +781,8 @@ export class ClaudeCodeUsageExtension {
    */
   private async startFileWatching(): Promise<void> {
     const config = this.getConfiguration();
-    if (!config.fileWatching) {
-      this.stopFileWatching();
+    if (!(config.fileWatchSeconds > 0)) {
+      this.stopFileWatching(); // "Off"
       return;
     }
     const dataDirectory = await ClaudeDataLoader.findClaudeDataDirectory(config.dataDirectory || undefined);
@@ -810,7 +810,7 @@ export class ClaudeCodeUsageExtension {
         }
         this.watchDebounceTimer = setTimeout(() => {
           this.refreshData();
-        }, 1500);
+        }, config.fileWatchSeconds * 1000);
       });
       this.watchedDir = projectsDir;
     } catch {

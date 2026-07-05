@@ -385,13 +385,15 @@ export const SETTINGS: SettingDef[] = [
     max: 3600,
   },
   {
-    key: 'fileWatching',
-    type: 'boolean',
-    default: true,
+    key: 'fileWatchSeconds',
+    type: 'enum',
+    default: '2',
     storage: 'state',
     group: 'data',
-    label: 'Live file watching',
-    help: 'Refresh ~1.5s after each new message.',
+    label: 'Live refresh delay',
+    help: 'How soon the dashboard refreshes after new activity. This only re-reads your LOCAL log files (no API call — the quota fetch is throttled separately). "Off" disables live watching; a longer delay is lighter on CPU.',
+    enumValues: ['0', '1', '2', '5', '10', '20', '30'],
+    enumLabels: ['Off', '1s', '2s', '5s', '10s', '20s', '30s'],
   },
   {
     // V2.2: positive wording, replacing the old double-negative

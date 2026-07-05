@@ -307,10 +307,10 @@ export interface ExtensionConfig {
   //   - 'folder' group by the heuristic top-level project folder only
   //   - 'flat'   no grouping; every working directory is its own row
   projectGroupingMode: 'git' | 'folder' | 'flat';
-  // Watch log files and refresh within ~1.5s of each new message. When false
-  // the extension falls back to the interval-based refresh, which is calmer
-  // but lags behind real-time.
-  fileWatching: boolean;
+  // Live refresh delay (seconds) after new activity in the LOCAL log files.
+  // 0 = off (fall back to the interval-based refresh). Values: 0/1/2/5/10/20/30.
+  // Only re-reads local files — the /usage quota fetch is throttled separately.
+  fileWatchSeconds: number;
   // Skip the dashboard webview on auto-refreshes (status bar still updates).
   // Use when the constantly-reloading dashboard interferes with reading
   // numbers while an agent is actively writing.
