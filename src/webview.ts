@@ -1915,9 +1915,9 @@ export class UsageWebviewProvider {
     }
     // Cap by ROUNDS (prompts), not raw turns — a single prompt can be followed
     // by dozens of tool turns, so a raw-turn cap starves the prompt list. Keep
-    // the last 15 rounds (10 shown expanded + a small "earlier" buffer), with a
-    // raw-turn safety ceiling so a pathological round can't bloat the DOM.
-    const parsed = parseConversation(text, { maxRounds: 15, maxTurns: 2500, maxCharsPerTurn: 4000 });
+    // the last 10 rounds (all rendered flat + all in the nav), with a raw-turn
+    // safety ceiling so a pathological round can't bloat the DOM.
+    const parsed = parseConversation(text, { maxRounds: 10, maxTurns: 2500, maxCharsPerTurn: 4000 });
     const panelTitle = (parsed.title || title || sessionId).slice(0, 60);
     const html = renderConversationViewer(parsed, { sessionId, timezone: I18n.getTimezone() });
     // Reuse the single viewer panel (refresh it) if it's still open; else make one.
@@ -4136,7 +4136,9 @@ export class UsageWebviewProvider {
       }
 
       .cache-creation-bar {
-        background: linear-gradient(to top, var(--vscode-charts-purple), var(--vscode-charts-pink));
+        /* NB: VS Code has no --vscode-charts-pink; without a fallback the whole
+           gradient is invalid and the bar renders transparent (invisible). */
+        background: linear-gradient(to top, var(--vscode-charts-purple), var(--vscode-charts-pink, #d16ba5));
       }
 
       .cache-read-bar {

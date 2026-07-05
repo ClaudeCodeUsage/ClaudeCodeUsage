@@ -14,8 +14,6 @@ import { renderMarkdown } from './miniMarkdown';
 export interface ViewerOptions {
   sessionId: string;
   timezone?: string;
-  /** Rounds (prompt → next prompt) shown expanded on open; older ones collapse. */
-  recentRounds?: number;
 }
 
 function esc(s: string): string {
@@ -108,7 +106,6 @@ function renderTurn(t: ConversationTurn, idx: number, timezone?: string, interme
 }
 
 export function renderConversationViewer(parsed: ParsedConversation, opts: ViewerOptions): string {
-  const recentRounds = opts.recentRounds ?? 10;
 
   // Group turns into rounds: a new round begins at each user prompt (anything
   // before the first prompt forms an initial round). Keep the turn + its global
@@ -135,45 +132,32 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
   const renderRound = (r: { t: ConversationTurn; i: number }[]): string =>
     r.map(({ t, i }) => renderTurn(t, i, opts.timezone, intermediate.has(i))).join('');
 
-  const recentCount = Math.min(recentRounds, rounds.length);
-  const earlier = rounds.slice(0, rounds.length - recentCount);
-  const recent = rounds.slice(rounds.length - recentCount);
-  const earlierHtml = earlier.length
-    ? `<details class="earlier"><summary>▾ Show earlier conversation (${earlier.length} round${earlier.length === 1 ? '' : 's'})</summary>${earlier.map(renderRound).join('\n')}</details>`
-    : '';
-  const recentHtml = recent.map(renderRound).join('\n');
+  // Render every loaded round flat (the parser already capped how many rounds
+  // are loaded). No "show earlier" collapse — it was confusing: the nav didn't
+  // reflect it, so you couldn't tell whether the earlier prompts were shown.
+  const allRoundsHtml = rounds.map(renderRound).join('\n');
 
-  // Top nav: your prompts, expandable to full text, each with a jump link.
-  // Capped to the last `recentRounds` (default 10) so the list is a consistent
-  // length and every jump target is inside the expanded recent rounds (jumping
-  // into a collapsed <details> doesn't scroll reliably). Numbering stays global
-  // so "latest" is unambiguous; a note flags any older prompts not listed.
+  // Top nav: every prompt in the loaded conversation, expandable to full text,
+  // each with a jump link. Because all loaded rounds are rendered, every jump
+  // target exists and scrolls. The header notes if older rounds weren't loaded.
   const allPrompts = parsed.turns
     .map((t, i) => (t.kind === 'prompt' ? { i, text: t.text } : null))
     .filter((x): x is { i: number; text: string } => x != null);
-  const navStart = Math.max(0, allPrompts.length - recentRounds);
-  const hiddenEarlier = navStart;
-  const promptNav =
-    (hiddenEarlier > 0
-      ? `<div class="navmore">+ ${hiddenEarlier} earlier prompt${hiddenEarlier === 1 ? '' : 's'} above — open “Show earlier conversation”</div>`
-      : '') +
-    allPrompts
-      .slice(navStart)
-      .map((p) => {
-        const n = allPrompts.indexOf(p); // global prompt number
-        const oneLine = p.text.replace(/\s+/g, ' ');
-        const short = oneLine.slice(0, 80);
-        const needsExpand = oneLine.length > 80;
-        const latest = n === allPrompts.length - 1 ? '<span class="latest">latest</span>' : '';
-        return (
-          `<details class="navitem">` +
-          `<summary><span class="navtext"><b>${n + 1}.</b> ${esc(short)}${needsExpand ? '…' : ''}</span>${latest}` +
-          `<a class="jump" href="#p${p.i}">jump ↓</a></summary>` +
-          (needsExpand ? `<div class="navfull">${esc(p.text)}</div>` : '') +
-          `</details>`
-        );
-      })
-      .join('');
+  const promptNav = allPrompts
+    .map((p, n) => {
+      const oneLine = p.text.replace(/\s+/g, ' ');
+      const short = oneLine.slice(0, 80);
+      const needsExpand = oneLine.length > 80;
+      const latest = n === allPrompts.length - 1 ? '<span class="latest">latest</span>' : '';
+      return (
+        `<details class="navitem">` +
+        `<summary><span class="navtext"><b>${n + 1}.</b> ${esc(short)}${needsExpand ? '…' : ''}</span>${latest}` +
+        `<a class="jump" href="#p${p.i}">jump ↓</a></summary>` +
+        (needsExpand ? `<div class="navfull">${esc(p.text)}</div>` : '') +
+        `</details>`
+      );
+    })
+    .join('');
 
   const range =
     fmtTime(parsed.firstTs, opts.timezone) +
@@ -347,8 +331,7 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
   </header>
   ${promptNav ? `<nav><div class="navhead">Your prompts — expand or jump</div>${promptNav}</nav>` : ''}
   <main>
-    ${earlierHtml}
-    ${recentHtml || '<p class="meta">No readable turns in this session log.</p>'}
+    ${allRoundsHtml || '<p class="meta">No readable turns in this session log.</p>'}
   </main>
 </div>
 </body>
