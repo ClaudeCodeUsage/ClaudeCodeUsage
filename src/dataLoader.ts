@@ -1817,6 +1817,55 @@ export class ClaudeDataLoader {
     return { grossUsd, count, topModel, topUsd, switchCostPer };
   }
 
+  /** "Big one-shot turns" (session-health / checkpoint signal): how much of your
+   * output came from a few very large single responses. A turn that emits
+   * `jumboOut`+ output tokens (default 4000) is a big one-shot generation with no
+   * human checkpoint in the middle — harder and costlier to review, and a wrong
+   * direction is caught late. This surfaces the habit so the user can decide to
+   * checkpoint more. Not a verdict — a big generation is sometimes exactly right.
+   * Returns null when there isn't enough signal to bother. */
+  static sessionHealth(
+    records: ClaudeUsageRecord[],
+    windowDays = 30,
+    jumboOut = 4000
+  ): { jumboSharePct: number; jumboCount: number; jumboTokens: number; biggestOut: number; totalOutput: number } | null {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    let totalOutput = 0;
+    let jumboTokens = 0;
+    let jumboCount = 0;
+    let biggestOut = 0;
+    for (const r of records) {
+      const u = r.message.usage;
+      const m = r.message.model;
+      if (!u || !m || m === '<synthetic>' || r.isApiErrorMessage) {
+        continue;
+      }
+      if (new Date(r.timestamp).getTime() < cutoff) {
+        continue;
+      }
+      const out = u.output_tokens || 0;
+      if (out <= 0) {
+        continue;
+      }
+      totalOutput += out;
+      if (out > biggestOut) {
+        biggestOut = out;
+      }
+      if (out >= jumboOut) {
+        jumboTokens += out;
+        jumboCount++;
+      }
+    }
+    if (totalOutput <= 0 || jumboCount < 5) {
+      return null;
+    }
+    const jumboSharePct = (jumboTokens / totalOutput) * 100;
+    if (jumboSharePct < 15) {
+      return null; // not concentrated enough to be worth a nudge
+    }
+    return { jumboSharePct, jumboCount, jumboTokens, biggestOut, totalOutput };
+  }
+
   /** Nominal vendor of a model id (the logs don't record the serving endpoint). */
   private static providerOf(model: string): string {
     const s = model.toLowerCase();

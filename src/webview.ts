@@ -57,6 +57,7 @@ export class UsageWebviewProvider {
     churn: ReturnType<typeof ClaudeDataLoader.estimateCacheChurnCost>;
     byModel: ReturnType<typeof ClaudeDataLoader.cacheStatsByModel>;
     rightsizing: ReturnType<typeof ClaudeDataLoader.modelRightsizing>;
+    health: ReturnType<typeof ClaudeDataLoader.sessionHealth>;
   };
   // Last generated share card + its config, kept so an auto-refresh re-render
   // doesn't wipe the user's picks or preview (share card / heatmap / optimizer
@@ -2696,6 +2697,7 @@ export class UsageWebviewProvider {
         churn: ClaudeDataLoader.estimateCacheChurnCost(this.allRecords, 30),
         byModel: ClaudeDataLoader.cacheStatsByModel(this.allRecords, 30),
         rightsizing: ClaudeDataLoader.modelRightsizing(this.allRecords, 30),
+        health: ClaudeDataLoader.sessionHealth(this.allRecords, 30),
       };
     }
     return this.analysisCache;
@@ -2777,6 +2779,22 @@ export class UsageWebviewProvider {
     // dataLoader as dormant scaffolding for that v2. (analysis.rightsizing is
     // still computed weekly but intentionally not shown.)
     void analysis.rightsizing;
+
+    // Session health: big one-shot turns → a nudge toward more checkpoints.
+    const health = analysis.health;
+    if (health) {
+      const bigK = Math.round(health.biggestOut / 1000);
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Big one-shot turns</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-hero">' + Math.round(health.jumboSharePct) + '%</div>' +
+          '<div class="insight-sub">of your output came from ' + health.jumboCount + ' single turns over 4k tokens each (largest ≈ ' + bigK + 'k)</div>' +
+          '<div class="insight-tip">💡 Big one-shot generations are costlier and slower to review, and a wrong direction is caught late. More, smaller checkpoints keep review cheap and catch mistakes early — reserve the big one-shots for when you genuinely can\'t monitor the run.</div>' +
+          '<div class="insight-note">A large single turn is sometimes exactly right (a whole file, a long doc); this is a habit signal, not a verdict.</div>' +
+          '</div>'
+      );
+    }
 
     if (cards.length === 0) {
       return '';
