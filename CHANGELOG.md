@@ -11,17 +11,6 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   window via a "4.6+" pattern (e.g. `sonnet-4-6`), so `claude-sonnet-5` — which
   has no `-4-` segment — fell through to the 200K legacy default. The dashboard
   and status-bar context bar now correctly show a 1M window for Sonnet 5.
-- **Timezone setting now drives cost bucketing** — the `timezone` setting only
-  affected date *formatting* before; the Today / This Month / daily / hourly
-  aggregations bucketed by machine-local midnight (Today) or UTC (the charts),
-  so the two disagreed and neither matched the Anthropic console. Every bucket
-  now derives its day, month, and hour boundary from the configured IANA zone
-  (empty = system zone), and a zone change forces an immediate recompute.
-- **Cache-write cost splits 1-hour vs 5-minute TTLs** — cache-creation tokens
-  were all priced at the 5-minute write rate (1.25× base input). When a log
-  record carries the TTL split (`usage.cache_creation.ephemeral_1h/5m`), the
-  1-hour portion is now billed at its true 2× base-input rate; records without
-  the split still use the 5-minute rate, so older logs are unaffected.
 
 ## [2.1.1] — Unreleased
 

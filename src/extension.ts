@@ -74,10 +74,6 @@ export class ClaudeCodeUsageExtension {
   // flaky network and the very first /usage fetch fails, try once more shortly
   // after so the indicator appears without waiting for the next regular tick.
   private quotaColdRetryDone: boolean = false;
-  // Last timezone applied to the aggregation. A zone change re-buckets Today /
-  // Week / Month but does not touch file mtimes, so refreshData's mtime guard
-  // would otherwise skip the recompute — we force one when this changes.
-  private appliedTimezone: string | undefined;
 
   constructor(private context: vscode.ExtensionContext) {
     console.log('Claude Code Usage Extension: Constructor called');
@@ -367,9 +363,6 @@ export class ClaudeCodeUsageExtension {
     I18n.setDecimalPlaces(config.decimalPlaces);
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
-    // Aggregation buckets by the same zone as the display (see ClaudeDataLoader.setTimezone).
-    ClaudeDataLoader.setTimezone(config.timezone);
-    this.appliedTimezone = config.timezone;
     this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar);
 
     // Listen for configuration changes
@@ -457,13 +450,6 @@ export class ClaudeCodeUsageExtension {
     I18n.setDecimalPlaces(config.decimalPlaces);
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
-    ClaudeDataLoader.setTimezone(config.timezone);
-    // A zone change re-buckets Today / Week / Month but leaves file mtimes
-    // untouched, so force a full recompute (the mtime guard would skip it).
-    if (config.timezone !== this.appliedTimezone) {
-      this.appliedTimezone = config.timezone;
-      this.cache.lastUpdate = new Date(0);
-    }
     this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showOpusWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar);
 
     // Restart auto-refresh with new interval

@@ -83,7 +83,7 @@ AI 建议生成的是一份 **Markdown 文档**，用文字展示比截图更直
 - **堆叠 token 构成图**，含 Y 轴和参考线。
 - **AI 建议命令**（默认 DeepSeek V4 Pro，`reasoning_effort=max`），未配置 key 时提供 demo 演示。
 - **多厂商定价**：Opus 4.x、Sonnet 4.x、Haiku 4.5 对照 Anthropic 官方定价；OpenAI、Gemini、DeepSeek、Kimi、GLM、Qwen 等代理场景的参考价，含家族感知回退。`Refresh Token Pricing` 可拉取 LiteLLM 即时价格。
-- **自定义时区** 用于日期显示与「今日/本月/每日」统计的日界（`claudeCodeUsage.timezone`）。
+- **自定义时区** 用于日期显示（`claudeCodeUsage.timezone`）。
 - **浅色主题标签可读性** 修复。
 - 全程 **locale 感知的数字与日期**（德语用 `.`，英语用 `,`）。
 - **实时状态栏**：基于 `fs.watch`（1.5s 防抖）+ 空闲跳过 + 非阻塞加载（每 25 个文件让出事件循环）。
