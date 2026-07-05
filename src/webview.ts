@@ -2843,22 +2843,24 @@ export class UsageWebviewProvider {
       );
     }
 
-    // Skill ROI: cost you spend per skill/plugin and the output it returns.
-    const roi = analysis.skillRoi;
-    if (roi && roi.length >= 2) {
-      const maxCost = Math.max(...roi.map((s) => s.costUsd), 0.01);
+    // Skill ROI: output returned per $ spent, per skill/plugin. Bar AND the
+    // right-hand number are the SAME metric (out tokens per $) so they line up;
+    // cost + turns ride along as secondary. Sorted by ROI so the bars rank.
+    const roi = (analysis.skillRoi || []).slice().sort((a, b) => b.outPerUsd - a.outPerUsd);
+    if (roi.length >= 2) {
+      const maxRoi = Math.max(...roi.map((s) => s.outPerUsd), 1);
       const rows = roi
         .map((s) => {
           const short = s.name.includes(':') ? s.name.slice(s.name.indexOf(':') + 1) : s.name;
-          const perK = I18n.formatNumber(Math.round(s.outPerUsd)); // output tokens per $
-          const w = Math.max(4, Math.round((s.costUsd / maxCost) * 100));
+          const roiLabel = I18n.formatNumber(Math.round(s.outPerUsd)); // output tokens per $
+          const w = Math.max(4, Math.round((s.outPerUsd / maxRoi) * 100));
           return (
-            '<div class="cbm-row" title="' + this.escapeHtml(s.name + ' · ' + s.kind + ' · ' + s.turns + ' turns · ' + I18n.formatNumber(s.outputTokens) + ' output tokens') + '">' +
+            '<div class="cbm-row" title="' + this.escapeHtml(s.name + ' · ' + s.kind + ' · ' + roiLabel + ' output tokens per $ · ' + money(s.costUsd) + ' · ' + s.turns + ' turns') + '">' +
             '<div class="cbm-label">' + this.escapeHtml(short) +
             '<span class="cbm-provider">' + s.kind + '</span></div>' +
             '<div class="cbm-mid"><div class="cbm-track"><div class="cbm-fill" style="width:' + w + '%"></div></div>' +
-            '<div class="cbm-sub">' + this.escapeHtml(perK + ' out tok/$ · ' + s.turns + ' turns') + '</div></div>' +
-            '<div class="cbm-pct">' + money(s.costUsd) + '</div>' +
+            '<div class="cbm-sub">' + this.escapeHtml(money(s.costUsd) + ' · ' + s.turns + ' turns') + '</div></div>' +
+            '<div class="cbm-pct" title="output tokens per $">' + roiLabel + '<span class="cbm-unit">/$</span></div>' +
             '</div>'
           );
         })
@@ -2867,9 +2869,9 @@ export class UsageWebviewProvider {
         '<div class="insight-card">' +
           '<div class="insight-head"><span class="insight-title">Skill ROI</span>' +
           '<span class="insight-tag">last 30 days</span></div>' +
-          '<div class="insight-sub">cost spent while each skill / plugin was active, and the output it returned per $ (bar &amp; number = cost)</div>' +
+          '<div class="insight-sub">output tokens returned per $ spent while each skill / plugin was active (bar &amp; number = out tokens per $; cost + turns below)</div>' +
           '<div class="cbm-list">' + rows + '</div>' +
-          '<div class="insight-tip">💡 A low “out tok/$” skill is burning context for little output — worth invoking deliberately, or trimming what it loads. A high one is a lean win you can lean on.</div>' +
+          '<div class="insight-tip">💡 A low out-tokens/$ skill is burning context for little output — worth invoking deliberately, or trimming what it loads. A high one is a lean win you can lean on.</div>' +
           '<div class="insight-note">Only turns Claude Code tagged with a skill/plugin (≥2.1) are counted; cost is attributed to the active skill and output isn\'t "value", so treat it as a proxy.</div>' +
           '</div>'
       );
@@ -4506,7 +4508,8 @@ export class UsageWebviewProvider {
       }
       .cbm-fill { height: 100%; background: var(--vscode-charts-orange, var(--vscode-badge-background)); }
       .cbm-sub { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 3px; }
-      .cbm-pct { flex: 0 0 64px; text-align: right; font-size: 12px; font-weight: 700; color: var(--vscode-foreground); }
+      .cbm-pct { flex: 0 0 72px; text-align: right; font-size: 12px; font-weight: 700; color: var(--vscode-foreground); }
+      .cbm-unit { font-size: 10px; font-weight: 400; color: var(--vscode-descriptionForeground); margin-left: 1px; }
       .costly-prompt {
         font-size: 12px;
         line-height: 1.4;
