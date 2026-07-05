@@ -59,6 +59,7 @@ export class UsageWebviewProvider {
     rightsizing: ReturnType<typeof ClaudeDataLoader.modelRightsizing>;
     health: ReturnType<typeof ClaudeDataLoader.sessionHealth>;
     hours: ReturnType<typeof ClaudeDataLoader.activeHours>;
+    skillRoi: ReturnType<typeof ClaudeDataLoader.skillRoi>;
   };
   // One reusable conversation-viewer panel: each "view" click re-reads the file
   // and refreshes this panel rather than piling up new tabs.
@@ -2713,6 +2714,7 @@ export class UsageWebviewProvider {
         rightsizing: ClaudeDataLoader.modelRightsizing(this.allRecords, 30),
         health: ClaudeDataLoader.sessionHealth(this.allRecords, 30),
         hours: ClaudeDataLoader.activeHours(this.allRecords, 30, I18n.getTimezone()),
+        skillRoi: ClaudeDataLoader.skillRoi(this.allRecords, 30),
       };
     }
     return this.analysisCache;
@@ -2837,6 +2839,38 @@ export class UsageWebviewProvider {
           '<div class="insight-sub">your busiest 4-hour window — ' + Math.round(hrs.peakShare) + '% of your work happens then (bars = tokens per hour of day, your timezone)</div>' +
           '<div class="hr-spark">' + bars + '</div>' +
           '<div class="insight-tip">💡 Protect that window for the heavy work, and try to keep a task inside one warm session there — momentum in your peak hours is where the cache stays hot and review is sharpest.</div>' +
+          '</div>'
+      );
+    }
+
+    // Skill ROI: cost you spend per skill/plugin and the output it returns.
+    const roi = analysis.skillRoi;
+    if (roi && roi.length >= 2) {
+      const maxCost = Math.max(...roi.map((s) => s.costUsd), 0.01);
+      const rows = roi
+        .map((s) => {
+          const short = s.name.includes(':') ? s.name.slice(s.name.indexOf(':') + 1) : s.name;
+          const perK = I18n.formatNumber(Math.round(s.outPerUsd)); // output tokens per $
+          const w = Math.max(4, Math.round((s.costUsd / maxCost) * 100));
+          return (
+            '<div class="cbm-row" title="' + this.escapeHtml(s.name + ' · ' + s.kind + ' · ' + s.turns + ' turns · ' + I18n.formatNumber(s.outputTokens) + ' output tokens') + '">' +
+            '<div class="cbm-label">' + this.escapeHtml(short) +
+            '<span class="cbm-provider">' + s.kind + '</span></div>' +
+            '<div class="cbm-mid"><div class="cbm-track"><div class="cbm-fill" style="width:' + w + '%"></div></div>' +
+            '<div class="cbm-sub">' + this.escapeHtml(perK + ' out tok/$ · ' + s.turns + ' turns') + '</div></div>' +
+            '<div class="cbm-pct">' + money(s.costUsd) + '</div>' +
+            '</div>'
+          );
+        })
+        .join('');
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Skill ROI</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-sub">cost spent while each skill / plugin was active, and the output it returned per $ (bar &amp; number = cost)</div>' +
+          '<div class="cbm-list">' + rows + '</div>' +
+          '<div class="insight-tip">💡 A low “out tok/$” skill is burning context for little output — worth invoking deliberately, or trimming what it loads. A high one is a lean win you can lean on.</div>' +
+          '<div class="insight-note">Only turns Claude Code tagged with a skill/plugin (≥2.1) are counted; cost is attributed to the active skill and output isn\'t "value", so treat it as a proxy.</div>' +
           '</div>'
       );
     }

@@ -1923,6 +1923,60 @@ export class ClaudeDataLoader {
     return { hours, peakStart, peakShare: (peakSum / total) * 100, total };
   }
 
+  /** "Skill ROI": per skill / plugin, the cost you spend while it's active and
+   * the output it produces, over a window. Uses the authoritative attribution
+   * Claude Code ≥2.1 stamps on usage lines (`_skill` / `_plugin`) — not the
+   * heuristic — so it only covers turns where a skill was actually tagged. The
+   * ROI angle is `outPerUsd` (output tokens per $): a lean skill returns lots of
+   * output per dollar; an expensive one burns context for little. Cost is
+   * attributed to the active skill, and output tokens aren't "value", so it's a
+   * proxy, not a verdict. Sorted by cost, top 8. Null when too little is tagged. */
+  static skillRoi(
+    records: ClaudeUsageRecord[],
+    windowDays = 30
+  ): { name: string; kind: 'skill' | 'plugin'; costUsd: number; outputTokens: number; turns: number; outPerUsd: number }[] | null {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    const agg: Record<string, { kind: 'skill' | 'plugin'; costUsd: number; outputTokens: number; turns: number }> = {};
+    let tagged = 0;
+    for (const r of records) {
+      const u = r.message.usage;
+      const m = r.message.model;
+      if (!u || !m || m === '<synthetic>' || r.isApiErrorMessage) {
+        continue;
+      }
+      if (new Date(r.timestamp).getTime() < cutoff) {
+        continue;
+      }
+      const name = r._skill || r._plugin;
+      if (!name) {
+        continue;
+      }
+      const kind: 'skill' | 'plugin' = r._skill ? 'skill' : 'plugin';
+      const cb = calculateCostBreakdown(u, m);
+      const cost = cb.input + cb.output + cb.cacheWrite + cb.cacheRead;
+      const a = agg[name] ?? (agg[name] = { kind, costUsd: 0, outputTokens: 0, turns: 0 });
+      a.costUsd += cost;
+      a.outputTokens += u.output_tokens || 0;
+      a.turns += 1;
+      tagged++;
+    }
+    if (tagged < 10) {
+      return null;
+    }
+    return Object.entries(agg)
+      .filter(([, a]) => a.turns >= 3 && a.costUsd > 0.05)
+      .map(([name, a]) => ({
+        name,
+        kind: a.kind,
+        costUsd: a.costUsd,
+        outputTokens: a.outputTokens,
+        turns: a.turns,
+        outPerUsd: a.outputTokens / a.costUsd,
+      }))
+      .sort((x, y) => y.costUsd - x.costUsd)
+      .slice(0, 8);
+  }
+
   /** Nominal vendor of a model id (the logs don't record the serving endpoint). */
   private static providerOf(model: string): string {
     const s = model.toLowerCase();
