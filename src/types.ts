@@ -7,6 +7,13 @@ export interface ClaudeUsageRecord {
       output_tokens: number;
       cache_creation_input_tokens?: number;
       cache_read_input_tokens?: number;
+      // TTL split of cache_creation_input_tokens, as Claude Code writes it.
+      // Lets cost pricing bill 1-hour writes (2x input) apart from the default
+      // 5-minute writes (1.25x input); absent on older logs / proxies.
+      cache_creation?: {
+        ephemeral_1h_input_tokens?: number;
+        ephemeral_5m_input_tokens?: number;
+      };
     };
     model?: string;
     id?: string;
@@ -320,7 +327,11 @@ export interface ExtensionConfig {
 export interface ModelPricing {
   input_cost_per_token?: number;
   output_cost_per_token?: number;
+  // 5-minute cache write rate (the default Claude Code writes).
   cache_creation_input_token_cost?: number;
+  // 1-hour cache write rate (2x base input for Claude). Optional: when absent,
+  // any 1-hour cache-write tokens fall back to the 5-minute rate above.
+  cache_creation_1h_input_token_cost?: number;
   cache_read_input_token_cost?: number;
 }
 
