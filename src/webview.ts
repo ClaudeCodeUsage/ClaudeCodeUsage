@@ -58,7 +58,11 @@ export class UsageWebviewProvider {
     byModel: ReturnType<typeof ClaudeDataLoader.cacheStatsByModel>;
     rightsizing: ReturnType<typeof ClaudeDataLoader.modelRightsizing>;
     health: ReturnType<typeof ClaudeDataLoader.sessionHealth>;
+    hours: ReturnType<typeof ClaudeDataLoader.activeHours>;
   };
+  // One reusable conversation-viewer panel: each "view" click re-reads the file
+  // and refreshes this panel rather than piling up new tabs.
+  private conversationPanel?: vscode.WebviewPanel;
   // Last generated share card + its config, kept so an auto-refresh re-render
   // doesn't wipe the user's picks or preview (share card / heatmap / optimizer
   // output should survive data refreshes — only usage numbers update).
@@ -1887,8 +1891,9 @@ export class UsageWebviewProvider {
   }
 
   /** Open a read-only viewer for a past conversation. Reads the session's
-   * .jsonl, parses it, and shows it in a new webview panel — nothing is loaded
-   * back into any model context (that's the whole point vs. resume). */
+   * .jsonl fresh, parses it, and (re)uses a single viewer panel — nothing is
+   * loaded back into any model context (that's the whole point vs. resume).
+   * Reads on every click, so an ongoing session shows its latest turns. */
   private async openConversationViewer(sessionId: string, title: string): Promise<void> {
     const files = await ClaudeDataLoader.findSessionFiles(sessionId, this.dataDirectory);
     // Prefer the main session file (basename === sessionId.jsonl); else the
@@ -1912,17 +1917,26 @@ export class UsageWebviewProvider {
     // the last 15 rounds (10 shown expanded + a small "earlier" buffer), with a
     // raw-turn safety ceiling so a pathological round can't bloat the DOM.
     const parsed = parseConversation(text, { maxRounds: 15, maxTurns: 2500, maxCharsPerTurn: 4000 });
-    const panelTitle = parsed.title || title || sessionId;
-    const panel = vscode.window.createWebviewPanel(
-      'ccuConversation',
-      panelTitle.slice(0, 60),
-      { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
-      { enableScripts: false, retainContextWhenHidden: false }
-    );
-    panel.webview.html = renderConversationViewer(parsed, {
-      sessionId,
-      timezone: I18n.getTimezone(),
-    });
+    const panelTitle = (parsed.title || title || sessionId).slice(0, 60);
+    const html = renderConversationViewer(parsed, { sessionId, timezone: I18n.getTimezone() });
+    // Reuse the single viewer panel (refresh it) if it's still open; else make one.
+    if (this.conversationPanel) {
+      this.conversationPanel.title = panelTitle;
+      this.conversationPanel.webview.html = html;
+      this.conversationPanel.reveal(vscode.ViewColumn.Active, false);
+    } else {
+      const panel = vscode.window.createWebviewPanel(
+        'ccuConversation',
+        panelTitle,
+        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+        { enableScripts: false, retainContextWhenHidden: false }
+      );
+      panel.onDidDispose(() => {
+        this.conversationPanel = undefined;
+      });
+      panel.webview.html = html;
+      this.conversationPanel = panel;
+    }
   }
 
   private formatDuration(start: Date, end: Date): string {
@@ -2698,6 +2712,7 @@ export class UsageWebviewProvider {
         byModel: ClaudeDataLoader.cacheStatsByModel(this.allRecords, 30),
         rightsizing: ClaudeDataLoader.modelRightsizing(this.allRecords, 30),
         health: ClaudeDataLoader.sessionHealth(this.allRecords, 30),
+        hours: ClaudeDataLoader.activeHours(this.allRecords, 30, I18n.getTimezone()),
       };
     }
     return this.analysisCache;
@@ -2792,6 +2807,36 @@ export class UsageWebviewProvider {
           '<div class="insight-sub">of your output came from ' + health.jumboCount + ' single turns over 4k tokens each (largest ≈ ' + bigK + 'k)</div>' +
           '<div class="insight-tip">💡 Big one-shot generations are costlier and slower to review, and a wrong direction is caught late. More, smaller checkpoints keep review cheap and catch mistakes early — reserve the big one-shots for when you genuinely can\'t monitor the run.</div>' +
           '<div class="insight-note">A large single turn is sometimes exactly right (a whole file, a long doc); this is a habit signal, not a verdict.</div>' +
+          '</div>'
+      );
+    }
+
+    // Active hours: when in the day you actually drive work (24h sparkline).
+    const hrs = analysis.hours;
+    if (hrs) {
+      const max = Math.max(...hrs.hours, 1);
+      const pk = hrs.peakStart;
+      const hh = (h: number): string => String(((h % 24) + 24) % 24).padStart(2, '0') + ':00';
+      const bars = hrs.hours
+        .map((v, h) => {
+          const inPeak = (((h - pk) % 24) + 24) % 24 < 4;
+          const height = Math.max(2, Math.round((v / max) * 100));
+          return (
+            '<div class="hr-col" title="' + hh(h) + ' · ' + I18n.formatNumber(v) + ' tokens">' +
+            '<div class="hr-bar' + (inPeak ? ' pk' : '') + '" style="height:' + height + '%"></div>' +
+            (h % 6 === 0 ? '<div class="hr-lab">' + String(h).padStart(2, '0') + '</div>' : '<div class="hr-lab"></div>') +
+            '</div>'
+          );
+        })
+        .join('');
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Your active hours</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-hero">' + hh(pk) + '–' + hh(pk + 4) + '</div>' +
+          '<div class="insight-sub">your busiest 4-hour window — ' + Math.round(hrs.peakShare) + '% of your work happens then (bars = tokens per hour of day, your timezone)</div>' +
+          '<div class="hr-spark">' + bars + '</div>' +
+          '<div class="insight-tip">💡 Protect that window for the heavy work, and try to keep a task inside one warm session there — momentum in your peak hours is where the cache stays hot and review is sharpest.</div>' +
           '</div>'
       );
     }
@@ -4401,6 +4446,11 @@ export class UsageWebviewProvider {
         padding-top: 8px;
         border-top: 1px solid var(--vscode-panel-border);
       }
+      .hr-spark { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin: 10px 0 2px; }
+      .hr-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: stretch; height: 100%; justify-content: flex-end; }
+      .hr-bar { width: 100%; border-radius: 2px 2px 0 0; background: var(--vscode-panel-border); min-height: 2px; }
+      .hr-bar.pk { background: var(--vscode-charts-orange, var(--vscode-badge-background)); }
+      .hr-lab { font-size: 8px; line-height: 10px; text-align: center; color: var(--vscode-descriptionForeground); height: 10px; }
       .cbm-list { margin: 6px 0 4px; }
       .cbm-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
       .cbm-label {

@@ -1866,6 +1866,63 @@ export class ClaudeDataLoader {
     return { jumboSharePct, jumboCount, jumboTokens, biggestOut, totalOutput };
   }
 
+  /** Activity by hour-of-day over a window, in the given timezone. Weight is the
+   * non-cache work of each turn (input + output tokens), so it reflects when you
+   * actually drive work, not idle cache reads. Returns the 24-hour profile plus
+   * the busiest contiguous 4-hour window (wraps past midnight) and its share, so
+   * the card can say "you do X% of your work between 21:00–01:00". Null when
+   * there's too little to bother. */
+  static activeHours(
+    records: ClaudeUsageRecord[],
+    windowDays = 30,
+    timeZone?: string
+  ): { hours: number[]; peakStart: number; peakShare: number; total: number } | null {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    const hours = new Array(24).fill(0);
+    let total = 0;
+    const fmt = timeZone
+      ? new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone })
+      : null;
+    for (const r of records) {
+      const u = r.message.usage;
+      const m = r.message.model;
+      if (!u || !m || m === '<synthetic>' || r.isApiErrorMessage) {
+        continue;
+      }
+      const d = new Date(r.timestamp);
+      if (isNaN(d.getTime()) || d.getTime() < cutoff) {
+        continue;
+      }
+      let h: number;
+      if (fmt) {
+        const part = fmt.formatToParts(d).find((p) => p.type === 'hour');
+        h = (part ? parseInt(part.value, 10) : d.getHours()) % 24;
+      } else {
+        h = d.getHours();
+      }
+      const w = (u.output_tokens || 0) + (u.input_tokens || 0);
+      hours[h] += w;
+      total += w;
+    }
+    if (total <= 0) {
+      return null;
+    }
+    // Busiest contiguous 4-hour window (wrapping around midnight).
+    let peakStart = 0;
+    let peakSum = -1;
+    for (let s = 0; s < 24; s++) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) {
+        sum += hours[(s + k) % 24];
+      }
+      if (sum > peakSum) {
+        peakSum = sum;
+        peakStart = s;
+      }
+    }
+    return { hours, peakStart, peakShare: (peakSum / total) * 100, total };
+  }
+
   /** Nominal vendor of a model id (the logs don't record the serving endpoint). */
   private static providerOf(model: string): string {
     const s = model.toLowerCase();
