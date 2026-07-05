@@ -56,6 +56,7 @@ export class UsageWebviewProvider {
     ttl: ReturnType<typeof ClaudeDataLoader.estimateCacheTtl>;
     churn: ReturnType<typeof ClaudeDataLoader.estimateCacheChurnCost>;
     byModel: ReturnType<typeof ClaudeDataLoader.cacheStatsByModel>;
+    rightsizing: ReturnType<typeof ClaudeDataLoader.modelRightsizing>;
   };
   // Last generated share card + its config, kept so an auto-refresh re-render
   // doesn't wipe the user's picks or preview (share card / heatmap / optimizer
@@ -1693,11 +1694,11 @@ export class UsageWebviewProvider {
     let currentCount = 0;
 
     // The delete action touches local Claude Code history files, so it's
-    // opt-in (enableSessionDelete, off by default) — see settings.
-    const showDelete = this.setting<boolean>('enableSessionDelete', false);
-    // Read-only conversation viewer — opt-in (off by default); re-read a past
-    // session without loading it back into the model context.
-    const showViewer = this.setting<boolean>('showConversationViewer', false);
+    // Resume + delete both ACT on the user's Claude Code (reopen / trash a log),
+    // so they share one opt-in that's off by default — at odds with read-only.
+    const showActions = this.setting<boolean>('enableSessionActions', false);
+    // Read-only conversation viewer — on by default (it only reads local logs).
+    const showViewer = this.setting<boolean>('showConversationViewer', true);
     // Active (hands-on) time per session — idle-capped, so it's not the raw
     // first→last span. Computed once for the whole table.
     const activeMap = ClaudeDataLoader.activeDurationBySession(this.allRecords);
@@ -1766,10 +1767,10 @@ export class UsageWebviewProvider {
         this.escapeHtml(thinkingCell) +
         '</td>' +
         '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>' +
-        '<td class="number-cell">' + this.escapeHtml(this.formatDuration(s.startTime, s.endTime)) + '</td>' +
         '<td class="number-cell" title="' + this.escapeHtml(t.activeDurationHelp) + '">' +
         this.escapeHtml(this.formatDurationMs(activeMap[s.sessionId] || 0)) +
         '</td>' +
+        '<td class="number-cell">' + this.escapeHtml(this.formatDuration(s.startTime, s.endTime)) + '</td>' +
         // Copy id / resume / delete actions; id re-validated host-side.
         '<td class="actions-cell">' +
         '<button class="session-action" title="' + this.escapeHtml(t.copySessionId) +
@@ -1779,10 +1780,12 @@ export class UsageWebviewProvider {
             '" data-session-id="' + this.escapeHtml(s.sessionId) +
             '" data-title="' + this.escapeHtml(fullName) + '" onclick="viewConversation(this)">👁</button>'
           : '') +
-        '<button class="session-action" title="' + this.escapeHtml(t.resumeSession) +
-        '" data-session-id="' + this.escapeHtml(s.sessionId) +
-        '" data-cwd="' + this.escapeHtml(s.projectPath || '') + '" onclick="resumeSession(this)">▶</button>' +
-        (showDelete
+        (showActions
+          ? '<button class="session-action" title="' + this.escapeHtml(t.resumeSession) +
+            '" data-session-id="' + this.escapeHtml(s.sessionId) +
+            '" data-cwd="' + this.escapeHtml(s.projectPath || '') + '" onclick="resumeSession(this)">▶</button>'
+          : '') +
+        (showActions
           ? '<button class="session-action session-delete" title="' + this.escapeHtml(t.deleteSession) +
             '" data-session-id="' + this.escapeHtml(s.sessionId) +
             '" data-title="' + this.escapeHtml(fullName) + '" onclick="deleteSession(this)">🗑</button>'
@@ -1827,8 +1830,8 @@ export class UsageWebviewProvider {
       th('context', t.peakContext) +
       th('thinking', t.thinkingShare) +
       th('messages', t.messages) +
+      '<th class="sortable" data-sortkey="active" title="' + this.escapeHtml(t.activeDurationHelp) + '">' + t.activeDuration + '</th>' +
       th('duration', t.duration) +
-      th('active', t.activeDuration) +
       '<th>' + t.sessionActions + '</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
@@ -2688,6 +2691,7 @@ export class UsageWebviewProvider {
         ttl: ClaudeDataLoader.estimateCacheTtl(this.allRecords),
         churn: ClaudeDataLoader.estimateCacheChurnCost(this.allRecords, 30),
         byModel: ClaudeDataLoader.cacheStatsByModel(this.allRecords, 30),
+        rightsizing: ClaudeDataLoader.modelRightsizing(this.allRecords, 30),
       };
     }
     return this.analysisCache;
@@ -2699,11 +2703,11 @@ export class UsageWebviewProvider {
     }
     const cards: string[] = [];
     const analysis = this.getAnalysis();
+    const money = (n: number): string => I18n.formatCurrency(n);
 
     // Cache-churn bill (缓存损耗账单).
     const churn = analysis.churn;
     if (churn && churn.wastedUsd >= 0.5) {
-      const money = (n: number): string => I18n.formatCurrency(n);
       cards.push(
         '<div class="insight-card">' +
           '<div class="insight-head"><span class="insight-title">Cache-churn bill</span>' +
@@ -2755,6 +2759,26 @@ export class UsageWebviewProvider {
           '<div class="cbm-list">' + rows + '</div>' +
           '<div class="insight-tip">💡 A shorter warm window means that model re-writes cache sooner after an idle gap — keep momentum tighter on it, or lean on the longer-lived model for stop-start work.</div>' +
           '<div class="insight-note">Warm window is inferred from idle-gap hit rates; “—” means too few gaps to estimate yet. The serving provider isn\'t logged, so provider is nominal.</div>' +
+          '</div>'
+      );
+    }
+
+    // Model right-sizing (C5): premium model spent on lightweight (small-output)
+    // turns — the "Opus for a translation" pattern.
+    const rs = analysis.rightsizing;
+    if (rs) {
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Premium models on lightweight turns</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-hero">' + money(rs.grossUsd) + '</div>' +
+          '<div class="insight-sub">the compute premium on ' + rs.count + ' small-output turns run on a top-tier model — about what a cheaper model would have saved</div>' +
+          '<div class="insight-split">' +
+          '<span class="insight-pill">mostly <b>' + this.escapeHtml(this.shortModelName(rs.topModel)) + '</b> · ' + money(rs.topUsd) + '</span>' +
+          '<span class="insight-pill">switch cost ≈ <b>' + money(rs.switchCostPer) + '</b> / flip</span>' +
+          '</div>' +
+          '<div class="insight-tip">💡 Route simple, self-contained tasks — translation, formatting, quick edits — to a cheaper model. BATCH them: a per-turn flip flushes the cache (~the switch cost above), so grouping simple work on the cheap model is what actually nets the saving.</div>' +
+          '<div class="insight-note">"Lightweight" = a small answer (≤800 output tokens) on a premium model; compared against Haiku-4.5 rates on compute only (cache handled by the switch-cost caveat). An estimate, not a directive — some short turns genuinely need the stronger model.</div>' +
           '</div>'
       );
     }

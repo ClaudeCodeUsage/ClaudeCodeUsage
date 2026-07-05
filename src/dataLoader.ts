@@ -1721,12 +1721,14 @@ export class ClaudeDataLoader {
 
   /** Estimated hands-on ("active") time per session, in ms. Sums the gaps
    * between consecutive turns of a session, but caps each gap at `idleCapMin`
-   * (default 5) so a long break doesn't count as work. This is closer to time
-   * actually spent than the first→last wall-clock span (which the Duration
-   * column shows). Keyed by sessionId. */
+   * (default 90) so a long break doesn't count as work. The cap is generous on
+   * purpose: much real work — reading the answer, reviewing a diff, thinking —
+   * never writes to the log, so a small cap badly under-counts. This is closer
+   * to time actually spent than the first→last wall-clock span (which the
+   * Duration column shows). Keyed by sessionId. */
   static activeDurationBySession(
     records: ClaudeUsageRecord[],
-    idleCapMin = 5
+    idleCapMin = 90
   ): Record<string, number> {
     const capMs = idleCapMin * 60000;
     const bySession: Record<string, ClaudeUsageRecord[]> = {};
@@ -1750,6 +1752,69 @@ export class ClaudeDataLoader {
       out[sid] = active;
     }
     return out;
+  }
+
+  /** "Model right-sizing" (C5): the compute premium spent running a PREMIUM model
+   * (output ≥ $20/M — Opus / Fable tier) on LIGHTWEIGHT turns (small output, the
+   * signature of a simple task: a translation, a format, a quick edit / answer).
+   * For each such turn we compare its input+output cost at its own rates vs. a
+   * cheap reference model (Haiku 4.5), and sum the difference — that's roughly
+   * what routing simple tasks to a cheaper model would reclaim. We deliberately
+   * compare COMPUTE cost only (input+output), not cache: cache read is cheap on
+   * both, and rewriting it is the SWITCH cost, which we surface separately
+   * (`switchCostPer`) so the caller can warn that per-turn flip-flopping between
+   * models flushes the cache — you realise the saving by BATCHING simple tasks
+   * on the cheap model, not by switching back and forth. Returns null when
+   * there isn't enough signal. */
+  static modelRightsizing(
+    records: ClaudeUsageRecord[],
+    windowDays = 30
+  ): { grossUsd: number; count: number; topModel: string; topUsd: number; switchCostPer: number } | null {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    const cheap =
+      getModelRatesPerMillion('claude-haiku-4-5') || { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 };
+    let grossUsd = 0;
+    let count = 0;
+    let cacheReadSum = 0;
+    const perModel: Record<string, number> = {};
+    for (const r of records) {
+      const u = r.message.usage;
+      const m = r.message.model;
+      if (!u || !m || m === '<synthetic>' || r.isApiErrorMessage) {
+        continue;
+      }
+      if (new Date(r.timestamp).getTime() < cutoff) {
+        continue;
+      }
+      const rates = getModelRatesPerMillion(m);
+      if (!rates || rates.output < 20) {
+        continue; // only premium (Opus / Fable tier) models
+      }
+      const out = u.output_tokens || 0;
+      if (out < 20 || out > 800) {
+        continue; // lightweight turns only: small output = simple task
+      }
+      const inp = u.input_tokens || 0;
+      const curCost = (inp * rates.input + out * rates.output) / 1_000_000;
+      const cheapCost = (inp * cheap.input + out * cheap.output) / 1_000_000;
+      const saving = curCost - cheapCost;
+      if (saving <= 0) {
+        continue;
+      }
+      grossUsd += saving;
+      perModel[m] = (perModel[m] || 0) + saving;
+      cacheReadSum += u.cache_read_input_tokens || 0;
+      count++;
+    }
+    if (count < 5 || grossUsd < 0.5) {
+      return null;
+    }
+    const [topModel, topUsd] = Object.entries(perModel).sort((a, b) => b[1] - a[1])[0];
+    // Per-switch churn ballpark: rewriting an average cached context on the cheap
+    // model. This is the cost to WEIGH the saving against (don't flip per turn).
+    const avgCache = cacheReadSum / count;
+    const switchCostPer = (avgCache * cheap.cacheWrite) / 1_000_000;
+    return { grossUsd, count, topModel, topUsd, switchCostPer };
   }
 
   /** Nominal vendor of a model id (the logs don't record the serving endpoint). */
