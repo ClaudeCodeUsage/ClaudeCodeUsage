@@ -90,6 +90,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   its day boundary from the configured IANA zone (empty = system), kept in lockstep
   with the display, so the aggregations agree with each other and with the console;
   an invalid zone falls back to the system zone instead of breaking the dashboard.
+- **Cache-write cost by TTL** — when a log carries the cache-creation TTL split, a
+  1-hour cache write is priced at 2× base input (vs the 5-minute 1.25×), matching
+  Anthropic's billing; logs without the split are unchanged. (PR #62, @zeyutang.)
 - **Timezone dropdown = full UTC-offset coverage** — common zones plus every UTC
   offset (grouped Common / UTC offset), each labelled with its current offset;
   IANA identifiers only (no editorialised place names).
