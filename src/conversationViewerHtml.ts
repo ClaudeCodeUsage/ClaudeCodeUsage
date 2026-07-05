@@ -178,9 +178,9 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
   const range =
     fmtTime(parsed.firstTs, opts.timezone) +
     (parsed.lastTs && parsed.lastTs !== parsed.firstTs ? ' – ' + fmtTime(parsed.lastTs, opts.timezone) : '');
-  const shown = parsed.turns.length;
-  const more = parsed.totalTurns > shown ? ` · showing last ${shown} of ${parsed.totalTurns}` : '';
   const roundWord = rounds.length === 1 ? 'round' : 'rounds';
+  // Report in ROUNDS (prompts), which is what the cap now works in.
+  const more = parsed.totalRounds > rounds.length ? ` · showing last ${rounds.length} of ${parsed.totalRounds} ${roundWord}` : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -337,7 +337,7 @@ export function renderConversationViewer(parsed: ParsedConversation, opts: Viewe
 <div class="wrap">
   <header>
     <h1>${esc(parsed.title || 'Conversation')}</h1>
-    <div class="meta">${esc(range)} · ${parsed.promptCount} prompt${parsed.promptCount === 1 ? '' : 's'} · ${rounds.length} ${roundWord} · ${parsed.totalTurns} turns${esc(more)}</div>
+    <div class="meta">${esc(range)} · ${parsed.totalRounds} prompt${parsed.totalRounds === 1 ? '' : 's'} total · ${parsed.totalTurns} turns${esc(more)}</div>
     <div class="controls">
       <span class="badge">📖 Read-only — nothing here is loaded back into the model's context</span>
       <label class="chip" for="ccu-interim" tabindex="0">💬 interim replies</label>

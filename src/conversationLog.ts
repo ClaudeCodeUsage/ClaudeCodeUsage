@@ -31,6 +31,8 @@ export interface ParsedConversation {
   turns: ConversationTurn[];
   /** Total qualifying turns before any `maxTurns` slice. */
   totalTurns: number;
+  /** Total rounds (a round = a user prompt + everything until the next prompt). */
+  totalRounds: number;
   /** Number of prompt turns (what the human typed). */
   promptCount: number;
   /** Conversation title (custom > ai > summary), when the log carries one. */
@@ -41,7 +43,11 @@ export interface ParsedConversation {
 }
 
 export interface ParseOptions {
-  /** Keep only the most recent N turns (for "just show me the last few"). */
+  /** Keep only the most recent N ROUNDS (a round = a prompt + its replies). This
+   * is the right cap for the viewer: capping raw turns starves prompts, because
+   * one prompt can be followed by dozens of tool turns. */
+  maxRounds?: number;
+  /** Safety ceiling on raw turns kept (applied AFTER maxRounds). */
   maxTurns?: number;
   /** Truncate each turn's text to this many chars (default 1200). */
   maxCharsPerTurn?: number;
@@ -235,11 +241,32 @@ export function parseConversation(jsonlText: string, opts: ParseOptions = {}): P
 
   const totalTurns = all.length;
   const promptCount = all.filter((t) => t.kind === 'prompt').length;
-  const turns = opts.maxTurns && all.length > opts.maxTurns ? all.slice(all.length - opts.maxTurns) : all;
+
+  // Round starts: each prompt begins a round; any leading non-prompt turns form
+  // an initial round. Capping by ROUNDS (not raw turns) is what keeps prompts
+  // from being starved when a single prompt is followed by dozens of tool turns.
+  const roundStarts: number[] = [];
+  all.forEach((t, idx) => {
+    if (t.kind === 'prompt') {
+      roundStarts.push(idx);
+    } else if (roundStarts.length === 0) {
+      roundStarts.push(idx);
+    }
+  });
+  const totalRounds = roundStarts.length;
+
+  let turns = all;
+  if (opts.maxRounds && roundStarts.length > opts.maxRounds) {
+    turns = all.slice(roundStarts[roundStarts.length - opts.maxRounds]);
+  }
+  if (opts.maxTurns && turns.length > opts.maxTurns) {
+    turns = turns.slice(turns.length - opts.maxTurns);
+  }
 
   return {
     turns,
     totalTurns,
+    totalRounds,
     promptCount,
     title: customTitle || aiTitle || summary,
     firstTs,

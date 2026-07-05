@@ -87,6 +87,24 @@ test('maxTurns keeps the most recent turns; totalTurns reports the full count', 
   assert.deepEqual(r.turns.map((t) => t.text), ['msg 7', 'msg 8', 'msg 9']);
 });
 
+test('maxRounds keeps the last N rounds, not raw turns (prompts are not starved)', () => {
+  // 4 rounds; each prompt followed by many tool turns — a raw-turn cap would
+  // drop early prompts, a round cap keeps whole rounds.
+  const parts: string[] = [];
+  for (let p = 0; p < 4; p++) {
+    parts.push(line({ type: 'user', uuid: 'p' + p, message: { role: 'user', content: 'prompt ' + p } }));
+    for (let k = 0; k < 5; k++) {
+      parts.push(
+        line({ type: 'assistant', uuid: `a${p}_${k}`, message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Bash', input: { command: 'x' } }] } })
+      );
+    }
+  }
+  const r = parseConversation(parts.join('\n'), { maxRounds: 2 });
+  assert.equal(r.totalRounds, 4);
+  assert.equal(r.turns.filter((t) => t.kind === 'prompt').length, 2); // last 2 prompts kept whole
+  assert.deepEqual(r.turns.filter((t) => t.kind === 'prompt').map((t) => t.text), ['prompt 2', 'prompt 3']);
+});
+
 test('maxCharsPerTurn truncates and flags it', () => {
   const long = 'x'.repeat(2000);
   const r = parseConversation(line({ type: 'user', uuid: 'u', message: { role: 'user', content: long } }), {

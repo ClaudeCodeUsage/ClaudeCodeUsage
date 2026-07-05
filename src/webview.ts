@@ -1906,7 +1906,11 @@ export class UsageWebviewProvider {
       vscode.window.showWarningMessage(I18n.t.popup.deleteSessionNotFound);
       return;
     }
-    const parsed = parseConversation(text, { maxTurns: 500, maxCharsPerTurn: 4000 });
+    // Cap by ROUNDS (prompts), not raw turns — a single prompt can be followed
+    // by dozens of tool turns, so a raw-turn cap starves the prompt list. Keep
+    // the last 15 rounds (10 shown expanded + a small "earlier" buffer), with a
+    // raw-turn safety ceiling so a pathological round can't bloat the DOM.
+    const parsed = parseConversation(text, { maxRounds: 15, maxTurns: 2500, maxCharsPerTurn: 4000 });
     const panelTitle = parsed.title || title || sessionId;
     const panel = vscode.window.createWebviewPanel(
       'ccuConversation',
