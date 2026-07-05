@@ -28,7 +28,7 @@ import { SettingsStore } from './settings';
 // Keep it short and point at the dashboard / ⚙ Settings.
 const WHATS_NEW: Record<string, string> = {
   '2.2':
-    'a shareable usage card (themed), a token heatmap you can publish to your GitHub profile, and efficiency + cache insights (top-10 costliest messages, cache warmth ~how long your cache stays warm). Turn on the opt-in ones in ⚙ Settings.',
+    'a read-only conversation viewer (re-read a past session without spending model context), a themed shareable usage card, a token heatmap you can publish to your GitHub profile, a session "Active time" column, a live-refresh delay control, and an Experimental insights suite — cache-churn bill, cache warmth by model, big one-shot turns, your active hours and skill ROI. Most are opt-in — turn them on in ⚙ Settings (they appear on the Content / Sessions tabs).',
 };
 
 export class ClaudeCodeUsageExtension {

@@ -57,10 +57,39 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   cache stays warm while idle from your own turns (measured **~60 min**, not 5).
 - **Efficiency chips** — cost/message, **tokens/message**, realised cache savings
   on Today / month / all-time; a **Cost/msg** column in the projects table.
-- **`enableSessionDelete`** (default off) — the Sessions "delete" action is now
-  opt-in, since it touches local history files.
+- **Conversation viewer** (opt-in, `showConversationViewer`, **default on** — it's
+  read-only) — a "view" button on the Sessions tab opens a read-only reader for a
+  past conversation: your prompts up front, the model's answers rendered from
+  Markdown (tables included), with thinking and tool traffic behind toggles. Lets
+  you re-read a session to jog your memory *without* loading it back into the
+  model's context (unlike resume). Reads local logs only; refreshes each time you
+  open it; loads the last 10 rounds.
+- **Experimental insights** (opt-in, `showInsights`, default off, Content tab) —
+  heuristic estimates from your local logs, labelled as estimates: a **cache-churn
+  bill** ($ spent re-writing cache after model switches / idle gaps), **cache
+  warmth by model** (how long each model keeps your cache warm), **big one-shot
+  turns** (a checkpoint nudge), **your active hours** (a 24-h token sparkline +
+  peak window), and **skill ROI** (output tokens returned per $ per skill/plugin).
+- **Sessions "Active" column** — estimated hands-on time per session (gaps between
+  turns, each idle gap capped at 1.5 h), which is far more meaningful than the raw
+  first-to-last span for long-lived sessions. Sortable, with an explanatory tooltip.
+- **Live-refresh delay control** (`fileWatchSeconds`: Off / 1 / 2 / 5 / 10 / 20 /
+  30 s, default 2 s) replaces the on/off "live file watching" toggle. This only
+  re-reads your **local** log files — no API call; the `/usage` quota fetch is
+  throttled separately.
+- **Chinese share-card units** — the share card uses 万/亿 (萬/億 in zh-TW) and its
+  text follows the UI language, so an English card is fully English and a Chinese
+  card fully Chinese.
 
 ### Changed
+- **`enableSessionActions`** (default off) gates the Sessions **resume _and_
+  delete** buttons together — both *act* on your Claude Code (reopen / trash a
+  log), at odds with the extension being read-only, so they're opt-in as a pair.
+  (Replaces the earlier `enableSessionDelete`.)
+- **Timezone-aware bucketing** — every Today / day / month / hour total now derives
+  its day boundary from the configured IANA zone (empty = system), kept in lockstep
+  with the display, so the aggregations agree with each other and with the console;
+  an invalid zone falls back to the system zone instead of breaking the dashboard.
 - **Timezone dropdown = full UTC-offset coverage** — common zones plus every UTC
   offset (grouped Common / UTC offset), each labelled with its current offset;
   IANA identifiers only (no editorialised place names).
@@ -109,6 +138,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   auto-compacted, Claude Code injects the "This session is being continued…"
   summary as a *user* message; it's now excluded from the Messages count (you
   never typed it). Verified on real logs.
+- **Cache-write ("input cache miss") bars render again** — in every usage bar
+  chart, selecting the cache-write metric showed only the axis and value labels:
+  the bar's gradient referenced a `--vscode-charts-pink` colour VS Code doesn't
+  define, which made the whole gradient invalid (transparent). Added a fallback.
+
+### Removed
+- Dropped the unused `@types/glob` devDependency (clears a vulnerability
+  advisory). Thanks @zeyutang (#63).
 
 ## [2.1.1] — Unreleased
 
