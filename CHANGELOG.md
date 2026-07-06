@@ -150,6 +150,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - Dropped the unused `@types/glob` devDependency (clears a vulnerability
   advisory). Thanks @zeyutang (#63).
 
+### Fixed
+- **Sonnet 5 context window** — `contextWindowFor()` only recognised the 1M
+  window via a "4.6+" pattern (e.g. `sonnet-4-6`), so `claude-sonnet-5` — which
+  has no `-4-` segment — fell through to the 200K legacy default. The dashboard
+  and status-bar context bar now correctly show a 1M window for Sonnet 5.
+
 ## [2.1.1] — Unreleased
 
 ### Added
