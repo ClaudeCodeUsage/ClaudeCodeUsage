@@ -125,6 +125,7 @@ export class ClaudeCodeUsageExtension {
     this.startAutoRefresh();
     this.refreshData().then(() => this.startFileWatching());
     this.startCredentialsWatching();
+    this.startWindowFocusRefresh();
     this.maybeAnnounceWhatsNew();
     console.log('Claude Code Usage Extension: Initialization complete');
   }
@@ -898,6 +899,26 @@ export class ClaudeCodeUsageExtension {
   /** True when Claude Code has written a log line in the last 60 s. */
   private isActive(): boolean {
     return Date.now() - this.lastActivityAt < 60000;
+  }
+
+  /** Refresh when this window regains focus (#55). Each VS Code window is a
+   * separate extension host; Electron heavily throttles timers AND fs.watch
+   * delivery in unfocused/hidden windows, so a background window's status bar
+   * goes stale (only the window you last worked in keeps up). On focus we force
+   * an immediate refresh and re-arm the timer + watcher so the window catches up
+   * at once instead of after the next (throttled) tick — or never. */
+  private startWindowFocusRefresh(): void {
+    let wasFocused = vscode.window.state.focused;
+    this.context.subscriptions.push(
+      vscode.window.onDidChangeWindowState((state) => {
+        if (state.focused && !wasFocused) {
+          this.startAutoRefresh(); // reset a cadence that may have been throttled
+          this.startFileWatching(); // re-attach the watcher if it was dropped
+          this.refreshData(); // catch up now (updates the status bar immediately)
+        }
+        wasFocused = state.focused;
+      })
+    );
   }
 
   private startAutoRefresh(): void {
