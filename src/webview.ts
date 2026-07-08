@@ -1416,7 +1416,7 @@ export class UsageWebviewProvider {
         ${this.renderCompositionChart(
           [...this.dailyDataForAllTime]
             .sort((a, b) => a.date.localeCompare(b.date))
-            .map((d) => ({ label: this.getShortDate(d.date), data: d.data, key: d.date }))
+            .map((d) => ({ label: this.getShortDate(d.date, true), data: d.data, key: d.date }))
         )}
 
         <div class="daily-table-container">
@@ -1439,7 +1439,7 @@ export class UsageWebviewProvider {
                 .map(
                   ({ date, data }) => `
                 <tr class="daily-row" data-date="${date}">
-                  <td class="date-cell">${this.formatDate(date)}</td>
+                  <td class="date-cell">${this.formatDate(date, true)}</td>
                   <td class="cost-cell">${I18n.formatCurrency(data.totalCost)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalInputTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalOutputTokens)}</td>
@@ -3228,7 +3228,7 @@ export class UsageWebviewProvider {
 
   private renderAllTimeChart(): string {
     const sortedData = [...this.dailyDataForAllTime].sort((a, b) => a.date.localeCompare(b.date));
-    return this.renderMainCostChart(sortedData);
+    return this.renderMainCostChart(sortedData, true);
   }
 
   /**
@@ -3266,7 +3266,7 @@ export class UsageWebviewProvider {
     );
   }
 
-  private renderMainCostChart(sortedData: { date: string; data: UsageData }[]): string {
+  private renderMainCostChart(sortedData: { date: string; data: UsageData }[], monthly = false): string {
     if (sortedData.length === 0) {
       return '<div class="no-chart-data">No data available</div>';
     }
@@ -3293,7 +3293,7 @@ export class UsageWebviewProvider {
           'data-cost-output="' + cb.output + '" ' +
           'data-cost-cachewrite="' + cb.cacheWrite + '" ' +
           'data-cost-cacheread="' + cb.cacheRead + '" ' +
-          'title="' + this.escapeHtml(this.formatDate(date)) + ': ' + I18n.formatCurrency(data.totalCost) + '">' +
+          'title="' + this.escapeHtml(this.formatDate(date, monthly)) + ': ' + I18n.formatCurrency(data.totalCost) + '">' +
           costStack(data, barHeight) +
           '</div>' +
           '</div>'
@@ -3302,7 +3302,7 @@ export class UsageWebviewProvider {
       .join('');
 
     const xlabels = sortedData
-      .map(({ date }) => '<div class="hc-xlabel">' + this.getShortDate(date) + '</div>')
+      .map(({ date }) => '<div class="hc-xlabel">' + this.getShortDate(date, monthly) + '</div>')
       .join('');
 
     return (
@@ -3387,21 +3387,21 @@ export class UsageWebviewProvider {
     );
   }
 
-  private getShortDate(dateString: string): string {
+  private getShortDate(dateString: string, monthly = false): string {
     // Parse 'YYYY-MM-DD' textually — new Date('YYYY-MM-DD') is UTC midnight,
     // which shifts the displayed day back by one in negative-UTC timezones.
     const [y, m, d] = dateString.split('-').map(Number);
-    // Month-only dates (first of month) label as YYYY/MM for monthly charts.
-    if (dateString.endsWith('-01')) {
+    // Month-only dates label as YYYY/MM for monthly charts.
+    if (monthly) {
       return `${y}/${String(m).padStart(2, '0')}`;
     }
     return `${m}/${d}`;
   }
 
-  private formatDate(dateString: string): string {
+  private formatDate(dateString: string, monthly = false): string {
     const date = new Date(dateString);
-    // Check if this is a month-only date (ends with -01)
-    if (dateString.endsWith('-01')) {
+    // Month-only dates: show month/year for monthly aggregate data.
+    if (monthly) {
       return date.toLocaleDateString(I18n.getLocale(), I18n.dateFormatOptions({ year: 'numeric', month: 'long' }));
     }
     // Standard date formatting for daily data, locale + timezone aware.
