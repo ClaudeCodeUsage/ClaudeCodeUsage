@@ -3399,13 +3399,15 @@ export class UsageWebviewProvider {
   }
 
   private formatDate(dateString: string, monthly = false): string {
-    const date = new Date(dateString);
-    // Month-only dates: show month/year for monthly aggregate data.
+    // Parse textually to avoid UTC-midnight timezone shift (new Date('YYYY-MM-DD')
+    // is UTC midnight, which rolls back a day in negative-UTC timezones). The
+    // date keys are already timezone-correct from dayKeyInZone / monthKeyInZone.
+    const [y, m, d] = dateString.split('-').map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
     if (monthly) {
-      return date.toLocaleDateString(I18n.getLocale(), I18n.dateFormatOptions({ year: 'numeric', month: 'long' }));
+      return date.toLocaleDateString(I18n.getLocale(), { year: 'numeric', month: 'long', timeZone: 'UTC' });
     }
-    // Standard date formatting for daily data, locale + timezone aware.
-    return date.toLocaleDateString(I18n.getLocale(), I18n.dateFormatOptions());
+    return date.toLocaleDateString(I18n.getLocale(), { ...I18n.dateFormatOptions(), timeZone: 'UTC' });
   }
 
   private getStyles(): string {
