@@ -4,6 +4,26 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
+## [2.2.1] — 2026-07-13
+
+### Added
+- **Sessions: all sessions + filters** — the Sessions tab defaults to *all*
+  sessions (it was capped at the 50 most-recent) and no longer defaults to the
+  current project; a filter bar adds a **time range** (All / Today / 7d / 30d), the
+  **project** toggle, and a **model** dropdown, each persisted across reloads. (#73)
+
+### Changed
+- **`@ccu-bot` first-pass replies default to English** — bilingual (English + 中文)
+  only when the issue/PR author themselves wrote in Chinese, never Chinese-only;
+  the section headings default to English. (#72)
+
+### Fixed
+- **Monthly Usage table month labels** no longer read one month behind in
+  negative-UTC timezones — the monthly label was built from `new Date('YYYY-MM-01')`
+  (UTC midnight) then formatted in the user's timezone, so a behind-UTC zone showed
+  the previous month; it now parses the key textually and pins it to noon UTC. The
+  daily label had the same latent off-by-one. (#72, #54)
+
 ## [2.2.0] — 2026-07-07
 
 ### Added

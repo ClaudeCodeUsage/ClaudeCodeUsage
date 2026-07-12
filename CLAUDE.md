@@ -65,8 +65,11 @@ npx @vscode/vsce package   # build a .vsix
   compiles, packages, publishes to the VS Code Marketplace + Open VSX, and
   attaches the `.vsix`. So to release: just **Publish the draft Release** — no
   manual `version` bump, no `git tag`.
-- Versioning follows semver and is driven by PR labels: `fix`/none → patch
-  (`2.0.x`); `feature` → minor (`2.x.0`); `breaking` → major.
+- Versioning follows semver, resolved by `release-drafter.yml` from the merged
+  PRs' labels: **everything defaults to patch** (`fix` / `feature` / `enhancement`
+  / `docs` / `ci` / `chore` → patch); only an explicit **`minor`** label bumps the
+  minor (`2.x.0`); `breaking` / `major` bump the major. So a feature ships in a
+  patch release *unless a maintainer deliberately labels the PR `minor`*.
 
 ### Pre-release checklist
 
