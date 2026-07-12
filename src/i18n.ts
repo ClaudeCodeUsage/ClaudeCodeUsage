@@ -144,6 +144,10 @@ export interface Translations {
     resumeInvalid: string;
     sessionFilterCurrent: string;
     sessionFilterAll: string;
+    sessionRangeToday: string;
+    sessionRange7d: string;
+    sessionRange30d: string;
+    sessionModelAll: string;
     deleteSession: string;
     deleteSessionConfirm: string;
     deleteSessionDetail: string;
@@ -349,6 +353,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: 'Invalid session id — cannot resume.',
       sessionFilterCurrent: 'Current project',
       sessionFilterAll: 'All',
+      sessionRangeToday: 'Today',
+      sessionRange7d: '7 days',
+      sessionRange30d: '30 days',
+      sessionModelAll: 'All models',
       deleteSession: 'Delete session',
       deleteSessionConfirm: 'Delete session "{name}"?',
       deleteSessionDetail: 'Its conversation log moves to the trash (recoverable). The extension is otherwise read-only.',
@@ -570,6 +578,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: 'Ungültige Sitzungs-ID — Fortsetzen nicht möglich.',
       sessionFilterCurrent: 'Aktuelles Projekt',
       sessionFilterAll: 'Alle',
+      sessionRangeToday: 'Heute',
+      sessionRange7d: '7 Tage',
+      sessionRange30d: '30 Tage',
+      sessionModelAll: 'Alle Modelle',
       deleteSession: 'Sitzung löschen',
       deleteSessionConfirm: 'Sitzung "{name}" löschen?',
       deleteSessionDetail: 'Das Gesprächsprotokoll wandert in den Papierkorb (wiederherstellbar). Die Erweiterung ist ansonsten schreibgeschützt.',
@@ -790,6 +802,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: '無效的會話 ID,無法恢復。',
       sessionFilterCurrent: '目前專案',
       sessionFilterAll: '全部',
+      sessionRangeToday: '今天',
+      sessionRange7d: '7 天',
+      sessionRange30d: '30 天',
+      sessionModelAll: '全部模型',
       deleteSession: '刪除會話',
       deleteSessionConfirm: '刪除會話「{name}」？',
       deleteSessionDetail: '對話記錄會移至垃圾桶（可復原）。此擴充功能其餘部分為唯讀。',
@@ -1007,6 +1023,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: '无效的会话 ID,无法恢复。',
       sessionFilterCurrent: '当前工程',
       sessionFilterAll: '全部',
+      sessionRangeToday: '今天',
+      sessionRange7d: '7 天',
+      sessionRange30d: '30 天',
+      sessionModelAll: '全部模型',
       deleteSession: '删除会话',
       deleteSessionConfirm: '删除会话「{name}」？',
       deleteSessionDetail: '对话日志将移至回收站（可恢复）。本扩展其余部分为只读。',
@@ -1228,6 +1248,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: '無効なセッションIDのため再開できません。',
       sessionFilterCurrent: '現在のプロジェクト',
       sessionFilterAll: 'すべて',
+      sessionRangeToday: '今日',
+      sessionRange7d: '7日間',
+      sessionRange30d: '30日間',
+      sessionModelAll: 'すべてのモデル',
       deleteSession: 'セッションを削除',
       deleteSessionConfirm: 'セッション「{name}」を削除しますか？',
       deleteSessionDetail: '会話ログはゴミ箱に移動します（復元可能）。この拡張機能は他の部分では読み取り専用です。',
@@ -1450,6 +1474,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: '잘못된 세션 ID입니다 — 재개할 수 없습니다.',
       sessionFilterCurrent: '현재 프로젝트',
       sessionFilterAll: '전체',
+      sessionRangeToday: '오늘',
+      sessionRange7d: '7일',
+      sessionRange30d: '30일',
+      sessionModelAll: '전체 모델',
       deleteSession: '세션 삭제',
       deleteSessionConfirm: '세션 "{name}"을(를) 삭제할까요?',
       deleteSessionDetail: '대화 로그가 휴지통으로 이동합니다(복구 가능). 확장 프로그램은 그 외에는 읽기 전용입니다.',
@@ -1672,6 +1700,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: 'ID de sessão inválido — não é possível retomar.',
       sessionFilterCurrent: 'Projeto atual',
       sessionFilterAll: 'Todos',
+      sessionRangeToday: 'Hoje',
+      sessionRange7d: '7 dias',
+      sessionRange30d: '30 dias',
+      sessionModelAll: 'Todos os modelos',
       deleteSession: 'Excluir sessão',
       deleteSessionConfirm: 'Excluir a sessão "{name}"?',
       deleteSessionDetail: 'O log da conversa vai para a lixeira (recuperável). A extensão é somente leitura no restante.',
