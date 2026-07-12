@@ -4,7 +4,7 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
-## [2.2.0] — Unreleased
+## [2.2.0] — 2026-07-07
 
 ### Added
 - **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
@@ -156,7 +156,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   has no `-4-` segment — fell through to the 200K legacy default. The dashboard
   and status-bar context bar now correctly show a 1M window for Sonnet 5.
 
-## [2.1.1] — Unreleased
+## [2.1.1] — 2026-06-30
 
 ### Added
 - **Monthly cost in the status bar** — the `statusBarMetric` setting gains a

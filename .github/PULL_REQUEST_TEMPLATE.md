@@ -29,7 +29,7 @@ Keep the section headings; fill what applies, delete what doesn't.
 ## Checklist
 
 - [ ] `npm run compile` is clean
-- [ ] User-facing strings go through `I18n` with **all six languages** filled
+- [ ] User-facing strings go through `I18n` with **all seven languages** (en / de-DE / zh-TW / zh-CN / ja / ko / pt-BR) filled
 - [ ] `CHANGELOG.md` updated (user-visible changes)
 - [ ] `README.md` updated if behaviour/settings changed
 - [ ] New settings default to existing behaviour (opt-in)

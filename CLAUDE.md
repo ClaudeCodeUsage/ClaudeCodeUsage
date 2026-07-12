@@ -68,6 +68,31 @@ npx @vscode/vsce package   # build a .vsix
 - Versioning follows semver and is driven by PR labels: `fix`/none → patch
   (`2.0.x`); `feature` → minor (`2.x.0`); `breaking` → major.
 
+### Pre-release checklist
+
+Before a maintainer clicks **Publish** on the draft Release, run through this.
+The steps that keep getting skipped are the CHANGELOG date and the "What's new"
+section — both 2.1.1 and 2.2.0 shipped still marked `— Unreleased`.
+
+1. **CHANGELOG date** — change the top `## [x.y.z] — Unreleased` to
+   `## [x.y.z] — YYYY-MM-DD`, then `grep -n Unreleased CHANGELOG.md` to confirm
+   none remain.
+2. **CHANGELOG completeness** — every PR since the last tag is under
+   Added / Changed / Fixed with `(#NN, @author)`.
+3. **"What's new"** — add a `## What's new in <minor>` section to `README.md`
+   and `README-zh-CN.md` (the two editions that carry it); for a patch, fold
+   notable items into the current minor's list.
+4. **Localisation parity** — new user-facing strings exist in **all seven**
+   languages (en / de-DE / zh-TW / zh-CN / ja / ko / pt-BR); a new UI language is
+   wired through `SupportedLanguage` (types.ts), the `package.json` enum and
+   `settings.ts` `enumValues`, and added to the README language table.
+5. **Settings / commands** — any new setting or command appears in `README.md`'s
+   settings table and `package.json` `contributes`.
+6. **Build & test** — `npm run compile` and `npm test` are clean; package a
+   `.vsix` and smoke-test the changed behaviour locally.
+7. **After Publish** — pull the new tag + commits so local `main` isn't left
+   behind upstream.
+
 ## Conventions
 
 - **Commit hygiene:** one meaningful commit per logical change; avoid a stream
