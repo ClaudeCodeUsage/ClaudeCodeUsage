@@ -7,6 +7,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.2.0] — Unreleased
 
 ### Added
+- **Bahasa Indonesia (`id`)** — the extension's 8th UI language: full
+  translation of the dashboard, status bar, settings panel, and the AI-advice
+  demo preview, plus a `README-id.md`. Auto-detected from an `id` system
+  locale, or selectable manually via `language`.
 - **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
   display (`1.2M` / `345.6K`); full integer counts are unaffected.
 - **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)

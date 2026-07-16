@@ -1,6 +1,6 @@
 # Claude Code Usage
 
-🌐 **Language**: [🏠 Main](README.md) | **English** | [繁體中文](README-zh-TW.md) | [简体中文](README-zh-CN.md) | [日本語](README-ja.md) | [한국어](README-ko.md)
+🌐 **Language**: [🏠 Main](README.md) | **English** | [繁體中文](README-zh-TW.md) | [简体中文](README-zh-CN.md) | [日本語](README-ja.md) | [한국어](README-ko.md) | [Bahasa Indonesia](README-id.md)
 
 ---
 
@@ -50,7 +50,7 @@ Also on the [Open VSX Registry](https://open-vsx.org/extension/GrowthJack/claude
 
 Open Settings (`Ctrl+,`) and search for **`Claude Code Usage`**. All settings are optional. The most useful:
 
-- `language` — UI language (`auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR`).
+- `language` — UI language (`auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR` / `id`).
 - `timezone` — IANA timezone for date display (e.g. `Asia/Hong_Kong`).
 - `usageLimitTracking` — show the real 5h / weekly quota indicator.
 - `showCost` / `showContext` — toggle the cost item and the context-window fill indicator (like `/context`) in the status bar.

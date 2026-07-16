@@ -1,6 +1,6 @@
 # Claude Code 使用量监控
 
-🌐 **语言**: [🏠 Main](README.md) | [English](README-en.md) | [繁體中文](README-zh-TW.md) | **简体中文** | [日本語](README-ja.md) | [한국어](README-ko.md)
+🌐 **语言**: [🏠 Main](README.md) | [English](README-en.md) | [繁體中文](README-zh-TW.md) | **简体中文** | [日本語](README-ja.md) | [한국어](README-ko.md) | [Bahasa Indonesia](README-id.md)
 
 ---
 
@@ -120,7 +120,7 @@ ext install GrowthJack.claude-code-usage
 
 | 设置 | 默认 | 作用 |
 |---|---|---|
-| `language` | `"auto"` | 界面语言：`auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR`。 |
+| `language` | `"auto"` | 界面语言：`auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR` / `id`。 |
 | `dataDirectory` | `""` | 自定义 Claude 数据目录；留空 = 自动检测。 |
 | `advice.apiKey` | `""` | AI 建议 + 用量优化器的 API key（留空则 AI 建议会打开 demo）。 |
 

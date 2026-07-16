@@ -39,8 +39,8 @@ billing tool, not a multi-provider monitor.
 - **`advisor.ts`** + **`adviceDemoSample.ts`** — the opt-in AI advice feature
   and its localised static demo.
 - **`i18n.ts`** — translations for, and selectable UI languages (package.json
-  enum + settings dropdown), all seven: en / de-DE / zh-TW / zh-CN / ja / ko /
-  pt-BR. Keep the three in sync when adding a language: `SupportedLanguage`
+  enum + settings dropdown), all eight: en / de-DE / zh-TW / zh-CN / ja / ko /
+  pt-BR / id. Keep the three in sync when adding a language: `SupportedLanguage`
   (types.ts), the `package.json` enum, and `settings.ts` `enumValues`.
 - **`types.ts`** — shared interfaces.
 
