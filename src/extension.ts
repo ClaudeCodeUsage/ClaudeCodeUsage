@@ -22,6 +22,7 @@ import { buildAdviceSummary } from './adviceSummary';
 import { getDemoBody } from './adviceDemoSample';
 import { ClaudeApiUsageResponse, ContentAnalysis, ExtensionConfig } from './types';
 import { SettingsStore } from './settings';
+import { pollIntervalMs } from './refreshPolicy';
 
 // One-line "what's new" per major.minor, shown once after an upgrade (see
 // maybeAnnounceWhatsNew) so users discover new — including opt-in — features.
@@ -82,9 +83,8 @@ export class ClaudeCodeUsageExtension {
   private pendingRefresh: boolean = false;
   // True when a coalesced refresh was a manual one, so the follow-up forces a full reload.
   private pendingManual: boolean = false;
-  // Epoch ms of the last observed .jsonl change. Drives activity-aware
-  // refresh cadence: while Claude Code is actively writing we refresh faster
-  // (~15 s, quota cache 20 s); when idle we fall back to the user's interval.
+  // Epoch ms of the last observed .jsonl change. It only tunes quota-cache TTL;
+  // local polling always follows the configured refreshInterval.
   private lastActivityAt: number = 0;
   // Generation token for the self-rescheduling refresh timer. Bumped each time
   // startAutoRefresh runs so any older timer chain (e.g. left mid-flight by a
@@ -926,22 +926,12 @@ export class ClaudeCodeUsageExtension {
       clearTimeout(this.refreshTimer);
       this.refreshTimer = undefined;
     }
-    // Self-rescheduling timer with an activity-aware interval: while Claude
-    // Code is actively writing logs we tick every ~15 s (matching the user's
-    // expectation that ultracode / high-consumption runs update promptly);
-    // when idle we use the user's configured interval (min 30 s). fs.watch
-    // already covers near-real-time status-bar cost updates during activity —
-    // this floor guarantees the quota also refreshes during sustained writes
-    // where the debounce never settles.
     const gen = ++this.refreshGen;
     const tick = (): void => {
       if (gen !== this.refreshGen) {
         return; // superseded by a newer startAutoRefresh — stop this chain
       }
-      const base = Math.max(this.getConfiguration().refreshInterval * 1000, 30000);
-      // ~8 s while active: high-consumption models (Fable 5) move the numbers
-      // fast enough that 15 s reads as laggy.
-      const intervalMs = this.isActive() ? Math.min(base, 8000) : base;
+      const intervalMs = pollIntervalMs(this.getConfiguration().refreshInterval);
       this.refreshTimer = setTimeout(() => {
         this.refreshData().finally(() => {
           if (gen === this.refreshGen) {
