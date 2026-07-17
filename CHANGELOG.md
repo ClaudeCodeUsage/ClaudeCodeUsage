@@ -11,6 +11,22 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   policy with a Simplified-Chinese review copy. Claude Code and OpenAI Codex
   are credited as development tools, separately from human contributors.
 
+### Fixed
+- **High-CPU refresh mitigation (#70)** — polling now always honors the
+  configured 30–3600 second `refreshInterval`; file watching is quiet-debounce
+  only and adds 60/120/300-second choices. First-timestamp reads stop after the
+  first valid timestamp and run with at most eight readers.
+
+### Diagnostics
+- **Anonymous refresh timings** — Show Diagnostic Logs now reports trigger,
+  file/change/reuse/removal counts, bytes, parsed lines, watcher/coalescing
+  counts, and manifest/read-parse/aggregate-render/total timings. It never logs
+  prompts, paths, session IDs, credentials, or raw JSONL lines.
+
+> This is a mitigation pending Linux prerelease validation. Issue #70 remains
+> open until the reporter confirms the result; the per-file incremental index
+> is tracked separately.
+
 ### Security
 - Hardened GitHub first-pass automation with truthful per-tier provider attribution,
   one code-owned footer, fail-closed PR diff handling, and bounded base-repository file reads

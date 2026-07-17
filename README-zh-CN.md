@@ -172,8 +172,14 @@ ext install GrowthJack.claude-code-usage
 **`Get AI Usage Advice` 显示 demo 而非真实建议**
 - AI 建议需要 key。若 `claudeCodeUsage.advice.apiKey` 为空，命令会打开一份手写 demo（文件名带 `…-DEMO-…`，顶部有醒目横幅）而不调用任何 API。在设置中填入 key 即可获得真实建议。
 
-**大历史下刷新缓慢**
-- 加载器每 25 个文件让出一次事件循环；空闲 tick 跳过重算。如仍有问题，提高 `refreshInterval` 或将 `enableContentAnalysis` 设为 `false`。
+**大历史下 CPU 占用高或刷新缓慢（包括 Linux）**
+- V2.2.1 移除了 active 状态下隐藏的 8 秒轮询覆盖，并限制首时间戳扫描。
+  在安装 V2.2.1 前，可先把**实时刷新延迟**设为**关闭**，把**刷新间隔**设为
+  **300–900 秒**，并视需要关闭**内容分析**。只关闭“仪表盘自动刷新”并不会
+  停止状态栏所需的日志解析。
+- 若 V2.2.1 仍持续高占用，请运行 **Show Diagnostic Logs**，只把匿名的
+  `refresh:` 行附到 issue #70；其中只有计数和耗时，不含提示词、路径、
+  session ID、凭证或原始日志行。
 
 **历史记录消失或缺少早期月份**
 - Claude Code 会自动删除超过 `cleanupPeriodDays`（默认 **30 天**）的对话日志。已删除的记录无法恢复。要保留更多历史，在 `~/.claude/settings.json` 中添加：

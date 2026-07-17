@@ -299,10 +299,15 @@ authoritative.
   command opens a hand-written demo (filename-marked `…-DEMO-…`, with a prominent
   banner) instead of calling any API. Add a key in Settings to get real advice.
 
-**Sluggish refresh on large histories**
-- 2.0 yields to the event loop every 25 files; idle ticks skip recompute.
-  If you still hit issues, raise `refreshInterval` or set
-  `enableContentAnalysis` to `false`.
+**High CPU or sluggish refresh on a large history (Linux included)**
+- V2.2.1 removes the hidden 8-second active polling override and bounds the
+  first-timestamp scan. Until you install it, set **Live refresh delay** to
+  **Off**, set **Refresh interval** to **300–900 seconds**, and optionally turn
+  **Content analysis** off. Turning Dashboard auto-refresh off by itself does
+  not stop status-bar parsing.
+- If V2.2.1 still runs hot, open **Show Diagnostic Logs** and attach only the
+  anonymous `refresh:` lines to issue #70; they contain counts and timings, not
+  prompts, paths, session IDs, credentials, or raw log lines.
 
 **Usage history disappears or is missing older months**
 - Claude Code automatically deletes conversation logs older than

@@ -70,6 +70,15 @@ ext install GrowthJack.claude-code-usage
 
 **Token 數低於供應商後台** — 部分代理 / 動態工作流會將各 agent 記錄寫入子目錄，可能不完整。實際消費請以供應商帳單為準。原生工作流歸因功能規劃中。
 
+**大量歷史資料下 CPU 佔用高或重新整理緩慢（包括 Linux）**
+- V2.2.1 移除了 active 狀態下隱藏的 8 秒輪詢覆蓋，並限制首時間戳掃描。
+  安裝 V2.2.1 前，可先把**即時重新整理延遲**設為**關閉**，把**重新整理間隔**
+  設為 **300–900 秒**，並視需要關閉**內容分析**。只關閉儀表板自動重新整理
+  並不會停止狀態列所需的日誌解析。
+- 若 V2.2.1 仍持續高佔用，請執行 **Show Diagnostic Logs**，只把匿名的
+  `refresh:` 行附到 issue #70；其中只有計數與耗時，不含提示詞、路徑、
+  session ID、憑證或原始日誌行。
+
 ## 致謝
 
 Fork 自 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)。MIT 授權。社群貢獻致謝見 [CHANGELOG.md](CHANGELOG.md)。許多程式碼改動由 [Claude Code](https://claude.com/claude-code) 協助起草。
