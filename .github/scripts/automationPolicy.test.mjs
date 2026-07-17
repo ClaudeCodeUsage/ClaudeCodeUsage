@@ -62,6 +62,17 @@ test('PR diff is required and public text is not overclaimed as injection safe',
   assert.doesNotMatch(`${pr}\n${issue}`, /prompt-injection safe|injection-safe/i);
 });
 
+test('manual publish retries require a release tag and can target one registry', () => {
+  const workflow = read('.github/workflows/publish.yml');
+  assert.match(workflow, /workflow_dispatch:\s*\n\s+inputs:\s*\n\s+tag:/);
+  assert.match(workflow, /tag:\s*\n(?:\s+[^\n]+\n)*?\s+required: true/);
+  assert.match(workflow, /RELEASE_TAG:.*github\.event\.release\.tag_name.*inputs\.tag/);
+  assert.match(workflow, /uses: actions\/checkout@[a-f0-9]+[\s\S]*?ref: \$\{\{ env\.RELEASE_TAG \}\}/);
+  assert.match(workflow, /if: github\.event_name == 'release' \|\| inputs\.publish_vscode/);
+  assert.match(workflow, /if: github\.event_name == 'release' \|\| inputs\.publish_open_vsx/);
+  assert.doesNotMatch(workflow, /name: Set version from release tag\s*\n\s+if:/);
+});
+
 test('maintainer-only mention workflow retains its privileged Claude boundary', () => {
   const privileged = read('.github/workflows/claude.yml');
   assert.match(privileged, /contents: write/);

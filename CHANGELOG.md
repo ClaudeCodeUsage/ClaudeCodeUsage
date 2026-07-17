@@ -36,6 +36,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - Hardened GitHub first-pass automation with truthful per-tier provider attribution,
   one code-owned footer, fail-closed PR diff handling, and bounded base-repository file reads
   with traversal, symlink, hidden-path, and secret-path denial.
+- Manual publish retries now require an explicit existing release tag, check out
+  that exact tag, and can target only the registry that needs recovery.
 
 ## [2.2.0] — 2026-07-07
 
