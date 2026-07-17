@@ -1,8 +1,9 @@
 # Codex Provider Foundation Design
 
 **Date:** 2026-07-17
-**Status:** Approved direction, implementation starts after v2.2.1
+**Status:** Approved by the maintainer on 2026-07-17; implementation starts after v2.2.1
 **Reference:** [CodexBar](https://github.com/steipete/CodexBar)
+**Chinese review copy:** [简体中文版](2026-07-17-codex-provider-foundation-design.zh-CN.md)
 
 ## Objective
 
