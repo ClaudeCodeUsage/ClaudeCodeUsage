@@ -11,8 +11,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createRepoReadSession,
+  chooseFinalReply,
   formatAutomatedComment,
   isAllowedRepoPath,
+  parseFirstPassResponse,
   resolveGeneratorAttribution,
   validateFirstPassEnvironment,
 } from './first-pass-lib.mjs';
@@ -178,4 +180,25 @@ test('repo reader shares stable-dedup, byte budgets and symlink denial for the r
   assert.ok(requested.files.length <= 2);
   assert.ok(perRun.snapshot().filesRead <= 6);
   assert.ok(perRun.snapshot().totalBytes <= 60_000);
+});
+
+test('empty tagged pro reply preserves the cheap body and attribution', () => {
+  const cheap = resolveGeneratorAttribution('deepseek', 'deepseek-v4-flash', 'anthropic-messages');
+  const pro = resolveGeneratorAttribution('claude', 'claude-sonnet-4-6', 'anthropic-messages');
+  const parsedPro = parseFirstPassResponse('<control>{"answerable":true}</control><reply>   </reply>');
+  assert.equal(parsedPro.reply, '');
+  const selected = chooseFinalReply({ reply: 'cheap body', generator: cheap }, {
+    reply: parsedPro.reply,
+    generator: pro,
+  });
+  assert.equal(selected.reply, 'cheap body');
+  assert.equal(selected.generator.id, 'deepseek');
+});
+
+test('no non-empty tier can never reach the GitHub formatter', () => {
+  const cheap = resolveGeneratorAttribution('deepseek', 'deepseek-v4-flash', 'anthropic-messages');
+  assert.throws(
+    () => chooseFinalReply({ reply: '  ', generator: cheap }),
+    /No non-empty model reply/,
+  );
 });

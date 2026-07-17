@@ -1,15 +1,15 @@
-# Auto first-pass reply on every NEW issue — a CONTROLLED single model call
-# (not an autonomous agent). See .github/scripts/first-pass.mjs: it reads the
-# project docs, asks the model once, and posts one comment. No tools run, so a
-# malicious public issue can't steer it into misusing the token or key.
+# Auto first-pass reply on every NEW issue — a controlled, comment-only model
+# workflow. Public text remains untrusted; the fixed runner has no tools or
+# credentials beyond its model/comment calls, reads only validated base-repo
+# text, and model output can still be wrong.
 #
 # INERT until the owner sets:
 #   AUTOMATION_ENABLED = 'true'   (repo variable, kill switch)
 #   ANTHROPIC_API_KEY             (repo secret — official or third-party key)
 # Optional repo variables: ANTHROPIC_BASE_URL (third-party Anthropic-format
-# endpoint), CCU_BOT_MODEL (cheap tier, default deepseek-v4-flash),
-# CCU_BOT_MODEL_PRO (escalation tier used when the cheap tier can't answer from
-# the docs, default deepseek-v4-pro).
+# endpoint), CCU_BOT_MODEL / CCU_BOT_MODEL_PRO and matching
+# CCU_BOT_GENERATOR / CCU_BOT_GENERATOR_PRO. Generator values are optional for
+# recognized model IDs; explicit values are deepseek or claude.
 name: Issue first-pass (auto)
 
 on:
@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 8
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
 
@@ -47,4 +47,6 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
           CCU_BOT_MODEL: ${{ vars.CCU_BOT_MODEL }}
           CCU_BOT_MODEL_PRO: ${{ vars.CCU_BOT_MODEL_PRO }}
+          CCU_BOT_GENERATOR: ${{ vars.CCU_BOT_GENERATOR }}
+          CCU_BOT_GENERATOR_PRO: ${{ vars.CCU_BOT_GENERATOR_PRO }}
         run: node .github/scripts/first-pass.mjs

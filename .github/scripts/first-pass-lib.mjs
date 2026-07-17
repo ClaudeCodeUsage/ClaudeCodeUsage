@@ -313,3 +313,39 @@ export function validateFirstPassEnvironment(env) {
     diffFile: eventKind === 'pr' ? String(env.DIFF_FILE).trim() : undefined,
   });
 }
+
+function tag(text, name) {
+  const match = String(text || '').match(new RegExp(`<${name}>([\\s\\S]*?)<\\/${name}>`, 'i'));
+  return match ? match[1].trim() : null;
+}
+
+export function parseFirstPassResponse(raw) {
+  const text = String(raw || '');
+  const taggedReply = tag(text, 'reply');
+  const fallback = text.replace(/<control>[\s\S]*?<\/control>/i, '').trim();
+  const reply = (taggedReply !== null ? taggedReply : fallback).trim();
+  let control = { answerable: true, want_files: [] };
+  const taggedControl = tag(text, 'control');
+  if (taggedControl) {
+    try {
+      const value = JSON.parse(taggedControl);
+      control = {
+        answerable: value.answerable !== false,
+        want_files: Array.isArray(value.want_files) ? value.want_files : [],
+      };
+    } catch {
+      // Malformed control never grants additional file reads.
+    }
+  }
+  return { reply, ...control };
+}
+
+export function chooseFinalReply(cheap, pro) {
+  if (pro && typeof pro.reply === 'string' && pro.reply.trim() !== '') {
+    return { reply: pro.reply.trim(), generator: pro.generator };
+  }
+  if (cheap && typeof cheap.reply === 'string' && cheap.reply.trim() !== '') {
+    return { reply: cheap.reply.trim(), generator: cheap.generator };
+  }
+  throw new Error('No non-empty model reply');
+}

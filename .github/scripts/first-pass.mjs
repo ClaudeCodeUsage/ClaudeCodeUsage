@@ -1,118 +1,114 @@
-// Controlled first-pass reply for issues / PRs — still NOT an autonomous agent.
-// It uses no agent tools and never runs anything from the issue/PR, so a
-// malicious public issue cannot steer it into misusing the token or leaking the
-// key (prompt-injection safe). Flow:
-//
-//   Tier 1  cheap model (CCU_BOT_MODEL, default deepseek-v4-flash) answers from
-//           the project docs (+ PR diff). It also returns a <control> signal.
-//   Tier 2  if it says it can't answer from the docs, escalate to a stronger
-//           model (CCU_BOT_MODEL_PRO, default deepseek-v4-pro) with thinking on,
-//           and let it name a few repo source files — WHICH THE SCRIPT reads and
-//           validates (no tool call, no traversal, size-capped). It re-answers.
-//   Tier 3  if it still can't, its reply politely asks for the missing info /
-//           logs and (when fields are missing) suggests the issue template.
-//
-// Then post ONE comment. The model only ever READS repo-relative text files the
-// script hand-picks; it never executes anything.
-//
-// Env in: GH_TOKEN, REPO (owner/name), EVENT_KIND (issue|pr), ITEM_NUMBER,
-// ITEM_TITLE, ITEM_BODY, DIFF_FILE (pr only), ANTHROPIC_API_KEY,
-// ANTHROPIC_BASE_URL (third-party OK), CCU_BOT_MODEL, CCU_BOT_MODEL_PRO.
+// Controlled, comment-only first pass for new issues and external pull requests.
+// Public text remains untrusted: this fixed runner has no agent tools, executes
+// no contributor code, reads only validated base-repository text, and posts at
+// most one comment. Model output can still be wrong and is never authoritative.
 
-import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readSync,
+} from 'node:fs';
+import { resolve } from 'node:path';
+import {
+  chooseFinalReply,
+  createRepoReadSession,
+  formatAutomatedComment,
+  parseFirstPassResponse,
+  resolveGeneratorAttribution,
+  validateFirstPassEnvironment,
+} from './first-pass-lib.mjs';
 
+const TRANSPORT = 'anthropic-messages';
+const REPO_ROOT = resolve(process.cwd());
 const env = process.env;
 const base = (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
 const model = env.CCU_BOT_MODEL || 'deepseek-v4-flash';
 const modelPro = env.CCU_BOT_MODEL_PRO || 'deepseek-v4-pro';
-const isPr = env.EVENT_KIND === 'pr';
-const num = env.ITEM_NUMBER;
-const kind = isPr ? 'review' : 'reply';
 
-const fail = (msg) => {
-  console.error(msg);
+const fail = (message) => {
+  console.error(message);
   process.exit(1);
 };
 
-const readDoc = (path, max = 12000) => {
-  try {
-    return existsSync(path) ? readFileSync(path, 'utf8').slice(0, max) : '';
-  } catch {
-    return '';
-  }
-};
-const docs =
-  `# ARCHITECTURE.md\n${readDoc('ARCHITECTURE.md')}\n\n` +
-  `# CLAUDE.md\n${readDoc('CLAUDE.md')}\n\n` +
-  `# CONTRIBUTING.md\n${readDoc('CONTRIBUTING.md')}`;
-let diff = '';
-if (isPr && env.DIFF_FILE) {
-  diff = readDoc(env.DIFF_FILE, 40000);
+let preflight;
+let cheapGenerator;
+let proGenerator;
+try {
+  preflight = validateFirstPassEnvironment(env);
+  cheapGenerator = resolveGeneratorAttribution(env.CCU_BOT_GENERATOR, model, TRANSPORT);
+  proGenerator = resolveGeneratorAttribution(env.CCU_BOT_GENERATOR_PRO, modelPro, TRANSPORT);
+} catch (error) {
+  fail(`Invalid first-pass configuration: ${error.message}`);
 }
 
-// --- Safe repo-file reader: only repo-relative text files, no traversal ------
-const REPO_ROOT = resolve(process.cwd());
-const ALLOWED_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|json|md|ya?ml|txt)$/i;
-const readRepoFiles = (wanted) => {
-  const out = [];
-  let budget = 60000; // total bytes across all requested files
-  for (const raw of (wanted || []).slice(0, 6)) {
-    const rel = String(raw || '').trim().replace(/^\.?\//, '');
-    if (!rel || rel.includes('..') || rel.includes('\0') || !ALLOWED_EXT.test(rel)) {
-      continue;
-    }
-    const abs = resolve(REPO_ROOT, rel);
-    if (abs !== REPO_ROOT && !abs.startsWith(REPO_ROOT + sep)) {
-      continue; // escaped the repo root
-    }
-    try {
-      if (!existsSync(abs) || !statSync(abs).isFile()) {
-        continue;
+const { isPr, itemNumber: num, owner, repo } = preflight;
+const kind = isPr ? 'review' : 'reply';
+const repoReader = createRepoReadSession({ repoRoot: REPO_ROOT });
+const docs = repoReader.read([
+  'AGENTS.md', // rendered in the prompt as "# AGENTS.md"
+  'ARCHITECTURE.md',
+  'CLAUDE.md',
+  'CONTRIBUTING.md',
+]).text;
+
+function readBoundedFixedFile(path, maxBytes) {
+  let descriptor;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+    if (!fstatSync(descriptor).isFile()) return '';
+    const buffer = Buffer.alloc(maxBytes);
+    const bytesRead = readSync(descriptor, buffer, 0, maxBytes, 0);
+    const bytes = buffer.subarray(0, bytesRead);
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    for (let end = bytes.length; end >= Math.max(0, bytes.length - 4); end -= 1) {
+      try {
+        return decoder.decode(bytes.subarray(0, end));
+      } catch {
+        // Backtrack if the byte cap split the final UTF-8 code point.
       }
-      const body = readFileSync(abs, 'utf8').slice(0, Math.min(16000, budget));
-      budget -= body.length;
-      out.push(`# ${rel}\n${body}`);
-      if (budget <= 0) {
-        break;
+    }
+    return '';
+  } catch {
+    return '';
+  } finally {
+    if (descriptor !== undefined) {
+      try {
+        closeSync(descriptor);
+      } catch {
+        // The caller fails closed on an empty result.
       }
-    } catch {
-      /* skip unreadable */
     }
   }
-  return out.join('\n\n');
-};
+}
 
-// --- System prompt -----------------------------------------------------------
-const buildSystem = (final) =>
-  [
-    'You are the ClaudeCodeUsage repository assistant, replying via Claude Code tooling.',
-    "The underlying model may be a third-party Anthropic-format model, so do not claim to be Anthropic's Claude specifically.",
-    `Write ONE concise, concrete first-pass ${kind} for the ${isPr ? 'pull request' : 'issue'} below.`,
-    isPr
-      ? '- Focus on correctness risks, convention/i18n/CHANGELOG gaps, and merge-readiness, grounded in the diff + docs.'
-      : '- Identify the request, where in the architecture it relates, and a concrete direction or a specific clarifying question.',
-    '- Answer ONLY from the provided material (docs, diff, and any source files supplied). NEVER guess or invent code facts.',
-    '- Reply in the SAME language the author wrote in. Be specific; no filler, no AI-flavoured padding.',
-    '',
-    'Format your reply markdown in this order so a human can skim it:',
-    `- First line: "🤖 Automated first-pass ${kind} (via Claude Code)".`,
-    '- Then **TL;DR / 结论**: one or two sentences — the answer or the current status.',
-    '- Then **分析 / Analysis**: briefly why / what is happening / where it sits.',
-    '- Then **建议 / Suggested next step(s)**: a concrete direction, a specific question, or exactly what info is needed.',
-    `- Last line, on its own: "_This is model-generated from the repository docs and the ${isPr ? 'PR diff' : 'issue'} — not a final decision. A maintainer reviews everything._"`,
-    '',
-    final
-      ? '- If you STILL cannot determine the answer from everything provided, say so plainly in the TL;DR, then ask for the specific missing information (repro steps, logs, versions, config). If the issue omits obvious details, politely suggest filling out the issue template next time.'
-      : '- If the docs/diff are insufficient, you may request source files (see the control block); do not pad the answer with guesses.',
-    '',
-    'Before the reply, emit exactly one control line and nothing before it:',
-    '<control>{"answerable": <true if you can answer concretely from the material provided, false if you need to see source code>, "want_files": [<up to 6 repo-relative source paths that would let you answer>]}</control>',
-    'Then the reply, wrapped as:',
-    '<reply>',
-    '...markdown reply...',
-    '</reply>',
-  ].join('\n');
+let diff = '';
+if (isPr) {
+  diff = readBoundedFixedFile(preflight.diffFile, 40_000).trim();
+  if (!diff) fail('Pull request diff is missing or empty');
+}
+
+const buildSystem = (final) => [
+  'You are the ClaudeCodeUsage repository assistant.',
+  `Write one concise, concrete first-pass ${kind} for the ${isPr ? 'pull request' : 'issue'} below.`,
+  isPr
+    ? '- Focus on correctness risks, convention/i18n/CHANGELOG gaps, and merge-readiness grounded in the diff and supplied base-repository text.'
+    : '- Identify the request, where it relates to the architecture, and a concrete direction or a specific clarifying question.',
+  '- Answer only from the supplied material. Never invent code facts.',
+  '- Reply in the same language as the author. Be specific and concise.',
+  '- Return body markdown only inside <reply>; code will add the trusted header and attribution.',
+  '- Use **TL;DR / 结论**, **分析 / Analysis**, and **建议 / Suggested next step(s)** when they help scanning.',
+  final
+    ? '- If the answer is still unknown, say so and request the exact missing reproduction details, logs, versions, or configuration.'
+    : '- If more base-repository source is required, request only the smallest relevant allowlisted files in the control block.',
+  '',
+  'Before the reply, emit exactly one control line and nothing before it:',
+  '<control>{"answerable": <true if the supplied material is enough, false if source files are required>, "want_files": [<up to 6 repo-relative paths>]}</control>',
+  '<reply>',
+  '...body markdown...',
+  '</reply>',
+].join('\n');
 
 const buildUser = (extraFiles) =>
   (isPr
@@ -121,18 +117,16 @@ const buildUser = (extraFiles) =>
   `\n\n--- PROJECT DOCS ---\n${docs}` +
   (extraFiles ? `\n\n--- REPO SOURCE FILES (read-only) ---\n${extraFiles}` : '');
 
-// --- One model call (Anthropic Messages format; third-party-compatible) ------
-const askModel = async (useModel, system, userText, think) => {
+async function askModel(useModel, system, userText, think = false) {
   const body = {
     model: useModel,
     max_tokens: 1400,
     system,
     messages: [{ role: 'user', content: userText }],
   };
-  if (think) {
-    body.thinking = { type: 'enabled', budget_tokens: 6000 };
-  }
-  let res = await fetch(`${base}/v1/messages`, {
+  if (think) body.thinking = { type: 'enabled', budget_tokens: 6000 };
+
+  let response = await fetch(`${base}/v1/messages`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -141,12 +135,11 @@ const askModel = async (useModel, system, userText, think) => {
     },
     body: JSON.stringify(body),
   });
-  if (!res.ok && think) {
-    // Endpoint may not accept the thinking param — retry once without it.
-    const errTxt = await res.text();
-    if (/think|budget|adaptive|reason/i.test(errTxt)) {
+  if (!response.ok && think) {
+    const errorText = await response.text();
+    if (/think|budget|adaptive|reason/i.test(errorText)) {
       delete body.thinking;
-      res = await fetch(`${base}/v1/messages`, {
+      response = await fetch(`${base}/v1/messages`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -156,72 +149,50 @@ const askModel = async (useModel, system, userText, think) => {
         body: JSON.stringify(body),
       });
     } else {
-      fail(`Model API error ${res.status}: ${errTxt.slice(0, 500)}`);
+      throw new Error(`Model API error ${response.status}: ${errorText.slice(0, 500)}`);
     }
   }
-  if (!res.ok) {
-    fail(`Model API error ${res.status}: ${(await res.text()).slice(0, 500)}`);
+  if (!response.ok) {
+    throw new Error(`Model API error ${response.status}: ${(await response.text()).slice(0, 500)}`);
   }
-  const data = await res.json();
+  const data = await response.json();
   return (data.content || [])
-    .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
-    .map((b) => b.text)
+    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+    .map((block) => block.text)
     .join('')
     .trim();
-};
+}
 
-const tag = (text, name) => {
-  const m = text.match(new RegExp(`<${name}>([\\s\\S]*?)<\\/${name}>`, 'i'));
-  return m ? m[1].trim() : null;
-};
-const parse = (raw) => {
-  const replyBody = tag(raw, 'reply') || raw.replace(/<control>[\s\S]*?<\/control>/i, '').trim();
-  let control = { answerable: true, want_files: [] };
-  const ctl = tag(raw, 'control');
-  if (ctl) {
-    try {
-      const j = JSON.parse(ctl);
-      control = {
-        answerable: j.answerable !== false,
-        want_files: Array.isArray(j.want_files) ? j.want_files : [],
-      };
-    } catch {
-      /* keep default (treat as answerable → no escalation) */
-    }
-  }
-  return { reply: replyBody, ...control };
-};
-
-let reply = '';
+let selected;
 try {
-  // Tier 1: cheap model, docs only.
-  const first = parse(await askModel(model, buildSystem(false), buildUser('')));
-  reply = first.reply;
+  const first = parseFirstPassResponse(await askModel(model, buildSystem(false), buildUser('')));
+  let proCandidate;
 
-  // Tier 2/3: escalate to the stronger model with thinking + the source files
-  // it named (read & validated by the script), and take its final reply.
   if (!first.answerable) {
-    const extra = readRepoFiles(first.want_files);
-    const second = parse(await askModel(modelPro, buildSystem(true), buildUser(extra), true));
-    if (second.reply) {
-      reply = second.reply;
-    }
+    const extra = repoReader.read(first.want_files).text;
+    const second = parseFirstPassResponse(
+      await askModel(modelPro, buildSystem(true), buildUser(extra), true),
+    );
+    proCandidate = { reply: second.reply, generator: proGenerator };
   }
-} catch (e) {
-  fail(`Model call failed: ${e.message}`);
+  selected = chooseFinalReply(
+    { reply: first.reply, generator: cheapGenerator },
+    proCandidate,
+  );
+} catch (error) {
+  fail(`Model call failed: ${error.message}`);
 }
-if (!reply) {
-  // A blank reply is a soft no-op, not a failure: posting nothing is fine, and
-  // we don't want a red ✗ check on the PR/issue just because the model returned
-  // no text (e.g. a huge or self-referential diff).
-  console.warn('Empty model reply — nothing to post.');
-  process.exit(0);
+const { reply, generator: finalGenerator } = selected;
+
+let commentBody;
+try {
+  commentBody = formatAutomatedComment(reply, { kind, generator: finalGenerator });
+} catch (error) {
+  fail(`First-pass formatting failed: ${error.message}`);
 }
 
-// Post ONE comment via the GitHub API (issues + PRs share this endpoint).
-const [owner, repo] = (env.REPO || '/').split('/');
 try {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${num}/comments`, {
+  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${num}/comments`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${env.GH_TOKEN}`,
@@ -229,12 +200,12 @@ try {
       'content-type': 'application/json',
       'user-agent': 'ccu-bot',
     },
-    body: JSON.stringify({ body: reply }),
+    body: JSON.stringify({ body: commentBody }),
   });
-  if (!res.ok) {
-    fail(`Comment post failed ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!response.ok) {
+    fail(`Comment post failed ${response.status}: ${(await response.text()).slice(0, 300)}`);
   }
-} catch (e) {
-  fail(`Comment post failed: ${e.message}`);
+} catch (error) {
+  fail(`Comment post failed: ${error.message}`);
 }
 console.log(`Posted first-pass ${kind} on #${num}.`);
