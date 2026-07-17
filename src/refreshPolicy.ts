@@ -39,3 +39,86 @@ export function mergeRefreshTrigger(
   if (current === null) return incoming;
   return TRIGGER_PRIORITY[incoming] > TRIGGER_PRIORITY[current] ? incoming : current;
 }
+
+export class QuietDebounce {
+  private handle: NodeJS.Timeout | undefined;
+
+  constructor(
+    private readonly schedule: (callback: () => void, ms: number) => NodeJS.Timeout = setTimeout,
+    private readonly cancel: (handle: NodeJS.Timeout) => void = clearTimeout
+  ) {}
+
+  push(ms: number, callback: () => void): void {
+    if (this.handle) this.cancel(this.handle);
+    this.handle = this.schedule(() => {
+      this.handle = undefined;
+      callback();
+    }, ms);
+  }
+
+  clear(): void {
+    if (this.handle) this.cancel(this.handle);
+    this.handle = undefined;
+  }
+}
+
+export interface RefreshRequest {
+  forceReload: boolean;
+  trigger: RefreshTrigger;
+}
+
+export function shouldReloadUsage(value: {
+  forceReload: boolean;
+  directoryChanged: boolean;
+  hasLoadedManifest: boolean;
+  changedFiles: number;
+  removedFiles: number;
+}): boolean {
+  return value.forceReload || value.directoryChanged || !value.hasLoadedManifest ||
+    value.changedFiles > 0 || value.removedFiles > 0;
+}
+
+export function shouldCommitUsageLoad(filesFailed: number): boolean {
+  return Number.isInteger(filesFailed) && filesFailed === 0;
+}
+
+export function commitRefreshSnapshot<TManifest, TRecords>(
+  manifest: TManifest,
+  records: TRecords,
+  filesFailed: number,
+  commit: (manifest: TManifest, records: TRecords) => void,
+): boolean {
+  if (!shouldCommitUsageLoad(filesFailed)) return false;
+  commit(manifest, records);
+  return true;
+}
+
+export class RefreshSingleFlight {
+  private active = false;
+  private pendingForceReload = false;
+  private pendingTrigger: RefreshTrigger | null = null;
+
+  request(forceReload: boolean, trigger: RefreshTrigger): RefreshRequest | null {
+    if (!this.active) {
+      this.active = true;
+      return { forceReload, trigger };
+    }
+    this.pendingForceReload ||= forceReload;
+    this.pendingTrigger = mergeRefreshTrigger(this.pendingTrigger, trigger);
+    return null;
+  }
+
+  complete(): RefreshRequest | null {
+    if (this.pendingTrigger === null) {
+      this.active = false;
+      return null;
+    }
+    const next = {
+      forceReload: this.pendingForceReload,
+      trigger: this.pendingTrigger,
+    };
+    this.pendingForceReload = false;
+    this.pendingTrigger = null;
+    return next;
+  }
+}
