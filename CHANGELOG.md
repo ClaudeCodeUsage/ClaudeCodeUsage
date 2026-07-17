@@ -16,6 +16,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   configured 30–3600 second `refreshInterval`; file watching is quiet-debounce
   only and adds 60/120/300-second choices. First-timestamp reads stop after the
   first valid timestamp and run with at most eight readers.
+- **Date labels (#54, PR #71)** — daily rows on the first of a month remain
+  daily labels, while monthly keys no longer shift one month backward in
+  negative-UTC zones. Thanks [@YuboZhang](https://github.com/YuboZhang).
+- **Automatic first-pass language (#72)** — repository bot replies now default
+  to English, using English-first bilingual output only for Chinese authors.
 
 ### Diagnostics
 - **Anonymous refresh timings** — Show Diagnostic Logs now reports trigger,

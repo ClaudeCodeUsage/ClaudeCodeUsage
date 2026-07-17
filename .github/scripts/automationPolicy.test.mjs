@@ -31,6 +31,15 @@ test('runner uses one bounded reader for AGENTS grounding and requested source',
   assert.doesNotMatch(runner, /const ALLOWED_EXT|const readRepoFiles/);
 });
 
+test('automatic first pass defaults to English and is bilingual only for Chinese authors', () => {
+  const runner = read('.github/scripts/first-pass.mjs');
+  assert.match(runner, /Reply in English by default/i);
+  assert.match(runner, /author wrote in Chinese/i);
+  assert.match(runner, /English first/i);
+  assert.doesNotMatch(runner, /Reply in the same language as the author/i);
+  assert.doesNotMatch(runner, /\*\*TL;DR \/ 结论\*\*/);
+});
+
 test('comment-only workflows configure cheap and pro independently', () => {
   for (const workflow of [
     read('.github/workflows/issue-first-pass.yml'),

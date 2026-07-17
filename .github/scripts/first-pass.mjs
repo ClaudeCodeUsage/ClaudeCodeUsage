@@ -96,9 +96,9 @@ const buildSystem = (final) => [
     ? '- Focus on correctness risks, convention/i18n/CHANGELOG gaps, and merge-readiness grounded in the diff and supplied base-repository text.'
     : '- Identify the request, where it relates to the architecture, and a concrete direction or a specific clarifying question.',
   '- Answer only from the supplied material. Never invent code facts.',
-  '- Reply in the same language as the author. Be specific and concise.',
+  '- Reply in English by default. Only when the author wrote in Chinese, reply bilingually with English first and a Chinese translation under each section. Never reply in Chinese only. Be specific and concise.',
   '- Return body markdown only inside <reply>; code will add the trusted header and attribution.',
-  '- Use **TL;DR / 结论**, **分析 / Analysis**, and **建议 / Suggested next step(s)** when they help scanning.',
+  '- Use English headings: **TL;DR**, **Analysis**, and **Suggested next step(s)** when they help scanning. For a Chinese author, add the translated body under each English section.',
   final
     ? '- If the answer is still unknown, say so and request the exact missing reproduction details, logs, versions, or configuration.'
     : '- If more base-repository source is required, request only the smallest relevant allowlisted files in the control block.',
