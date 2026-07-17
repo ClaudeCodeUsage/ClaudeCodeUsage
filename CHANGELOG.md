@@ -21,6 +21,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   negative-UTC zones. Thanks [@YuboZhang](https://github.com/YuboZhang).
 - **Automatic first-pass language (#72)** — repository bot replies now default
   to English, using English-first bilingual output only for Chinese authors.
+- **Cold-start refresh failures** — an incomplete first scan now clears the
+  loading state and shows a localized retry/diagnostic message while preserving
+  an existing successful snapshot on later transient failures.
 
 ### Diagnostics
 - **Anonymous refresh timings** — Show Diagnostic Logs now reports trigger,
@@ -37,7 +40,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   one code-owned footer, fail-closed PR diff handling, and bounded base-repository file reads
   with traversal, symlink, hidden-path, and secret-path denial.
 - Manual publish retries now require an explicit existing release tag, check out
-  that exact tag, and can target only the registry that needs recovery.
+  and verify its fully qualified `refs/tags/` commit, and can target only the
+  registry that needs recovery.
 
 ## [2.2.0] — 2026-07-07
 

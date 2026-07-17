@@ -6,6 +6,7 @@ export interface Translations {
     noData: string;
     notRunning: string;
     error: string;
+    refreshFailed: string;
     currentSession: string;
   };
   popup: {
@@ -202,6 +203,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'No Claude Code Data',
       notRunning: 'Claude Code Not Running',
       error: 'Error',
+      refreshFailed: 'Usage refresh failed. Retry or check diagnostic logs.',
       currentSession: 'Session',
     },
     popup: {
@@ -423,6 +425,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: "Keine Claude Code Daten",
       notRunning: "Claude Code nicht erreichbar",
       error: "Fehler",
+      refreshFailed: "Aktualisierung fehlgeschlagen. Erneut versuchen oder Diagnoselogs prüfen.",
       currentSession: "Session",
     },
     popup: {
@@ -647,6 +650,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: '無 Claude Code 資料',
       notRunning: 'Claude Code 未執行',
       error: '錯誤',
+      refreshFailed: '使用量重新整理失敗。請重試或查看診斷日誌。',
       currentSession: '當前會話',
     },
     popup: {
@@ -864,6 +868,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: '无 Claude Code 数据',
       notRunning: 'Claude Code 未运行',
       error: '错误',
+      refreshFailed: '用量刷新失败。请重试或查看诊断日志。',
       currentSession: '当前会话',
     },
     popup: {
@@ -1081,6 +1086,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'Claude Code データなし',
       notRunning: 'Claude Code 未実行',
       error: 'エラー',
+      refreshFailed: '使用量の更新に失敗しました。再試行するか診断ログを確認してください。',
       currentSession: '現在のセッション',
     },
     popup: {
@@ -1303,6 +1309,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'Claude Code 데이터 없음',
       notRunning: 'Claude Code 실행되지 않음',
       error: '오류',
+      refreshFailed: '사용량 새로 고침에 실패했습니다. 다시 시도하거나 진단 로그를 확인하세요.',
       currentSession: '현재 세션',
     },
     popup: {
@@ -1525,6 +1532,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'Sem dados do Claude Code',
       notRunning: 'Claude Code não está em execução',
       error: 'Erro',
+      refreshFailed: 'Falha ao atualizar o uso. Tente novamente ou verifique os logs de diagnóstico.',
       currentSession: 'Sessão',
     },
     popup: {

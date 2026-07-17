@@ -67,7 +67,9 @@ test('manual publish retries require a release tag and can target one registry',
   assert.match(workflow, /workflow_dispatch:\s*\n\s+inputs:\s*\n\s+tag:/);
   assert.match(workflow, /tag:\s*\n(?:\s+[^\n]+\n)*?\s+required: true/);
   assert.match(workflow, /RELEASE_TAG:.*github\.event\.release\.tag_name.*inputs\.tag/);
-  assert.match(workflow, /uses: actions\/checkout@[a-f0-9]+[\s\S]*?ref: \$\{\{ env\.RELEASE_TAG \}\}/);
+  assert.match(workflow, /uses: actions\/checkout@[a-f0-9]+[\s\S]*?ref: refs\/tags\/\$\{\{ env\.RELEASE_TAG \}\}/);
+  assert.match(workflow, /git rev-parse HEAD/);
+  assert.match(workflow, /git rev-parse "refs\/tags\/\$RELEASE_TAG\^\{commit\}"/);
   assert.match(workflow, /if: github\.event_name == 'release' \|\| inputs\.publish_vscode/);
   assert.match(workflow, /if: github\.event_name == 'release' \|\| inputs\.publish_open_vsx/);
   assert.doesNotMatch(workflow, /name: Set version from release tag\s*\n\s+if:/);

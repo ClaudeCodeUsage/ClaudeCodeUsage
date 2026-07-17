@@ -93,6 +93,19 @@ export function commitRefreshSnapshot<TManifest, TRecords>(
   return true;
 }
 
+export function reportColdRefreshFailure(value: {
+  hasLoadedManifest: boolean;
+  updateWebview: boolean;
+  error: string;
+  onStatusError: (error: string) => void;
+  onWebviewError: (error: string) => void;
+}): boolean {
+  if (value.hasLoadedManifest) return false;
+  value.onStatusError(value.error);
+  if (value.updateWebview) value.onWebviewError(value.error);
+  return true;
+}
+
 export class RefreshSingleFlight {
   private active = false;
   private pendingForceReload = false;

@@ -7,6 +7,7 @@ import {
   pollIntervalMs,
   QuietDebounce,
   RefreshSingleFlight,
+  reportColdRefreshFailure,
   shouldCommitUsageLoad,
   shouldReloadUsage,
 } from '../refreshPolicy';
@@ -126,4 +127,29 @@ test('a scanner failure preserves the old snapshot and the next trigger retries'
   assert.equal(scans, 2);
   assert.equal(currentManifest.marker, 'new-manifest');
   assert.equal(currentRecords[0].marker, 'new-records');
+});
+
+test('cold refresh failure clears loading through status and optional webview error paths', () => {
+  const calls: string[] = [];
+  assert.equal(reportColdRefreshFailure({
+    hasLoadedManifest: false,
+    updateWebview: true,
+    error: 'localized refresh failure',
+    onStatusError: (error) => calls.push(`status:${error}`),
+    onWebviewError: (error) => calls.push(`webview:${error}`),
+  }), true);
+  assert.deepEqual(calls, [
+    'status:localized refresh failure',
+    'webview:localized refresh failure',
+  ]);
+
+  calls.length = 0;
+  assert.equal(reportColdRefreshFailure({
+    hasLoadedManifest: true,
+    updateWebview: true,
+    error: 'do not replace warm snapshot',
+    onStatusError: (error) => calls.push(error),
+    onWebviewError: (error) => calls.push(error),
+  }), false);
+  assert.deepEqual(calls, []);
 });

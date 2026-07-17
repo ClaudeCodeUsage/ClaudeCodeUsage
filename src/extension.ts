@@ -34,6 +34,7 @@ import {
   RefreshRequest,
   RefreshSingleFlight,
   RefreshTrigger,
+  reportColdRefreshFailure,
   shouldCommitUsageLoad,
   shouldReloadUsage,
 } from './refreshPolicy';
@@ -1038,15 +1039,31 @@ export class ClaudeCodeUsageExtension {
     await this.runRefresh(request);
   }
 
+  private handleColdRefreshFailure(updateWebview: boolean): void {
+    reportColdRefreshFailure({
+      hasLoadedManifest: this.cache.manifest !== null,
+      updateWebview,
+      error: I18n.t.statusBar.refreshFailed,
+      onStatusError: (error) => {
+        this.statusBar.updateUsageData(null, null, error);
+        this.statusBar.updateContext(null);
+      },
+      onWebviewError: (error) => {
+        this.webviewProvider.updateData(null, null, null, null, [], [], [], error, null);
+      },
+    });
+  }
+
   private async runRefresh(request: RefreshRequest): Promise<void> {
     const totalStarted = performance.now();
     const watcherEvents = this.watcherEventsSinceRefresh;
     const coalescedTriggers = this.coalescedTriggersSinceRefresh;
     this.watcherEventsSinceRefresh = 0;
     this.coalescedTriggersSinceRefresh = 0;
+    let updateWebview = request.trigger === 'manual';
     try {
       const config = this.getConfiguration();
-      const updateWebview = request.trigger === 'manual' || config.dashboardAutoRefresh;
+      updateWebview = updateWebview || config.dashboardAutoRefresh;
 
       // Account quota is independent from local JSONL. Do not let a slow OAuth
       // request delay the local usage refresh.
@@ -1155,6 +1172,7 @@ export class ClaudeCodeUsageExtension {
         ),
       });
       if (!shouldCommitUsageLoad(loaded.diagnostics.filesFailed)) {
+        this.handleColdRefreshFailure(updateWebview);
         this.outputChannel.appendLine(formatRefreshDiagnostic({
           trigger: request.trigger,
           filesDiscovered: manifest.entries.size,
@@ -1244,6 +1262,7 @@ export class ClaudeCodeUsageExtension {
     } catch {
       // Keep the previous records and manifest authoritative. The next trigger
       // retries scanner/reconciliation failures instead of presenting no data.
+      this.handleColdRefreshFailure(updateWebview);
       this.outputChannel.appendLine(formatRefreshDiagnostic({
         trigger: request.trigger,
         filesDiscovered: 0,
