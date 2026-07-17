@@ -1,3 +1,14 @@
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+} from 'node:fs';
+import { isAbsolute, join, resolve, sep } from 'node:path';
+
 const GENERATORS = Object.freeze({
   deepseek: Object.freeze({
     id: 'deepseek',
@@ -131,4 +142,174 @@ export function formatAutomatedComment(reply, { kind, generator }) {
     throw new Error('Trusted first-pass attribution invariant failed');
   }
   return comment;
+}
+
+const ALLOWED_ROOT_FILES = new Set([
+  'AGENTS.md', 'ARCHITECTURE.md', 'CLAUDE.md', 'CONTRIBUTING.md',
+  'CHANGELOG.md', 'package.json', 'tsconfig.json',
+]);
+const ALLOWED_SOURCE_EXTENSION = /\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|ya?ml|txt)$/i;
+const DENIED_COMPONENT = /^(?:\..+|(?:auth|oauth|token|credentials?|secrets?)(?:\..*)?|.*\.(?:pem|key|p12|pfx))$/i;
+
+function normalizedRepoPath(raw) {
+  const value = String(raw || '').trim();
+  if (!value || value.includes('\0')) return null;
+  const normalized = value.replace(/\\/g, '/');
+  if (/^[a-z]:\//i.test(normalized) || isAbsolute(normalized) || normalized.startsWith('/')) {
+    return null;
+  }
+  const components = normalized.split('/');
+  if (components.some((component) => !component || component === '.' || component === '..')) {
+    return null;
+  }
+  return normalized;
+}
+
+export function isAllowedRepoPath(raw) {
+  const normalized = normalizedRepoPath(raw);
+  if (!normalized) return false;
+  const components = normalized.split('/');
+  if (components.some((component) => DENIED_COMPONENT.test(component))) return false;
+  if (ALLOWED_ROOT_FILES.has(normalized)) return true;
+  return components[0] === 'src' && components.length > 1 && ALLOWED_SOURCE_EXTENSION.test(normalized);
+}
+
+function containedWithin(root, candidate) {
+  return candidate === root || candidate.startsWith(`${root}${sep}`);
+}
+
+function boundedOption(value, hardMaximum) {
+  if (!Number.isInteger(value) || value <= 0) return hardMaximum;
+  return Math.min(value, hardMaximum);
+}
+
+function decodeCompleteUtf8(buffer) {
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  for (let end = buffer.length; end >= Math.max(0, buffer.length - 4); end -= 1) {
+    try {
+      return { text: decoder.decode(buffer.subarray(0, end)), bytes: end };
+    } catch {
+      // A byte budget may cut the final UTF-8 code point; backtrack at most 4 bytes.
+    }
+  }
+  return null;
+}
+
+export function createRepoReadSession(options = {}) {
+  const repoRoot = realpathSync(resolve(String(options.repoRoot || process.cwd())));
+  const maxFiles = boundedOption(options.maxFiles, 6);
+  const fileBudget = boundedOption(options.fileBudget, 16_000);
+  const totalBudget = boundedOption(options.totalBudget, 60_000);
+  const seenPaths = new Set();
+  let filesRead = 0;
+  let totalBytes = 0;
+
+  function read(wanted) {
+    const files = [];
+    for (const raw of Array.isArray(wanted) ? wanted : []) {
+      const relativePath = normalizedRepoPath(raw);
+      if (!relativePath || seenPaths.has(relativePath) || !isAllowedRepoPath(relativePath)) continue;
+      seenPaths.add(relativePath);
+      if (filesRead >= maxFiles || totalBytes >= totalBudget) break;
+
+      let descriptor;
+      try {
+        const lexicalPath = resolve(repoRoot, relativePath);
+        if (!containedWithin(repoRoot, lexicalPath)) continue;
+
+        let prefix = repoRoot;
+        let leafStat;
+        for (const component of relativePath.split('/')) {
+          prefix = join(prefix, component);
+          const currentStat = lstatSync(prefix);
+          if (currentStat.isSymbolicLink()) {
+            leafStat = null;
+            break;
+          }
+          leafStat = currentStat;
+        }
+        if (!leafStat?.isFile()) continue;
+
+        const realFile = realpathSync(lexicalPath);
+        if (!containedWithin(repoRoot, realFile)) continue;
+
+        descriptor = openSync(lexicalPath, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+        const openedStat = fstatSync(descriptor);
+        if (
+          !openedStat.isFile() ||
+          openedStat.dev !== leafStat.dev ||
+          openedStat.ino !== leafStat.ino
+        ) continue;
+
+        const remaining = totalBudget - totalBytes;
+        const requestedBytes = Math.min(fileBudget, remaining);
+        if (requestedBytes <= 0) break;
+        const buffer = Buffer.alloc(requestedBytes);
+        const bytesRead = readSync(descriptor, buffer, 0, requestedBytes, 0);
+        const decoded = decodeCompleteUtf8(buffer.subarray(0, bytesRead));
+        if (!decoded) continue;
+
+        filesRead += 1;
+        totalBytes += decoded.bytes;
+        files.push({
+          path: relativePath,
+          text: decoded.text,
+          bytes: decoded.bytes,
+        });
+      } catch {
+        // Missing, unreadable, replaced, or unsafe files are skipped without path disclosure.
+      } finally {
+        if (descriptor !== undefined) {
+          try {
+            closeSync(descriptor);
+          } catch {
+            // Nothing useful can be done if closing an already-failed descriptor fails.
+          }
+        }
+      }
+    }
+
+    return {
+      text: files.map((file) => `# ${file.path}\n${file.text}`).join('\n\n'),
+      files,
+      totalBytes,
+    };
+  }
+
+  return Object.freeze({
+    read,
+    snapshot: () => Object.freeze({ filesRead, totalBytes }),
+  });
+}
+
+export function validateFirstPassEnvironment(env) {
+  const required = ['GH_TOKEN', 'REPO', 'EVENT_KIND', 'ITEM_NUMBER', 'ANTHROPIC_API_KEY'];
+  const missing = required.filter((name) => !String(env?.[name] || '').trim());
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+
+  const repo = String(env.REPO).trim();
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+    throw new Error('REPO must use owner/name format');
+  }
+  const eventKind = String(env.EVENT_KIND).trim();
+  if (!['issue', 'pr'].includes(eventKind)) {
+    throw new Error('EVENT_KIND must be issue or pr');
+  }
+  const itemNumber = Number(env.ITEM_NUMBER);
+  if (!Number.isInteger(itemNumber) || itemNumber <= 0) {
+    throw new Error('ITEM_NUMBER must be a positive integer');
+  }
+  if (eventKind === 'pr' && !String(env.DIFF_FILE || '').trim()) {
+    throw new Error('DIFF_FILE is required for pull requests');
+  }
+  const [owner, name] = repo.split('/');
+  return Object.freeze({
+    owner,
+    repo: name,
+    itemNumber,
+    isPr: eventKind === 'pr',
+    diffFile: eventKind === 'pr' ? String(env.DIFF_FILE).trim() : undefined,
+  });
 }

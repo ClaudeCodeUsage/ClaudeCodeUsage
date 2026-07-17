@@ -1,8 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  createRepoReadSession,
   formatAutomatedComment,
+  isAllowedRepoPath,
   resolveGeneratorAttribution,
+  validateFirstPassEnvironment,
 } from './first-pass-lib.mjs';
 
 const ANTHROPIC_MESSAGES = 'anthropic-messages';
@@ -75,4 +87,95 @@ test('trusted wrapper strips spoofed markdown variants and appends one exact suf
   assert.equal((comment.match(/Generated\s+(?:with|by)/giu) ?? []).length, 1);
   assert.equal((comment.match(/Automated first-pass review/giu) ?? []).length, 1);
   assert.doesNotMatch(comment, /evil\.invalid|Claude Code|OpenAI Codex/iu);
+});
+
+test('preflight rejects missing credentials and ungrounded PRs', () => {
+  const base = {
+    GH_TOKEN: 'github-token', REPO: 'ClaudeCodeUsage/ClaudeCodeUsage',
+    EVENT_KIND: 'issue', ITEM_NUMBER: '70', ANTHROPIC_API_KEY: 'model-key',
+  };
+  assert.equal(validateFirstPassEnvironment(base).isPr, false);
+  assert.throws(
+    () => validateFirstPassEnvironment({ ...base, ANTHROPIC_API_KEY: '' }),
+    /Missing required environment variables: ANTHROPIC_API_KEY/,
+  );
+  assert.throws(
+    () => validateFirstPassEnvironment({ ...base, EVENT_KIND: 'pr' }),
+    /DIFF_FILE is required for pull requests/,
+  );
+});
+
+test('only explicit root docs/config and src are readable', () => {
+  for (const allowed of [
+    'AGENTS.md', 'ARCHITECTURE.md', 'CLAUDE.md', 'CONTRIBUTING.md',
+    'CHANGELOG.md', 'package.json', 'tsconfig.json', 'src/dataLoader.ts',
+  ]) assert.equal(isAllowedRepoPath(allowed), true, allowed);
+
+  for (const denied of [
+    '../outside.md', '/etc/passwd', 'C:\\Users\\person\\auth.json',
+    '.env', '.env.local', '.github/workflows/publish.yml',
+    '.claude/.credentials.json', 'docs/private.md', 'test/fixture.json',
+    'src/.env.production', 'src/nested/oauth.json',
+    'src/nested/credentials.json', 'src/nested/secrets.json',
+    'src/nested/private.pem', 'src/nested/token.txt', 'src/code.bin',
+  ]) assert.equal(isAllowedRepoPath(denied), false, denied);
+});
+
+test('repo reader shares stable-dedup, byte budgets and symlink denial for the run', (t) => {
+  const repoRoot = mkdtempSync(join(tmpdir(), 'ccu-reader-'));
+  const outsideRoot = mkdtempSync(join(tmpdir(), 'ccu-reader-outside-'));
+  t.after(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+    rmSync(outsideRoot, { recursive: true, force: true });
+  });
+
+  mkdirSync(join(repoRoot, 'src', 'real-dir'), { recursive: true });
+  for (const name of ['AGENTS.md', 'ARCHITECTURE.md', 'CLAUDE.md', 'CONTRIBUTING.md']) {
+    writeFileSync(join(repoRoot, name), `${name}\n`, 'utf8');
+  }
+  for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
+    writeFileSync(join(repoRoot, 'src', `${name}.txt`), `${name}-body\n`, 'utf8');
+  }
+  writeFileSync(join(repoRoot, 'src', 'huge.txt'), 'x'.repeat(20_000), 'utf8');
+  writeFileSync(join(repoRoot, 'src', 'unicode.txt'), '中文🙂'.repeat(8_000), 'utf8');
+  writeFileSync(join(repoRoot, 'src', 'real-dir', 'inside.txt'), 'inside regular', 'utf8');
+  writeFileSync(join(outsideRoot, 'secret.txt'), 'outside secret', 'utf8');
+  symlinkSync(join(outsideRoot, 'secret.txt'), join(repoRoot, 'src', 'link.txt'));
+  symlinkSync(outsideRoot, join(repoRoot, 'src', 'external-dir'));
+  symlinkSync(join(repoRoot, 'src', 'real-dir'), join(repoRoot, 'src', 'internal-link'));
+
+  const ordering = createRepoReadSession({ repoRoot });
+  const ordered = ordering.read([
+    'src/a.txt', 'src/a.txt', 'src/b.txt', 'src/c.txt', 'src/d.txt',
+    'src/e.txt', 'src/f.txt', 'src/g.txt', 'src/link.txt',
+  ]);
+  assert.deepEqual(
+    ordered.files.map((file) => file.path),
+    ['src/a.txt', 'src/b.txt', 'src/c.txt', 'src/d.txt', 'src/e.txt', 'src/f.txt'],
+  );
+
+  const capped = createRepoReadSession({ repoRoot });
+  const result = capped.read([
+    'src/huge.txt', 'src/unicode.txt', 'src/a.txt', 'src/b.txt',
+    'src/c.txt', 'src/d.txt', 'src/link.txt',
+    'src/external-dir/secret.txt', 'src/internal-link/inside.txt',
+    'src/nested/oauth.json', '../outside.md',
+  ]);
+  assert.ok(result.files.every((file) => file.bytes <= 16_000));
+  assert.ok(result.totalBytes <= 60_000);
+  assert.equal(result.files.find((file) => file.path === 'src/huge.txt')?.bytes, 16_000);
+  assert.equal(result.files.some((file) => file.text.endsWith('\uFFFD')), false);
+  assert.equal(result.text.includes('outside secret'), false);
+  assert.equal(result.files.some((file) => /link|oauth|outside/.test(file.path)), false);
+
+  const perRun = createRepoReadSession({ repoRoot });
+  const grounding = perRun.read(['AGENTS.md', 'ARCHITECTURE.md', 'CLAUDE.md', 'CONTRIBUTING.md']);
+  const requested = perRun.read([
+    'AGENTS.md',
+    'src/a.txt', 'src/b.txt', 'src/c.txt', 'src/d.txt', 'src/e.txt', 'src/f.txt',
+  ]);
+  assert.equal(grounding.files.length, 4);
+  assert.ok(requested.files.length <= 2);
+  assert.ok(perRun.snapshot().filesRead <= 6);
+  assert.ok(perRun.snapshot().totalBytes <= 60_000);
 });
