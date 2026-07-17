@@ -74,6 +74,8 @@ ext install GrowthJack.claude-code-usage
 
 Fork 自 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)。MIT 授權。社群貢獻致謝見 [CHANGELOG.md](CHANGELOG.md)。許多程式碼改動由 [Claude Code](https://claude.com/claude-code) 協助起草。
 
+開發工具致謝：repository 維護同時使用 [Claude Code](https://claude.com/claude-code) 與 [OpenAI Codex](https://developers.openai.com/codex/)。這只記錄開發工具，與人類貢獻者身分分開；Codex 不會列入 Release Drafter 的人類 contributor 名單，也不會使用虛構的 `Co-Authored-By` 身分。
+
 **歡迎提出 Issue、PR 與想法** —— 這正是專案成長的方式。
 
 ## 授權

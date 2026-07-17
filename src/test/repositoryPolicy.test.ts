@@ -73,3 +73,40 @@ test('git and VSIX ignores exclude private and development-only material', () =>
     assert.ok(vscodeIgnore.has(pattern), `.vscodeignore missing ${pattern}`);
   }
 });
+
+test('all six README files credit both development tools', () => {
+  const readmes = [
+    'README.md',
+    'README-en.md',
+    'README-zh-CN.md',
+    'README-zh-TW.md',
+    'README-ja.md',
+    'README-ko.md',
+  ];
+  for (const readme of readmes) {
+    const body = repoFile(readme);
+    assert.match(body, /https:\/\/claude\.com\/claude-code/, `${readme} missing Claude Code credit`);
+    assert.match(body, /https:\/\/developers\.openai\.com\/codex\//, `${readme} missing OpenAI Codex credit`);
+  }
+});
+
+test('pull request checklist names the actual seven UI locales', () => {
+  const packageJson = JSON.parse(repoFile('package.json')) as {
+    contributes: { configuration: { properties: Record<string, { enum?: string[] }> } };
+  };
+  const languageValues = packageJson.contributes.configuration.properties['claudeCodeUsage.language'].enum ?? [];
+  assert.equal(languageValues.filter((value) => value !== 'auto').length, 7);
+
+  const template = repoFile('.github/PULL_REQUEST_TEMPLATE.md');
+  assert.match(template, /all seven UI locales/);
+  assert.doesNotMatch(template, /all six languages/);
+  assert.match(template, /all six README editions/);
+});
+
+test('changelog records the released baseline and the v2.2.1 tooling transition', () => {
+  const changelog = repoFile('CHANGELOG.md');
+  assert.match(changelog, /^## \[2\.2\.1\] — Unreleased$/m);
+  assert.match(changelog, /^## \[2\.2\.0\] — 2026-07-07$/m);
+  assert.match(changelog, /OpenAI Codex/);
+  assert.doesNotMatch(changelog, /^## \[2\.2\.0\] — Unreleased$/m);
+});

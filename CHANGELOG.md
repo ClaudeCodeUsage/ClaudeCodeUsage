@@ -4,7 +4,14 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
-## [2.2.0] — Unreleased
+## [2.2.1] — Unreleased
+
+### Changed
+- **Codex maintenance handoff** — `AGENTS.md` is now the canonical repository
+  policy with a Simplified-Chinese review copy. Claude Code and OpenAI Codex
+  are credited as development tools, separately from human contributors.
+
+## [2.2.0] — 2026-07-07
 
 ### Added
 - **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token

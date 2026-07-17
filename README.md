@@ -339,6 +339,12 @@ MIT-licensed. The 2.x work documented here (everything under "What's new") is by
 @Carl723000 with [Claude Code](https://claude.com/claude-code); it has grown well
 beyond the 2.0 baseline — see [CHANGELOG.md](CHANGELOG.md).
 
+Development-tool credit: repository maintenance uses both
+[Claude Code](https://claude.com/claude-code) and
+[OpenAI Codex](https://developers.openai.com/codex/). This credits the tools
+separately from human contributors: Codex is not added to Release Drafter's
+contributor list, and no fabricated `Co-Authored-By` identity is used for it.
+
 Contributors whose upstream PRs / issues are incorporated here:
 
 - [@Dobidop](https://github.com/Dobidop) —

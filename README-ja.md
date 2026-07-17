@@ -74,6 +74,8 @@ Cursor / Windsurf 向けに [Open VSX Registry](https://open-vsx.org/extension/G
 
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) からフォーク。MIT ライセンス。コミュニティの貢献は [CHANGELOG.md](CHANGELOG.md) に記載。多くのコード変更は [Claude Code](https://claude.com/claude-code) の支援で作成されました。
 
+開発ツールのクレジット：リポジトリの保守には [Claude Code](https://claude.com/claude-code) と [OpenAI Codex](https://developers.openai.com/codex/) の両方を使用しています。これは人間のコントリビューターとは別のツール表記であり、Codex を Release Drafter のコントリビューター一覧に加えたり、架空の `Co-Authored-By` ID を付けたりしません。
+
 **Issue・PR・アイデアを歓迎します** —— それがプロジェクトの成長につながります。
 
 ## ライセンス
