@@ -11,6 +11,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   policy with a Simplified-Chinese review copy. Claude Code and OpenAI Codex
   are credited as development tools, separately from human contributors.
 
+### Security
+- Hardened GitHub first-pass automation with truthful per-tier provider attribution,
+  one code-owned footer, fail-closed PR diff handling, and bounded base-repository file reads
+  with traversal, symlink, hidden-path, and secret-path denial.
+
 ## [2.2.0] — 2026-07-07
 
 ### Added

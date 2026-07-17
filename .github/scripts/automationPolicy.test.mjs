@@ -59,3 +59,20 @@ test('maintainer-only mention workflow retains its privileged Claude boundary', 
   assert.match(privileged, /anthropics\/claude-code-action@v1/);
   assert.match(privileged, /OWNER","MEMBER","COLLABORATOR/);
 });
+
+test('CONTRIBUTING distinguishes current automatic, reviewed Codex, and privileged agent text', () => {
+  const contributing = read('CONTRIBUTING.md');
+  assert.match(contributing, /### Controlled automatic first pass/);
+  assert.match(contributing, /DeepSeek or Claude/);
+  assert.match(contributing, /Codex automatic attribution is not enabled in v2\.2\.1/);
+  assert.match(contributing, /Generated with \[OpenAI Codex\]/);
+  assert.match(contributing, /### Maintainer-only mention agent/);
+  assert.match(contributing, /does not migrate this privileged workflow to Codex/);
+});
+
+test('automation hardening is appended to the one existing v2.2.1 section', () => {
+  const changelog = read('CHANGELOG.md');
+  assert.equal((changelog.match(/^## \[2\.2\.1\] — Unreleased$/gm) ?? []).length, 1);
+  assert.match(changelog, /truthful per-tier provider attribution/);
+  assert.match(changelog, /bounded base-repository file reads/);
+});
