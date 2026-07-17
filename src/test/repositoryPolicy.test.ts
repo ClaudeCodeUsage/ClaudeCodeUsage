@@ -2,11 +2,21 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 function repoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
+}
+
+function activePatterns(relativePath: string): Set<string> {
+  return new Set(
+    repoFile(relativePath)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith('#')),
+  );
 }
 
 test('AGENTS is the canonical Codex repository policy', () => {
@@ -32,4 +42,34 @@ test('CLAUDE is a compatibility entry point, not a conflicting policy source', (
   assert.match(claude, /AGENTS\.md.*canonical repository policy/);
   assert.match(claude, /polling always follows\s+`refreshInterval`/);
   assert.doesNotMatch(claude, /activity-aware: ~15 s|never writes to `~\/\.claude\/`/);
+});
+
+test('line endings and tracked file modes are repository-safe', () => {
+  const attributes = repoFile('.gitattributes');
+  assert.match(attributes, /^\* text=auto eol=lf$/m);
+  for (const binary of ['*.png binary', '*.jpg binary', '*.jpeg binary', '*.gif binary', '*.webp binary', '*.ico binary', '*.vsix binary']) {
+    assert.match(attributes, new RegExp(`^${binary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
+  }
+
+  const badModes = execFileSync('git', ['ls-files', '--stage'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  })
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .filter((line) => !line.startsWith('100644 '));
+  assert.deepEqual(badModes, []);
+});
+
+test('git and VSIX ignores exclude private and development-only material', () => {
+  const gitIgnore = activePatterns('.gitignore');
+  for (const pattern of ['out', 'node_modules', '*.vsix', '.env', '.env.*', 'secrets.json', 'CLAUDE.local.md', 'docs/', '.claude/', '.agents/', '.codex/', '.worktrees/']) {
+    assert.ok(gitIgnore.has(pattern), `.gitignore missing ${pattern}`);
+  }
+
+  const vscodeIgnore = activePatterns('.vscodeignore');
+  for (const pattern of ['.github/**', 'src/**', 'out/test/**', 'AGENTS.md', 'AGENTS.zh-CN.md', 'CLAUDE.md', 'CLAUDE.local.md', 'CONTRIBUTING.md', 'docs/**', '.claude/**', '.agents/**', '.codex/**', '.worktrees/**', '.env', '**/.env', '**/.env.*', '**/secrets.json', '**/*.pem', '**/*.key', '**/*.p12', '**/*.pfx']) {
+    assert.ok(vscodeIgnore.has(pattern), `.vscodeignore missing ${pattern}`);
+  }
 });

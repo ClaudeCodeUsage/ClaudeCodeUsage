@@ -25,3 +25,9 @@ CLAUDE.local.md
 # ARCHITECTURE.md is the technical map the @ccu-bot automation + contributors
 # read (product strategy is kept out of it, in docs/ARCHITECTURE-private.md).
 docs/
+
+# Agent-local state and in-repository worktrees are never source artifacts.
+.claude/
+.agents/
+.codex/
+.worktrees/
