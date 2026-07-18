@@ -42,8 +42,12 @@ test('contributor pull requests retain their merged attribution', () => {
   const chinese = repoFile('AGENTS.zh-CN.md');
   assert.match(agents, /Never copy.*contributor pull request.*close.*superseded/is);
   assert.match(agents, /merge the\s+contributor's original pull request/i);
+  assert.match(agents, /needs revision.*original PR branch.*then merge/is);
+  assert.match(agents, /Close.*without merging.*only.*no\s+meaningful contribution.*empty.*spam.*irrelevant/is);
   assert.match(chinese, /严禁.*贡献者 PR.*吸收.*关闭/is);
   assert.match(chinese, /合并贡献者的原始 PR/);
+  assert.match(chinese, /不够合理.*原 PR 分支.*修改后合并/is);
+  assert.match(chinese, /不合并而关闭.*无可保留价值.*空 PR.*spam.*无关/is);
 });
 
 test('CLAUDE is a compatibility entry point, not a conflicting policy source', () => {

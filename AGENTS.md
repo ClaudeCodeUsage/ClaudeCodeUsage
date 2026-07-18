@@ -91,6 +91,12 @@ npx @vscode/vsce package
   contributor's original pull request, or—with explicit authorization—update that
   original PR branch and then merge it. Put extra tests, refactors, or hardening
   in a follow-up PR that builds on the merged contribution.
+- If a contribution needs revision but has meaningful value, review it
+  constructively and prefer an author update. With explicit authorization,
+  adjust the original PR branch and then merge it instead of replacing it.
+- Close a contributor PR without merging only in the exceptional case where no
+  meaningful contribution can be salvaged, such as an empty PR, spam, or an
+  irrelevant change. Explain the reason publicly and respectfully.
 - Do not push, open a pull request, merge, or publish a release without explicit
   maintainer approval.
 - Do not bump `package.json` or create release tags manually. Release Drafter
