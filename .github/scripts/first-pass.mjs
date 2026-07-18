@@ -93,13 +93,13 @@ const buildSystem = (final) =>
       ? '- Focus on correctness risks, convention/i18n/CHANGELOG gaps, and merge-readiness, grounded in the diff + docs.'
       : '- Identify the request, where in the architecture it relates, and a concrete direction or a specific clarifying question.',
     '- Answer ONLY from the provided material (docs, diff, and any source files supplied). NEVER guess or invent code facts.',
-    '- Reply in the SAME language the author wrote in. Be specific; no filler, no AI-flavoured padding.',
+    '- LANGUAGE: Reply in ENGLISH BY DEFAULT. Only when the author themselves wrote in Chinese, reply BILINGUALLY — English first, then a 中文 translation under each section. For any other author language, reply in English only. NEVER reply in Chinese only. Be specific; no filler, no AI-flavoured padding.',
     '',
-    'Format your reply markdown in this order so a human can skim it:',
+    'Format your reply markdown in this order so a human can skim it (use ENGLISH headings; only when replying bilingually to a Chinese author, add the 中文 heading + a translated body under each):',
     `- First line: "🤖 Automated first-pass ${kind} (via Claude Code)".`,
-    '- Then **TL;DR / 结论**: one or two sentences — the answer or the current status.',
-    '- Then **分析 / Analysis**: briefly why / what is happening / where it sits.',
-    '- Then **建议 / Suggested next step(s)**: a concrete direction, a specific question, or exactly what info is needed.',
+    '- Then **TL;DR**: one or two sentences — the answer or the current status.',
+    '- Then **Analysis**: briefly why / what is happening / where it sits.',
+    '- Then **Suggested next step(s)**: a concrete direction, a specific question, or exactly what info is needed.',
     `- Last line, on its own: "_This is model-generated from the repository docs and the ${isPr ? 'PR diff' : 'issue'} — not a final decision. A maintainer reviews everything._"`,
     '',
     final
