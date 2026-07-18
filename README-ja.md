@@ -70,9 +70,20 @@ Cursor / Windsurf 向けに [Open VSX Registry](https://open-vsx.org/extension/G
 
 **トークン数がプロバイダーのダッシュボードより少ない** — 一部のプロキシ / 動的ワークフローはエージェントごとの記録をサブディレクトリに書き込み、不完全な場合があります。実際の消費はプロバイダーの請求ページをご確認ください。ネイティブのワークフロー帰属は計画中です。
 
+**履歴が大きい環境で CPU 使用率が高い／更新が遅い（Linux を含む）**
+- V2.2.1 では active 時に隠れて 8 秒へ短縮されるポーリングを廃止し、最初の
+  timestamp 読み取りを制限します。導入前は **Live refresh delay** を **Off**、
+  **Refresh interval** を **300–900 秒**にし、必要なら **Content analysis** も
+  Off にしてください。Dashboard auto-refresh だけを Off にしても、ステータス
+  バー用の解析は止まりません。
+- V2.2.1 でも高負荷が続く場合は **Show Diagnostic Logs** の匿名 `refresh:` 行だけを
+  issue #70 に添付してください。prompt、path、session ID、credential、raw log は含みません。
+
 ## クレジット
 
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) からフォーク。MIT ライセンス。コミュニティの貢献は [CHANGELOG.md](CHANGELOG.md) に記載。多くのコード変更は [Claude Code](https://claude.com/claude-code) の支援で作成されました。
+
+開発ツールのクレジット：リポジトリの保守には [Claude Code](https://claude.com/claude-code) と [OpenAI Codex](https://developers.openai.com/codex/) の両方を使用しています。これは人間のコントリビューターとは別のツール表記であり、Codex を Release Drafter のコントリビューター一覧に加えたり、架空の `Co-Authored-By` ID を付けたりしません。
 
 **Issue・PR・アイデアを歓迎します** —— それがプロジェクトの成長につながります。
 

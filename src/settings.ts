@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { LIVE_REFRESH_SECONDS } from './refreshPolicy';
 
 // Single source of truth for every user setting (V2.1: "settings in the
 // dashboard"). Most settings moved OUT of VS Code's Settings UI to keep it
@@ -78,11 +79,14 @@ const CURATED_ZONES: { zone: string; city: string }[] = [
   { zone: 'Asia/Kolkata', city: 'Kolkata' },
   { zone: 'Asia/Dhaka', city: 'Dhaka' },
   { zone: 'Asia/Bangkok', city: 'Bangkok' },
+  { zone: 'Asia/Jakarta', city: 'Jakarta (WIB)' },
   { zone: 'Asia/Shanghai', city: 'Shanghai' },
   { zone: 'Asia/Hong_Kong', city: 'Hong Kong' },
   { zone: 'Asia/Singapore', city: 'Singapore' },
+  { zone: 'Asia/Makassar', city: 'Makassar (WITA)' },
   { zone: 'Asia/Tokyo', city: 'Tokyo' },
   { zone: 'Asia/Seoul', city: 'Seoul' },
+  { zone: 'Asia/Jayapura', city: 'Jayapura (WIT)' },
   { zone: 'Australia/Sydney', city: 'Sydney' },
   { zone: 'Pacific/Auckland', city: 'Auckland' },
 ];
@@ -353,6 +357,18 @@ export const SETTINGS: SettingDef[] = [
     help: 'Append a compact reset countdown in the status bar (5h 6% ↻4.8h). Off keeps it clean (5h 6% · wk 1%); the tooltip always shows full reset times.',
   },
   {
+    // Format of the reset countdown appended by showResetInStatusBar (#74).
+    key: 'resetCountdownFormat',
+    type: 'enum',
+    default: 'decimal',
+    storage: 'state',
+    group: 'statusBar',
+    label: 'Quota: reset countdown format',
+    help: 'Only applies when "Quota: show reset countdown" is on. Decimal (4.8h / 1.6d), whole units (4h 48m / 1d 14h), or your computer\'s local clock time / date (18:20 / 2026-07-22).',
+    enumValues: ['decimal', 'units', 'clock'],
+    enumLabels: ['Decimal (4.8h / 1.6d)', 'Units (4h 48m / 1d 14h)', 'Local time (18:20 / 2026-07-22)'],
+  },
+  {
     key: 'workflowQuotaWarnPercent',
     type: 'number',
     default: 50,
@@ -391,9 +407,9 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'data',
     label: 'Live refresh delay',
-    help: 'How soon the dashboard refreshes after new activity. This only re-reads your LOCAL log files (no API call — the quota fetch is throttled separately). "Off" disables live watching; a longer delay is lighter on CPU.',
-    enumValues: ['0', '1', '2', '5', '10', '20', '30'],
-    enumLabels: ['Off', '1s', '2s', '5s', '10s', '20s', '30s'],
+    help: 'Wait after the last local JSONL change before refreshing (quiet debounce; each new event restarts the delay). No API call is made; quota fetches are throttled separately. Off disables watching, and 60–300s is the lowest-CPU option for large histories.',
+    enumValues: [...LIVE_REFRESH_SECONDS],
+    enumLabels: ['Off', '1s', '2s', '5s', '10s', '20s', '30s', '60s', '120s', '300s'],
   },
   {
     // V2.2: positive wording, replacing the old double-negative

@@ -29,7 +29,8 @@ Keep the section headings; fill what applies, delete what doesn't.
 ## Checklist
 
 - [ ] `npm run compile` is clean
-- [ ] User-facing strings go through `I18n` with **all six languages** filled
+- [ ] User-facing strings go through `I18n` with **all eight UI locales** filled
+- [ ] Behaviour/documentation changes update **all seven README editions** together
 - [ ] `CHANGELOG.md` updated (user-visible changes)
 - [ ] `README.md` updated if behaviour/settings changed
 - [ ] New settings default to existing behaviour (opt-in)

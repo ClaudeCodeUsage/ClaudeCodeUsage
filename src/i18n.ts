@@ -6,6 +6,7 @@ export interface Translations {
     noData: string;
     notRunning: string;
     error: string;
+    refreshFailed: string;
     currentSession: string;
   };
   popup: {
@@ -144,6 +145,10 @@ export interface Translations {
     resumeInvalid: string;
     sessionFilterCurrent: string;
     sessionFilterAll: string;
+    sessionRangeToday: string;
+    sessionRange7d: string;
+    sessionRange30d: string;
+    sessionModelAll: string;
     deleteSession: string;
     deleteSessionConfirm: string;
     deleteSessionDetail: string;
@@ -202,6 +207,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'No Claude Code Data',
       notRunning: 'Claude Code Not Running',
       error: 'Error',
+      refreshFailed: 'Usage refresh failed. Retry or check diagnostic logs.',
       currentSession: 'Session',
     },
     popup: {
@@ -349,6 +355,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: 'Invalid session id — cannot resume.',
       sessionFilterCurrent: 'Current project',
       sessionFilterAll: 'All',
+      sessionRangeToday: 'Today',
+      sessionRange7d: '7 days',
+      sessionRange30d: '30 days',
+      sessionModelAll: 'All models',
       deleteSession: 'Delete session',
       deleteSessionConfirm: 'Delete session "{name}"?',
       deleteSessionDetail: 'Its conversation log moves to the trash (recoverable). The extension is otherwise read-only.',
@@ -423,6 +433,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: "Keine Claude Code Daten",
       notRunning: "Claude Code nicht erreichbar",
       error: "Fehler",
+      refreshFailed: "Aktualisierung fehlgeschlagen. Erneut versuchen oder Diagnoselogs prüfen.",
       currentSession: "Session",
     },
     popup: {
@@ -570,6 +581,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: 'Ungültige Sitzungs-ID — Fortsetzen nicht möglich.',
       sessionFilterCurrent: 'Aktuelles Projekt',
       sessionFilterAll: 'Alle',
+      sessionRangeToday: 'Heute',
+      sessionRange7d: '7 Tage',
+      sessionRange30d: '30 Tage',
+      sessionModelAll: 'Alle Modelle',
       deleteSession: 'Sitzung löschen',
       deleteSessionConfirm: 'Sitzung "{name}" löschen?',
       deleteSessionDetail: 'Das Gesprächsprotokoll wandert in den Papierkorb (wiederherstellbar). Die Erweiterung ist ansonsten schreibgeschützt.',
@@ -647,6 +662,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: '無 Claude Code 資料',
       notRunning: 'Claude Code 未執行',
       error: '錯誤',
+      refreshFailed: '使用量重新整理失敗。請重試或查看診斷日誌。',
       currentSession: '當前會話',
     },
     popup: {
@@ -790,6 +806,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: '無效的會話 ID,無法恢復。',
       sessionFilterCurrent: '目前專案',
       sessionFilterAll: '全部',
+      sessionRangeToday: '今天',
+      sessionRange7d: '7 天',
+      sessionRange30d: '30 天',
+      sessionModelAll: '全部模型',
       deleteSession: '刪除會話',
       deleteSessionConfirm: '刪除會話「{name}」？',
       deleteSessionDetail: '對話記錄會移至垃圾桶（可復原）。此擴充功能其餘部分為唯讀。',
@@ -864,6 +884,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: '无 Claude Code 数据',
       notRunning: 'Claude Code 未运行',
       error: '错误',
+      refreshFailed: '用量刷新失败。请重试或查看诊断日志。',
       currentSession: '当前会话',
     },
     popup: {
@@ -1007,6 +1028,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: '无效的会话 ID,无法恢复。',
       sessionFilterCurrent: '当前工程',
       sessionFilterAll: '全部',
+      sessionRangeToday: '今天',
+      sessionRange7d: '7 天',
+      sessionRange30d: '30 天',
+      sessionModelAll: '全部模型',
       deleteSession: '删除会话',
       deleteSessionConfirm: '删除会话「{name}」？',
       deleteSessionDetail: '对话日志将移至回收站（可恢复）。本扩展其余部分为只读。',
@@ -1081,6 +1106,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'Claude Code データなし',
       notRunning: 'Claude Code 未実行',
       error: 'エラー',
+      refreshFailed: '使用量の更新に失敗しました。再試行するか診断ログを確認してください。',
       currentSession: '現在のセッション',
     },
     popup: {
@@ -1228,6 +1254,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: '無効なセッションIDのため再開できません。',
       sessionFilterCurrent: '現在のプロジェクト',
       sessionFilterAll: 'すべて',
+      sessionRangeToday: '今日',
+      sessionRange7d: '7日間',
+      sessionRange30d: '30日間',
+      sessionModelAll: 'すべてのモデル',
       deleteSession: 'セッションを削除',
       deleteSessionConfirm: 'セッション「{name}」を削除しますか？',
       deleteSessionDetail: '会話ログはゴミ箱に移動します（復元可能）。この拡張機能は他の部分では読み取り専用です。',
@@ -1303,6 +1333,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'Claude Code 데이터 없음',
       notRunning: 'Claude Code 실행되지 않음',
       error: '오류',
+      refreshFailed: '사용량 새로 고침에 실패했습니다. 다시 시도하거나 진단 로그를 확인하세요.',
       currentSession: '현재 세션',
     },
     popup: {
@@ -1450,6 +1481,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: '잘못된 세션 ID입니다 — 재개할 수 없습니다.',
       sessionFilterCurrent: '현재 프로젝트',
       sessionFilterAll: '전체',
+      sessionRangeToday: '오늘',
+      sessionRange7d: '7일',
+      sessionRange30d: '30일',
+      sessionModelAll: '전체 모델',
       deleteSession: '세션 삭제',
       deleteSessionConfirm: '세션 "{name}"을(를) 삭제할까요?',
       deleteSessionDetail: '대화 로그가 휴지통으로 이동합니다(복구 가능). 확장 프로그램은 그 외에는 읽기 전용입니다.',
@@ -1525,6 +1560,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'Sem dados do Claude Code',
       notRunning: 'Claude Code não está em execução',
       error: 'Erro',
+      refreshFailed: 'Falha ao atualizar o uso. Tente novamente ou verifique os logs de diagnóstico.',
       currentSession: 'Sessão',
     },
     popup: {
@@ -1672,6 +1708,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: 'ID de sessão inválido — não é possível retomar.',
       sessionFilterCurrent: 'Projeto atual',
       sessionFilterAll: 'Todos',
+      sessionRangeToday: 'Hoje',
+      sessionRange7d: '7 dias',
+      sessionRange30d: '30 dias',
+      sessionModelAll: 'Todos os modelos',
       deleteSession: 'Excluir sessão',
       deleteSessionConfirm: 'Excluir a sessão "{name}"?',
       deleteSessionDetail: 'O log da conversa vai para a lixeira (recuperável). A extensão é somente leitura no restante.',
@@ -1746,6 +1786,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       noData: 'Tidak Ada Data Claude Code',
       notRunning: 'Claude Code Tidak Berjalan',
       error: 'Error',
+      refreshFailed: 'Gagal menyegarkan penggunaan. Coba lagi atau periksa log diagnostik.',
       currentSession: 'Sesi',
     },
     popup: {
@@ -1894,6 +1935,10 @@ const translations: Record<SupportedLanguage, Translations> = {
       resumeInvalid: 'ID sesi tidak valid — tidak dapat dilanjutkan.',
       sessionFilterCurrent: 'Proyek saat ini',
       sessionFilterAll: 'Semua',
+      sessionRangeToday: 'Hari ini',
+      sessionRange7d: '7 hari',
+      sessionRange30d: '30 hari',
+      sessionModelAll: 'Semua model',
       deleteSession: 'Hapus sesi',
       deleteSessionConfirm: 'Hapus sesi "{name}"?',
       deleteSessionDetail: 'Log percakapannya dipindahkan ke sampah (dapat dipulihkan). Selebihnya extension ini bersifat baca-saja.',
@@ -1990,10 +2035,11 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'showOpusWeekly': { label: 'Wöchentliches Opus-Limit anzeigen', help: 'Hängen Sie die wöchentliche Opus-Obergrenze (opus:NN%) hinter die 5h / Wochenwerte an.' },
     'quotaFiveHourOnly': { label: 'Kontingent: nur 5-Stunden-Fenster', help: 'Nur das 5-Stunden-Kontingent in der Statusleiste zeigen, den Wochenwert ausblenden (Reset-Details bleiben im Tooltip).' },
     'showResetInStatusBar': { label: 'Kontingent: Reset-Countdown zeigen', help: 'Kompakten Reset-Countdown in der Statusleiste anhängen (5h 6% ↻4.8h). Aus hält es sauber (5h 6% · wk 1%); der Tooltip zeigt immer volle Reset-Zeiten.' },
+    'resetCountdownFormat': { label: 'Kontingent: Format des Reset-Countdowns', help: 'Gilt nur, wenn „Kontingent: Reset-Countdown zeigen“ aktiv ist. Dezimal (4.8h / 1.6d), ganze Einheiten (4h 48m / 1d 14h) oder die lokale Uhrzeit/Datum deines Rechners (18:20 / 2026-07-22).' },
     'workflowQuotaWarnPercent': { label: 'Warnung bei Workflow-Kontingent %', help: 'Warnt vor einem Lauf, wenn das verbleibende 5h-Kontingent darunter liegt. 0 = aus.' },
     'dataDirectory': { label: 'Benutzerdefiniertes Datenverzeichnis', help: 'Claude-Datenverzeichnis; leer = automatisch erkennen.' },
     'refreshInterval': { label: 'Aktualisierungsintervall (s)', help: '' },
-    'fileWatchSeconds': { label: 'Verzögerung der Live-Aktualisierung', help: 'Wie schnell das Dashboard nach neuer Aktivität aktualisiert. Liest nur LOKALE Log-Dateien neu (kein API-Aufruf; der Kontingent-Abruf wird separat gedrosselt). „Aus“ deaktiviert die Live-Überwachung; eine längere Verzögerung schont die CPU.' },
+    'fileWatchSeconds': { label: 'Verzögerung der Live-Aktualisierung', help: 'Wartezeit nach der letzten lokalen JSONL-Änderung vor der Aktualisierung (Ruhe-Debounce; jedes neue Ereignis startet die Wartezeit neu). Es erfolgt kein API-Aufruf; Kontingent-Abfragen werden separat gedrosselt. „Aus“ deaktiviert die Überwachung, 60–300 s schont große Verläufe am stärksten.' },
     'showInsights': { label: 'Experimentelle Insights anzeigen', help: 'Standardmäßig aus. Fügt dem Content-Tab einen Abschnitt „Experimentelle Insights“ hinzu (Cache-Churn-Rechnung, Cache-Wärme pro Modell, große Einzelantworten, aktive Stunden, Skill-ROI) — heuristische Schätzungen aus deinen lokalen Logs, als Schätzungen gekennzeichnet.' },
     'showConversationViewer': { label: 'Gesprächs-Viewer aktivieren', help: 'Standardmäßig an. Fügt dem Sitzungen-Tab eine Ansicht-Schaltfläche hinzu, um ein früheres Gespräch schreibgeschützt erneut zu lesen, ohne es in den Modellkontext zu laden. Liest nur lokale Logs.' },
     'dashboardAutoRefresh': { label: 'Dashboard-Auto-Aktualisierung', help: 'Aktualisiert das Dashboard automatisch bei neuer Nutzung. Aus = nur manuelle Aktualisierung (die Statusleiste aktualisiert weiter).' },
@@ -2028,10 +2074,11 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'showOpusWeekly': { label: '顯示每週 Opus 限制', help: '在 5 小時 / 每週數字後附加每週 Opus 上限 (opus:NN%)。' },
     'quotaFiveHourOnly': { label: '配額：僅 5 小時視窗', help: '狀態列只顯示 5 小時配額，隱藏每週數字（重置詳情仍在 tooltip）。' },
     'showResetInStatusBar': { label: '配額：顯示重置倒數', help: '在狀態列附加精簡的重置倒數（5h 6% ↻4.8h）。關閉則保持清爽（5h 6% · wk 1%）；tooltip 一律顯示完整重置時間。' },
+    'resetCountdownFormat': { label: '配額：重置倒數格式', help: '僅在「配額：顯示重置倒數」開啟時生效。小數（4.8h / 1.6d）、整數單位（4h 48m / 1d 14h），或你電腦的本地時間／日期（18:20 / 2026-07-22）。' },
     'workflowQuotaWarnPercent': { label: '工作流程配額警告 %', help: '當剩餘 5 小時配額低於此值時，在執行前發出警告。0 = 關閉。' },
     'dataDirectory': { label: '自訂資料目錄', help: 'Claude 資料目錄；空白 = 自動偵測。' },
     'refreshInterval': { label: '重新整理間隔 (秒)', help: '' },
-    'fileWatchSeconds': { label: '即時重新整理延遲', help: '有新活動後儀表板多快重新整理。只會重讀本機的紀錄檔（不呼叫 API；配額查詢另外節流）。「關閉」會停用即時監控；延遲越長越省 CPU。' },
+    'fileWatchSeconds': { label: '即時重新整理延遲', help: '在最後一次本機 JSONL 變更後等待多久才重新整理（安靜期去抖；每個新事件都會重新計時）。不會呼叫 API；配額查詢另行節流。「關閉」會停用監控，60–300 秒最適合降低大量歷史資料的 CPU 負載。' },
     'showInsights': { label: '顯示實驗性洞察', help: '預設關閉。在 Content 分頁加入「實驗性洞察」區塊（快取損耗帳單、各模型快取有效時長、大型單輪、活躍時段、技能 ROI）——皆為本機紀錄的啟發式估算，已標註為估計值。' },
     'showConversationViewer': { label: '啟用對話檢視器', help: '預設開啟。在「會話」分頁加入「檢視」按鈕，可唯讀地重讀先前的對話，而不會載入模型上下文。只讀取本機紀錄。' },
     'dashboardAutoRefresh': { label: '儀表板自動重新整理', help: '有新用量時自動重新整理儀表板。關閉 = 僅手動重新整理（狀態列仍會更新）。' },
@@ -2066,10 +2113,11 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'showOpusWeekly': { label: '显示每周 Opus 限制', help: '在 5 小时 / 每周数字后附加每周 Opus 上限 (opus:NN%)。' },
     'quotaFiveHourOnly': { label: '配额：仅 5 小时窗口', help: '状态栏只显示 5 小时配额，隐藏每周数字（重置详情仍在 tooltip）。' },
     'showResetInStatusBar': { label: '配额：显示重置倒计时', help: '在状态栏附加精简的重置倒计时（5h 6% ↻4.8h）。关闭则保持清爽（5h 6% · wk 1%）；tooltip 一律显示完整重置时间。' },
+    'resetCountdownFormat': { label: '配额：重置倒计时格式', help: '仅在“配额：显示重置倒计时”开启时生效。小数（4.8h / 1.6d）、整数单位（4h 48m / 1d 14h），或你电脑的本地时间／日期（18:20 / 2026-07-22）。' },
     'workflowQuotaWarnPercent': { label: '工作流配额警告 %', help: '当剩余 5 小时配额低于此值时，运行前发出警告。0 = 关闭。' },
     'dataDirectory': { label: '自定义数据目录', help: 'Claude 数据目录；空 = 自动检测。' },
     'refreshInterval': { label: '刷新间隔 (秒)', help: '' },
-    'fileWatchSeconds': { label: '实时刷新延迟', help: '有新活动后仪表板多快刷新。只重读本地日志文件（不调用 API；配额查询单独节流）。“关闭”会停用实时监控；延迟越长越省 CPU。' },
+    'fileWatchSeconds': { label: '实时刷新延迟', help: '在最后一次本地 JSONL 变更后等待多久再刷新（静默期防抖；每个新事件都会重新计时）。不会调用 API；配额查询单独节流。“关闭”会停用监控，60–300 秒最适合降低大历史的 CPU 负载。' },
     'showInsights': { label: '显示实验性洞察', help: '默认关闭。在 Content 标签页加入「实验性洞察」区块（缓存损耗账单、各模型缓存有效时长、大单轮、活跃时段、技能 ROI）——皆为本地日志的启发式估算，已标注为估计值。' },
     'showConversationViewer': { label: '启用对话查看器', help: '默认开启。在「会话」标签页加入「查看」按钮，可只读地重读先前的对话，而不会载入模型上下文。只读取本地日志。' },
     'dashboardAutoRefresh': { label: '仪表板自动刷新', help: '有新用量时自动刷新仪表板。关闭 = 仅手动刷新（状态栏仍会更新）。' },
@@ -2104,10 +2152,11 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'showOpusWeekly': { label: '週間 Opus 制限を表示', help: '5時間 / 週間の数値の後に、週間 Opus 上限 (opus:NN%) を追加します。' },
     'quotaFiveHourOnly': { label: 'クォータ：5時間ウィンドウのみ', help: 'ステータスバーに 5 時間クォータのみ表示し、週間の数値を隠します（リセット詳細は tooltip に残ります）。' },
     'showResetInStatusBar': { label: 'クォータ：リセットのカウントダウンを表示', help: 'ステータスバーに簡潔なリセットのカウントダウンを追加（5h 6% ↻4.8h）。オフだとすっきり（5h 6% · wk 1%）。tooltip には常に完全なリセット時刻を表示します。' },
+    'resetCountdownFormat': { label: 'クォータ：リセットのカウントダウン形式', help: '「クォータ：リセットのカウントダウンを表示」がオンのときのみ適用されます。10進数（4.8h / 1.6d）、単位表示（4h 48m / 1d 14h）、またはお使いのコンピュータのローカル時刻／日付（18:20 / 2026-07-22）。' },
     'workflowQuotaWarnPercent': { label: 'ワークフロークォータ警告 %', help: '残りの 5 時間クォータがこれを下回る場合、実行前に警告します。0 = オフ。' },
     'dataDirectory': { label: 'カスタムデータディレクトリ', help: 'Claude データディレクトリ。空 = 自動検出。' },
     'refreshInterval': { label: '更新間隔 (秒)', help: '' },
-    'fileWatchSeconds': { label: 'ライブ更新の遅延', help: '新しいアクティビティの後、ダッシュボードをどれだけ早く更新するか。ローカルのログファイルのみを再読み込みします（API 呼び出しなし。クォータ取得は別途スロットリング）。「オフ」でライブ監視を無効化。遅延を長くすると CPU に優しくなります。' },
+    'fileWatchSeconds': { label: 'ライブ更新の遅延', help: '最後のローカル JSONL 変更から更新まで待つ時間です（quiet debounce。新しいイベントごとに待ち時間をリセット）。API は呼び出さず、クォータ取得は別に抑制されます。Off で監視を無効化し、大きな履歴では 60～300 秒が最も CPU 負荷を抑えます。' },
     'showInsights': { label: '実験的インサイトを表示', help: '既定はオフ。Content タブに「実験的インサイト」セクションを追加します（キャッシュ損耗、モデル別キャッシュ有効時間、大きな単発ターン、活動時間帯、スキル ROI）。いずれもローカルログからのヒューリスティックな推定で、推定値として表示されます。' },
     'showConversationViewer': { label: '会話ビューアを有効化', help: '既定はオン。セッションタブに「表示」ボタンを追加し、過去の会話をモデルのコンテキストに読み込まずに読み取り専用で読み返せます。ローカルログのみを読み取ります。' },
     'dashboardAutoRefresh': { label: 'ダッシュボードの自動更新', help: '新しい使用があるとダッシュボードを自動更新します。オフ = 手動更新のみ（ステータスバーは更新を続行）。' },
@@ -2142,10 +2191,11 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'showOpusWeekly': { label: '주간 Opus 제한 표시', help: '5시간 / 주간 수치 뒤에 주간 Opus 한도 (opus:NN%)를 추가합니다.' },
     'quotaFiveHourOnly': { label: '할당량: 5시간 창만', help: '상태 표시줄에 5시간 할당량만 표시하고 주간 수치는 숨깁니다(초기화 세부정보는 tooltip에 유지).' },
     'showResetInStatusBar': { label: '할당량: 초기화 카운트다운 표시', help: '상태 표시줄에 간결한 초기화 카운트다운을 추가합니다(5h 6% ↻4.8h). 끄면 깔끔하게 유지(5h 6% · wk 1%); tooltip에는 항상 전체 초기화 시각이 표시됩니다.' },
+    'resetCountdownFormat': { label: '할당량: 초기화 카운트다운 형식', help: '"할당량: 초기화 카운트다운 표시"가 켜져 있을 때만 적용됩니다. 소수(4.8h / 1.6d), 단위(4h 48m / 1d 14h), 또는 사용자 컴퓨터의 현지 시각/날짜(18:20 / 2026-07-22) 중 선택합니다.' },
     'workflowQuotaWarnPercent': { label: '워크플로우 할당량 경고 %', help: '남은 5시간 할당량이 이보다 낮을 때 실행 전에 경고합니다. 0 = 끄기.' },
     'dataDirectory': { label: '사용자 지정 데이터 디렉터리', help: 'Claude 데이터 디렉터리; 비워두면 자동 감지.' },
     'refreshInterval': { label: '새로 고침 간격 (초)', help: '' },
-    'fileWatchSeconds': { label: '실시간 새로고침 지연', help: '새 활동 후 대시보드가 얼마나 빨리 새로고침되는지. 로컬 로그 파일만 다시 읽습니다(API 호출 없음, 할당량 조회는 별도로 제한). "끄기"는 실시간 감시를 비활성화하며, 지연이 길수록 CPU 부담이 적습니다.' },
+    'fileWatchSeconds': { label: '실시간 새로고침 지연', help: '마지막 로컬 JSONL 변경 후 새로 고침까지 기다리는 시간입니다(quiet debounce, 새 이벤트마다 대기 시간이 다시 시작됨). API를 호출하지 않으며 할당량 조회는 별도로 제한됩니다. 끄기는 감시를 비활성화하고, 큰 기록에서는 60~300초가 CPU 부담을 가장 줄입니다.' },
     'showInsights': { label: '실험적 인사이트 표시', help: '기본값 꺼짐. Content 탭에 "실험적 인사이트" 섹션을 추가합니다(캐시 소모 청구, 모델별 캐시 유지 시간, 대형 단일 턴, 활동 시간대, 스킬 ROI). 모두 로컬 로그 기반 추정치이며 추정값으로 표시됩니다.' },
     'showConversationViewer': { label: '대화 뷰어 사용', help: '기본값 켜짐. 세션 탭에 "보기" 버튼을 추가하여 이전 대화를 모델 컨텍스트에 불러오지 않고 읽기 전용으로 다시 읽을 수 있습니다. 로컬 로그만 읽습니다.' },
     'dashboardAutoRefresh': { label: '대시보드 자동 새로 고침', help: '새 사용량이 들어오면 대시보드를 자동 새로 고침. 끄면 수동 새로 고침만(상태 표시줄은 계속 업데이트).' },
@@ -2177,10 +2227,11 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'contextWindowOverride': { label: 'Substituir janela de contexto (tokens)', help: '0 = detectar automaticamente pelo modelo. Defina sua janela real (ex.: 1000000) para modelos de proxy ou personalizados que a detecção automática não reconhece.' },
     'usageLimitTracking': { label: 'Mostrar cota de 5 horas / semanal', help: '' },
     'showOpusWeekly': { label: 'Mostrar limite semanal do Opus', help: 'Acrescenta o teto semanal do Opus (opus:NN%) após os valores de 5h / semanais.' },
+    'resetCountdownFormat': { label: 'Cota: formato da contagem regressiva de reset', help: 'Só se aplica quando "Cota: mostrar contagem regressiva de reset" está ativado. Decimal (4.8h / 1.6d), unidades inteiras (4h 48m / 1d 14h), ou o horário/data local do seu computador (18:20 / 2026-07-22).' },
     'workflowQuotaWarnPercent': { label: 'Aviso de cota de workflow %', help: 'Avisa antes de uma execução quando a cota de 5h restante estiver abaixo disto. 0 = desligado.' },
     'dataDirectory': { label: 'Diretório de dados personalizado', help: 'Diretório de dados do Claude; vazio = detectar automaticamente.' },
     'refreshInterval': { label: 'Intervalo de atualização (s)', help: '' },
-    'fileWatchSeconds': { label: 'Atraso da atualização em tempo real', help: 'Com que rapidez o painel atualiza após nova atividade. Apenas relê os arquivos de log LOCAIS (sem chamada de API; a busca de cota é limitada separadamente). "Desligado" desativa o monitoramento em tempo real; um atraso maior poupa CPU.' },
+    'fileWatchSeconds': { label: 'Atraso da atualização em tempo real', help: 'Tempo de espera após a última alteração JSONL local antes de atualizar (quiet debounce; cada novo evento reinicia a espera). Nenhuma API é chamada; as consultas de cota são limitadas separadamente. “Desligado” desativa o monitoramento, e 60–300 s reduz mais a CPU em históricos grandes.' },
     'showInsights': { label: 'Mostrar insights experimentais', help: 'Desligado por padrão. Adiciona uma seção "Insights experimentais" na aba Content (conta de desgaste de cache, calor de cache por modelo, turnos únicos grandes, horas ativas, ROI de skills) — estimativas heurísticas dos seus logs locais, rotuladas como estimativas.' },
     'showConversationViewer': { label: 'Ativar visualizador de conversas', help: 'Ligado por padrão. Adiciona um botão de visualização na aba Sessões para reler uma conversa anterior somente leitura, sem carregá-la no contexto do modelo. Lê apenas logs locais.' },
     'pauseDashboardRefresh': { label: 'Pausar atualização do dashboard', help: 'A barra de status continua atualizando; o dashboard só atualiza manualmente.' },

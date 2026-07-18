@@ -287,6 +287,8 @@ export interface ExtensionConfig {
   // Quota status-bar display (V2.2): inline reset countdown; 5h-only.
   showResetInStatusBar: boolean;
   quotaFiveHourOnly: boolean;
+  // Format of the reset countdown appended to the quota item (issue #74).
+  resetCountdownFormat: 'decimal' | 'units' | 'clock';
   // Fetch real 5-hour / weekly limit utilisation via Claude Code's OAuth session.
   usageLimitTracking: boolean;
   // LLM "usage advice" feature (OpenAI-compatible endpoint, e.g. DeepSeek).
@@ -314,9 +316,7 @@ export interface ExtensionConfig {
   //   - 'folder' group by the heuristic top-level project folder only
   //   - 'flat'   no grouping; every working directory is its own row
   projectGroupingMode: 'git' | 'folder' | 'flat';
-  // Live refresh delay (seconds) after new activity in the LOCAL log files.
-  // 0 = off (fall back to the interval-based refresh). Values: 0/1/2/5/10/20/30.
-  // Only re-reads local files — the /usage quota fetch is throttled separately.
+  // Quiet period after the last JSONL watcher event; 0 disables watching.
   fileWatchSeconds: number;
   // Skip the dashboard webview on auto-refreshes (status bar still updates).
   // Use when the constantly-reloading dashboard interferes with reading

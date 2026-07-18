@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ClaudeApiUsageResponse, ClaudeUsageLimit, ContextWindowInfo, UsageData } from './types';
 import { I18n } from './i18n';
-import { formatQuotaStatusText, worstShownUtilisation, QuotaStatusOptions } from './quotaFormat';
+import { formatQuotaStatusText, worstShownUtilisation, QuotaStatusOptions, ResetCountdownFormat } from './quotaFormat';
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
@@ -20,6 +20,7 @@ export class StatusBarManager {
   // Quota display preferences.
   private quotaFiveHourOnly: boolean = false; // show only the 5h window
   private showResetInBar: boolean = false;    // append reset countdown to the bar
+  private resetCountdownFormat: ResetCountdownFormat = 'decimal'; // style of that countdown (#74)
 
   constructor() {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -56,7 +57,8 @@ export class StatusBarManager {
     metric: 'cost' | 'monthly-cost' | 'tokens' = 'cost',
     showOpusWeekly: boolean = false,
     quotaFiveHourOnly: boolean = false,
-    showResetInBar: boolean = false
+    showResetInBar: boolean = false,
+    resetCountdownFormat: ResetCountdownFormat = 'decimal'
   ): void {
     this.showCost = showCost;
     this.showContext = showContext;
@@ -65,6 +67,7 @@ export class StatusBarManager {
     this.showOpusWeekly = showOpusWeekly;
     this.quotaFiveHourOnly = quotaFiveHourOnly;
     this.showResetInBar = showResetInBar;
+    this.resetCountdownFormat = resetCountdownFormat;
     if (!showContext) {
       this.contextItem.hide();
     }
@@ -240,7 +243,8 @@ export class StatusBarManager {
     const opts: QuotaStatusOptions = {
       showReset: this.showResetInBar,
       fiveHourOnly: this.quotaFiveHourOnly,
-      showOpusWeekly: this.showOpusWeekly
+      showOpusWeekly: this.showOpusWeekly,
+      resetFormat: this.resetCountdownFormat
     };
     const text = formatQuotaStatusText(live, opts);
     if (!text) {

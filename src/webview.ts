@@ -9,6 +9,7 @@ import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename 
 import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
 import { parseConversation } from './conversationLog';
 import { renderConversationViewer } from './conversationViewerHtml';
+import { formatUsageDate, shortUsageDate } from './usageDateLabels';
 import * as os from 'os';
 import * as path from 'path';
 import * as https from 'https';
@@ -1416,7 +1417,7 @@ export class UsageWebviewProvider {
         ${this.renderCompositionChart(
           [...this.dailyDataForAllTime]
             .sort((a, b) => a.date.localeCompare(b.date))
-            .map((d) => ({ label: this.getShortDate(d.date), data: d.data, key: d.date }))
+            .map((d) => ({ label: this.getShortDate(d.date, true), data: d.data, key: d.date }))
         )}
 
         <div class="daily-table-container">
@@ -1439,7 +1440,7 @@ export class UsageWebviewProvider {
                 .map(
                   ({ date, data }) => `
                 <tr class="daily-row" data-date="${date}">
-                  <td class="date-cell">${this.formatDate(date)}</td>
+                  <td class="date-cell">${this.formatDate(date, true)}</td>
                   <td class="cost-cell">${I18n.formatCurrency(data.totalCost)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalInputTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalOutputTokens)}</td>
@@ -1709,6 +1710,8 @@ export class UsageWebviewProvider {
     // first→last span. Computed once for the whole table.
     const activeMap = ClaudeDataLoader.activeDurationBySession(this.allRecords);
     let rows = '';
+    // Distinct short model names across all sessions → the model filter dropdown.
+    const modelSet = new Set<string>();
     this.sessionBreakdown.forEach((s) => {
       const d = s.data;
       const foreign = workspacePath
@@ -1745,9 +1748,13 @@ export class UsageWebviewProvider {
           : thinkingHidden
             ? t.thinkingHiddenShort
             : '-';
+      // Distinct short model names for this session → the model filter matches on these.
+      const rowModels = [...new Set(Object.keys(d.modelBreakdown || {}).map((m) => this.shortModelName(m)))];
+      rowModels.forEach((m) => modelSet.add(m));
       rows +=
         '<tr class="sort-row' + (foreign ? ' session-foreign' : '') + '"' +
         ' data-sort-time="' + s.startTime.getTime() + '"' +
+        ' data-models="' + this.escapeHtml(rowModels.join('|').toLowerCase()) + '"' +
         ' data-sort-session="' + this.escapeHtml(fullName.toLowerCase()) + '"' +
         ' data-sort-project="' + this.escapeHtml((s.projectName || '').toLowerCase()) + '"' +
         ' data-sort-context="' + s.peakContextTokens + '"' +
@@ -1803,25 +1810,43 @@ export class UsageWebviewProvider {
     const th = (key: string, label: string): string =>
       '<th class="sortable" data-sortkey="' + key + '">' + label + '</th>';
 
-    // Filter the list to the current project (default) or all.
+    // Filter bar above the table: time range · project · model. All three narrow the
+    // list client-side; the list now defaults to ALL sessions and ALL projects.
     const total = this.sessionBreakdown.length;
     const foreignCount = total - currentCount;
     const showToggle = !!workspacePath && currentCount > 0 && foreignCount > 0;
-    const filterBar = showToggle
-      ? '<div class="sess-filter">' +
-        '<button class="sess-filter-btn active" data-mode="current" onclick="sessionFilter(this)">' +
-          this.escapeHtml(t.sessionFilterCurrent) + ' (' + currentCount + ')</button>' +
-        '<button class="sess-filter-btn" data-mode="all" onclick="sessionFilter(this)">' +
-          this.escapeHtml(t.sessionFilterAll) + ' (' + total + ')</button>' +
-        '</div>'
-      : '';
+    const modelOptions = [...modelSet]
+      .sort()
+      .map((m) => '<option value="' + this.escapeHtml(m.toLowerCase()) + '">' + this.escapeHtml(m) + '</option>')
+      .join('');
+    const filterBar =
+      '<div class="sess-filters">' +
+      '<div class="sess-filter" data-group="range">' +
+        '<button class="sess-filter-btn active" data-range="all" onclick="sessionRange(this)">' + this.escapeHtml(t.sessionFilterAll) + '</button>' +
+        '<button class="sess-filter-btn" data-range="today" onclick="sessionRange(this)">' + this.escapeHtml(t.sessionRangeToday) + '</button>' +
+        '<button class="sess-filter-btn" data-range="7" onclick="sessionRange(this)">' + this.escapeHtml(t.sessionRange7d) + '</button>' +
+        '<button class="sess-filter-btn" data-range="30" onclick="sessionRange(this)">' + this.escapeHtml(t.sessionRange30d) + '</button>' +
+      '</div>' +
+      (showToggle
+        ? '<div class="sess-filter" data-group="project">' +
+          '<button class="sess-filter-btn" data-mode="current" onclick="sessionFilter(this)">' + this.escapeHtml(t.sessionFilterCurrent) + ' (' + currentCount + ')</button>' +
+          '<button class="sess-filter-btn active" data-mode="all" onclick="sessionFilter(this)">' + this.escapeHtml(t.sessionFilterAll) + ' (' + total + ')</button>' +
+          '</div>'
+        : '') +
+      (modelOptions
+        ? '<select class="sess-model-select" title="' + this.escapeHtml(t.sessionModelAll) + '" onchange="sessionModel(this)">' +
+          '<option value="all">' + this.escapeHtml(t.sessionModelAll) + '</option>' +
+          modelOptions +
+          '</select>'
+        : '') +
+      '</div>';
 
     return (
       '<div class="daily-breakdown">' +
       '<h3>' + t.sessionBreakdown + '</h3>' +
       '<p class="table-hint">' + t.sortHint + '</p>' +
       filterBar +
-      '<div class="session-list' + (showToggle ? ' show-current' : '') + '" id="sessionList">' +
+      '<div class="session-list" id="sessionList">' +
       '<div class="daily-table-container">' +
       '<table class="daily-table sortable-table">' +
       '<thead><tr>' +
@@ -3228,7 +3253,7 @@ export class UsageWebviewProvider {
 
   private renderAllTimeChart(): string {
     const sortedData = [...this.dailyDataForAllTime].sort((a, b) => a.date.localeCompare(b.date));
-    return this.renderMainCostChart(sortedData);
+    return this.renderMainCostChart(sortedData, true);
   }
 
   /**
@@ -3266,7 +3291,7 @@ export class UsageWebviewProvider {
     );
   }
 
-  private renderMainCostChart(sortedData: { date: string; data: UsageData }[]): string {
+  private renderMainCostChart(sortedData: { date: string; data: UsageData }[], monthly = false): string {
     if (sortedData.length === 0) {
       return '<div class="no-chart-data">No data available</div>';
     }
@@ -3293,7 +3318,7 @@ export class UsageWebviewProvider {
           'data-cost-output="' + cb.output + '" ' +
           'data-cost-cachewrite="' + cb.cacheWrite + '" ' +
           'data-cost-cacheread="' + cb.cacheRead + '" ' +
-          'title="' + this.escapeHtml(this.formatDate(date)) + ': ' + I18n.formatCurrency(data.totalCost) + '">' +
+          'title="' + this.escapeHtml(this.formatDate(date, monthly)) + ': ' + I18n.formatCurrency(data.totalCost) + '">' +
           costStack(data, barHeight) +
           '</div>' +
           '</div>'
@@ -3302,7 +3327,7 @@ export class UsageWebviewProvider {
       .join('');
 
     const xlabels = sortedData
-      .map(({ date }) => '<div class="hc-xlabel">' + this.getShortDate(date) + '</div>')
+      .map(({ date }) => '<div class="hc-xlabel">' + this.getShortDate(date, monthly) + '</div>')
       .join('');
 
     return (
@@ -3387,25 +3412,12 @@ export class UsageWebviewProvider {
     );
   }
 
-  private getShortDate(dateString: string): string {
-    // Parse 'YYYY-MM-DD' textually — new Date('YYYY-MM-DD') is UTC midnight,
-    // which shifts the displayed day back by one in negative-UTC timezones.
-    const [y, m, d] = dateString.split('-').map(Number);
-    // Month-only dates (first of month) label as YYYY/MM for monthly charts.
-    if (dateString.endsWith('-01')) {
-      return `${y}/${String(m).padStart(2, '0')}`;
-    }
-    return `${m}/${d}`;
+  private getShortDate(dateString: string, monthly = false): string {
+    return shortUsageDate(dateString, monthly);
   }
 
-  private formatDate(dateString: string): string {
-    const date = new Date(dateString);
-    // Check if this is a month-only date (ends with -01)
-    if (dateString.endsWith('-01')) {
-      return date.toLocaleDateString(I18n.getLocale(), I18n.dateFormatOptions({ year: 'numeric', month: 'long' }));
-    }
-    // Standard date formatting for daily data, locale + timezone aware.
-    return date.toLocaleDateString(I18n.getLocale(), I18n.dateFormatOptions());
+  private formatDate(dateString: string, monthly = false): string {
+    return formatUsageDate(dateString, I18n.getLocale(), I18n.dateFormatOptions(), monthly);
   }
 
   private getStyles(): string {
@@ -3794,11 +3806,17 @@ export class UsageWebviewProvider {
         border-color: var(--vscode-errorForeground, #f44336);
       }
 
-      /* Sessions "current project / all" filter. */
+      /* Sessions filter bar: time range · project · model. */
+      .sess-filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 10px;
+      }
       .sess-filter {
         display: flex;
         gap: 6px;
-        margin: 0 0 10px;
       }
       .sess-filter-btn {
         background: none;
@@ -3814,8 +3832,13 @@ export class UsageWebviewProvider {
         color: var(--vscode-button-foreground);
         border-color: var(--vscode-button-background);
       }
-      .session-list.show-current .session-foreign {
-        display: none;
+      .sess-model-select {
+        background: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-size: 12px;
       }
 
       /* iOS-style auto-refresh toggle. The label/switch sit next to the other
@@ -5392,28 +5415,81 @@ function viewConversation(btn) {
   });
 }
 
-function applySessionFilter(mode) {
+function ccuSessState() {
+  var pb = document.querySelector('.sess-filter[data-group="project"] .sess-filter-btn.active');
+  var rb = document.querySelector('.sess-filter[data-group="range"] .sess-filter-btn.active');
+  var ms = document.querySelector('.sess-model-select');
+  return {
+    project: pb ? pb.getAttribute('data-mode') : 'all',
+    range: rb ? rb.getAttribute('data-range') : 'all',
+    model: ms ? ms.value : 'all'
+  };
+}
+function applySessionFilters() {
   var list = document.getElementById('sessionList');
   if (!list) { return; }
-  list.classList.toggle('show-current', mode === 'current');
-  document.querySelectorAll('.sess-filter-btn').forEach(function(b) {
-    b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+  var st = ccuSessState();
+  var now = Date.now();
+  var threshold = st.range === 'today' ? new Date().setHours(0, 0, 0, 0)
+    : st.range === '7' ? now - 7 * 86400000
+    : st.range === '30' ? now - 30 * 86400000
+    : 0;
+  list.querySelectorAll('tr.sort-row').forEach(function(tr) {
+    var okProject = st.project === 'all' || !tr.classList.contains('session-foreign');
+    var okTime = st.range === 'all' || Number(tr.getAttribute('data-sort-time')) >= threshold;
+    var okModel = st.model === 'all' || (tr.getAttribute('data-models') || '').split('|').indexOf(st.model) !== -1;
+    tr.style.display = (okProject && okTime && okModel) ? '' : 'none';
   });
+}
+// One handler per filter group; all persist and re-apply the combined filter.
+function ccuSetActive(btn) {
+  var group = btn.parentNode;
+  if (!group) { return; }
+  group.querySelectorAll('.sess-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
 }
 function sessionFilter(btn) {
   if (!btn) { return; }
-  var mode = btn.getAttribute('data-mode');
-  applySessionFilter(mode);
-  // Persist so the full-document reload (e.g. after a delete) keeps the filter.
-  try { localStorage.setItem('ccu.sessionFilter', mode); } catch (e) {}
+  ccuSetActive(btn);
+  try { localStorage.setItem('ccu.sessionFilter', btn.getAttribute('data-mode')); } catch (e) {}
+  applySessionFilters();
+}
+function sessionRange(btn) {
+  if (!btn) { return; }
+  ccuSetActive(btn);
+  try { localStorage.setItem('ccu.sessionRange', btn.getAttribute('data-range')); } catch (e) {}
+  applySessionFilters();
+}
+function sessionModel(sel) {
+  if (!sel) { return; }
+  try { localStorage.setItem('ccu.sessionModel', sel.value); } catch (e) {}
+  applySessionFilters();
 }
 function restoreSessionFilter() {
+  // Restore each dimension from localStorage (survives the post-delete reload),
+  // then apply once. Defaults (nothing stored) = All range, All projects, All models.
   try {
     var mode = localStorage.getItem('ccu.sessionFilter');
-    if (mode && document.querySelector('.sess-filter-btn[data-mode="' + mode + '"]')) {
-      applySessionFilter(mode);
+    if (mode) {
+      var pb = document.querySelector('.sess-filter[data-group="project"] .sess-filter-btn[data-mode="' + mode + '"]');
+      if (pb) { ccuSetActive(pb); }
+    }
+    var range = localStorage.getItem('ccu.sessionRange');
+    if (range) {
+      var rb = document.querySelector('.sess-filter[data-group="range"] .sess-filter-btn[data-range="' + range + '"]');
+      if (rb) { ccuSetActive(rb); }
+    }
+    var model = localStorage.getItem('ccu.sessionModel');
+    if (model) {
+      var ms = document.querySelector('.sess-model-select');
+      if (ms) {
+        for (var i = 0; i < ms.options.length; i++) {
+          if (ms.options[i].value === model) { ms.value = model; break; }
+        }
+      }
     }
   } catch (e) {}
+  applySessionFilters();
 }
 
 function copyPath(btn, e) {

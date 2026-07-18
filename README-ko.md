@@ -70,9 +70,19 @@ Cursor / Windsurf용으로 [Open VSX Registry](https://open-vsx.org/extension/Gr
 
 **토큰 수가 프로바이더 대시보드보다 적음** — 일부 프록시 / 동적 워크플로는 에이전트별 기록을 하위 디렉터리에 쓰며 불완전할 수 있습니다. 실제 지출은 프로바이더 청구 페이지를 확인하세요. 네이티브 워크플로 귀속 기능은 계획 중입니다.
 
+**큰 기록에서 CPU 사용률이 높거나 새로 고침이 느림(Linux 포함)**
+- V2.2.1은 active 상태에서 숨겨진 8초 폴링 강제를 제거하고 첫 timestamp 읽기를
+  제한합니다. 설치 전에는 **Live refresh delay**를 **Off**, **Refresh interval**을
+  **300–900초**로 설정하고 필요하면 **Content analysis**도 끄세요. Dashboard
+  auto-refresh만 끄면 상태 표시줄용 로그 파싱은 계속됩니다.
+- V2.2.1에서도 높은 사용률이 계속되면 **Show Diagnostic Logs**의 익명 `refresh:`
+  줄만 issue #70에 첨부하세요. prompt, path, session ID, credential, raw log는 포함되지 않습니다.
+
 ## 크레딧
 
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)에서 포크. MIT 라이선스. 커뮤니티 기여는 [CHANGELOG.md](CHANGELOG.md)에 명시. 많은 코드 변경은 [Claude Code](https://claude.com/claude-code)의 도움으로 작성되었습니다.
+
+개발 도구 크레딧: 저장소 유지보수에는 [Claude Code](https://claude.com/claude-code)와 [OpenAI Codex](https://developers.openai.com/codex/)를 함께 사용합니다. 이는 사람 기여자와 분리된 도구 표기이며, Codex를 Release Drafter의 사람 기여자 목록에 넣거나 허위 `Co-Authored-By` 신원을 부여하지 않습니다.
 
 **이슈, PR, 아이디어를 환영합니다** —— 그것이 프로젝트가 성장하는 방식입니다.
 

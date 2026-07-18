@@ -1,9 +1,14 @@
 .vscode/**
 .vscode-test/**
 .claude/**
+.agents/**
+.codex/**
+.worktrees/**
 .github/**
 src/**
 out/test/**
+AGENTS.md
+AGENTS.zh-CN.md
 CLAUDE.md
 CLAUDE.local.md
 CONTRIBUTING.md
@@ -26,3 +31,10 @@ tsconfig.json
 tslint.json
 **/*.ts.map
 **/*.js.map
+**/.env
+**/.env.*
+**/secrets.json
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx

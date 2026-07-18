@@ -4,13 +4,61 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
-## [2.2.0] — Unreleased
+## [2.2.1] — Unreleased
 
 ### Added
-- **Bahasa Indonesia (`id`)** — the extension's 8th UI language: full
-  translation of the dashboard, status bar, settings panel, and the AI-advice
-  demo preview, plus a `README-id.md`. Auto-detected from an `id` system
-  locale, or selectable manually via `language`.
+- **Bahasa Indonesia (`id`) (#76)** — the extension's eighth UI language covers
+  the dashboard, status bar, settings, and AI-advice demo, with a dedicated
+  `README-id.md`. Thanks [@projectronic](https://github.com/projectronic).
+- **Sessions: all sessions + filters (#73)** — the Sessions tab can show all
+  sessions and adds persisted time-range, project, and model filters. Thanks
+  [@Carl723000](https://github.com/Carl723000).
+- **Reset countdown formats (#75, closes #74)** — quota reset countdowns can use
+  decimal, whole-unit, or local clock/date formats. Thanks
+  [@projectronic](https://github.com/projectronic).
+- **Indonesian timezone presets (#77)** — the timezone picker now includes WIB,
+  WITA, and WIT presets. Thanks [@projectronic](https://github.com/projectronic).
+
+### Changed
+- **Codex maintenance handoff** — `AGENTS.md` is now the canonical repository
+  policy with a Simplified-Chinese review copy. Claude Code and OpenAI Codex
+  are credited as development tools, separately from human contributors.
+
+### Fixed
+- **High-CPU refresh mitigation (#70)** — polling now always honors the
+  configured 30–3600 second `refreshInterval`; file watching is quiet-debounce
+  only and adds 60/120/300-second choices. First-timestamp reads stop after the
+  first valid timestamp and run with at most eight readers.
+- **Date labels (#54, PR #71)** — daily rows on the first of a month remain
+  daily labels, while monthly keys no longer shift one month backward in
+  negative-UTC zones. Thanks [@YuboZhang](https://github.com/YuboZhang).
+- **Automatic first-pass language (#72)** — repository bot replies now default
+  to English, using English-first bilingual output only for Chinese authors.
+- **Cold-start refresh failures** — an incomplete first scan now clears the
+  loading state and shows a localized retry/diagnostic message while preserving
+  an existing successful snapshot on later transient failures.
+
+### Diagnostics
+- **Anonymous refresh timings** — Show Diagnostic Logs now reports trigger,
+  file/change/reuse/removal counts, bytes, parsed lines, watcher/coalescing
+  counts, and manifest/read-parse/aggregate-render/total timings. It never logs
+  prompts, paths, session IDs, credentials, or raw JSONL lines.
+
+> This is a mitigation pending Linux prerelease validation. Issue #70 remains
+> open until the reporter confirms the result; the per-file incremental index
+> is tracked separately.
+
+### Security
+- Hardened GitHub first-pass automation with truthful per-tier provider attribution,
+  one code-owned footer, fail-closed PR diff handling, and bounded base-repository file reads
+  with traversal, symlink, hidden-path, and secret-path denial.
+- Manual publish retries now require an explicit existing release tag, check out
+  and verify its fully qualified `refs/tags/` commit, and can target only the
+  registry that needs recovery.
+
+## [2.2.0] — 2026-07-07
+
+### Added
 - **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
   display (`1.2M` / `345.6K`); full integer counts are unaffected.
 - **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)

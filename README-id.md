@@ -74,6 +74,8 @@ Lihat [tabel pengaturan lengkap di README utama](README.md#configuration).
 
 Fork dari [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage). Berlisensi MIT. Kontribusi komunitas dicatat di [CHANGELOG.md](CHANGELOG.md). Banyak perubahan kode disusun dengan bantuan [Claude Code](https://claude.com/claude-code).
 
+Kredit alat pengembangan: pemeliharaan repositori menggunakan [Claude Code](https://claude.com/claude-code) dan [OpenAI Codex](https://developers.openai.com/codex/). Kredit alat ini dipisahkan dari kontributor manusia; Codex tidak ditambahkan ke daftar kontributor manusia Release Drafter dan tidak diberi identitas `Co-Authored-By` yang dibuat-buat.
+
 **Issue, PR, dan ide sangat kami sambut** — begitulah proyek ini berkembang.
 
 ## Lisensi

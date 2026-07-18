@@ -100,6 +100,47 @@ consent prompt.
 
 ---
 
+## What's new in 2.2
+
+- **Usage share card** (opt-in, `enableShareCard`) — a themed, configurable
+  one-page SVG of your usage: pick a range × scope (overall / project / session)
+  × which metrics to show, and a theme (**Claude Classic** / **Cream** /
+  **Aurora Dark** / **Auto**), with an optional GitHub avatar + name.
+  Self-contained and deterministic; no prompts, paths or ids ever leave your
+  machine. Chinese locales use 万/亿 units.
+- **Read-only conversation viewer** (Sessions tab, **on by default**) — a "view"
+  button re-opens a past session's prompts and Markdown-rendered answers so you
+  can jog your memory **without** loading it back into the model's context
+  (unlike resume). Thinking and tool traffic sit behind toggles; opens on the
+  last rounds.
+- **Token heatmap** (opt-in, `showHeatmap`) — a GitHub-style yearly token heatmap
+  on the All tab, plus **Export / Publish to your GitHub profile** as a
+  self-contained SVG with a one-click Markdown embed.
+- **Experimental insights** (opt-in, `showInsights`, Content tab) — labelled
+  estimates from your local logs: a **cache-churn bill** ($ spent re-writing
+  cache after model switches / idle gaps), **cache warmth by model**, **big
+  one-shot turns**, **your active hours**, and **skill ROI** (output tokens
+  returned per $).
+- **Top-10 costliest messages** (opt-in, `showCostliestMessages`) — ranks single
+  turns by cost, splitting a **cache miss** from a long answer, with the
+  cache-hit rate and the time since the last turn.
+- **Sessions "Active" column** — estimated hands-on time per session (idle gaps
+  capped at 1.5 h), far more meaningful than the raw first-to-last span.
+- **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)
+  tables and their drill-downs, so cache efficiency is visible per row.
+- **Live-refresh delay** (`fileWatchSeconds`: Off / 1 / 2 / 5 / 10 / 20 / 30 s)
+  replaces the on/off live-watch toggle; it only re-reads your **local** logs.
+- **Timezone-aware bucketing** — Today / day / month / hour totals all key off
+  your configured IANA zone (full UTC-offset dropdown), so they agree with each
+  other and the Anthropic console.
+- **"What's new" prompt after upgrades** — a single dismissible nudge the first
+  time you run a new major.minor version, so opt-in features stay discoverable.
+- **Fixes** — Sonnet 5 reports a 1M context window (#50); 1-hour cache writes are
+  priced at 2× base input when the log carries the split (#62); background
+  windows refresh on focus instead of going stale (#55); the Timezone setting is
+  a validated dropdown so a bad value can't crash the dashboard (#51); German
+  (de-DE) and Brazilian Portuguese (pt-BR) are selectable everywhere.
+
 ## What's new in 2.1
 
 - **Sessions: resume / copy / delete** — each row can copy the session id,
@@ -300,10 +341,15 @@ authoritative.
   command opens a hand-written demo (filename-marked `…-DEMO-…`, with a prominent
   banner) instead of calling any API. Add a key in Settings to get real advice.
 
-**Sluggish refresh on large histories**
-- 2.0 yields to the event loop every 25 files; idle ticks skip recompute.
-  If you still hit issues, raise `refreshInterval` or set
-  `enableContentAnalysis` to `false`.
+**High CPU or sluggish refresh on a large history (Linux included)**
+- V2.2.1 removes the hidden 8-second active polling override and bounds the
+  first-timestamp scan. Until you install it, set **Live refresh delay** to
+  **Off**, set **Refresh interval** to **300–900 seconds**, and optionally turn
+  **Content analysis** off. Turning Dashboard auto-refresh off by itself does
+  not stop status-bar parsing.
+- If V2.2.1 still runs hot, open **Show Diagnostic Logs** and attach only the
+  anonymous `refresh:` lines to issue #70; they contain counts and timings, not
+  prompts, paths, session IDs, credentials, or raw log lines.
 
 **Usage history disappears or is missing older months**
 - Claude Code automatically deletes conversation logs older than
@@ -339,6 +385,12 @@ maintain the upstream organization
 MIT-licensed. The 2.x work documented here (everything under "What's new") is by
 @Carl723000 with [Claude Code](https://claude.com/claude-code); it has grown well
 beyond the 2.0 baseline — see [CHANGELOG.md](CHANGELOG.md).
+
+Development-tool credit: repository maintenance uses both
+[Claude Code](https://claude.com/claude-code) and
+[OpenAI Codex](https://developers.openai.com/codex/). This credits the tools
+separately from human contributors: Codex is not added to Release Drafter's
+contributor list, and no fabricated `Co-Authored-By` identity is used for it.
 
 Contributors whose upstream PRs / issues are incorporated here:
 

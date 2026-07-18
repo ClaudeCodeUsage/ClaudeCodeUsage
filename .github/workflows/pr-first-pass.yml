@@ -1,11 +1,14 @@
 # Auto first-pass review on every NEW pull request — a CONTROLLED single model
 # call (not an autonomous agent). Uses pull_request_target for the token but
 # NEVER runs the PR's code: it checks out the BASE repo, fetches the diff via the
-# API, asks the model once, and posts one comment. No tools → injection-safe.
+# API, asks the model, and posts one comment. Public text remains untrusted; the
+# fixed runner has no tools, reads only validated base-repo text, and model
+# output can still be wrong.
 #
 # INERT until AUTOMATION_ENABLED = 'true' + the ANTHROPIC_API_KEY secret.
-# Optional repo vars: ANTHROPIC_BASE_URL, CCU_BOT_MODEL (cheap tier, default
-# deepseek-v4-flash), CCU_BOT_MODEL_PRO (escalation tier, default deepseek-v4-pro).
+# Optional repo vars: ANTHROPIC_BASE_URL, CCU_BOT_MODEL / CCU_BOT_MODEL_PRO and
+# matching CCU_BOT_GENERATOR / CCU_BOT_GENERATOR_PRO. Generator values are
+# optional for recognized model IDs; explicit values are deepseek or claude.
 name: PR first-pass (auto)
 
 on:
@@ -34,14 +37,16 @@ jobs:
     steps:
       # Base repo only — never checks out or runs the PR head with the token.
       - name: Checkout base repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
 
       - name: Fetch PR diff (via API, no code run)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} > /tmp/pr.diff || true
+        run: |
+          gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} > /tmp/pr.diff
+          test -s /tmp/pr.diff
 
       - name: First-pass review
         env:
@@ -56,4 +61,6 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
           CCU_BOT_MODEL: ${{ vars.CCU_BOT_MODEL }}
           CCU_BOT_MODEL_PRO: ${{ vars.CCU_BOT_MODEL_PRO }}
+          CCU_BOT_GENERATOR: ${{ vars.CCU_BOT_GENERATOR }}
+          CCU_BOT_GENERATOR_PRO: ${{ vars.CCU_BOT_GENERATOR_PRO }}
         run: node .github/scripts/first-pass.mjs
