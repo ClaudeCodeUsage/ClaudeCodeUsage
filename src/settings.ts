@@ -357,6 +357,18 @@ export const SETTINGS: SettingDef[] = [
     help: 'Append a compact reset countdown in the status bar (5h 6% ↻4.8h). Off keeps it clean (5h 6% · wk 1%); the tooltip always shows full reset times.',
   },
   {
+    // Format of the reset countdown appended by showResetInStatusBar (#74).
+    key: 'resetCountdownFormat',
+    type: 'enum',
+    default: 'decimal',
+    storage: 'state',
+    group: 'statusBar',
+    label: 'Quota: reset countdown format',
+    help: 'Only applies when "Quota: show reset countdown" is on. Decimal (4.8h / 1.6d), whole units (4h 48m / 1d 14h), or your computer\'s local clock time / date (18:20 / 2026-07-22).',
+    enumValues: ['decimal', 'units', 'clock'],
+    enumLabels: ['Decimal (4.8h / 1.6d)', 'Units (4h 48m / 1d 14h)', 'Local time (18:20 / 2026-07-22)'],
+  },
+  {
     key: 'workflowQuotaWarnPercent',
     type: 'number',
     default: 50,

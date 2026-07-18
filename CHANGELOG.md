@@ -46,6 +46,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.2.0] — 2026-07-07
 
 ### Added
+- **`resetCountdownFormat`** (`decimal` / `units` / `clock`, default `decimal`) —
+  the reset countdown appended by `showResetInStatusBar` can now read whole
+  hour/day units (`4h 48m` / `1d 14h`) or your computer's local clock time /
+  date (`18:20` / `2026-07-22`) instead of only the compact decimal form
+  (`4.8h` / `1.6d`). (#74)
 - **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
   display (`1.2M` / `345.6K`); full integer counts are unaffected.
 - **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)
