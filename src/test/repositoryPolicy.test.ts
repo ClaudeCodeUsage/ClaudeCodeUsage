@@ -23,7 +23,7 @@ test('AGENTS is the canonical Codex repository policy', () => {
   const agents = repoFile('AGENTS.md');
   assert.match(agents, /Claude-only in v2\.2\.1/);
   assert.match(agents, /no new runtime dependencies/i);
-  assert.match(agents, /all seven UI locales/i);
+  assert.match(agents, /all eight UI locales/i);
   assert.match(agents, /push, open a pull request, merge, or publish a release/i);
   assert.match(agents, /Generated with \[OpenAI Codex\]/);
 });
@@ -87,7 +87,7 @@ test('git and VSIX ignores exclude private and development-only material', () =>
   }
 });
 
-test('all six README files credit both development tools', () => {
+test('all seven README files credit both development tools', () => {
   const readmes = [
     'README.md',
     'README-en.md',
@@ -95,6 +95,7 @@ test('all six README files credit both development tools', () => {
     'README-zh-TW.md',
     'README-ja.md',
     'README-ko.md',
+    'README-id.md',
   ];
   for (const readme of readmes) {
     const body = repoFile(readme);
@@ -103,17 +104,17 @@ test('all six README files credit both development tools', () => {
   }
 });
 
-test('pull request checklist names the actual seven UI locales', () => {
+test('pull request checklist names the actual eight UI locales', () => {
   const packageJson = JSON.parse(repoFile('package.json')) as {
     contributes: { configuration: { properties: Record<string, { enum?: string[] }> } };
   };
   const languageValues = packageJson.contributes.configuration.properties['claudeCodeUsage.language'].enum ?? [];
-  assert.equal(languageValues.filter((value) => value !== 'auto').length, 7);
+  assert.equal(languageValues.filter((value) => value !== 'auto').length, 8);
 
   const template = repoFile('.github/PULL_REQUEST_TEMPLATE.md');
-  assert.match(template, /all seven UI locales/);
-  assert.doesNotMatch(template, /all six languages/);
-  assert.match(template, /all six README editions/);
+  assert.match(template, /all eight UI locales/);
+  assert.doesNotMatch(template, /all seven languages/);
+  assert.match(template, /all seven README editions/);
 });
 
 test('changelog records the released baseline and the v2.2.1 tooling transition', () => {

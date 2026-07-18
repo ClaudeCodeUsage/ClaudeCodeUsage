@@ -7,6 +7,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.2.1] — Unreleased
 
 ### Added
+- **Bahasa Indonesia (`id`) (#76)** — the extension's eighth UI language covers
+  the dashboard, status bar, settings, and AI-advice demo, with a dedicated
+  `README-id.md`. Thanks [@projectronic](https://github.com/projectronic).
 - **Sessions: all sessions + filters (#73)** — the Sessions tab can show all
   sessions and adds persisted time-range, project, and model filters. Thanks
   [@Carl723000](https://github.com/Carl723000).

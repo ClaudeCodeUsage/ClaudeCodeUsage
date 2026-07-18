@@ -56,7 +56,8 @@
             "zh-CN",
             "ja",
             "ko",
-            "pt-BR"
+            "pt-BR",
+            "id"
           ],
           "default": "auto",
           "description": "Display language (auto-detection or manual selection). All other settings now live in the dashboard's ⚙ Settings tab (Show Usage Details)."

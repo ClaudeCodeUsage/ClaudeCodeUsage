@@ -30,7 +30,8 @@ use Claude Code better.
 [繁體中文](README-zh-TW.md) ·
 [简体中文](README-zh-CN.md) ·
 [日本語](README-ja.md) ·
-[한국어](README-ko.md)
+[한국어](README-ko.md) ·
+[Bahasa Indonesia](README-id.md)
 
 ---
 
@@ -261,7 +262,7 @@ for **`Claude Code Usage`**:
 
 | Setting | Default | What it does |
 |---|---|---|
-| `language` | `"auto"` | UI language: `auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR`. |
+| `language` | `"auto"` | UI language: `auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR` / `id`. |
 | `dataDirectory` | `""` | Custom Claude data dir; empty = auto-detect. |
 | `advice.apiKey` | `""` | API key for AI advice + the Usage Optimizer (empty = advice opens a demo instead). |
 

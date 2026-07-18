@@ -1780,6 +1780,233 @@ const translations: Record<SupportedLanguage, Translations> = {
       decimalPlaces: 'Casas decimais',
     },
   },
+  id: {
+    statusBar: {
+      loading: 'Memuat...',
+      noData: 'Tidak Ada Data Claude Code',
+      notRunning: 'Claude Code Tidak Berjalan',
+      error: 'Error',
+      refreshFailed: 'Gagal menyegarkan penggunaan. Coba lagi atau periksa log diagnostik.',
+      currentSession: 'Sesi',
+    },
+    popup: {
+      title: 'Claude Code Usage',
+      currentSession: 'Sesi Saat Ini',
+      today: 'Hari Ini',
+      thisMonth: 'Bulan Ini',
+      allTime: 'Sepanjang Waktu',
+      workspaceToday: 'Proyek ini',
+      refresh: 'Segarkan',
+      autoRefresh: 'Segarkan otomatis',
+      settings: 'Pengaturan',
+      settingsTab: 'Pengaturan',
+      settingsIntro:
+        'Pengaturan sekarang ada di sini. Hanya bahasa, direktori data, dan API key yang tetap berada di Pengaturan VS Code (agar dapat disinkronkan). Perubahan langsung diterapkan.',
+      settingsResetAll: 'Kembalikan semua ke default',
+      settingsGroupGeneral: 'Umum',
+      settingsGroupFeatures: 'Fitur opsional',
+      settingsGroupStatusBar: 'Status bar',
+      settingsGroupData: 'Data & penyegaran',
+      settingsGroupAdvice: 'Saran AI & Optimizer',
+      totalTokens: 'Total Token',
+      inputTokens: 'Token Masukan',
+      outputTokens: 'Token Keluaran',
+      cacheCreation: 'Cache Masukan (Miss)',
+      cacheRead: 'Cache Masukan (Hit)',
+      cost: 'Biaya',
+      messages: 'Pesan',
+      modelBreakdown: 'Penggunaan Model',
+      dailyBreakdown: 'Penggunaan Harian',
+      monthlyBreakdown: 'Penggunaan Bulanan',
+      hourlyBreakdown: 'Penggunaan per Jam',
+      sessions: 'Sesi',
+      sessionBreakdown: 'Penggunaan Sesi',
+      project: 'Proyek',
+      startTime: 'Waktu Mulai',
+      duration: 'Durasi',
+      activeDuration: 'Aktif',
+      activeDurationHelp:
+        'Perkiraan waktu penggunaan aktif — jumlah jeda antar-giliran, dengan setiap jeda idle dibatasi maksimal 1,5 jam agar jeda panjang tidak menggelembungkan angkanya, sementara waktu membaca / meninjau tetap terhitung. (Durasi adalah rentang penuh dari awal hingga akhir.)',
+      hour: 'Jam',
+      projects: 'Proyek',
+      projectBreakdown: 'Penggunaan Proyek',
+      fullPath: 'Path Lengkap',
+      peakContext: 'Konteks Puncak',
+      tokenComposition: 'Komposisi Token',
+      lastActive: 'Terakhir Aktif',
+      pricing: 'Harga',
+      refreshPricing: 'Segarkan Harga Token',
+      pricingUpdated: 'Harga diperbarui',
+      pricingUpdateFailed: 'Gagal memperbarui harga',
+      sortHint: 'Klik judul kolom untuk mengurutkan',
+      quota: 'Kuota',
+      quotaWindow: 'Periode',
+      quotaLimit: 'Batas',
+      quota5h: '5 Jam',
+      quotaWeekly: 'Mingguan',
+      quotaHint: 'Data nyata dari /usage Anthropic.',
+      contextWindow: 'Jendela konteks',
+      contextHint: 'Tugas baru → /clear',
+      contextHintCompact: 'Tugas sama → /compact',
+      contextLeft: 'Konteks tersisa',
+      contentAnalysis: 'Konten',
+      estimatedNote: 'Diperkirakan dari panjang teks — proporsi relatif dapat diandalkan, angka absolut bersifat perkiraan.',
+      calibratedNote: 'Terkalibrasi: proporsi per kategori dari panjang teks, diskalakan ke total token yang benar-benar ditagih (sisi keluaran / sisi masukan + cache-write). Aktifkan/nonaktifkan dengan analysis.calibrate.',
+      calibratedTokens: 'Token terkalibrasi',
+      thinkingTokensCalibrated: 'token pemikiran sebenarnya (terkalibrasi)',
+      byTool: 'Hasil Tool per Tool',
+      catUserPrompts: 'Prompt Anda',
+      catAssistantText: 'Respons asisten',
+      catAssistantThinking: 'Pemikiran asisten',
+      catToolCalls: 'Panggilan tool',
+      catToolResults: 'Hasil tool',
+      estTokens: 'Token perkiraan',
+      share: 'Proporsi',
+      resets: 'Reset',
+      cacheHitRate: 'Tingkat Cache Hit',
+      last30days: '30 hari terakhir',
+      branches: 'Branch',
+      branchBreakdown: 'Penggunaan Branch',
+      branch: 'Branch',
+      workflows: 'Workflow',
+      workflowBreakdown: 'Penggunaan Workflow',
+      workflowName: 'Workflow',
+      model: 'Model',
+      agents: 'Agen',
+      agent: 'Agen',
+      workflowsThisMonth: 'Workflow bulan ini',
+      workflowCostShare: 'proporsi dari biaya bulan ini',
+      workflowCacheHint:
+        'Tingkat cache hit = cache read ÷ semua token sisi masukan. Workflow native Claude memakai ulang prompt cache lintas agen (tingkat tinggi); provider tanpa cache lintas-agen menunjukkan ~0% — workflow yang sama jadi jauh lebih mahal di sana.',
+      adhocBadge: 'subagent (ad-hoc)',
+      workflowModeBadge: 'workflow',
+      workflowModeHint:
+        '"workflow" = direktori proses dynamic-workflow di disk; "subagent (ad-hoc)" = pemanggilan Task-tool biasa. Tingkat effort (ultracode/xhigh) tidak tercatat di log, jadi kedua badge ini tidak mengklaim salah satunya.',
+      workflowNativeHint:
+        'Ultracode native Claude sering menyimpan orkestrasinya di sesi utama (tanpa file agen), sehingga muncul di Sesi / Pelacakan Penggunaan, bukan sebagai baris di sini. Proses yang menulis file agen menampilkan biaya Claude-nya di baris orkestrasi. (Direncanakan untuk rilis mendatang.)',
+      orchestration: 'orkestrasi sesi utama',
+      commonTaskPrefix: 'Teks tugas bersama',
+      thinkingShare: 'Pemikiran %',
+      effortHint: 'Proporsi pemikiran tinggi — pertimbangkan /effort high alih-alih xhigh untuk tugas seperti ini.',
+      thinkingHidden: 'Pemikiran aktif, tetapi model ini (mis. Fable 5 / Opus 4.8) tidak menampilkan teks penalarannya, sehingga proporsinya tidak dapat diukur — nilai sebenarnya lebih tinggi dari yang ditampilkan.',
+      thinkingHiddenShort: 'tersembunyi',
+      quotaWarnBanner:
+        'Hanya {remaining}% tersisa untuk periode 5 jam Anda. Sebuah proses workflow bisa memakai porsi besar — pertimbangkan menunggu reset: proses yang terinterupsi kehilangan prompt cache-nya dan diulang dengan biaya ~40% lebih mahal.',
+      dismiss: 'Tutup',
+      attribution: 'Pelacakan Penggunaan',
+      attrDisclaimer:
+        'Perkiraan, berdasarkan sesi lokal di mesin ini — tidak termasuk perangkat lain atau claude.ai. Ini adalah karakteristik independen dari penggunaan Anda, bukan rincian lengkap.',
+      attrLargeContext: '{pct}% penggunaan Anda berada di konteks >150k',
+      attrLargeContextShort: 'konteks >150k',
+      attrLargeContextHint:
+        'Sesi yang lebih panjang lebih mahal meski sudah di-cache. Gunakan /compact di tengah tugas, /clear saat beralih ke tugas baru.',
+      attrLongSessions: '{pct}% penggunaan Anda berasal dari sesi yang aktif 8+ jam',
+      attrLongSessionsShort: 'sesi 8 jam+',
+      attrLongSessionsHint:
+        'Ini sering kali sesi latar belakang/loop. Penggunaan berkelanjutan bisa cepat menumpuk, jadi pastikan itu memang disengaja.',
+      attrSubagentHeavy: '{pct}% penggunaan Anda berasal dari sesi dengan banyak subagent',
+      attrSubagentHeavyShort: 'Sesi dengan banyak subagent',
+      attrSubagentHeavyHint:
+        'Setiap subagent menjalankan requestnya sendiri. Berhati-hatilah saat memunculkannya — dan pertimbangkan model yang lebih murah untuk subagent yang lebih sederhana.',
+      attrWorkflows: '{pct}% penggunaan Anda berasal dari proses workflow',
+      attrWorkflowsShort: 'Proses workflow',
+      attrWorkflowsHint: 'Lihat tab Workflow untuk detail per proses dan tingkat cache hit.',
+      attrSkillChar: '{pct}% penggunaan Anda berasal dari {name}',
+      attrSkillCharHint: 'Skill yang berat bisa dipersempit cakupannya atau dijalankan dengan model yang lebih murah lewat frontmatter skill.',
+      attrPluginChar: '{pct}% penggunaan Anda berasal dari plugin "{name}"',
+      attrPluginCharHint:
+        'Tinjau apa yang disumbang plugin ini — agen, skill, dan tool MCP-nya semuanya turut menghitung ke batas Anda.',
+      attrSkills: 'Skill',
+      attrSubagents: 'Subagent',
+      attrPlugins: 'Plugin',
+      attrModels: 'Model',
+      attrShare: '% penggunaan',
+      count: 'Jumlah',
+      scopeDay: 'Hari',
+      scopeWeek: 'Minggu',
+      scopeMonth: 'Bulan',
+      attrTodayPointer: 'Detail: tab Konten',
+      sessionTitle: 'Sesi',
+      sessionActions: 'Aksi',
+      copySessionId: 'Salin ID sesi',
+      viewConversation: 'Lihat percakapan ini (baca-saja) — baca ulang prompt Anda dan jawaban model tanpa memuatnya kembali ke konteks.',
+      copyPath: 'Salin path',
+      resumeSession: 'Lanjutkan percakapan ini — membuka kembali di Claude Code (proyek yang sama) atau terminal lewat "claude --resume", sehingga Anda bisa melanjutkan dari titik terakhir.',
+      resumeInvalid: 'ID sesi tidak valid — tidak dapat dilanjutkan.',
+      sessionFilterCurrent: 'Proyek saat ini',
+      sessionFilterAll: 'Semua',
+      sessionRangeToday: 'Hari ini',
+      sessionRange7d: '7 hari',
+      sessionRange30d: '30 hari',
+      sessionModelAll: 'Semua model',
+      deleteSession: 'Hapus sesi',
+      deleteSessionConfirm: 'Hapus sesi "{name}"?',
+      deleteSessionDetail: 'Log percakapannya dipindahkan ke sampah (dapat dipulihkan). Selebihnya extension ini bersifat baca-saja.',
+      deleteSessionYes: 'Hapus',
+      deleteSessionNotFound: 'File log sesi tidak ditemukan.',
+      deleteSessionDone: '"{name}" dihapus (dipindahkan ke sampah).',
+      getAdvice: 'Dapatkan Saran AI',
+      adviceCardTitle: 'Saran AI',
+      adviceCardDesc:
+        'Kirim ringkasan penggunaan Anda + sampel prompt Anda sendiri ke model Anda dan dapatkan tips konkret untuk menulis instruksi yang lebih jelas dan mengurangi pemborosan.',
+      optimizerTitle: 'Pengoptimal Penggunaan',
+      optimizerDesc:
+        'Ubah permintaan yang masih kasar dan belum rapi menjadi prompt bersih yang bisa langsung ditempel ke Claude Code — plus saran effort / thinking / model untuk tugas tersebut.',
+      optimizerHowto:
+        'Ketik atau tempel draf Anda di bawah, centang penyesuaian opsional yang diinginkan, lalu klik Optimalkan. Hanya teks yang Anda tempel yang dikirim ke model Anda — tidak pernah ke Claude Code atau terminal Anda.',
+      optimizerConsent:
+        'Usage Optimizer mengirim teks yang Anda tempel ke model API yang telah dikonfigurasi. Tidak ada yang dikirim ke Claude Code dan tidak ada yang diketik ke terminal. Lanjutkan?',
+      optimizerEnableBtn: 'Aktifkan di pengaturan',
+      optimizerPlaceholder: 'Tempel draf prompt untuk dioptimalkan…',
+      optimizerRun: 'Optimalkan',
+      optimizerRunning: 'Mengoptimalkan…',
+      optimizerCopy: 'Salin prompt',
+      optimizerCopied: 'Disalin',
+      optimizerResolve: 'Tandai referensi yang ambigu',
+      optimizerResolveHint:
+        "Minta model menunjukkan referensi yang ambigu (mis. 'ini', 'file itu', 'bug itu') lalu memperjelasnya atau menandai asumsi yang jelas.",
+      optimizerDistil: 'Ringkas teks tempelan yang panjang',
+      optimizerDistilHint:
+        'Jika draf Anda menempel log / kode / dokumen yang panjang, ringkas menjadi hanya yang dibutuhkan Claude.',
+      optimizerAesthetic: 'Sarankan arah gaya',
+      optimizerAestheticHint:
+        'Untuk tugas UI / visual / tulisan, usulkan satu arah gaya yang konkret agar hasilnya tidak generik.',
+      optimizerPromptHeading: 'Prompt teroptimasi',
+      optimizerSettingsHeading: 'Pengaturan proses yang disarankan',
+      experimentalBadge: 'eksperimental',
+      adviceNeedsKey: 'Atur API key di Pengaturan untuk menggunakan saran AI.',
+      adviceGenerating: 'Membuat saran penggunaan…',
+      adviceFailed: 'Gagal mendapatkan saran',
+      adviceScopeOverall: 'Keseluruhan (semua proyek)',
+      adviceScopePrompt: 'Pilih fokus saran yang diinginkan',
+      adviceDemoButton: 'Pratinjau demo',
+      adviceDemoNotice:
+        '# DEMO — Pratinjau Saran Penggunaan AI\n\n' +
+        '> **File ini adalah demo statis, bukan saran sungguhan.**\n' +
+        '> Teks di bawah ini ditulis manual untuk menunjukkan jenis keluaran\n' +
+        '> yang dihasilkan fitur ini. Ini **bukan** berdasarkan data penggunaan\n' +
+        '> Claude Code Anda yang sebenarnya — tidak ada yang dikirim ke API mana pun untuk menghasilkan ini.\n\n' +
+        '### Untuk mendapatkan saran nyata dan personal berdasarkan penggunaan ANDA:\n\n' +
+        '1. Buka Pengaturan (`Ctrl+,` / `Cmd+,`)\n' +
+        '2. Cari **`claudeCodeUsage.advice.apiKey`**\n' +
+        '3. Tempel API key yang kompatibel dengan OpenAI — DeepSeek langsung berfungsi\n' +
+        '   ([deepseek.com](https://platform.deepseek.com))\n' +
+        '4. Jalankan ulang **`Claude Code Usage: Get AI Usage Advice`**',
+      costComposition: 'Komposisi Biaya',
+      date: 'Tanggal',
+      yesterday: 'Kemarin',
+      dataDirectory: 'Direktori Data',
+      noDataMessage: 'Tidak ada data penggunaan yang ditemukan. Pastikan Claude Code sudah berjalan dan dikonfigurasi dengan benar.',
+      errorMessage: 'Gagal memuat data penggunaan. Periksa kembali konfigurasi Anda.',
+    },
+    settings: {
+      title: 'Pengaturan Claude Code Usage',
+      refreshInterval: 'Interval Penyegaran (detik)',
+      dataDirectory: 'Path Direktori Data',
+      language: 'Bahasa',
+      decimalPlaces: 'Angka Desimal',
+    },
+  },
 };
 
 // Per-setting label / help translations for the dashboard ⚙ Settings panel.
@@ -2019,6 +2246,44 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'advice.userContext': { label: 'Contexto pessoal/do projeto', help: 'Informação de fundo opcional; adiciona uma seção "Personalizado".' },
     'advice.optimizer.enabled': { label: 'Ativar o Otimizador de uso', help: 'Mostra o cartão opt-in do Optimizer na aba Content.' },
   },
+  'id': {
+    'language': { label: 'Bahasa tampilan', help: 'Bahasa UI. "auto" mengikuti VS Code.' },
+    'decimalPlaces': { label: 'Angka desimal biaya', help: '' },
+    'tokenDecimalPlaces': { label: 'Angka desimal token', help: 'Angka desimal untuk tampilan token ringkas (1.2M / 345.6K). Jumlah bilangan bulat penuh tidak terpengaruh.' },
+    'compactNumbers': { label: 'Jumlah token ringkas', help: 'Tampilkan 1.2M / 345K, bukan angka penuh.' },
+    'timezone': { label: 'Zona waktu untuk tanggal', help: 'Pilih zona umum atau offset UTC (semua offset tersedia), atau default sistem. Label menampilkan offset UTC saat ini.' },
+    'showHeatmap': { label: 'Tampilkan heatmap token (tab Sepanjang Waktu)', help: 'Nonaktif secara default. Heatmap token tahunan bergaya GitHub di tab All; ekspor sebagai SVG atau publikasikan ke profil GitHub Anda.' },
+    'showEfficiency': { label: 'Tampilkan wawasan efisiensi', help: 'Nonaktif secara default. Menambahkan biaya/pesan, token/pesan, penghematan cache, dan perkiraan cache warmth.' },
+    'showCostliestMessages': { label: 'Tampilkan "10 pesan termahal"', help: 'Nonaktif secara default. Menampilkan giliran termahal; membuka detail menampilkan prompt-nya (teks Anda sendiri).' },
+    'enableShareCard': { label: 'Aktifkan share card penggunaan', help: 'Nonaktif secara default. Ringkasan SVG satu halaman yang dapat dikonfigurasi untuk dibuat dan dibagikan.' },
+    'enableSessionActions': { label: 'Aksi sesi (Lanjutkan & Hapus)', help: 'Nonaktif secara default. Menampilkan tombol Lanjutkan dan Hapus di tab Sesi. Keduanya BERTINDAK pada Claude Code Anda (membuka ulang percakapan / memindahkan log ke sampah) — bertentangan dengan sifat baca-saja extension ini, jadi tetap opsional bersama.' },
+    'projectGroupingMode': { label: 'Pengelompokan proyek', help: 'git = per repo · folder = level teratas · flat = setiap cwd.' },
+    'showCost': { label: 'Tampilkan biaya / token hari ini', help: '' },
+    'statusBarMetric': { label: 'Metrik status bar', help: 'Apa yang ditampilkan item status bar pertama: biaya hari ini, biaya bulan ini, atau total token hari ini (k/M).' },
+    'showContext': { label: 'Tampilkan pengisian jendela konteks (eksperimental)', help: 'Nonaktif secara default. Memperkirakan persentase konteks sesi saat ini, seperti /context, dari catatan log terbaru. Hanya bisa menampilkan total sisi masukan, bukan rincian kategori /context (itu internal Claude Code yang tidak ditulis ke disk), jadi ini perkiraan — tanda "~" menandai ukuran jendela yang ditebak.' },
+    'contextWindowOverride': { label: 'Override jendela konteks (token)', help: '0 = deteksi otomatis dari model. Atur jendela sebenarnya (mis. 1000000) untuk model proxy/kustom yang tidak dikenali deteksi otomatis.' },
+    'usageLimitTracking': { label: 'Tampilkan kuota 5 jam / mingguan', help: '' },
+    'showOpusWeekly': { label: 'Tampilkan batas Opus mingguan', help: 'Tambahkan batas Opus mingguan (opus:NN%) setelah angka 5 jam / mingguan.' },
+    'quotaFiveHourOnly': { label: 'Kuota: hanya periode 5 jam', help: 'Hanya tampilkan kuota 5 jam di status bar, sembunyikan angka mingguan (detail reset tetap di tooltip).' },
+    'showResetInStatusBar': { label: 'Kuota: tampilkan hitung mundur reset', help: 'Tambahkan hitung mundur reset ringkas di status bar (5h 6% ↻4.8h). Nonaktif membuatnya bersih (5h 6% · wk 1%); tooltip selalu menampilkan waktu reset lengkap.' },
+    'workflowQuotaWarnPercent': { label: 'Peringatan kuota workflow %', help: 'Beri peringatan sebelum proses berjalan jika sisa kuota 5 jam di bawah ini. 0 = nonaktif.' },
+    'dataDirectory': { label: 'Direktori data kustom', help: 'Direktori data Claude; kosong = deteksi otomatis.' },
+    'refreshInterval': { label: 'Interval penyegaran (dtk)', help: '' },
+    'fileWatchSeconds': { label: 'Jeda penyegaran live', help: 'Seberapa cepat dashboard menyegarkan setelah ada aktivitas baru. Ini hanya membaca ulang file log LOKAL Anda (tanpa panggilan API — pengambilan kuota dibatasi terpisah). "Off" menonaktifkan pemantauan live; jeda lebih lama lebih ringan untuk CPU.' },
+    'showInsights': { label: 'Tampilkan wawasan eksperimental', help: 'Nonaktif secara default. Menambahkan bagian "Wawasan eksperimental" di tab Konten — perkiraan kami sendiri dari log lokal Anda (mis. tagihan cache-churn: $ yang dihabiskan menulis ulang cache setelah pergantian model / jeda idle). Ini adalah heuristik hasil perhitungan, bukan metrik standar, jadi tetap opsional dan diberi label sebagai perkiraan.' },
+    'showConversationViewer': { label: 'Aktifkan penampil percakapan', help: 'Aktif secara default. Tab Sesi menampilkan tombol "lihat" yang membuka pembaca baca-saja untuk percakapan lampau — sehingga Anda bisa membaca ulang prompt dan jawaban model TANPA memuatnya kembali ke konteks model (berbeda dari resume). Hanya membaca file log lokal Anda (baca-saja), jadi aktif secara default; nonaktifkan untuk menyembunyikan tombolnya.' },
+    'dashboardAutoRefresh': { label: 'Penyegaran otomatis dashboard', help: 'Segarkan dashboard secara otomatis saat ada penggunaan baru. Nonaktif = hanya penyegaran manual (status bar tetap diperbarui).' },
+    'enableContentAnalysis': { label: 'Analisis konten (tab Konten)', help: 'Nonaktifkan untuk melewati pemindaian teks yang berat bagi CPU.' },
+    'analysis.calibrate': { label: 'Kalibrasi angka konten', help: 'Skalakan perkiraan ke total token yang benar-benar ditagih.' },
+    'advice.apiKey': { label: 'API key', help: 'Untuk backend api. Tetap berada di Pengaturan VS Code.' },
+    'advice.apiFormat': { label: 'Format API', help: 'anthropic = /v1/messages · openai = chat-completions.' },
+    'advice.apiUrl': { label: 'URL API', help: 'Endpoint untuk backend api.' },
+    'advice.model': { label: 'Model API', help: '' },
+    'advice.reasoningEffort': { label: 'Effort reasoning (openai)', help: '' },
+    'advice.promptWindowDays': { label: 'Jendela sampel prompt (hari)', help: '' },
+    'advice.userContext': { label: 'Konteks pribadi/proyek', help: 'Latar belakang opsional; menambahkan bagian "Personalisasi".' },
+    'advice.optimizer.enabled': { label: 'Aktifkan Usage Optimizer', help: 'Tampilkan kartu Optimizer opsional di tab Konten.' },
+  },
 };
 
 export class I18n {
@@ -2110,6 +2375,8 @@ export class I18n {
         return 'Deutsch (German)';
       case 'pt-BR':
         return 'Português Brasileiro (Brazilian Portuguese)';
+      case 'id':
+        return 'Bahasa Indonesia (Indonesian)';
       case 'en':
       default:
         return 'English';
@@ -2141,6 +2408,7 @@ export class I18n {
     if (locale.includes('ja')) return 'ja';
     if (locale.includes('ko')) return 'ko';
     if (locale.includes('pt')) return 'pt-BR';
+    if (locale.includes('id')) return 'id';
 
     return 'en';
   }

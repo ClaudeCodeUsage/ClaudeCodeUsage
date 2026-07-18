@@ -22,7 +22,7 @@
 - `src/settings.ts`：`SETTINGS` catalog 与 `SettingsStore`；不要散落直接配置读取。
 - `src/statusBar.ts`：状态栏 token、成本、配额和 context 展示。
 - `src/webview.ts`：dashboard HTML 与客户端行为。
-- `src/i18n.ts`：七个 UI locale 的全部用户可见文案。
+- `src/i18n.ts`：八个 UI locale 的全部用户可见文案。
 - `src/types.ts`：共享 contract。
 - 改变模块职责或数据流前先读 `ARCHITECTURE.md`；若该变化需要维护者审阅，
   同时提供忠实的简体中文 review companion。
@@ -59,10 +59,10 @@ npx @vscode/vsce package
 
 ## 本地化与审阅文档
 
-- 每个用户可见字符串都通过 `I18n` 覆盖七个 UI locale：`en`、`de-DE`、
-  `zh-TW`、`zh-CN`、`ja`、`ko`、`pt-BR`。
-- 六份 README 必须一起更新：`README.md`、`README-en.md`、`README-zh-CN.md`、
-  `README-zh-TW.md`、`README-ja.md`、`README-ko.md`。
+- 每个用户可见字符串都通过 `I18n` 覆盖八个 UI locale：`en`、`de-DE`、
+  `zh-TW`、`zh-CN`、`ja`、`ko`、`pt-BR`、`id`。
+- 七份 README 必须一起更新：`README.md`、`README-en.md`、`README-zh-CN.md`、
+  `README-zh-TW.md`、`README-ja.md`、`README-ko.md`、`README-id.md`。
 - 每份交给维护者审阅的 artifact（包括 spec、implementation plan、design、
   release checklist、policy 或大幅 contributor 文档变更），都提供忠实中文副本
   或中文 review companion，并确保交付时中文链接排在英文链接之前。
@@ -103,7 +103,7 @@ npx @vscode/vsce package
 
 - 归因必须写实际 generator。当前 first-pass runner 默认使用 DeepSeek，不得改标 Codex。
 - trusted footer 由 wrapper 而不是模型输出负责，并且只能出现一次。
-- 在六份 README 中把 Claude Code 与 OpenAI Codex 记为开发工具；不得把工具放入
+- 在七份 README 中把 Claude Code 与 OpenAI Codex 记为开发工具；不得把工具放入
   Release Drafter 的人类 contributor 列表，也不得编造 `Co-Authored-By` 身份。
 - comment-only 的受控 first-pass automation 与 maintainer-only 的高权限 mention
   workflow 必须保持分离。
