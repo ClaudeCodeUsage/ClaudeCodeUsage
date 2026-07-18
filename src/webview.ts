@@ -9,6 +9,7 @@ import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename 
 import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
 import { parseConversation } from './conversationLog';
 import { renderConversationViewer } from './conversationViewerHtml';
+import { formatUsageDate, shortUsageDate } from './usageDateLabels';
 import * as os from 'os';
 import * as path from 'path';
 import * as https from 'https';
@@ -3388,26 +3389,11 @@ export class UsageWebviewProvider {
   }
 
   private getShortDate(dateString: string, monthly = false): string {
-    // Parse 'YYYY-MM-DD' textually — new Date('YYYY-MM-DD') is UTC midnight,
-    // which shifts the displayed day back by one in negative-UTC timezones.
-    const [y, m, d] = dateString.split('-').map(Number);
-    // Month-only dates label as YYYY/MM for monthly charts.
-    if (monthly) {
-      return `${y}/${String(m).padStart(2, '0')}`;
-    }
-    return `${m}/${d}`;
+    return shortUsageDate(dateString, monthly);
   }
 
   private formatDate(dateString: string, monthly = false): string {
-    // Parse textually to avoid UTC-midnight timezone shift (new Date('YYYY-MM-DD')
-    // is UTC midnight, which rolls back a day in negative-UTC timezones). The
-    // date keys are already timezone-correct from dayKeyInZone / monthKeyInZone.
-    const [y, m, d] = dateString.split('-').map(Number);
-    const date = new Date(Date.UTC(y, m - 1, d));
-    if (monthly) {
-      return date.toLocaleDateString(I18n.getLocale(), { year: 'numeric', month: 'long', timeZone: 'UTC' });
-    }
-    return date.toLocaleDateString(I18n.getLocale(), { ...I18n.dateFormatOptions(), timeZone: 'UTC' });
+    return formatUsageDate(dateString, I18n.getLocale(), I18n.dateFormatOptions(), monthly);
   }
 
   private getStyles(): string {

@@ -70,9 +70,21 @@ See the [full settings table in the main README](README.md#configuration).
 
 **Token counts lower than your provider's dashboard** — some proxies / dynamic workflows write per-agent records to sub-directories that may be incomplete. Your actual spend is on your provider's billing page. Native workflow attribution is planned.
 
+**High CPU or sluggish refresh on a large history (Linux included)**
+- V2.2.1 removes the hidden 8-second active polling override and bounds the
+  first-timestamp scan. Until you install it, set **Live refresh delay** to
+  **Off**, set **Refresh interval** to **300–900 seconds**, and optionally turn
+  **Content analysis** off. Turning Dashboard auto-refresh off by itself does
+  not stop status-bar parsing.
+- If V2.2.1 still runs hot, open **Show Diagnostic Logs** and attach only the
+  anonymous `refresh:` lines to issue #70; they contain counts and timings, not
+  prompts, paths, session IDs, credentials, or raw log lines.
+
 ## Credits
 
 Forked from [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage). MIT-licensed. Community contributions credited in [CHANGELOG.md](CHANGELOG.md). Many code changes drafted with [Claude Code](https://claude.com/claude-code).
+
+Development-tool credit: repository maintenance uses both [Claude Code](https://claude.com/claude-code) and [OpenAI Codex](https://developers.openai.com/codex/). This credits tools separately from human contributors; Codex is not added to Release Drafter's contributor list and receives no fabricated `Co-Authored-By` identity.
 
 **Issues, PRs and ideas are warmly welcomed** — that's how the project grows.
 

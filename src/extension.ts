@@ -22,6 +22,23 @@ import { buildAdviceSummary } from './adviceSummary';
 import { getDemoBody } from './adviceDemoSample';
 import { ClaudeApiUsageResponse, ContentAnalysis, ExtensionConfig } from './types';
 import { SettingsStore } from './settings';
+import {
+  diffUsageManifests,
+  scanUsageManifest,
+  UsageManifest,
+} from './claudeUsageFiles';
+import {
+  commitRefreshSnapshot,
+  pollIntervalMs,
+  QuietDebounce,
+  RefreshRequest,
+  RefreshSingleFlight,
+  RefreshTrigger,
+  reportColdRefreshFailure,
+  shouldCommitUsageLoad,
+  shouldReloadUsage,
+} from './refreshPolicy';
+import { formatRefreshDiagnostic } from './refreshDiagnostics';
 
 // One-line "what's new" per major.minor, shown once after an upgrade (see
 // maybeAnnounceWhatsNew) so users discover new — including opt-in — features.
@@ -45,7 +62,10 @@ export class ClaudeCodeUsageExtension {
   private settings: SettingsStore;
   private refreshTimer: NodeJS.Timeout | undefined;
   private fileWatcher: fs.FSWatcher | undefined;
-  private watchDebounceTimer: NodeJS.Timeout | undefined;
+  private readonly watchDebounce = new QuietDebounce();
+  private readonly refreshGate = new RefreshSingleFlight();
+  private watcherEventsSinceRefresh = 0;
+  private coalescedTriggersSinceRefresh = 0;
   private watchedDir: string | null = null;
   // Watches ~/.claude/.credentials.json so an account switch is reflected
   // promptly instead of after a full quota TTL (#45).
@@ -54,6 +74,7 @@ export class ClaudeCodeUsageExtension {
   private cache: {
     records: any[];
     contentAnalysis: ContentAnalysis | null;
+    manifest: UsageManifest | null;
     lastUpdate: Date;
     dataDirectory: string | null;
     usageLimits: ClaudeApiUsageResponse | null;
@@ -63,6 +84,7 @@ export class ClaudeCodeUsageExtension {
   } = {
     records: [],
     contentAnalysis: null,
+    manifest: null,
     lastUpdate: new Date(0),
     dataDirectory: null,
     usageLimits: null,
@@ -72,19 +94,8 @@ export class ClaudeCodeUsageExtension {
   };
 
   private outputChannel: vscode.OutputChannel;
-  // Re-entrancy guard (PR #20 by @nickearnshaw). The auto-refresh timer and
-  // file watcher can both fire while a slow reload is still in flight. Without
-  // this, reloads pile up and keep re-asserting the "Loading…" spinner.
-  private isRefreshing: boolean = false;
-  // Coalesce: a trigger that arrives mid-load sets this so we run exactly one
-  // more refresh after the current one finishes, instead of dropping the event
-  // (which starved updates during rapid ultracode/sub-agent writes).
-  private pendingRefresh: boolean = false;
-  // True when a coalesced refresh was a manual one, so the follow-up forces a full reload.
-  private pendingManual: boolean = false;
-  // Epoch ms of the last observed .jsonl change. Drives activity-aware
-  // refresh cadence: while Claude Code is actively writing we refresh faster
-  // (~15 s, quota cache 20 s); when idle we fall back to the user's interval.
+  // Epoch ms of the last observed .jsonl change. It only tunes quota-cache TTL;
+  // local polling always follows the configured refreshInterval.
   private lastActivityAt: number = 0;
   // Generation token for the self-rescheduling refresh timer. Bumped each time
   // startAutoRefresh runs so any older timer chain (e.g. left mid-flight by a
@@ -123,7 +134,7 @@ export class ClaudeCodeUsageExtension {
     this.loadConfiguration();
     this.loadPersistedQuota();
     this.startAutoRefresh();
-    this.refreshData().then(() => this.startFileWatching());
+    this.refreshData(false, 'startup').then(() => this.startFileWatching());
     this.startCredentialsWatching();
     this.startWindowFocusRefresh();
     this.maybeAnnounceWhatsNew();
@@ -180,7 +191,7 @@ export class ClaudeCodeUsageExtension {
       vscode.commands.registerCommand('claudeCodeUsage.refresh', () => {
         // Manual refresh always updates the dashboard even when
         // dashboardAutoRefresh is off.
-        this.refreshData(true);
+        void this.refreshData(true, 'manual');
       }),
       vscode.commands.registerCommand('claudeCodeUsage.showDetails', () => {
         this.webviewProvider.show();
@@ -219,8 +230,7 @@ export class ClaudeCodeUsageExtension {
       const result = await fetchLatestPricing();
       vscode.window.showInformationMessage(`${I18n.t.popup.pricingUpdated} (${result.updated})`);
       // Force a full recompute so the new prices take effect.
-      this.cache.lastUpdate = new Date(0);
-      this.refreshData();
+      void this.refreshData(true, 'pricing');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`${I18n.t.popup.pricingUpdateFailed}: ${message}`);
@@ -693,7 +703,7 @@ export class ClaudeCodeUsageExtension {
       this.cache.usageLimitsBackoffUntil = new Date(0);
       this.cache.usageLimitsFailStreak = 0;
       this.quotaColdRetryDone = false;
-      this.refreshData();
+      void this.refreshData(true, 'workspace');
     });
   }
 
@@ -769,16 +779,9 @@ export class ClaudeCodeUsageExtension {
     // Restart auto-refresh with new interval
     this.startAutoRefresh();
 
-    // Clear cache if data directory changed
-    if (config.dataDirectory !== this.cache.dataDirectory) {
-      this.cache.records = [];
-      this.cache.lastUpdate = new Date(0);
-      this.cache.dataDirectory = config.dataDirectory;
-      this.stopFileWatching();
-    }
-
-    // Refresh data immediately, then (re-)attach the file watcher.
-    this.refreshData().then(() => this.startFileWatching());
+    // Apply watcher-delay changes immediately, then refresh and re-attach.
+    this.stopFileWatching();
+    void this.refreshData(true, 'settings').then(() => this.startFileWatching());
   }
 
   /**
@@ -807,18 +810,18 @@ export class ClaudeCodeUsageExtension {
         if (!filename || !String(filename).endsWith('.jsonl')) {
           return;
         }
-        // Mark activity so the polling timer and quota cache switch to the
-        // faster "active" cadence. This fires for sub-agent / workflow files
-        // too, since fs.watch is recursive.
+        // Activity remains authoritative for quota TTL only; poll cadence
+        // always follows refreshInterval.
         this.lastActivityAt = Date.now();
-        // Debounce: Claude Code writes lines in bursts and the file mtime
-        // changes for every line.
-        if (this.watchDebounceTimer) {
-          clearTimeout(this.watchDebounceTimer);
+        this.watcherEventsSinceRefresh += 1;
+        const delaySeconds = this.getConfiguration().fileWatchSeconds;
+        if (!(delaySeconds > 0)) {
+          this.stopFileWatching();
+          return;
         }
-        this.watchDebounceTimer = setTimeout(() => {
-          this.refreshData();
-        }, config.fileWatchSeconds * 1000);
+        this.watchDebounce.push(delaySeconds * 1000, () => {
+          void this.refreshData(false, 'watch');
+        });
       });
       this.watchedDir = projectsDir;
     } catch {
@@ -827,10 +830,7 @@ export class ClaudeCodeUsageExtension {
   }
 
   private stopFileWatching(): void {
-    if (this.watchDebounceTimer) {
-      clearTimeout(this.watchDebounceTimer);
-      this.watchDebounceTimer = undefined;
-    }
+    this.watchDebounce.clear();
     if (this.fileWatcher) {
       try {
         this.fileWatcher.close();
@@ -872,7 +872,7 @@ export class ClaudeCodeUsageExtension {
           // the next refresh bypasses the TTL and refetches with the new token.
           // The api client's own 429 cool-down still protects the endpoint.
           this.cache.usageLimitsLastUpdate = new Date(0);
-          this.refreshData();
+          void this.refreshData(false, 'credentials');
         }, 800);
       });
     } catch {
@@ -914,7 +914,7 @@ export class ClaudeCodeUsageExtension {
         if (state.focused && !wasFocused) {
           this.startAutoRefresh(); // reset a cadence that may have been throttled
           this.startFileWatching(); // re-attach the watcher if it was dropped
-          this.refreshData(); // catch up now (updates the status bar immediately)
+          void this.refreshData(false, 'focus'); // catch up now
         }
         wasFocused = state.focused;
       })
@@ -926,24 +926,14 @@ export class ClaudeCodeUsageExtension {
       clearTimeout(this.refreshTimer);
       this.refreshTimer = undefined;
     }
-    // Self-rescheduling timer with an activity-aware interval: while Claude
-    // Code is actively writing logs we tick every ~15 s (matching the user's
-    // expectation that ultracode / high-consumption runs update promptly);
-    // when idle we use the user's configured interval (min 30 s). fs.watch
-    // already covers near-real-time status-bar cost updates during activity —
-    // this floor guarantees the quota also refreshes during sustained writes
-    // where the debounce never settles.
     const gen = ++this.refreshGen;
     const tick = (): void => {
       if (gen !== this.refreshGen) {
         return; // superseded by a newer startAutoRefresh — stop this chain
       }
-      const base = Math.max(this.getConfiguration().refreshInterval * 1000, 30000);
-      // ~8 s while active: high-consumption models (Fable 5) move the numbers
-      // fast enough that 15 s reads as laggy.
-      const intervalMs = this.isActive() ? Math.min(base, 8000) : base;
+      const intervalMs = pollIntervalMs(this.getConfiguration().refreshInterval);
       this.refreshTimer = setTimeout(() => {
-        this.refreshData().finally(() => {
+        this.refreshData(false, 'poll').finally(() => {
           if (gen === this.refreshGen) {
             tick();
           }
@@ -1037,31 +1027,46 @@ export class ClaudeCodeUsageExtension {
     return expired(u.five_hour) || expired(u.seven_day) || expired(u.seven_day_opus);
   }
 
-  private async refreshData(manualTrigger: boolean = false): Promise<void> {
-    if (this.isRefreshing) {
-      // Coalesce: remember that another refresh was requested and run exactly
-      // one more after the current finishes (see finally). Dropping the event
-      // outright starved updates during rapid ultracode / sub-agent writes.
-      this.pendingRefresh = true;
-      if (manualTrigger) { this.pendingManual = true; }
+  private async refreshData(
+    forceReload: boolean = false,
+    trigger: RefreshTrigger = 'poll'
+  ): Promise<void> {
+    const request = this.refreshGate.request(forceReload, trigger);
+    if (request === null) {
+      this.coalescedTriggersSinceRefresh += 1;
       return;
     }
-    this.isRefreshing = true;
+    await this.runRefresh(request);
+  }
+
+  private handleColdRefreshFailure(updateWebview: boolean): void {
+    reportColdRefreshFailure({
+      hasLoadedManifest: this.cache.manifest !== null,
+      updateWebview,
+      error: I18n.t.statusBar.refreshFailed,
+      onStatusError: (error) => {
+        this.statusBar.updateUsageData(null, null, error);
+        this.statusBar.updateContext(null);
+      },
+      onWebviewError: (error) => {
+        this.webviewProvider.updateData(null, null, null, null, [], [], [], error, null);
+      },
+    });
+  }
+
+  private async runRefresh(request: RefreshRequest): Promise<void> {
+    const totalStarted = performance.now();
+    const watcherEvents = this.watcherEventsSinceRefresh;
+    const coalescedTriggers = this.coalescedTriggersSinceRefresh;
+    this.watcherEventsSinceRefresh = 0;
+    this.coalescedTriggersSinceRefresh = 0;
+    let updateWebview = request.trigger === 'manual';
     try {
       const config = this.getConfiguration();
-      // When dashboard auto-refresh is off, auto-triggers (timer + fs.watch)
-      // skip the webview update entirely; the status bar still refreshes so
-      // today's cost / quota stay live. Manual command always refreshes
-      // everything so the user can force-update on demand.
-      const updateWebview = manualTrigger || config.dashboardAutoRefresh;
+      updateWebview = updateWebview || config.dashboardAutoRefresh;
 
-      // Quota is account-level, decoupled from local data. Fire it without
-      // awaiting so a slow/cold OAuth fetch (curl can take seconds, or fail
-      // outright on a fresh window's flaky network) never delays the local
-      // cost figures — the cause of "usage not showing the first time I open
-      // VS Code". On a cold start with no quota yet, do ONE gentle retry after
-      // ~8 s; beyond that the regular ticks take over. We deliberately do not
-      // retry-storm: repeated /usage hits are what trigger the 429 cool-down.
+      // Account quota is independent from local JSONL. Do not let a slow OAuth
+      // request delay the local usage refresh.
       this.maybeFetchUsageLimits(config).then((limits) => {
         this.statusBar.updateQuota(limits);
         this.webviewProvider.updateQuota(limits);
@@ -1078,11 +1083,9 @@ export class ClaudeCodeUsageExtension {
         }
       });
 
-      // Find Claude data directory
       const dataDirectory = await ClaudeDataLoader.findClaudeDataDirectory(
         config.dataDirectory || undefined
       );
-
       if (!dataDirectory) {
         const error = 'Claude data directory not found. Please check your configuration.';
         this.statusBar.updateUsageData(null, null, error);
@@ -1090,21 +1093,39 @@ export class ClaudeCodeUsageExtension {
         if (updateWebview) {
           this.webviewProvider.updateData(null, null, null, null, [], [], [], error, null);
         }
+        this.outputChannel.appendLine(formatRefreshDiagnostic({
+          trigger: request.trigger,
+          filesDiscovered: 0,
+          filesChanged: 0,
+          filesReused: 0,
+          filesRemoved: 0,
+          filesFailed: 0,
+          bytesRead: 0,
+          linesParsed: 0,
+          watcherEvents,
+          coalescedTriggers,
+          manifestMs: 0,
+          readParseMs: 0,
+          aggregateRenderMs: 0,
+          totalMs: performance.now() - totalStarted,
+        }));
         return;
       }
 
-      // Skip the heavy recompute when nothing has changed since the last load —
-      // this avoids pointless work (and CPU spikes) while you are not running code.
-      const latestMtime = await ClaudeDataLoader.getLatestModifiedTime(dataDirectory);
-      const dirChanged = this.cache.dataDirectory !== dataDirectory;
-      // A manual refresh always reloads from disk (a delete doesn't bump mtimes).
-      const needFullRefresh =
-        manualTrigger || dirChanged || this.cache.records.length === 0 || latestMtime > this.cache.lastUpdate.getTime();
+      const manifestStarted = performance.now();
+      const manifest = await scanUsageManifest([dataDirectory]);
+      const delta = diffUsageManifests(this.cache.manifest, manifest);
+      const manifestMs = performance.now() - manifestStarted;
+      const directoryChanged = this.cache.dataDirectory !== dataDirectory;
+      const needFullRefresh = shouldReloadUsage({
+        forceReload: request.forceReload,
+        directoryChanged,
+        hasLoadedManifest: this.cache.manifest !== null,
+        changedFiles: delta.changed.length,
+        removedFiles: delta.removed.length,
+      });
 
       if (!needFullRefresh) {
-        // Idle: logs unchanged. Quota was already refreshed above. Still
-        // recompute the context indicator from cache so its 5-hour recency
-        // guard can hide it once the session goes stale.
         this.statusBar.updateContext(
           ClaudeDataLoader.getCurrentContextInfo(
             this.cache.records,
@@ -1112,14 +1133,30 @@ export class ClaudeCodeUsageExtension {
             config.contextWindowOverride
           )
         );
+        this.cache.manifest = manifest;
+        this.cache.dataDirectory = dataDirectory;
+        this.outputChannel.appendLine(formatRefreshDiagnostic({
+          trigger: request.trigger,
+          filesDiscovered: manifest.entries.size,
+          filesChanged: 0,
+          filesReused: delta.reused.length,
+          filesRemoved: 0,
+          filesFailed: 0,
+          bytesRead: 0,
+          linesParsed: 0,
+          watcherEvents,
+          coalescedTriggers,
+          manifestMs,
+          readParseMs: 0,
+          aggregateRenderMs: 0,
+          totalMs: performance.now() - totalStarted,
+        }));
         return;
       }
 
-      // Only show the full-screen spinner on the very first load (cold cache,
-      // nothing on screen yet). Background refreshes keep existing dashboard
-      // visible and swap in fresh data when ready — avoiding panel flicker
-      // on every file-watch tick during active use. (PR #20, @nickearnshaw)
-      if (this.cache.records.length === 0) {
+      // A non-null manifest, not records.length, distinguishes a cold load from
+      // a successfully loaded empty corpus.
+      if (this.cache.manifest === null) {
         this.statusBar.setLoading(true);
         if (updateWebview) {
           this.webviewProvider.setLoading(true);
@@ -1129,17 +1166,35 @@ export class ClaudeCodeUsageExtension {
       const loaded = await ClaudeDataLoader.loadUsageRecords(dataDirectory, {
         analyzeContent: config.enableContentAnalysis,
         windowDays: config.advicePromptWindowDays,
-        log: (line) =>
-          this.outputChannel.appendLine(
-            `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${line}`
-          )
+        manifest,
+        log: (line) => this.outputChannel.appendLine(
+          `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${line}`
+        ),
       });
+      if (!shouldCommitUsageLoad(loaded.diagnostics.filesFailed)) {
+        this.handleColdRefreshFailure(updateWebview);
+        this.outputChannel.appendLine(formatRefreshDiagnostic({
+          trigger: request.trigger,
+          filesDiscovered: manifest.entries.size,
+          filesChanged: delta.changed.length,
+          filesReused: delta.reused.length,
+          filesRemoved: delta.removed.length,
+          filesFailed: loaded.diagnostics.filesFailed,
+          bytesRead: loaded.diagnostics.bytesRead,
+          linesParsed: loaded.diagnostics.linesParsed,
+          watcherEvents,
+          coalescedTriggers,
+          manifestMs,
+          readParseMs: loaded.diagnostics.readParseMs,
+          aggregateRenderMs: 0,
+          totalMs: performance.now() - totalStarted,
+        }));
+        return;
+      }
+
+      const aggregateStarted = performance.now();
       const records = loaded.records;
       const contentAnalysis = loaded.contentAnalysis;
-      this.cache.records = records;
-      this.cache.contentAnalysis = contentAnalysis;
-      this.cache.lastUpdate = new Date();
-      this.cache.dataDirectory = dataDirectory;
 
       if (records.length === 0) {
         const error = 'No usage records found. Make sure Claude Code is running.';
@@ -1148,58 +1203,86 @@ export class ClaudeCodeUsageExtension {
         if (updateWebview) {
           this.webviewProvider.updateData(null, null, null, null, [], [], [], error, dataDirectory);
         }
-        return;
+      } else {
+        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const sessionData = ClaudeDataLoader.getCurrentSessionData(records, workspacePath);
+        const todayData = ClaudeDataLoader.getTodayData(records);
+        const workspaceTodayData = workspacePath
+          ? ClaudeDataLoader.getTodayData(ClaudeDataLoader.filterByWorkspace(records, workspacePath))
+          : null;
+        const monthData = ClaudeDataLoader.getThisMonthData(records);
+        const allTimeData = ClaudeDataLoader.getAllTimeData(records);
+        const dailyDataForMonth = ClaudeDataLoader.getDailyDataForMonth(records);
+        const dailyDataForAllTime = ClaudeDataLoader.getDailyDataForAllTime(records);
+        const hourlyDataForToday = ClaudeDataLoader.getHourlyDataForToday(records);
+        const sessionBreakdown = ClaudeDataLoader.getSessionBreakdown(records);
+        const projectBreakdown = ClaudeDataLoader.getProjectBreakdown(records, undefined, config.projectGroupingMode);
+        const branchBreakdown = ClaudeDataLoader.getBranchBreakdown(records);
+        const workflowBreakdown = ClaudeDataLoader.getWorkflowBreakdown(records);
+        const costliestMessages = ClaudeDataLoader.getCostliestMessages(records);
+
+        this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined, monthData);
+        this.statusBar.updateContext(
+          ClaudeDataLoader.getCurrentContextInfo(records, workspacePath, config.contextWindowOverride)
+        );
+        if (updateWebview) {
+          this.webviewProvider.updateData(sessionData, todayData, monthData, allTimeData, dailyDataForMonth, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages);
+        }
       }
 
-      // Calculate usage data
-      const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      // "Current session" (per-workspace) is still computed for the webview.
-      const sessionData = ClaudeDataLoader.getCurrentSessionData(records, workspacePath);
-      const todayData = ClaudeDataLoader.getTodayData(records);
-      // Status-bar secondary number: today's cost for the current workspace.
-      const workspaceTodayData = workspacePath
-        ? ClaudeDataLoader.getTodayData(ClaudeDataLoader.filterByWorkspace(records, workspacePath))
-        : null;
-      const monthData = ClaudeDataLoader.getThisMonthData(records);
-      const allTimeData = ClaudeDataLoader.getAllTimeData(records);
-      const dailyDataForMonth = ClaudeDataLoader.getDailyDataForMonth(records);
-      const dailyDataForAllTime = ClaudeDataLoader.getDailyDataForAllTime(records);
-      const hourlyDataForToday = ClaudeDataLoader.getHourlyDataForToday(records);
-      const sessionBreakdown = ClaudeDataLoader.getSessionBreakdown(records);
-      const projectBreakdown = ClaudeDataLoader.getProjectBreakdown(records, undefined, config.projectGroupingMode);
-      const branchBreakdown = ClaudeDataLoader.getBranchBreakdown(records);
-      const workflowBreakdown = ClaudeDataLoader.getWorkflowBreakdown(records);
-      const costliestMessages = ClaudeDataLoader.getCostliestMessages(records);
-
-      // Update UI. Quota is pushed asynchronously by the fire-and-forget fetch
-      // above; passing undefined leaves the quota item untouched here.
-      this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined, monthData);
-      this.statusBar.updateContext(
-        ClaudeDataLoader.getCurrentContextInfo(records, workspacePath, config.contextWindowOverride)
+      const aggregateRenderMs = performance.now() - aggregateStarted;
+      commitRefreshSnapshot(
+        manifest,
+        { records, contentAnalysis },
+        loaded.diagnostics.filesFailed,
+        (nextManifest, snapshot) => {
+          this.cache.records = snapshot.records;
+          this.cache.contentAnalysis = snapshot.contentAnalysis;
+          this.cache.manifest = nextManifest;
+          this.cache.dataDirectory = dataDirectory;
+          this.cache.lastUpdate = new Date();
+        }
       );
-      if (updateWebview) {
-        this.webviewProvider.updateData(sessionData, todayData, monthData, allTimeData, dailyDataForMonth, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages);
-      }
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('Error refreshing Claude Code usage data:', error);
-
-      this.statusBar.updateUsageData(null, null, errorMessage);
-      this.statusBar.updateContext(null);
-      if (manualTrigger || this.getConfiguration().dashboardAutoRefresh) {
-        this.webviewProvider.updateData(null, null, null, null, [], [], [], errorMessage, null);
-      }
+      this.outputChannel.appendLine(formatRefreshDiagnostic({
+        trigger: request.trigger,
+        filesDiscovered: manifest.entries.size,
+        filesChanged: delta.changed.length,
+        filesReused: delta.reused.length,
+        filesRemoved: delta.removed.length,
+        filesFailed: loaded.diagnostics.filesFailed,
+        bytesRead: loaded.diagnostics.bytesRead,
+        linesParsed: loaded.diagnostics.linesParsed,
+        watcherEvents,
+        coalescedTriggers,
+        manifestMs,
+        readParseMs: loaded.diagnostics.readParseMs,
+        aggregateRenderMs,
+        totalMs: performance.now() - totalStarted,
+      }));
+    } catch {
+      // Keep the previous records and manifest authoritative. The next trigger
+      // retries scanner/reconciliation failures instead of presenting no data.
+      this.handleColdRefreshFailure(updateWebview);
+      this.outputChannel.appendLine(formatRefreshDiagnostic({
+        trigger: request.trigger,
+        filesDiscovered: 0,
+        filesChanged: 0,
+        filesReused: 0,
+        filesRemoved: 0,
+        filesFailed: 1,
+        bytesRead: 0,
+        linesParsed: 0,
+        watcherEvents,
+        coalescedTriggers,
+        manifestMs: 0,
+        readParseMs: 0,
+        aggregateRenderMs: 0,
+        totalMs: performance.now() - totalStarted,
+      }));
     } finally {
-      this.isRefreshing = false;
-      // If triggers arrived mid-load, run one more (background) refresh to pick
-      // up the changes they signalled. The pendingRefresh flag collapses any
-      // number of dropped triggers into a single follow-up.
-      if (this.pendingRefresh) {
-        this.pendingRefresh = false;
-        const manual = this.pendingManual;
-        this.pendingManual = false;
-        setTimeout(() => this.refreshData(manual), 0);
+      const next = this.refreshGate.complete();
+      if (next !== null) {
+        setTimeout(() => void this.runRefresh(next), 0);
       }
     }
   }

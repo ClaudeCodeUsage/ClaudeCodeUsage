@@ -125,7 +125,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/*.test.js"
+    "test": "npm run compile && node --test out/test/*.test.js .github/scripts/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "24.0.15",

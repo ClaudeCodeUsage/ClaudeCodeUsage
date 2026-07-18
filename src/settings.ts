@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { LIVE_REFRESH_SECONDS } from './refreshPolicy';
 
 // Single source of truth for every user setting (V2.1: "settings in the
 // dashboard"). Most settings moved OUT of VS Code's Settings UI to keep it
@@ -391,9 +392,9 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'data',
     label: 'Live refresh delay',
-    help: 'How soon the dashboard refreshes after new activity. This only re-reads your LOCAL log files (no API call — the quota fetch is throttled separately). "Off" disables live watching; a longer delay is lighter on CPU.',
-    enumValues: ['0', '1', '2', '5', '10', '20', '30'],
-    enumLabels: ['Off', '1s', '2s', '5s', '10s', '20s', '30s'],
+    help: 'Wait after the last local JSONL change before refreshing (quiet debounce; each new event restarts the delay). No API call is made; quota fetches are throttled separately. Off disables watching, and 60–300s is the lowest-CPU option for large histories.',
+    enumValues: [...LIVE_REFRESH_SECONDS],
+    enumLabels: ['Off', '1s', '2s', '5s', '10s', '20s', '30s', '60s', '120s', '300s'],
   },
   {
     // V2.2: positive wording, replacing the old double-negative
