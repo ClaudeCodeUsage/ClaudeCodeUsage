@@ -2076,9 +2076,11 @@ export class ClaudeDataLoader {
    * Group records by their source session (.jsonl file) and aggregate usage per session.
    * Returns sessions with billable usage, sorted by most recent activity first.
    * @param records All loaded usage records
-   * @param limit Maximum number of sessions to return (default 50)
+   * @param limit Maximum number of sessions to return. Default 1000 — a DOM-safety
+   *   cap, not a "recent" window: the Sessions tab shows all of a normal user's
+   *   sessions and narrows them with client-side time / project / model filters.
    */
-  static getSessionBreakdown(records: ClaudeUsageRecord[], limit: number = 50): SessionUsage[] {
+  static getSessionBreakdown(records: ClaudeUsageRecord[], limit: number = 1000): SessionUsage[] {
     const recordsBySession: Record<string, ClaudeUsageRecord[]> = {};
 
     for (const record of records) {

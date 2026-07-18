@@ -99,6 +99,47 @@ consent prompt.
 
 ---
 
+## What's new in 2.2
+
+- **Usage share card** (opt-in, `enableShareCard`) — a themed, configurable
+  one-page SVG of your usage: pick a range × scope (overall / project / session)
+  × which metrics to show, and a theme (**Claude Classic** / **Cream** /
+  **Aurora Dark** / **Auto**), with an optional GitHub avatar + name.
+  Self-contained and deterministic; no prompts, paths or ids ever leave your
+  machine. Chinese locales use 万/亿 units.
+- **Read-only conversation viewer** (Sessions tab, **on by default**) — a "view"
+  button re-opens a past session's prompts and Markdown-rendered answers so you
+  can jog your memory **without** loading it back into the model's context
+  (unlike resume). Thinking and tool traffic sit behind toggles; opens on the
+  last rounds.
+- **Token heatmap** (opt-in, `showHeatmap`) — a GitHub-style yearly token heatmap
+  on the All tab, plus **Export / Publish to your GitHub profile** as a
+  self-contained SVG with a one-click Markdown embed.
+- **Experimental insights** (opt-in, `showInsights`, Content tab) — labelled
+  estimates from your local logs: a **cache-churn bill** ($ spent re-writing
+  cache after model switches / idle gaps), **cache warmth by model**, **big
+  one-shot turns**, **your active hours**, and **skill ROI** (output tokens
+  returned per $).
+- **Top-10 costliest messages** (opt-in, `showCostliestMessages`) — ranks single
+  turns by cost, splitting a **cache miss** from a long answer, with the
+  cache-hit rate and the time since the last turn.
+- **Sessions "Active" column** — estimated hands-on time per session (idle gaps
+  capped at 1.5 h), far more meaningful than the raw first-to-last span.
+- **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)
+  tables and their drill-downs, so cache efficiency is visible per row.
+- **Live-refresh delay** (`fileWatchSeconds`: Off / 1 / 2 / 5 / 10 / 20 / 30 s)
+  replaces the on/off live-watch toggle; it only re-reads your **local** logs.
+- **Timezone-aware bucketing** — Today / day / month / hour totals all key off
+  your configured IANA zone (full UTC-offset dropdown), so they agree with each
+  other and the Anthropic console.
+- **"What's new" prompt after upgrades** — a single dismissible nudge the first
+  time you run a new major.minor version, so opt-in features stay discoverable.
+- **Fixes** — Sonnet 5 reports a 1M context window (#50); 1-hour cache writes are
+  priced at 2× base input when the log carries the split (#62); background
+  windows refresh on focus instead of going stale (#55); the Timezone setting is
+  a validated dropdown so a bad value can't crash the dashboard (#51); German
+  (de-DE) and Brazilian Portuguese (pt-BR) are selectable everywhere.
+
 ## What's new in 2.1
 
 - **Sessions: resume / copy / delete** — each row can copy the session id,
