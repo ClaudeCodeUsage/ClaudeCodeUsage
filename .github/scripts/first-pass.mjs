@@ -109,7 +109,6 @@ const buildSystem = (final) => [
   '...body markdown...',
   '</reply>',
 ].join('\n');
-
 const buildUser = (extraFiles) =>
   (isPr
     ? `PR #${num}: ${env.ITEM_TITLE}\n\n${env.ITEM_BODY || '(no description)'}\n\n--- DIFF (truncated) ---\n${diff}`
