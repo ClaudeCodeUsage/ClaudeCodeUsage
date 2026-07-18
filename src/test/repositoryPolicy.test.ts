@@ -37,6 +37,15 @@ test('AGENTS links a faithful Simplified-Chinese review copy', () => {
   assert.match(chinese, /推送、创建 PR、合并或发布 Release/);
 });
 
+test('contributor pull requests retain their merged attribution', () => {
+  const agents = repoFile('AGENTS.md');
+  const chinese = repoFile('AGENTS.zh-CN.md');
+  assert.match(agents, /Never copy.*contributor pull request.*close.*superseded/is);
+  assert.match(agents, /merge the\s+contributor's original pull request/i);
+  assert.match(chinese, /严禁.*贡献者 PR.*吸收.*关闭/is);
+  assert.match(chinese, /合并贡献者的原始 PR/);
+});
+
 test('CLAUDE is a compatibility entry point, not a conflicting policy source', () => {
   const claude = repoFile('CLAUDE.md');
   assert.match(claude, /AGENTS\.md.*canonical repository policy/);

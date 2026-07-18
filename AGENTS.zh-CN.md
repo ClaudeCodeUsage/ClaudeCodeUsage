@@ -74,6 +74,9 @@ npx @vscode/vsce package
 - tracked 文件默认模式为 `100644` 且使用 LF。只有确实由操作系统直接执行的程序
   才能用 `100755`，并要登记到仓库 policy 测试；提交前用 `git ls-files --stage` 核对。
 - commit 保持聚焦；仓库通过已审阅 PR squash-merge 到 `main`。
+- 严禁把贡献者 PR 的改动吸收到维护者 PR 后，再以 superseded／已吸收为由直接关闭
+  贡献者 PR。必须优先合并贡献者的原始 PR；如确需修改，应先获得明确授权，在该原始
+  PR 分支上修改后再合并。额外测试、重构或加固应作为建立在已合并贡献之上的后续 PR。
 - 未经维护者明确批准，不得推送、创建 PR、合并或发布 Release。
 - 不得手动修改 `package.json` 版本或创建发布 tag。Release Drafter 维护 draft；
   发布已审阅 draft 后才创建 tag，publish workflow 再从 tag 写入包版本。

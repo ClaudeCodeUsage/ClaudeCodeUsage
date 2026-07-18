@@ -86,6 +86,11 @@ npx @vscode/vsce package
   real directly executed program, register it in the repository policy test,
   and verify modes with `git ls-files --stage` before committing.
 - Keep commits focused. The repository squash-merges reviewed PRs to `main`.
+- Never copy changes from a contributor pull request into a maintainer PR and
+  close the contributor PR as superseded. To preserve attribution, merge the
+  contributor's original pull request, or—with explicit authorization—update that
+  original PR branch and then merge it. Put extra tests, refactors, or hardening
+  in a follow-up PR that builds on the merged contribution.
 - Do not push, open a pull request, merge, or publish a release without explicit
   maintainer approval.
 - Do not bump `package.json` or create release tags manually. Release Drafter
