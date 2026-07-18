@@ -53,6 +53,36 @@ test('compactReset: hours under a day, days beyond, 0h past, "" invalid', () => 
   assert.equal(compactReset('not-a-date', NOW), '');
 });
 
+test('compactReset: "units" format gives whole hour/minute or day/hour', () => {
+  assert.equal(compactReset(at(4.8 * H), NOW, 'units'), '4h 48m');
+  assert.equal(compactReset(at(38.4 * H), NOW, 'units'), '1d 14h');
+  assert.equal(compactReset(at(0.5 * H), NOW, 'units'), '30m');
+  assert.equal(compactReset(at(-1 * H), NOW, 'units'), '0m');
+  assert.equal(compactReset('not-a-date', NOW, 'units'), '');
+});
+
+test('compactReset: "clock" format gives local time (< 24h) or local date (>= 24h)', () => {
+  const soon = new Date(NOW + 4.8 * H);
+  const later = new Date(NOW + 38.4 * H);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const expectedTime = `${pad(soon.getHours())}:${pad(soon.getMinutes())}`;
+  const expectedDate = `${later.getFullYear()}-${pad(later.getMonth() + 1)}-${pad(later.getDate())}`;
+  assert.equal(compactReset(at(4.8 * H), NOW, 'clock'), expectedTime);
+  assert.equal(compactReset(at(38.4 * H), NOW, 'clock'), expectedDate);
+  assert.equal(compactReset('not-a-date', NOW, 'clock'), '');
+});
+
+test('showResetInStatusBar honours resetFormat', () => {
+  const s = formatQuotaStatusText(live, {
+    showReset: true,
+    fiveHourOnly: false,
+    showOpusWeekly: false,
+    resetFormat: 'units',
+    now: NOW,
+  });
+  assert.equal(s, '5h 6% ↻4h 48m | wk 1% ↻1d 14h');
+});
+
 test('worstShownUtilisation honours fiveHourOnly and showOpusWeekly', () => {
   assert.equal(worstShownUtilisation(live, { showReset: false, fiveHourOnly: false, showOpusWeekly: false }), 6);
   assert.equal(worstShownUtilisation(live, { showReset: false, fiveHourOnly: false, showOpusWeekly: true }), 12);

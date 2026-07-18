@@ -11,6 +11,12 @@ import { I18n } from './i18n';
 import { DayUsage } from './heatmap';
 import { ShareInput, ShareRange, rangeLabel as shareRangeLabel } from './shareCard';
 import {
+  scanUsageManifest,
+  sortUsageFilesByEarliestTimestamp,
+  UsageManifest,
+} from './claudeUsageFiles';
+import { LoadUsageDiagnostics } from './refreshDiagnostics';
+import {
   AttributionEntry,
   AttributionScope,
   BranchUsage,
@@ -40,33 +46,6 @@ const USER_HOME_DIR = os.homedir();
 // XDG config directory
 const XDG_CONFIG_DIR = process.env.XDG_CONFIG_HOME || path.join(USER_HOME_DIR, '.config');
 const DEFAULT_CLAUDE_CONFIG_PATH = path.join(XDG_CONFIG_DIR, 'claude');
-
-// Native file search function to replace tinyglobby
-async function findJsonlFiles(dir: string): Promise<string[]> {
-  const files: string[] = [];
-
-  async function searchRecursively(currentDir: string) {
-    try {
-      const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-
-        if (entry.isDirectory()) {
-          await searchRecursively(fullPath);
-        } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-          files.push(fullPath);
-        }
-      }
-    } catch (error) {
-      // Ignore permission errors and continue
-      console.warn(`Cannot read directory ${currentDir}:`, error);
-    }
-  }
-
-  await searchRecursively(dir);
-  return files;
-}
 
 // Identify usage records by structural shape only.
 //
@@ -521,27 +500,42 @@ export class ClaudeDataLoader {
 
   static async loadUsageRecords(
     dataDirectory?: string,
-    options?: { analyzeContent?: boolean; windowDays?: number; log?: (line: string) => void }
-  ): Promise<{ records: ClaudeUsageRecord[]; contentAnalysis: ContentAnalysis | null }> {
+    options?: {
+      analyzeContent?: boolean;
+      windowDays?: number;
+      log?: (line: string) => void;
+      manifest?: UsageManifest;
+    }
+  ): Promise<{
+    records: ClaudeUsageRecord[];
+    contentAnalysis: ContentAnalysis | null;
+    diagnostics: LoadUsageDiagnostics;
+  }> {
     const analyzeContent = options?.analyzeContent !== false; // default true
     // How many days back the content analysis (and its prompt sample) looks.
     // Configurable via advice.promptWindowDays; defaults to 30.
     const windowDays = Math.min(365, Math.max(1, Math.round(options?.windowDays ?? 30)));
     const windowMs = windowDays * 24 * 60 * 60 * 1000;
     const log = options?.log;
+    const readParseStarted = performance.now();
+    let filesDiscovered = 0;
+    let filesFailed = 0;
+    let bytesRead = 0;
+    let linesParsed = 0;
+    const diagnostics = (): LoadUsageDiagnostics => ({
+      filesDiscovered,
+      filesFailed,
+      bytesRead,
+      linesParsed,
+      readParseMs: performance.now() - readParseStarted,
+    });
     try {
       const claudePaths = dataDirectory ? [dataDirectory] : this.getClaudePaths();
-      const allFiles: string[] = [];
-
-      for (const claudePath of claudePaths) {
-        const claudeDir = path.join(claudePath, CLAUDE_PROJECTS_DIR_NAME);
-        if (fs.existsSync(claudeDir)) {
-          const files = await findJsonlFiles(claudeDir);
-          allFiles.push(...files);
-        }
-      }
-
-      const sortedFiles = await this.sortFilesByTimestamp(allFiles);
+      const manifest = options?.manifest ?? await scanUsageManifest(claudePaths);
+      filesDiscovered = manifest.entries.size;
+      const sorted = await sortUsageFilesByEarliestTimestamp([...manifest.entries.values()]);
+      bytesRead += sorted.bytesRead;
+      const sortedFiles = sorted.files;
       // hash → records[] index. Some proxies (mimo / CC Switch) write two
       // records per message: a tokens=0 placeholder when streaming starts,
       // and the real values when the response finishes. Both records share
@@ -582,6 +576,7 @@ export class ClaudeDataLoader {
       for (const file of sortedFiles) {
         try {
           const content = await readFile(file, 'utf-8');
+          bytesRead += Buffer.byteLength(content, 'utf8');
           const lines = content
             .trim()
             .split('\n')
@@ -621,6 +616,7 @@ export class ClaudeDataLoader {
           // count (see promptDedup.ts).
           const recentPrompts = new Map<string, number>();
           for (const line of lines) {
+            linesParsed += 1;
             stats.linesScanned += 1;
             try {
               const parsed = JSON.parse(line) as unknown;
@@ -795,6 +791,7 @@ export class ClaudeDataLoader {
             }
           }
         } catch (fileError) {
+          filesFailed += 1;
           console.warn(`Failed to read file ${file}:`, fileError);
         }
 
@@ -868,10 +865,11 @@ export class ClaudeDataLoader {
           contentAnalysis.calibration = { realOutputTokens, realInputSideTokens };
         }
       }
-      return { records, contentAnalysis };
+      return { records, contentAnalysis, diagnostics: diagnostics() };
     } catch (error) {
+      filesFailed = Math.max(filesFailed, 1);
       console.error('Error loading usage records:', error);
-      return { records: [], contentAnalysis: null };
+      return { records: [], contentAnalysis: null, diagnostics: diagnostics() };
     }
   }
 
@@ -970,47 +968,6 @@ export class ClaudeDataLoader {
   private static recordContextTokens(record: ClaudeUsageRecord): number {
     const usage = record.message.usage;
     return (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0);
-  }
-
-  private static async getEarliestTimestamp(filePath: string): Promise<Date | null> {
-    try {
-      const content = await readFile(filePath, 'utf-8');
-      const lines = content.trim().split('\n');
-
-      for (const line of lines) {
-        if (line.trim() === '') continue;
-
-        try {
-          const json = JSON.parse(line) as Record<string, unknown>;
-          if (typeof json.timestamp === 'string') {
-            const date = new Date(json.timestamp);
-            if (!isNaN(date.getTime())) {
-              return date;
-            }
-          }
-        } catch {
-          // Skip invalid lines
-        }
-      }
-
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  private static async sortFilesByTimestamp(files: string[]): Promise<string[]> {
-    const filesWithTimestamps = await Promise.all(
-      files.map(async (file) => {
-        const timestamp = await this.getEarliestTimestamp(file);
-        return {
-          file,
-          timestamp: timestamp || new Date(0),
-        };
-      })
-    );
-
-    return filesWithTimestamps.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()).map((item) => item.file);
   }
 
   static calculateUsageData(records: ClaudeUsageRecord[]): UsageData {
@@ -2848,24 +2805,11 @@ export class ClaudeDataLoader {
    */
   static async getLatestModifiedTime(dataDirectory?: string): Promise<number> {
     try {
-      const claudePaths = dataDirectory ? [dataDirectory] : this.getClaudePaths();
+      const roots = dataDirectory ? [dataDirectory] : this.getClaudePaths();
+      const manifest = await scanUsageManifest(roots);
       let latest = 0;
-      for (const claudePath of claudePaths) {
-        const claudeDir = path.join(claudePath, CLAUDE_PROJECTS_DIR_NAME);
-        if (!fs.existsSync(claudeDir)) {
-          continue;
-        }
-        const files = await findJsonlFiles(claudeDir);
-        for (const file of files) {
-          try {
-            const stat = await fs.promises.stat(file);
-            if (stat.mtimeMs > latest) {
-              latest = stat.mtimeMs;
-            }
-          } catch {
-            // Ignore unreadable files.
-          }
-        }
+      for (const entry of manifest.entries.values()) {
+        latest = Math.max(latest, entry.mtimeMs);
       }
       return latest;
     } catch {

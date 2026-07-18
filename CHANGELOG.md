@@ -4,25 +4,54 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
-## [2.2.1] — 2026-07-13
+## [2.2.1] — Unreleased
 
 ### Added
-- **Sessions: all sessions + filters** — the Sessions tab defaults to *all*
-  sessions (it was capped at the 50 most-recent) and no longer defaults to the
-  current project; a filter bar adds a **time range** (All / Today / 7d / 30d), the
-  **project** toggle, and a **model** dropdown, each persisted across reloads. (#73)
+- **Sessions: all sessions + filters (#73)** — the Sessions tab can show all
+  sessions and adds persisted time-range, project, and model filters. Thanks
+  [@Carl723000](https://github.com/Carl723000).
+- **Reset countdown formats (#75, closes #74)** — quota reset countdowns can use
+  decimal, whole-unit, or local clock/date formats. Thanks
+  [@projectronic](https://github.com/projectronic).
+- **Indonesian timezone presets (#77)** — the timezone picker now includes WIB,
+  WITA, and WIT presets. Thanks [@projectronic](https://github.com/projectronic).
 
 ### Changed
-- **`@ccu-bot` first-pass replies default to English** — bilingual (English + 中文)
-  only when the issue/PR author themselves wrote in Chinese, never Chinese-only;
-  the section headings default to English. (#72)
+- **Codex maintenance handoff** — `AGENTS.md` is now the canonical repository
+  policy with a Simplified-Chinese review copy. Claude Code and OpenAI Codex
+  are credited as development tools, separately from human contributors.
 
 ### Fixed
-- **Monthly Usage table month labels** no longer read one month behind in
-  negative-UTC timezones — the monthly label was built from `new Date('YYYY-MM-01')`
-  (UTC midnight) then formatted in the user's timezone, so a behind-UTC zone showed
-  the previous month; it now parses the key textually and pins it to noon UTC. The
-  daily label had the same latent off-by-one. (#72, #54)
+- **High-CPU refresh mitigation (#70)** — polling now always honors the
+  configured 30–3600 second `refreshInterval`; file watching is quiet-debounce
+  only and adds 60/120/300-second choices. First-timestamp reads stop after the
+  first valid timestamp and run with at most eight readers.
+- **Date labels (#54, PR #71)** — daily rows on the first of a month remain
+  daily labels, while monthly keys no longer shift one month backward in
+  negative-UTC zones. Thanks [@YuboZhang](https://github.com/YuboZhang).
+- **Automatic first-pass language (#72)** — repository bot replies now default
+  to English, using English-first bilingual output only for Chinese authors.
+- **Cold-start refresh failures** — an incomplete first scan now clears the
+  loading state and shows a localized retry/diagnostic message while preserving
+  an existing successful snapshot on later transient failures.
+
+### Diagnostics
+- **Anonymous refresh timings** — Show Diagnostic Logs now reports trigger,
+  file/change/reuse/removal counts, bytes, parsed lines, watcher/coalescing
+  counts, and manifest/read-parse/aggregate-render/total timings. It never logs
+  prompts, paths, session IDs, credentials, or raw JSONL lines.
+
+> This is a mitigation pending Linux prerelease validation. Issue #70 remains
+> open until the reporter confirms the result; the per-file incremental index
+> is tracked separately.
+
+### Security
+- Hardened GitHub first-pass automation with truthful per-tier provider attribution,
+  one code-owned footer, fail-closed PR diff handling, and bounded base-repository file reads
+  with traversal, symlink, hidden-path, and secret-path denial.
+- Manual publish retries now require an explicit existing release tag, check out
+  and verify its fully qualified `refs/tags/` commit, and can target only the
+  registry that needs recovery.
 
 ## [2.2.0] — 2026-07-07
 
@@ -176,7 +205,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   has no `-4-` segment — fell through to the 200K legacy default. The dashboard
   and status-bar context bar now correctly show a 1M window for Sonnet 5.
 
-## [2.1.1] — 2026-06-30
+## [2.1.1] — Unreleased
 
 ### Added
 - **Monthly cost in the status bar** — the `statusBarMetric` setting gains a

@@ -13,8 +13,9 @@
 #        - publishes to the VS Code Marketplace (VSCE_PAT) and Open VSX (OVSX_PAT),
 #        - attaches the .vsix to the Release.
 #
-# Trigger manually from Actions → Publish Extension → Run workflow
-# (workflow_dispatch — useful to retry a failed Marketplace/Open VSX publish).
+# Trigger manually from Actions → Publish Extension → Run workflow to retry a
+# failed registry. Supply the existing release tag and select only the registry
+# that needs a retry; the workflow checks out and stamps that exact tag.
 
 name: Publish Extension
 
@@ -22,6 +23,21 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to retry (for example, v2.2.1)
+        required: true
+        type: string
+      publish_vscode:
+        description: Publish to VS Code Marketplace
+        required: true
+        default: true
+        type: boolean
+      publish_open_vsx:
+        description: Publish to Open VSX Registry
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write   # needed by softprops/action-gh-release to attach the .vsix asset
@@ -29,9 +45,20 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Verify release tag checkout
+        run: |
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          test "$HEAD_COMMIT" = "$TAG_COMMIT"
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -45,9 +72,12 @@ jobs:
       # into package.json so vsce packages the right number — no human bump, no
       # tag-vs-package.json mismatch possible. Build-time only (not committed).
       - name: Set version from release tag
-        if: github.event_name == 'release'
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="$RELEASE_TAG"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $TAG" >&2
+            exit 1
+          fi
           VER="${TAG#v}"
           npm version "$VER" --no-git-tag-version --allow-same-version
           echo "package.json version set to $VER (from release $TAG)"
@@ -59,11 +89,13 @@ jobs:
         run: npx -y @vscode/vsce package --out claude-code-usage.vsix
 
       - name: Publish to VS Code Marketplace
+        if: github.event_name == 'release' || inputs.publish_vscode
         run: npx -y @vscode/vsce publish --packagePath claude-code-usage.vsix --pat "$VSCE_PAT"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX Registry
+        if: github.event_name == 'release' || inputs.publish_open_vsx
         run: npx -y ovsx publish claude-code-usage.vsix --pat "$OVSX_PAT"
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
