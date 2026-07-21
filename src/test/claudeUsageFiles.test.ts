@@ -191,3 +191,39 @@ test('equal or invalid timestamps preserve v2.2.0 discovery order', async () => 
   ]);
   assert.deepEqual(invalidPair.files, [invalid, invalid2]);
 });
+
+test('a single unprobeable file does not abort ordering the rest', async () => {
+  const { root } = await fixture();
+  const project = path.join(root, 'projects', '-tmp-demo');
+  const good = path.join(project, 'good.jsonl');
+  const journal = path.join(project, 'journal.jsonl');
+  await writeFile(good, '{"timestamp":"2026-01-01T00:00:00.000Z"}\n');
+  // A large workflow journal.jsonl: >1 MiB of records that never carry a
+  // `timestamp`, which makes readEarliestTimestamp throw TimestampProbeLimitError.
+  await writeFile(journal, '{"type":"result","key":"k","agentId":"a"}\n'.repeat(40_000));
+  await assert.rejects(
+    () => readEarliestTimestamp(journal),
+    { name: 'TimestampProbeLimitError' },
+  );
+
+  const make = async (file: string, discoveryIndex: number) => {
+    const fileStat = await stat(file);
+    return {
+      path: file,
+      size: fileStat.size,
+      mtimeMs: fileStat.mtimeMs,
+      discoveryIndex,
+      dev: fileStat.dev > 0 && fileStat.ino > 0 ? fileStat.dev : undefined,
+      ino: fileStat.dev > 0 && fileStat.ino > 0 ? fileStat.ino : undefined,
+    };
+  };
+
+  // Before the fix this rejected — one unprobeable file zeroed the whole load.
+  // Now it resolves and keeps every file, the unprobeable one stamped 0 so it
+  // sorts ahead of the real timestamp by discovery order.
+  const sorted = await sortUsageFilesByEarliestTimestamp([
+    await make(journal, 0),
+    await make(good, 1),
+  ]);
+  assert.deepEqual(sorted.files, [journal, good]);
+});
