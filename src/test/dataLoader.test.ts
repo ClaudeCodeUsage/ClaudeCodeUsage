@@ -31,6 +31,23 @@ test('getCurrentContextInfo reports a 1M window for Sonnet 5', () => {
   assert.equal(info!.estimated, false);
 });
 
+test('getCurrentContextInfo reports a 1M window for Opus 5, with or without the [1m] marker', () => {
+  for (const model of ['claude-opus-5', 'claude-opus-5[1m]']) {
+    const info = ClaudeDataLoader.getCurrentContextInfo([record(model)]);
+    assert.ok(info, `expected context info for ${model}, got null`);
+    assert.equal(info!.windowTokens, 1_000_000, model);
+    assert.equal(info!.estimated, false, model);
+  }
+});
+
+test('getCurrentContextInfo keeps the 200K window for pre-4.6 Opus and Sonnet', () => {
+  for (const model of ['claude-opus-4-20250514', 'claude-sonnet-4-5-20250929', 'claude-3-5-sonnet-20241022']) {
+    const info = ClaudeDataLoader.getCurrentContextInfo([record(model)]);
+    assert.ok(info, `expected context info for ${model}, got null`);
+    assert.equal(info!.windowTokens, 200_000, model);
+  }
+});
+
 test('an injected manifest is authoritative and returns anonymous load counters', async () => {
   const manifestRoot = await mkdtemp(path.join(os.tmpdir(), 'ccu-loader-manifest-'));
   const emptyArgumentRoot = await mkdtemp(path.join(os.tmpdir(), 'ccu-loader-empty-'));
