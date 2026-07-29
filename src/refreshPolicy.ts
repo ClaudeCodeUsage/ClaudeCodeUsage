@@ -13,6 +13,28 @@ export type RefreshTrigger =
   | 'pricing'
   | 'manual';
 
+export type WindowActivityTransition = 'none' | 'resume' | 'suspend';
+
+export class WindowActivityGate {
+  constructor(private active: boolean) {}
+
+  get focused(): boolean {
+    return this.active;
+  }
+
+  update(nextFocused: boolean): WindowActivityTransition {
+    if (nextFocused === this.active) return 'none';
+    this.active = nextFocused;
+    return nextFocused ? 'resume' : 'suspend';
+  }
+}
+
+export function quotaFailureBackoffMs(failStreak: number): number {
+  if (!Number.isFinite(failStreak) || failStreak <= 0) return 0;
+  const exponent = Math.max(0, Math.floor(failStreak) - 1);
+  return Math.min(3_600_000, 60_000 * Math.pow(2, exponent));
+}
+
 const TRIGGER_PRIORITY: Record<RefreshTrigger, number> = {
   startup: 0,
   poll: 1,

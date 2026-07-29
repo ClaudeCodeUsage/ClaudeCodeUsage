@@ -5,12 +5,30 @@ import {
   LIVE_REFRESH_SECONDS,
   mergeRefreshTrigger,
   pollIntervalMs,
+  quotaFailureBackoffMs,
   QuietDebounce,
   RefreshSingleFlight,
   reportColdRefreshFailure,
   shouldCommitUsageLoad,
   shouldReloadUsage,
+  WindowActivityGate,
 } from '../refreshPolicy';
+
+test('window activity emits one suspend and one resume transition', () => {
+  const gate = new WindowActivityGate(true);
+  assert.equal(gate.update(true), 'none');
+  assert.equal(gate.update(false), 'suspend');
+  assert.equal(gate.update(false), 'none');
+  assert.equal(gate.update(true), 'resume');
+  assert.equal(gate.focused, true);
+});
+
+test('quota failure backoff grows exponentially and caps at one hour', () => {
+  assert.deepEqual(
+    [0, 1, 2, 3, 6, 7, 20].map(quotaFailureBackoffMs),
+    [0, 60_000, 120_000, 240_000, 1_920_000, 3_600_000, 3_600_000],
+  );
+});
 
 test('poll interval always honors refreshInterval and never applies an active override', () => {
   assert.equal(pollIntervalMs(30), 30_000);
