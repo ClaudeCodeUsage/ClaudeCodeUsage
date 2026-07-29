@@ -30,6 +30,7 @@ import {
 import {
   commitRefreshSnapshot,
   pollIntervalMs,
+  quotaFailureBackoffMs,
   QuietDebounce,
   RefreshRequest,
   RefreshSingleFlight,
@@ -883,17 +884,22 @@ export class ClaudeCodeUsageExtension {
           clearTimeout(this.credsDebounceTimer);
         }
         this.credsDebounceTimer = setTimeout(() => {
-          // The cached quota belongs to the previous token/account. Expire it so
-          // the next refresh bypasses the TTL and refetches with the new token.
-          // The api client's own 429 cool-down still protects the endpoint.
-          this.cache.usageLimitsLastUpdate = new Date(0);
-          void this.refreshData(false, 'credentials');
+          this.handleCredentialsChange();
         }, 800);
       });
     } catch {
       // Watching unsupported on this platform/filesystem — the refresh tick
       // still picks up the new account within a TTL.
     }
+  }
+
+  private handleCredentialsChange(): void {
+    // The cached quota and any failure backoff belong to the previous
+    // token/account. Clear both so a successful re-login retries immediately.
+    this.cache.usageLimitsLastUpdate = new Date(0);
+    this.cache.usageLimitsFailStreak = 0;
+    this.cache.usageLimitsBackoffUntil = new Date(0);
+    void this.refreshData(false, 'credentials');
   }
 
   private stopCredentialsWatching(): void {
@@ -1043,9 +1049,10 @@ export class ClaudeCodeUsageExtension {
       );
       return fetched;
     }
-    // Failed (usually a 429). Exponentially back off — 60s, 120s … capped at 10 min.
+    // Failed (usually a 429 or invalid/expired credentials). Exponentially back
+    // off to one hour; a credentials-file change clears this immediately.
     this.cache.usageLimitsFailStreak++;
-    const backoffMs = Math.min(600000, 60000 * Math.pow(2, this.cache.usageLimitsFailStreak - 1));
+    const backoffMs = quotaFailureBackoffMs(this.cache.usageLimitsFailStreak);
     this.cache.usageLimitsBackoffUntil = new Date(now + backoffMs);
     return this.cache.usageLimits;
   }

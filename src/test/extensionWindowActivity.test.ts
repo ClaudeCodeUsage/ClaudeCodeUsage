@@ -134,3 +134,52 @@ test('background window does not inspect or watch the Claude projects tree', asy
     (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind;
   }
 });
+
+test('credentials change clears quota failure backoff before refreshing', async () => {
+  const extension = bareExtension();
+  const calls: string[] = [];
+  extension.cache = {
+    usageLimitsLastUpdate: new Date(123_000),
+    usageLimitsFailStreak: 6,
+    usageLimitsBackoffUntil: new Date(9_999_999),
+  };
+  extension.refreshData = (_force: boolean, trigger: string) => {
+    calls.push(`refresh:${trigger}`);
+    return Promise.resolve();
+  };
+
+  extension.handleCredentialsChange();
+  await Promise.resolve();
+
+  assert.equal(extension.cache.usageLimitsLastUpdate.getTime(), 0);
+  assert.equal(extension.cache.usageLimitsFailStreak, 0);
+  assert.equal(extension.cache.usageLimitsBackoffUntil.getTime(), 0);
+  assert.deepEqual(calls, ['refresh:credentials']);
+});
+
+test('repeated quota failures use the one-hour backoff cap', async () => {
+  const extension = bareExtension();
+  const originalNow = Date.now;
+  Date.now = () => 1_000_000;
+  extension.cache = {
+    usageLimits: null,
+    usageLimitsLastUpdate: new Date(0),
+    usageLimitsBackoffUntil: new Date(0),
+    usageLimitsFailStreak: 6,
+  };
+  extension.apiClient = {
+    fetchUsageLimits: async () => null,
+  };
+  extension.isActive = () => false;
+
+  try {
+    const result = await extension.maybeFetchUsageLimits({
+      usageLimitTracking: true,
+    });
+    assert.equal(result, null);
+    assert.equal(extension.cache.usageLimitsFailStreak, 7);
+    assert.equal(extension.cache.usageLimitsBackoffUntil.getTime(), 4_600_000);
+  } finally {
+    Date.now = originalNow;
+  }
+});
