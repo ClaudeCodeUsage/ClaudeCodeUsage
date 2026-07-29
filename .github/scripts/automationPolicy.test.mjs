@@ -92,9 +92,9 @@ test('CONTRIBUTING distinguishes current automatic, reviewed Codex, and privileg
   assert.match(contributing, /does not migrate this privileged workflow to Codex/);
 });
 
-test('automation hardening is appended to the one existing v2.2.1 section', () => {
+test('released v2.2.1 retains its automation hardening notes in one section', () => {
   const changelog = read('CHANGELOG.md');
-  assert.equal((changelog.match(/^## \[2\.2\.1\] — Unreleased$/gm) ?? []).length, 1);
+  assert.equal((changelog.match(/^## \[2\.2\.1\] — 2026-07-18$/gm) ?? []).length, 1);
   assert.match(changelog, /truthful per-tier provider attribution/);
   assert.match(changelog, /bounded base-repository file reads/);
 });

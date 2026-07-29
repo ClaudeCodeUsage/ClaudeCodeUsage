@@ -4,7 +4,17 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
-## [2.2.1] — Unreleased
+## [2.2.2] — Unreleased
+
+### Fixed
+- **Lower multi-window energy use** — Suspend polling and file watchers in
+  unfocused VS Code windows, then refresh immediately when the window regains
+  focus. This avoids repeating the same local scan in every Extension Host.
+- **Quota failure throttling** — Back off repeated quota authentication failures
+  for up to one hour, while retrying immediately after Claude credentials
+  change.
+
+## [2.2.1] — 2026-07-18
 
 ### Added
 - **Bahasa Indonesia (`id`) (#76)** — the extension's eighth UI language covers

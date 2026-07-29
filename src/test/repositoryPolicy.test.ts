@@ -117,9 +117,12 @@ test('pull request checklist names the actual eight UI locales', () => {
   assert.match(template, /all seven README editions/);
 });
 
-test('changelog records the released baseline and the v2.2.1 tooling transition', () => {
+test('changelog records the V2.2.2 energy patch after the released V2.2.1 baseline', () => {
   const changelog = repoFile('CHANGELOG.md');
-  assert.match(changelog, /^## \[2\.2\.1\] — Unreleased$/m);
+  assert.match(changelog, /^## \[2\.2\.2\] — Unreleased$/m);
+  assert.match(changelog, /^## \[2\.2\.1\] — 2026-07-18$/m);
+  assert.match(changelog, /Suspend polling and file watchers in\s+unfocused VS Code windows/);
+  assert.match(changelog, /Back off repeated quota authentication failures/);
   assert.match(changelog, /^## \[2\.2\.0\] — 2026-07-07$/m);
   assert.match(changelog, /OpenAI Codex/);
   assert.doesNotMatch(changelog, /^## \[2\.2\.0\] — Unreleased$/m);
