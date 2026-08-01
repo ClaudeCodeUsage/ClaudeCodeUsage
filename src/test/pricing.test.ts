@@ -67,6 +67,15 @@ test('cache-write pricing falls back to the 5-minute rate when no TTL split is p
   assert.ok(Math.abs(breakdown.cacheWrite - 6.25) < 1e-9, `expected ~6.25, got ${breakdown.cacheWrite}`);
 });
 
+test('getModelPricing resolves Opus 5 from the exact table, long-context variant included', () => {
+  for (const model of ['claude-opus-5', 'claude-opus-5[1m]']) {
+    const pricing = getModelPricing(model);
+    assert.ok(pricing, `expected pricing for ${model}, got null`);
+    assert.equal(pricing!.input_cost_per_token, 5 / 1_000_000, model);
+    assert.equal(pricing!.output_cost_per_token, 25 / 1_000_000, model);
+  }
+});
+
 test('getModelPricing falls back to the right family for an unknown snapshot', () => {
   // An unreleased Opus snapshot isn't in the exact table; it should still
   // resolve to the current Opus tier ($5/MTok input) rather than a wrong rate.

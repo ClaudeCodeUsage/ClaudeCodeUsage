@@ -231,6 +231,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-fable-5': FABLE_5,
   'claude-mythos-5': FABLE_5,
 
+  // Claude Opus 5 — same current-Opus tier rate, verified 2026-07-28.
+  'claude-opus-5': OPUS_CURRENT,
+
   // Claude Opus 4.8 / 4.7 / 4.6 — current Opus tier rate, verified 2026-06-09
   // against the official pricing page ($5 / $25 / $6.25 / $0.5 per MTok).
   'claude-opus-4-8': OPUS_CURRENT,

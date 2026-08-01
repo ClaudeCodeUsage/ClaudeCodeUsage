@@ -204,11 +204,29 @@ export async function readEarliestTimestamp(
 export async function sortUsageFilesByEarliestTimestamp(
   entries: readonly UsageFileFingerprint[],
 ): Promise<{ files: string[]; bytesRead: number }> {
-  const stamped = await mapWithConcurrency(entries, 8, async (entry) => ({
-    file: entry.path,
-    discoveryIndex: entry.discoveryIndex,
-    ...(await readEarliestTimestamp(entry.path)),
-  }));
+  const stamped = await mapWithConcurrency(entries, 8, async (entry) => {
+    try {
+      return {
+        file: entry.path,
+        discoveryIndex: entry.discoveryIndex,
+        ...(await readEarliestTimestamp(entry.path)),
+      };
+    } catch {
+      // A single file we cannot probe must not abort the whole load. This
+      // happens when a .jsonl has more than 1 MiB of leading lines with no
+      // `timestamp` (readEarliestTimestamp throws TimestampProbeLimitError) —
+      // e.g. a large workflow `journal.jsonl`, whose records carry no
+      // timestamp — or on a transient read error. Fall back to a neutral stamp
+      // so the file sorts by discovery order, exactly as a small no-timestamp
+      // file already does, and the main reader still processes it.
+      return {
+        file: entry.path,
+        discoveryIndex: entry.discoveryIndex,
+        timestampMs: 0,
+        bytesRead: 0,
+      };
+    }
+  });
   stamped.sort((a, b) =>
     a.timestampMs - b.timestampMs || a.discoveryIndex - b.discoveryIndex,
   );

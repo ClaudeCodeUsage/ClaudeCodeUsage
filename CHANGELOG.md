@@ -35,6 +35,23 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   are credited as development tools, separately from human contributors.
 
 ### Fixed
+- **Usage dashboard no longer blanks on one oversized non-transcript file** — a
+  single `.jsonl` with more than 1 MiB of leading lines that carry no
+  `timestamp` (such as a large workflow `journal.jsonl`, whose records hold
+  `type`/`key`/`result`/`agentId` and never a timestamp) made the
+  earliest-timestamp probe throw `TimestampProbeLimitError`. That rejection was
+  unhandled, so it aborted the whole load and left the dashboard empty on every
+  refresh (`failed=1`, `bytes=0` in diagnostics). The probe now fails soft for
+  that one file and the rest load normally.
+- **Opus 5 context window** — `claude-opus-5` reported a 200 000-token window
+  as if it were exact, so the status bar and dashboard showed a context
+  percentage five times too high. Claude Code writes the plain `claude-opus-5`
+  id to its JSONL even for the 1M-context variant, so the existing `[1m]`
+  marker never covered it. The major-version check now recognises Opus 5+
+  alongside Sonnet 5+, and `claude-opus-5` is an explicit entry in the pricing
+  table (same $5 / $25 current-Opus tier the family fallback already resolved,
+  minus the spurious `Unknown model` diagnostic).
+
 - **High-CPU refresh mitigation (#70)** — polling now always honors the
   configured 30–3600 second `refreshInterval`; file watching is quiet-debounce
   only and adds 60/120/300-second choices. First-timestamp reads stop after the
