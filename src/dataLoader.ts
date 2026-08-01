@@ -1194,15 +1194,16 @@ export class ClaudeDataLoader {
   }
 
   /** Model context-window size in tokens, plus whether it's a guess. Current
-   * Claude (Opus 4.6+, Sonnet 4.6+, Sonnet 5+, Fable/Mythos 5) is 1M; Haiku
-   * and older Claude are 200K; a "[1m]" suffix forces 1M (the marker
+   * Claude (Opus 4.6+, Opus 5+, Sonnet 4.6+, Sonnet 5+, Fable/Mythos 5) is 1M;
+   * Haiku and older Claude are 200K; a "[1m]" suffix forces 1M (the marker
    * pricing.ts strips). A user override (>0) wins outright and is treated as
    * exact. Unrecognised / proxied models fall back to 200K and are flagged
    * `estimated` so the UI can mark the percentage as approximate.
    * Sonnet 5 (`claude-sonnet-5`) verified 2026-07-01 —
    * https://platform.claude.com/docs/en/about-claude/models/whats-new-sonnet-5
    * ("1M tokens is both the default and the maximum; there is no smaller
-   * context variant"). */
+   * context variant"). Opus 5 (`claude-opus-5`) verified 2026-07-28 —
+   * https://platform.claude.com/docs/en/about-claude/models/overview */
   private static contextWindowFor(
     model: string,
     override: number = 0
@@ -1221,10 +1222,9 @@ export class ClaudeDataLoader {
     if (/opus-4-(?:[6-9]|\d\d)\b/.test(m) || /sonnet-4-(?:[6-9]|\d\d)\b/.test(m)) {
       return { tokens: 1_000_000, estimated: false };
     }
-    // Sonnet 5.x+ (e.g. "claude-sonnet-5") has no "-4-" segment to match
-    // above, so check the major version directly. (Opus 5 doesn't exist yet —
-    // don't guess its window size here.)
-    if (/sonnet-(?:[5-9]|\d\d)(?:-|\b)/.test(m)) {
+    // Opus 5.x+ / Sonnet 5.x+ (e.g. "claude-opus-5") have no "-4-" segment to
+    // match above, so check the major version directly.
+    if (/(?:opus|sonnet)-(?:[5-9]|\d\d)(?:-|\b)/.test(m)) {
       return { tokens: 1_000_000, estimated: false };
     }
     if (/haiku/.test(m) || /opus|sonnet/.test(m)) {
