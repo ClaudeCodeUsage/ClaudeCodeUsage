@@ -282,8 +282,9 @@ export interface ExtensionConfig {
   contextWindowOverride: number;
   // First status-bar item: today's cost, this month's cost, or today's total token count.
   statusBarMetric: 'cost' | 'monthly-cost' | 'tokens';
-  // Opt-in: append the weekly Opus limit (opus:NN%) to the quota item (PR #38).
-  showOpusWeekly: boolean;
+  // Opt-in: append model-scoped weekly caps ("fable 16%") to the quota item.
+  // Was showOpusWeekly (PR #38) before the API began naming the scope itself.
+  showScopedWeekly: boolean;
   // Quota status-bar display (V2.2): inline reset countdown; 5h-only.
   showResetInStatusBar: boolean;
   quotaFiveHourOnly: boolean;
@@ -408,15 +409,74 @@ export interface ClaudeCredentials {
   };
 }
 
-// One limit window from api.anthropic.com/api/oauth/usage.
+// One limit window from api.anthropic.com/api/oauth/usage, legacy flat form.
+// `resets_at` is null for a usage-anchored window that has not started yet
+// (/usage renders "Starts when a message is sent").
 export interface ClaudeUsageLimit {
   utilization: number; // 0-100
-  resets_at: string; // ISO timestamp
+  resets_at: string | null; // ISO timestamp
+}
+
+// One entry of the generic `limits` array the usage endpoint gained in 2026-08.
+// `kind` is 'session' | 'weekly_all' | 'weekly_scoped' today; `group` collapses
+// those to 'session' | 'weekly'. A scoped entry names its model in
+// scope.model.display_name ("Fable"), which is the only place that name appears
+// — deliberately not hardcoded anywhere in this extension. `is_active` is the
+// API's own marker for the window currently doing the limiting.
+export interface ClaudeUsageLimitEntry {
+  kind?: string;
+  group?: string;
+  percent?: number;
+  severity?: string;
+  resets_at?: string | null;
+  scope?: {
+    model?: { id?: string | null; display_name?: string } | null;
+    surface?: string | null;
+  } | null;
+  is_active?: boolean;
+}
+
+// A money amount in minor units: amount_minor 30000 with exponent 2 is $300.00.
+export interface ClaudeUsageMoney {
+  amount_minor?: number;
+  currency?: string;
+  exponent?: number;
+}
+
+// Usage credits, current form. Covers overflow once plan limits are hit.
+export interface ClaudeUsageSpend {
+  used?: ClaudeUsageMoney | null;
+  limit?: ClaudeUsageMoney | null;
+  percent?: number | null;
+  severity?: string;
+  enabled?: boolean;
+  disabled_reason?: string | null;
+}
+
+// Usage credits, older form kept as a fallback. `monthly_limit` is in minor
+// units scaled by `decimal_places`; `used_credits` is assumed to match it (only
+// ever observed at 0, so the scale could not be confirmed from live data).
+export interface ClaudeUsageExtra {
+  is_enabled?: boolean;
+  monthly_limit?: number | null;
+  used_credits?: number | null;
+  utilization?: number | null;
+  currency?: string;
+  decimal_places?: number;
 }
 
 // Response from the OAuth usage endpoint (mirrors what /usage shows).
+//
+// Two generations coexist. The per-window fields below came first; as of
+// 2026-08 they are still emitted but the per-model ones come back null, with the
+// real data in `limits`. Read through normalizeQuotaWindows (quotaWindows.ts)
+// rather than touching these fields directly, so both shapes stay handled.
 export interface ClaudeApiUsageResponse {
-  five_hour?: ClaudeUsageLimit;
-  seven_day?: ClaudeUsageLimit;
-  seven_day_opus?: ClaudeUsageLimit;
+  five_hour?: ClaudeUsageLimit | null;
+  seven_day?: ClaudeUsageLimit | null;
+  seven_day_opus?: ClaudeUsageLimit | null;
+  seven_day_sonnet?: ClaudeUsageLimit | null;
+  limits?: ClaudeUsageLimitEntry[] | null;
+  spend?: ClaudeUsageSpend | null;
+  extra_usage?: ClaudeUsageExtra | null;
 }

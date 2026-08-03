@@ -3,16 +3,7 @@
 // dense colon-heavy output like "5h:6%:4.8h | wk:1%:1.6d". Reset countdowns are
 // opt-in (showResetInStatusBar); the full reset detail lives in the tooltip.
 
-export interface QuotaLimitLike {
-  utilization: number;
-  resets_at: string;
-}
-
-export interface LiveQuotaWindows {
-  five_hour?: QuotaLimitLike;
-  seven_day?: QuotaLimitLike;
-  seven_day_opus?: QuotaLimitLike;
-}
+import { QuotaWindow } from './quotaWindows';
 
 // Reset-countdown text style (settings > Quota: reset countdown format, #74):
 //   decimal → "4.8h" / "1.6d" (default, most compact)
@@ -23,7 +14,7 @@ export type ResetCountdownFormat = 'decimal' | 'units' | 'clock';
 export interface QuotaStatusOptions {
   showReset: boolean; // showResetInStatusBar (default false)
   fiveHourOnly: boolean; // quotaFiveHourOnly (default false)
-  showOpusWeekly: boolean; // existing opt-in weekly Opus cap
+  showScopedWeekly: boolean; // opt-in model-scoped weekly caps (default false)
   resetFormat?: ResetCountdownFormat; // resetCountdownFormat (default 'decimal')
   now?: number; // for the countdown; defaults to Date.now()
 }
@@ -88,47 +79,162 @@ export function compactReset(
 }
 
 /**
- * The inner status-bar quota text (no icon prefix). Examples:
- *   default       → "5h 6% · wk 1%"
- *   showReset     → "5h 6% ↻4.8h | wk 1% ↻1.6d"
- *   fiveHourOnly  → "5h 6%"
- * Returns '' when there's nothing to show.
+ * The wall-clock moment a window resets, in 24-hour form: "16:59" when that
+ * falls later today, "Thu 16:59" when it lands on another day.
+ *
+ * The weekday appears only when it carries information, which is what lets one
+ * helper serve every window. A 5-hour window usually resets today, so the bare
+ * time reads cleanest; a weekly one rarely does, so it gets the weekday. Basing
+ * that on the actual dates rather than the window length also covers the two
+ * awkward cases: a 5-hour window that crosses midnight, and a weekly one whose
+ * reset happens to be later today.
+ *
+ * Rounded to the nearest minute, since the API stamps these to the microsecond:
+ * a reset at …T23:59:59.227Z is 17:00 local for every practical purpose, and
+ * truncating showed it as 16:59, one minute off its sibling cap. The countdown
+ * beside it stays exact, so nothing depends on this rounding.
+ *
+ * hourCycle 'h23' pins the output to 00-23, suppressing both the AM/PM some
+ * locales add and the "24:00" that hour12:false can produce at midnight.
  */
-export function formatQuotaStatusText(live: LiveQuotaWindows | null, opts: QuotaStatusOptions): string {
-  if (!live) {
-    return '';
+export function wallClockReset(target: Date, now: number = Date.now()): string {
+  // Round first, then read the date off the rounded value: 23:59:40 rounds into
+  // the next day, and the weekday must follow the time actually printed.
+  const rounded = new Date(Math.round(target.getTime() / 60_000) * 60_000);
+  const sameDay = new Date(now).toDateString() === rounded.toDateString();
+  try {
+    return rounded.toLocaleString(undefined, {
+      ...(sameDay ? {} : { weekday: 'short' }),
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    });
+  } catch {
+    return rounded.toISOString();
+  }
+}
+
+export interface ResetCellOptions {
+  format?: ResetCountdownFormat; // resetCountdownFormat (default 'decimal')
+  now?: number;
+}
+
+/**
+ * The quota tooltip's "Resets" cell, as "time left (wall clock)" — e.g.
+ * "4h 29m (15:19)" or "3d 6h (Thu 16:59)".
+ *
+ * Shares compactReset with the status bar so the countdown can no longer
+ * disagree with it. It used to: the tooltip hardcoded whole hour/minute units,
+ * which matched only the 'units' setting and contradicted the default 'decimal'
+ * ("4.5h" in the bar against "4h 29m" in the tooltip for the same window). The
+ * wall-clock part is deliberately not governed by that setting: it answers a
+ * different question (what time does this actually roll over) that a countdown
+ * cannot express.
+ */
+export function formatResetCell(resetsAt: string, opts: ResetCellOptions = {}): string {
+  const t = Date.parse(resetsAt);
+  if (!resetsAt || isNaN(t)) {
+    return '—';
   }
   const now = opts.now ?? Date.now();
-  const seg = (label: string, w?: QuotaLimitLike): string | null => {
-    if (!w) {
-      return null;
+  const format = opts.format ?? 'decimal';
+  const wall = wallClockReset(new Date(t), now);
+  // Under 'clock' the countdown already IS the wall-clock moment, so pairing the
+  // two would print the same instant twice.
+  if (format === 'clock') {
+    return wall;
+  }
+  return `${compactReset(resetsAt, now, format)} (${wall})`;
+}
+
+/**
+ * A utilisation percentage for the tooltip, carrying only the precision the API
+ * actually sent: "8%" for a whole number, "8.4%" when there really is a
+ * fraction. A flat toFixed(1) rendered every window as "8.0% / 16.0% / 0.0%",
+ * implying tenths of a percent that the endpoint does not report.
+ */
+export function formatSharePercent(pct: number): string {
+  const clamped = Math.max(0, Math.min(100, pct));
+  return Number.isInteger(clamped) ? `${clamped}%` : `${clamped.toFixed(1)}%`;
+}
+
+/**
+ * The Share cell for a merged weekly row: the all-models figure, then each
+ * per-model cap named beside it — "8% · fable 16%". Lowercased like the status
+ * bar, whose merged weekly segment reads the same way.
+ */
+export function formatSharesCell(primary: QuotaWindow, scoped: QuotaWindow[]): string {
+  const parts = [formatSharePercent(primary.utilization)];
+  for (const s of scoped) {
+    parts.push(`${s.scopeLabel ? s.scopeLabel.toLowerCase() : 'scoped'} ${formatSharePercent(s.utilization)}`);
+  }
+  return parts.join(' · ');
+}
+
+/** A monthly cap's reset as a bare date ("Sep 1"). Deliberately not a countdown:
+ * the credits reset is derived from the calendar, not reported, so the day is
+ * trustworthy while the exact instant is not. */
+export function formatMonthlyReset(resetsAt: string): string {
+  const t = Date.parse(resetsAt);
+  if (!resetsAt || isNaN(t)) {
+    return '—';
+  }
+  try {
+    return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch {
+    return new Date(t).toISOString().slice(0, 10);
+  }
+}
+
+/** Status-bar label for a window. Scoped windows use the name the API gave them,
+ * lowercased to sit with the "5h" / "wk" segments, so no model name is baked in
+ * here; "wk*" is the fallback for a scoped cap the API declined to name. */
+function segmentLabel(w: QuotaWindow): string {
+  if (w.kind === 'session') {
+    return '5h';
+  }
+  if (w.kind === 'weekly_all') {
+    return 'wk';
+  }
+  return w.scopeLabel ? w.scopeLabel.toLowerCase() : 'wk*';
+}
+
+/** The windows a given set of options actually puts in the status bar. */
+function shownWindows(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): QuotaWindow[] {
+  if (!windows) {
+    return [];
+  }
+  return windows.filter((w) => {
+    if (w.kind === 'session') {
+      return true;
     }
-    let s = `${label} ${Math.round(w.utilization)}%`;
+    if (opts.fiveHourOnly) {
+      return false;
+    }
+    return w.kind === 'weekly_all' || opts.showScopedWeekly;
+  });
+}
+
+/**
+ * The inner status-bar quota text (no icon prefix). Examples:
+ *   default          → "5h 6% · wk 1%"
+ *   showReset        → "5h 6% ↻4.8h | wk 1% ↻1.6d"
+ *   fiveHourOnly     → "5h 6%"
+ *   showScopedWeekly → "5h 6% · wk 1% · Fable 12%"
+ * Returns '' when there's nothing to show.
+ */
+export function formatQuotaStatusText(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): string {
+  const now = opts.now ?? Date.now();
+  const parts = shownWindows(windows, opts).map((w) => {
+    let s = `${segmentLabel(w)} ${Math.round(w.utilization)}%`;
     if (opts.showReset) {
-      const r = compactReset(w.resets_at, now, opts.resetFormat);
+      const r = compactReset(w.resetsAt, now, opts.resetFormat);
       if (r) {
         s += ` ↻${r}`;
       }
     }
     return s;
-  };
-  const parts: string[] = [];
-  const five = seg('5h', live.five_hour);
-  if (five) {
-    parts.push(five);
-  }
-  if (!opts.fiveHourOnly) {
-    const wk = seg('wk', live.seven_day);
-    if (wk) {
-      parts.push(wk);
-    }
-    if (opts.showOpusWeekly) {
-      const op = seg('opus', live.seven_day_opus);
-      if (op) {
-        parts.push(op);
-      }
-    }
-  }
+  });
   if (parts.length === 0) {
     return '';
   }
@@ -138,19 +244,9 @@ export function formatQuotaStatusText(live: LiveQuotaWindows | null, opts: Quota
 }
 
 /** Highest utilisation among the windows actually shown — drives the status-bar
- * warning/error background colour. */
-export function worstShownUtilisation(live: LiveQuotaWindows | null, opts: QuotaStatusOptions): number {
-  if (!live) {
-    return 0;
-  }
-  let worst = live.five_hour?.utilization ?? 0;
-  if (!opts.fiveHourOnly) {
-    if (live.seven_day) {
-      worst = Math.max(worst, live.seven_day.utilization);
-    }
-    if (opts.showOpusWeekly && live.seven_day_opus) {
-      worst = Math.max(worst, live.seven_day_opus.utilization);
-    }
-  }
-  return worst;
+ * warning/error background colour. Scoped-only, and therefore hidden, caps are
+ * excluded on purpose: a red bar with no visible cause reads as a bug. The
+ * tooltip lists every window unconditionally, so the figure stays reachable. */
+export function worstShownUtilisation(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): number {
+  return shownWindows(windows, opts).reduce((worst, w) => Math.max(worst, w.utilization), 0);
 }

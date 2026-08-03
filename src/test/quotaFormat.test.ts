@@ -4,46 +4,83 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 
-import { compactReset, formatQuotaStatusText, worstShownUtilisation } from '../quotaFormat';
+import {
+  compactReset,
+  formatMonthlyReset,
+  formatQuotaStatusText,
+  formatResetCell,
+  formatSharePercent,
+  formatSharesCell,
+  wallClockReset,
+  worstShownUtilisation,
+} from '../quotaFormat';
+import { QuotaWindow } from '../quotaWindows';
 
 const NOW = 1_700_000_000_000;
 const at = (ms: number): string => new Date(NOW + ms).toISOString();
 const H = 3_600_000;
+/** Local "HH:MM", matching what wallClockReset emits for a same-day reset. */
+const formatTime = (d: Date): string =>
+  `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
-const live = {
-  five_hour: { utilization: 6, resets_at: at(4.8 * H) },
-  seven_day: { utilization: 1, resets_at: at(38.4 * H) }, // 1.6 days
-  seven_day_opus: { utilization: 12, resets_at: at(50 * H) },
-};
+const live: QuotaWindow[] = [
+  { kind: 'session', utilization: 6, resetsAt: at(4.8 * H), isActive: false },
+  { kind: 'weekly_all', utilization: 1, resetsAt: at(38.4 * H), isActive: false }, // 1.6 days
+  { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 12, resetsAt: at(50 * H), isActive: true },
+];
 
 test('default format is clean: "5h 6% · wk 1%" (no reset, middot)', () => {
-  const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: false, showOpusWeekly: false, now: NOW });
+  const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: false, showScopedWeekly: false, now: NOW });
   assert.equal(s, '5h 6% · wk 1%');
 });
 
 test('showResetInStatusBar adds compact countdowns with a bar separator', () => {
-  const s = formatQuotaStatusText(live, { showReset: true, fiveHourOnly: false, showOpusWeekly: false, now: NOW });
+  const s = formatQuotaStatusText(live, { showReset: true, fiveHourOnly: false, showScopedWeekly: false, now: NOW });
   assert.equal(s, '5h 6% ↻4.8h | wk 1% ↻1.6d');
 });
 
 test('quotaFiveHourOnly shows only the 5-hour window', () => {
-  const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: true, showOpusWeekly: false, now: NOW });
+  const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: true, showScopedWeekly: false, now: NOW });
   assert.equal(s, '5h 6%');
 });
 
-test('showOpusWeekly appends the weekly Opus segment', () => {
-  const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: false, showOpusWeekly: true, now: NOW });
-  assert.equal(s, '5h 6% · wk 1% · opus 12%');
+test('showScopedWeekly labels the segment with the API scope name, not "opus"', () => {
+  // Lowercased to sit with the "5h" / "wk" segments, which is also the shape the
+  // retired showOpusWeekly produced ("opus 12%").
+  const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
+  assert.equal(s, '5h 6% · wk 1% · fable 12%');
 });
 
-test('fiveHourOnly suppresses Opus even when showOpusWeekly is on', () => {
-  const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: true, showOpusWeekly: true, now: NOW });
+test('showScopedWeekly appends every scoped window the API returns', () => {
+  const two: QuotaWindow[] = [
+    ...live,
+    { kind: 'weekly_scoped', scopeLabel: 'Cowork', utilization: 3, resetsAt: at(50 * H), isActive: false },
+  ];
+  const s = formatQuotaStatusText(two, { showReset: false, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
+  assert.equal(s, '5h 6% · wk 1% · fable 12% · cowork 3%');
+});
+
+test('a scoped window with no scope name falls back to a generic label', () => {
+  const anon: QuotaWindow[] = [{ kind: 'weekly_scoped', utilization: 9, resetsAt: at(H), isActive: false }];
+  const s = formatQuotaStatusText(anon, { showReset: false, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
+  assert.equal(s, 'wk* 9%');
+});
+
+test('fiveHourOnly suppresses scoped weeklies even when showScopedWeekly is on', () => {
+  const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: true, showScopedWeekly: true, now: NOW });
   assert.equal(s, '5h 6%');
 });
 
 test('no windows → empty string (caller hides the item)', () => {
-  assert.equal(formatQuotaStatusText(null, { showReset: false, fiveHourOnly: false, showOpusWeekly: false }), '');
-  assert.equal(formatQuotaStatusText({}, { showReset: true, fiveHourOnly: false, showOpusWeekly: false }), '');
+  assert.equal(formatQuotaStatusText(null, { showReset: false, fiveHourOnly: false, showScopedWeekly: false }), '');
+  assert.equal(formatQuotaStatusText([], { showReset: true, fiveHourOnly: false, showScopedWeekly: false }), '');
+});
+
+test('a window with no reset time prints its share and no countdown', () => {
+  // The session window before the first message of a period: /usage shows
+  // "Starts when a message is sent", so there is nothing to count down to.
+  const fresh: QuotaWindow[] = [{ kind: 'session', utilization: 0, resetsAt: '', isActive: false }];
+  assert.equal(formatQuotaStatusText(fresh, { showReset: true, fiveHourOnly: false, showScopedWeekly: false, now: NOW }), '5h 0%');
 });
 
 test('compactReset: hours under a day, days beyond, 0h past, "" invalid', () => {
@@ -76,15 +113,125 @@ test('showResetInStatusBar honours resetFormat', () => {
   const s = formatQuotaStatusText(live, {
     showReset: true,
     fiveHourOnly: false,
-    showOpusWeekly: false,
+    showScopedWeekly: false,
     resetFormat: 'units',
     now: NOW,
   });
   assert.equal(s, '5h 6% ↻4h 48m | wk 1% ↻1d 14h');
 });
 
-test('worstShownUtilisation honours fiveHourOnly and showOpusWeekly', () => {
-  assert.equal(worstShownUtilisation(live, { showReset: false, fiveHourOnly: false, showOpusWeekly: false }), 6);
-  assert.equal(worstShownUtilisation(live, { showReset: false, fiveHourOnly: false, showOpusWeekly: true }), 12);
-  assert.equal(worstShownUtilisation(live, { showReset: false, fiveHourOnly: true, showOpusWeekly: true }), 6);
+// The tooltip's "Resets" column. It used to hardcode whole hour/minute units,
+// so it disagreed with the status bar under every other resetCountdownFormat —
+// including the default 'decimal' ("4.6h" in the bar, "4h 39m" in the tooltip).
+// One helper now serves both, so they cannot drift apart again.
+
+test('the tooltip reset countdown follows the countdown format', () => {
+  assert.match(formatResetCell(at(4.8 * H), { format: 'decimal', now: NOW }), /^4\.8h \(/);
+  assert.match(formatResetCell(at(4.8 * H), { format: 'units', now: NOW }), /^4h 48m \(/);
+});
+
+test('the tooltip reset cell defaults to decimal, matching the status bar default', () => {
+  assert.match(formatResetCell(at(4.8 * H), { now: NOW }), /^4\.8h \(/);
+});
+
+test('every reset cell reads "time left (wall clock)" on one line', () => {
+  // Including the 5-hour window: leaving it countdown-only was the odd one out.
+  const session = formatResetCell(at(4.8 * H), { format: 'units', now: NOW });
+  assert.match(session, /^4h 48m \(\d{2}:\d{2}\)$/);
+  const weekly = formatResetCell(at(38.4 * H), { format: 'units', now: NOW });
+  assert.match(weekly, /^1d 14h \(.+ \d{2}:\d{2}\)$/);
+  assert.equal(/AM|PM/i.test(session + weekly), false);
+});
+
+test('the wall clock names the weekday only when the reset is not today', () => {
+  const sameDay = new Date(NOW);
+  sameDay.setHours(sameDay.getHours() + 1);
+  const nextDay = new Date(NOW);
+  nextDay.setDate(nextDay.getDate() + 1);
+  // A 5-hour window crossing midnight still gets a weekday, and a weekly one
+  // resetting later today does not: the rule follows the dates, not the window.
+  assert.equal(wallClockReset(sameDay, NOW), formatTime(sameDay));
+  assert.match(wallClockReset(nextDay, NOW), /^.+ \d{2}:\d{2}$/);
+});
+
+test('the wall clock uses a 24-hour cycle, never "24:00" at midnight', () => {
+  const midnight = new Date(NOW);
+  midnight.setDate(midnight.getDate() + 1);
+  midnight.setHours(0, 0, 0, 0);
+  assert.match(wallClockReset(midnight, NOW), /00:00$/);
+});
+
+test('the clock format shows the wall clock without repeating it as a countdown', () => {
+  const weekly = formatResetCell(at(38.4 * H), { format: 'clock', now: NOW });
+  assert.equal(weekly.includes('('), false);
+  assert.match(weekly, /\d{2}:\d{2}$/);
+  assert.equal(formatResetCell(at(4.8 * H), { format: 'clock', now: NOW }), formatTime(new Date(NOW + 4.8 * H)));
+});
+
+test('a missing or unparseable reset cell renders an em dash', () => {
+  assert.equal(formatResetCell('', { now: NOW }), '—');
+  assert.equal(formatResetCell('not-a-date', { now: NOW }), '—');
+});
+
+test('the tooltip share shows no decimal for the whole percents the API sends', () => {
+  assert.equal(formatSharePercent(8), '8%');
+  assert.equal(formatSharePercent(16), '16%');
+  assert.equal(formatSharePercent(0), '0%');
+});
+
+test('the tooltip share keeps one decimal when the value really has a fraction', () => {
+  assert.equal(formatSharePercent(8.42), '8.4%');
+  assert.equal(formatSharePercent(0.5), '0.5%');
+});
+
+test('the tooltip share clamps to 0-100', () => {
+  assert.equal(formatSharePercent(-3), '0%');
+  assert.equal(formatSharePercent(140), '100%');
+});
+
+test('worstShownUtilisation honours fiveHourOnly and showScopedWeekly', () => {
+  assert.equal(worstShownUtilisation(live, { showReset: false, fiveHourOnly: false, showScopedWeekly: false }), 6);
+  assert.equal(worstShownUtilisation(live, { showReset: false, fiveHourOnly: false, showScopedWeekly: true }), 12);
+  assert.equal(worstShownUtilisation(live, { showReset: false, fiveHourOnly: true, showScopedWeekly: true }), 6);
+});
+
+
+test('a merged weekly share cell names each per-model cap beside the total', () => {
+  const cell = formatSharesCell(live[1], [live[2]]);
+  assert.equal(cell, '1% · fable 12%');
+});
+
+test('an unmerged weekly share cell is just its own figure', () => {
+  assert.equal(formatSharesCell(live[1], []), '1%');
+});
+
+test('a share cell handles a scoped cap the API declined to name', () => {
+  const anon: QuotaWindow = { kind: 'weekly_scoped', utilization: 4, resetsAt: '', isActive: false };
+  assert.equal(formatSharesCell(live[1], [anon]), '1% · scoped 4%');
+});
+
+test('the wall clock rounds to the nearest minute', () => {
+  // …T23:59:59 is 17:00 local for every practical purpose. Truncating showed it
+  // as 16:59, a minute off the sibling cap that resets at the same moment.
+  const justBefore = new Date(NOW);
+  justBefore.setHours(12, 59, 59, 500);
+  assert.match(wallClockReset(justBefore, NOW), /13:00$/);
+});
+
+test('rounding up across midnight also moves the weekday', () => {
+  const beforeMidnight = new Date(NOW);
+  beforeMidnight.setHours(23, 59, 59, 500);
+  // Rounds to 00:00 the next day, so the weekday must appear.
+  assert.match(wallClockReset(beforeMidnight, NOW), /^.+ 00:00$/);
+});
+
+test('a monthly cap reset renders as a bare date, not a countdown', () => {
+  const label = formatMonthlyReset(new Date(2026, 8, 1).toISOString());
+  assert.equal(/\d{2}:\d{2}/.test(label), false);
+  assert.match(label, /1/);
+});
+
+test('a missing monthly reset renders an em dash', () => {
+  assert.equal(formatMonthlyReset(''), '—');
+  assert.equal(formatMonthlyReset('not-a-date'), '—');
 });

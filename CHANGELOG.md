@@ -4,6 +4,37 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Fixed
+- **Per-model weekly limits are read again** — Anthropic's usage API stopped
+  filling in its per-model quota fields, so the weekly Opus figure had silently
+  gone blank. The extension now reads whichever per-model weekly cap your plan
+  meters and labels it the way Anthropic does, for example "Fable".
+- **The quota tooltip follows the reset countdown format** — it always used
+  whole units, so on the default decimal setting the same window read "4.5h" in
+  the status bar but "4h 29m" in the tooltip. Every row now reads "time left
+  (wall clock)" on one line, the 5-hour window included, which previously showed
+  no reset time at all.
+- **Missing settings translations** — four Brazilian Portuguese entries and one
+  Indonesian entry showed English text in the settings panel.
+
+### Added
+- **Usage credits in the quota tooltip** — credits spent against your monthly
+  cap and the date it resets, when you have credits enabled.
+
+### Changed
+- **`showOpusWeekly` is now `showScopedWeekly`** — the setting no longer names a
+  single model, because the API says which model is capped. Your existing choice
+  carries over, and it stays opt-in and off by default.
+- **The quota tooltip lists every weekly cap** the API reports, whether or not
+  the status bar is showing it. A per-model cap can be the binding one, so it is
+  always one hover away. Caps that reset together share a row, reading
+  "8% · fable 16%", and one that reset on its own schedule would keep its own row.
+- **Reset times read to the minute** — they were shown truncated to the second,
+  so a cap resetting at 16:59:59 displayed as "16:59" while the cap it resets
+  alongside displayed "17:00".
+
 ## [2.2.2] — Unreleased
 
 ### Fixed

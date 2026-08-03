@@ -1,7 +1,24 @@
 import * as vscode from 'vscode';
-import { ClaudeApiUsageResponse, ClaudeUsageLimit, ContextWindowInfo, UsageData } from './types';
+import { ClaudeApiUsageResponse, ContextWindowInfo, UsageData } from './types';
 import { I18n } from './i18n';
-import { formatQuotaStatusText, worstShownUtilisation, QuotaStatusOptions, ResetCountdownFormat } from './quotaFormat';
+import {
+  formatMonthlyReset,
+  formatQuotaStatusText,
+  formatResetCell,
+  formatSharePercent,
+  formatSharesCell,
+  worstShownUtilisation,
+  QuotaStatusOptions,
+  ResetCountdownFormat
+} from './quotaFormat';
+import {
+  QuotaCredits,
+  QuotaWindow,
+  creditsFromUsage,
+  groupQuotaRows,
+  liveQuotaWindows,
+  normalizeQuotaWindows
+} from './quotaWindows';
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
@@ -14,9 +31,11 @@ export class StatusBarManager {
   private usageLimitTracking: boolean = true;
   // First item shows today's cost ('cost'), this month's cost ('monthly-cost'), or today's token count ('tokens').
   private metric: 'cost' | 'monthly-cost' | 'tokens' = 'cost';
-  // Opt-in: append the weekly Opus limit (opus:NN%) to the quota item (PR #38,
-  // @wheelbarrel00).
-  private showOpusWeekly: boolean = false;
+  // Opt-in: append model-scoped weekly caps (e.g. "fable 16%") to the quota
+  // item. Grew out of the weekly-Opus option in PR #38 (@wheelbarrel00), which
+  // named a single model; the API now scopes these caps itself, so the label
+  // follows whatever it reports.
+  private showScopedWeekly: boolean = false;
   // Quota display preferences.
   private quotaFiveHourOnly: boolean = false; // show only the 5h window
   private showResetInBar: boolean = false;    // append reset countdown to the bar
@@ -55,7 +74,7 @@ export class StatusBarManager {
     showContext: boolean,
     usageLimitTracking: boolean = true,
     metric: 'cost' | 'monthly-cost' | 'tokens' = 'cost',
-    showOpusWeekly: boolean = false,
+    showScopedWeekly: boolean = false,
     quotaFiveHourOnly: boolean = false,
     showResetInBar: boolean = false,
     resetCountdownFormat: ResetCountdownFormat = 'decimal'
@@ -64,7 +83,7 @@ export class StatusBarManager {
     this.showContext = showContext;
     this.usageLimitTracking = usageLimitTracking;
     this.metric = metric;
-    this.showOpusWeekly = showOpusWeekly;
+    this.showScopedWeekly = showScopedWeekly;
     this.quotaFiveHourOnly = quotaFiveHourOnly;
     this.showResetInBar = showResetInBar;
     this.resetCountdownFormat = resetCountdownFormat;
@@ -223,19 +242,12 @@ export class StatusBarManager {
    * Public so it can be refreshed on its own while the rest of the UI is idle.
    */
   updateQuota(usageLimits: ClaudeApiUsageResponse | null): void {
-    // A window's utilization is a point-in-time snapshot only valid until its
-    // resets_at. When the OAuth fetch starts failing (expired creds, 401/403,
-    // offline, rate-limited), maybeFetchUsageLimits keeps handing us the last
-    // successful response — so without this guard we'd keep rendering a value
-    // long after its window rolled over (e.g. a stale "5h:100%" lingering for
-    // hours, even after a plan upgrade or a reset). Drop any window whose reset
-    // time has passed. Adapted from PR #24 by @nickearnshaw.
-    const live = this.liveWindows(usageLimits);
-    // Collapse to the 5h window only.
-    if (this.quotaFiveHourOnly && live) {
-      live.seven_day = undefined;
-      live.seven_day_opus = undefined;
-    }
+    // Normalize first: the API exposes quota windows two ways and only the
+    // generic `limits` array still carries the per-model caps. See
+    // quotaWindows.ts. liveQuotaWindows then drops or zeroes anything whose
+    // period has rolled over, because when the OAuth fetch starts failing the
+    // caller keeps handing us the last successful response.
+    const live = liveQuotaWindows(normalizeQuotaWindows(usageLimits));
     // The status bar must stay clean: the default is the airy "5h 6% · wk 1%";
     // reset countdowns are opt-in (showResetInStatusBar), full reset detail
     // lives in the tooltip. The dense colon-heavy form is deliberately gone.
@@ -243,7 +255,7 @@ export class StatusBarManager {
     const opts: QuotaStatusOptions = {
       showReset: this.showResetInBar,
       fiveHourOnly: this.quotaFiveHourOnly,
-      showOpusWeekly: this.showOpusWeekly,
+      showScopedWeekly: this.showScopedWeekly,
       resetFormat: this.resetCountdownFormat
     };
     const text = formatQuotaStatusText(live, opts);
@@ -264,66 +276,8 @@ export class StatusBarManager {
       this.quotaItem.backgroundColor = undefined;
     }
 
-    this.quotaItem.tooltip = this.createQuotaTooltip(live as ClaudeApiUsageResponse);
+    this.quotaItem.tooltip = this.createQuotaTooltip(live, creditsFromUsage(usageLimits));
     this.quotaItem.show();
-  }
-
-  /**
-   * Return a copy of the usage response containing only windows still inside
-   * their current period. A window whose resets_at has already passed has
-   * rolled over, so its cached utilization is stale and must not be shown.
-   * A window with an unparseable resets_at is kept (we don't hide data we
-   * can't reason about). Returns null when nothing current remains, which
-   * collapses the indicator instead of showing a wrong figure.
-   * Adapted from PR #24 by @nickearnshaw.
-   */
-  private liveWindows(usageLimits: ClaudeApiUsageResponse | null): ClaudeApiUsageResponse | null {
-    if (!usageLimits) {
-      return null;
-    }
-    const now = Date.now();
-    const H5 = 5 * 60 * 60 * 1000;
-    const WEEK = 7 * 24 * 60 * 60 * 1000;
-    // A window's utilization is a point-in-time snapshot valid until resets_at.
-    // Once that passes the window has rolled over: utilisation is back at 0 for
-    // the new period. Rather than show a stale value (the old #24 bug) or hide
-    // the row entirely (which looked like the indicator vanished), we display
-    // 0% and roll the reset time forward by whole periods so the countdown is
-    // sensible. A forced refetch (see extension.maybeFetchUsageLimits) then
-    // replaces this estimate with the real new-window value shortly after.
-    const roll = (limit: ClaudeUsageLimit | undefined, periodMs: number): ClaudeUsageLimit | undefined => {
-      if (!limit) {
-        return undefined;
-      }
-      const t = Date.parse(limit.resets_at);
-      if (isNaN(t)) {
-        return limit; // unparseable — don't reason about it, keep as-is
-      }
-      if (t > now) {
-        return limit; // still current
-      }
-      // Expired. If it expired long ago the fetch has been failing for ages and
-      // we have no trustworthy data: drop it rather than assert a fabricated 0%.
-      if (now - t > 2 * periodMs) {
-        return undefined;
-      }
-      // Expired recently: the window rolled over, so utilisation is back to 0.
-      // But these windows are USAGE-anchored — the next window (and its reset)
-      // only starts when you next send a message. Fabricating "reset = old + 5h"
-      // showed a countdown that was wrong until the next real fetch (the reset
-      // appeared to already be ticking before any message). So show 0% with NO
-      // countdown (resets_at cleared → "—"); the real reset lands on next use.
-      return { utilization: 0, resets_at: '' };
-    };
-    const out: ClaudeApiUsageResponse = {
-      five_hour: roll(usageLimits.five_hour, H5),
-      seven_day: roll(usageLimits.seven_day, WEEK),
-      seven_day_opus: roll(usageLimits.seven_day_opus, WEEK)
-    };
-    if (!out.five_hour && !out.seven_day && !out.seven_day_opus) {
-      return null;
-    }
-    return out;
   }
 
   private showNoData(): void {
@@ -407,7 +361,13 @@ export class StatusBarManager {
     return md;
   }
 
-  private createQuotaTooltip(usageLimits: ClaudeApiUsageResponse): vscode.MarkdownString {
+  /**
+   * The detail view. It lists EVERY window the API reported, including scoped
+   * caps the status-bar text is hiding, so opting out of "fable 16%" in the bar
+   * still leaves the figure one hover away — which matters, because a scoped cap
+   * can be the binding one.
+   */
+  private createQuotaTooltip(windows: QuotaWindow[], credits: QuotaCredits | null): vscode.MarkdownString {
     const t = I18n.t.popup;
     const md = new vscode.MarkdownString();
     md.supportThemeIcons = true;
@@ -423,34 +383,68 @@ export class StatusBarManager {
       `<th></th><th align="right">${t.share}</th>` +
       `<th align="right">${t.resets}</th></tr>\n`
     );
-    if (usageLimits.five_hour) {
-      md.appendMarkdown(this.quotaRowHtml(t.quota5h, usageLimits.five_hour, false));
+    for (const row of groupQuotaRows(windows)) {
+      const { window: w, scoped } = row;
+      // A merged row's bar tracks the HIGHEST of its figures: that is the cap
+      // that will actually stop you, and it keeps the amber/red threshold
+      // meaningful when the per-model cap runs ahead of the all-models one.
+      const barPct = scoped.reduce((m, s) => Math.max(m, s.utilization), w.utilization);
+      md.appendMarkdown(
+        this.quotaRowHtml(
+          this.quotaRowLabel(w),
+          formatSharesCell(w, scoped),
+          barPct,
+          formatResetCell(w.resetsAt, { format: this.resetCountdownFormat })
+        )
+      );
     }
-    if (usageLimits.seven_day) {
-      md.appendMarkdown(this.quotaRowHtml(t.quotaWeekly, usageLimits.seven_day, true));
-    }
-    if (usageLimits.seven_day_opus) {
-      md.appendMarkdown(this.quotaRowHtml(`${t.quotaWeekly} (Opus)`, usageLimits.seven_day_opus, true));
+    if (credits) {
+      const amount = `${this.formatCreditAmount(credits.used, credits.currency)} / ` +
+        `${this.formatCreditAmount(credits.limit, credits.currency)}`;
+      md.appendMarkdown(
+        this.quotaRowHtml(
+          `${t.quotaCredits}<br><span>${amount}</span>`,
+          formatSharePercent(credits.percent),
+          credits.percent,
+          formatMonthlyReset(credits.resetsAt)
+        )
+      );
     }
     md.appendMarkdown(`</table>\n\n*${t.quotaHint}*`);
     return md;
   }
 
-  /** Build one row of the quota tooltip table, with an SVG progress bar. */
-  private quotaRowHtml(label: string, limit: ClaudeUsageLimit, weekly: boolean): string {
-    const resetDate = new Date(limit.resets_at);
-    const resets = isNaN(resetDate.getTime())
-      ? '—'
-      : weekly
-        ? `${this.formatWeeklyReset(resetDate)}<br>${this.formatCountdown(resetDate)}`
-        : this.formatCountdown(resetDate);
-    const pct = Math.max(0, Math.min(100, limit.utilization));
-    const bar = this.progressBarSvg(pct);
+  /** Credit amounts always carry two decimals (they are real money, unlike the
+   * estimated token costs elsewhere, which follow the user's decimalPlaces).
+   * I18n.formatCurrency is USD-only, so any other currency prints its code
+   * rather than a wrong "$". */
+  private formatCreditAmount(amount: number, currency: string): string {
+    return currency === 'USD' ? I18n.formatCurrency(amount, 2) : `${amount.toFixed(2)} ${currency}`;
+  }
+
+  /** Tooltip label for a window. Scoped rows are named by the API ("Fable"), so
+   * the extension never has to know which model the plan meters this week. */
+  private quotaRowLabel(w: QuotaWindow): string {
+    const t = I18n.t.popup;
+    if (w.kind === 'session') {
+      return t.quota5h;
+    }
+    if (w.kind === 'weekly_all') {
+      return t.quotaWeekly;
+    }
+    return w.scopeLabel ? `${t.quotaWeekly} (${w.scopeLabel})` : `${t.quotaWeekly} (${t.quotaScoped})`;
+  }
+
+  /** Build one row of the quota tooltip table, with an SVG progress bar. The
+   * share text and reset text are pre-formatted by the pure helpers in
+   * quotaFormat, so this only assembles HTML. */
+  private quotaRowHtml(label: string, shares: string, barPct: number, resets: string): string {
+    const bar = this.progressBarSvg(Math.max(0, Math.min(100, barPct)));
     return (
       `<tr>` +
       `<td align="left"><b>${label}</b></td>` +
       `<td>${bar}</td>` +
-      `<td align="right">${pct.toFixed(1)}%</td>` +
+      `<td align="right">${shares}</td>` +
       `<td align="right">${resets}</td>` +
       `</tr>\n`
     );
@@ -479,40 +473,6 @@ export class StatusBarManager {
         `${nbsp(empty)}` +
       `</span>`
     );
-  }
-
-    /** Time remaining until a reset, e.g. "2h 15m" or "4d 12h". The detailed
-   * tooltip uses whole days + hours (fractional days like "4.5d" read oddly);
-   * the compact status-bar countdown keeps the "4.5d" form (see quotaFormat). */
-  private formatCountdown(target: Date): string {
-    const ms = target.getTime() - Date.now();
-    if (ms <= 0) {
-      return '0m';
-    }
-    const totalMinutes = Math.floor(ms / 60000);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    if (hours >= 24) {
-      const days = Math.floor(hours / 24);
-      const remHours = hours % 24;
-      return `${days}d ${remHours}h`;
-    }
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-  }
-
-  /** Localised weekday + time of a weekly reset, in 24-hour form
-   * (e.g. "Wed 03:00"). hour12:false suppresses AM/PM that some locales add. */
-  private formatWeeklyReset(target: Date): string {
-    try {
-      return target.toLocaleString(undefined, {
-        weekday: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      });
-    } catch {
-      return target.toISOString();
-    }
   }
 
   dispose(): void {
