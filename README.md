@@ -48,7 +48,7 @@ Hover the quota indicator for a breakdown:
 ![Quota tooltip](images/v2-quota-en.png)
 
 *Real `/usage` data: utilisation percent, plus time left and the wall-clock reset for every window.*
-*Every weekly cap your plan meters appears, with per-model ones named beside the all-models figure (Anthropic supplies the name, so it follows whichever model is capped), plus usage credits when you have them enabled.*
+*Every weekly cap your plan meters gets its own row, per-model ones included (Anthropic supplies the name, so the row follows whichever model is capped), plus usage credits when you have them enabled.*
 
 ### Dashboard
 

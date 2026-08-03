@@ -62,6 +62,7 @@ export interface Translations {
     quotaLimit: string;
     quota5h: string;
     quotaWeekly: string;
+    quotaAllModels: string;
     quotaScoped: string;
     quotaCredits: string;
     quotaHint: string;
@@ -266,6 +267,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       quotaLimit: 'Limit',
       quota5h: '5-hour',
       quotaWeekly: 'Weekly',
+      quotaAllModels: 'All models',
       quotaScoped: 'Per model',
       quotaCredits: 'Usage credits',
       quotaHint: 'Real data from Anthropic /usage.',
@@ -494,6 +496,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       quotaLimit: "Limit",
       quota5h: "5 Stunden",
       quotaWeekly: "Woche",
+      quotaAllModels: "Alle Modelle",
       quotaScoped: "Pro Modell",
       quotaCredits: "Nutzungsguthaben",
       quotaHint: "Echte Daten von Anthropic /usage.",
@@ -725,6 +728,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       quotaLimit: '上限',
       quota5h: '5 小時',
       quotaWeekly: '每週',
+      quotaAllModels: '所有模型',
       quotaScoped: '依模型',
       quotaCredits: '使用額度',
       quotaHint: '來自 Anthropic /usage 的真實資料。',
@@ -949,6 +953,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       quotaLimit: '上限',
       quota5h: '5 小时',
       quotaWeekly: '每周',
+      quotaAllModels: '所有模型',
       quotaScoped: '按模型',
       quotaCredits: '使用额度',
       quotaHint: '来自 Anthropic /usage 的真实数据。',
@@ -1173,6 +1178,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       quotaLimit: '上限',
       quota5h: '5時間',
       quotaWeekly: '週間',
+      quotaAllModels: '全モデル',
       quotaScoped: 'モデル別',
       quotaCredits: '使用クレジット',
       quotaHint: 'Anthropic /usage からの実データ。',
@@ -1402,6 +1408,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       quotaLimit: '한도',
       quota5h: '5시간',
       quotaWeekly: '주간',
+      quotaAllModels: '전체 모델',
       quotaScoped: '모델별',
       quotaCredits: '사용 크레딧',
       quotaHint: 'Anthropic /usage의 실제 데이터입니다.',
@@ -1631,6 +1638,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       quotaLimit: 'Limite',
       quota5h: '5 horas',
       quotaWeekly: 'Semanal',
+      quotaAllModels: 'Todos os modelos',
       quotaScoped: 'Por modelo',
       quotaCredits: 'Créditos de uso',
       quotaHint: 'Dados reais da Anthropic /usage.',
@@ -1860,6 +1868,7 @@ const translations: Record<SupportedLanguage, Translations> = {
       quotaLimit: 'Batas',
       quota5h: '5 Jam',
       quotaWeekly: 'Mingguan',
+      quotaAllModels: 'Semua model',
       quotaScoped: 'Per model',
       quotaCredits: 'Kredit penggunaan',
       quotaHint: 'Data nyata dari /usage Anthropic.',

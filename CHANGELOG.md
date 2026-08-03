@@ -27,10 +27,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **`showOpusWeekly` is now `showScopedWeekly`** — the setting no longer names a
   single model, because the API says which model is capped. Your existing choice
   carries over, and it stays opt-in and off by default.
-- **The quota tooltip lists every weekly cap** the API reports, whether or not
-  the status bar is showing it. A per-model cap can be the binding one, so it is
-  always one hover away. Caps that reset together share a row, reading
-  "8% · fable 16%", and one that reset on its own schedule would keep its own row.
+- **The quota tooltip lists every weekly cap** the API reports, each on its own
+  row with its own bar, whether or not the status bar is showing it. A per-model
+  cap can be the binding one, so it is always one hover away.
+- **The status bar nests a per-model cap in the weekly figure** — "wk 9%
+  (fable 17%)" with one countdown, rather than repeating the identical reset for
+  each cap. A cap that reset on its own schedule would still get its own segment.
 - **Reset times read to the minute** — they were shown truncated to the second,
   so a cap resetting at 16:59:59 displayed as "16:59" while the cap it resets
   alongside displayed "17:00".

@@ -3,7 +3,7 @@
 // dense colon-heavy output like "5h:6%:4.8h | wk:1%:1.6d". Reset countdowns are
 // opt-in (showResetInStatusBar); the full reset detail lives in the tooltip.
 
-import { QuotaWindow } from './quotaWindows';
+import { QuotaWindow, groupQuotaRows } from './quotaWindows';
 
 // Reset-countdown text style (settings > Quota: reset countdown format, #74):
 //   decimal → "4.8h" / "1.6d" (default, most compact)
@@ -158,19 +158,6 @@ export function formatSharePercent(pct: number): string {
   return Number.isInteger(clamped) ? `${clamped}%` : `${clamped.toFixed(1)}%`;
 }
 
-/**
- * The Share cell for a merged weekly row: the all-models figure, then each
- * per-model cap named beside it — "8% · fable 16%". Lowercased like the status
- * bar, whose merged weekly segment reads the same way.
- */
-export function formatSharesCell(primary: QuotaWindow, scoped: QuotaWindow[]): string {
-  const parts = [formatSharePercent(primary.utilization)];
-  for (const s of scoped) {
-    parts.push(`${s.scopeLabel ? s.scopeLabel.toLowerCase() : 'scoped'} ${formatSharePercent(s.utilization)}`);
-  }
-  return parts.join(' · ');
-}
-
 /** A monthly cap's reset as a bare date ("Sep 1"). Deliberately not a countdown:
  * the credits reset is derived from the calendar, not reported, so the day is
  * trustworthy while the exact instant is not. */
@@ -220,15 +207,23 @@ function shownWindows(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): 
  *   default          → "5h 6% · wk 1%"
  *   showReset        → "5h 6% ↻4.8h | wk 1% ↻1.6d"
  *   fiveHourOnly     → "5h 6%"
- *   showScopedWeekly → "5h 6% · wk 1% · Fable 12%"
+ *   showScopedWeekly → "5h 6% · wk 1% (fable 12%)"
  * Returns '' when there's nothing to show.
+ *
+ * Per-model caps that reset alongside the all-models week are nested into its
+ * segment in parentheses, so their shared countdown is printed once. Repeating
+ * "↻3d 5h" per cap ate the bar's width to say the same thing twice.
  */
 export function formatQuotaStatusText(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): string {
   const now = opts.now ?? Date.now();
-  const parts = shownWindows(windows, opts).map((w) => {
-    let s = `${segmentLabel(w)} ${Math.round(w.utilization)}%`;
+  const share = (w: QuotaWindow): string => `${segmentLabel(w)} ${Math.round(w.utilization)}%`;
+  const parts = groupQuotaRows(shownWindows(windows, opts)).map((row) => {
+    let s = share(row.window);
+    if (row.scoped.length > 0) {
+      s += ` (${row.scoped.map(share).join(' · ')})`;
+    }
     if (opts.showReset) {
-      const r = compactReset(w.resetsAt, now, opts.resetFormat);
+      const r = compactReset(row.window.resetsAt, now, opts.resetFormat);
       if (r) {
         s += ` ↻${r}`;
       }

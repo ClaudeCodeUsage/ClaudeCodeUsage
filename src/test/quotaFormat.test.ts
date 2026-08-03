@@ -10,7 +10,6 @@ import {
   formatQuotaStatusText,
   formatResetCell,
   formatSharePercent,
-  formatSharesCell,
   wallClockReset,
   worstShownUtilisation,
 } from '../quotaFormat';
@@ -26,7 +25,7 @@ const formatTime = (d: Date): string =>
 const live: QuotaWindow[] = [
   { kind: 'session', utilization: 6, resetsAt: at(4.8 * H), isActive: false },
   { kind: 'weekly_all', utilization: 1, resetsAt: at(38.4 * H), isActive: false }, // 1.6 days
-  { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 12, resetsAt: at(50 * H), isActive: true },
+  { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 12, resetsAt: at(38.4 * H), isActive: true },
 ];
 
 test('default format is clean: "5h 6% · wk 1%" (no reset, middot)', () => {
@@ -44,20 +43,38 @@ test('quotaFiveHourOnly shows only the 5-hour window', () => {
   assert.equal(s, '5h 6%');
 });
 
-test('showScopedWeekly labels the segment with the API scope name, not "opus"', () => {
-  // Lowercased to sit with the "5h" / "wk" segments, which is also the shape the
-  // retired showOpusWeekly produced ("opus 12%").
+test('showScopedWeekly nests the cap in the weekly segment, named by the API', () => {
+  // Lowercased to sit with the "5h" / "wk" segments, and parenthesised because it
+  // shares the weekly reset — the retired showOpusWeekly instead appended a
+  // separate "opus 12%" segment with its own duplicate countdown.
   const s = formatQuotaStatusText(live, { showReset: false, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
-  assert.equal(s, '5h 6% · wk 1% · fable 12%');
+  assert.equal(s, '5h 6% · wk 1% (fable 12%)');
 });
 
-test('showScopedWeekly appends every scoped window the API returns', () => {
+test('the shared weekly countdown is printed once, not per cap', () => {
+  // The reported bug: "wk 9% ↻3d 5h | fable 17% ↻3d 5h" spent the bar's width
+  // saying the same countdown twice.
+  const s = formatQuotaStatusText(live, { showReset: true, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
+  assert.equal(s, '5h 6% ↻4.8h | wk 1% (fable 12%) ↻1.6d');
+});
+
+test('showScopedWeekly nests every scoped window that shares the weekly reset', () => {
   const two: QuotaWindow[] = [
     ...live,
-    { kind: 'weekly_scoped', scopeLabel: 'Cowork', utilization: 3, resetsAt: at(50 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Cowork', utilization: 3, resetsAt: at(38.4 * H), isActive: false },
   ];
   const s = formatQuotaStatusText(two, { showReset: false, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
-  assert.equal(s, '5h 6% · wk 1% · fable 12% · cowork 3%');
+  assert.equal(s, '5h 6% · wk 1% (fable 12% · cowork 3%)');
+});
+
+test('a cap on its own schedule stays a separate segment with its own countdown', () => {
+  const odd: QuotaWindow[] = [
+    live[0],
+    live[1],
+    { kind: 'weekly_scoped', scopeLabel: 'Cowork', utilization: 3, resetsAt: at(4 * H), isActive: false },
+  ];
+  const s = formatQuotaStatusText(odd, { showReset: true, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
+  assert.equal(s, '5h 6% ↻4.8h | wk 1% ↻1.6d | cowork 3% ↻4.0h');
 });
 
 test('a scoped window with no scope name falls back to a generic label', () => {
@@ -196,19 +213,8 @@ test('worstShownUtilisation honours fiveHourOnly and showScopedWeekly', () => {
 });
 
 
-test('a merged weekly share cell names each per-model cap beside the total', () => {
-  const cell = formatSharesCell(live[1], [live[2]]);
-  assert.equal(cell, '1% · fable 12%');
-});
 
-test('an unmerged weekly share cell is just its own figure', () => {
-  assert.equal(formatSharesCell(live[1], []), '1%');
-});
 
-test('a share cell handles a scoped cap the API declined to name', () => {
-  const anon: QuotaWindow = { kind: 'weekly_scoped', utilization: 4, resetsAt: '', isActive: false };
-  assert.equal(formatSharesCell(live[1], [anon]), '1% · scoped 4%');
-});
 
 test('the wall clock rounds to the nearest minute', () => {
   // …T23:59:59 is 17:00 local for every practical purpose. Truncating showed it

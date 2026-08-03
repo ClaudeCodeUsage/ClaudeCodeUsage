@@ -6,7 +6,6 @@ import {
   formatQuotaStatusText,
   formatResetCell,
   formatSharePercent,
-  formatSharesCell,
   worstShownUtilisation,
   QuotaStatusOptions,
   ResetCountdownFormat
@@ -15,7 +14,6 @@ import {
   QuotaCredits,
   QuotaWindow,
   creditsFromUsage,
-  groupQuotaRows,
   liveQuotaWindows,
   normalizeQuotaWindows
 } from './quotaWindows';
@@ -383,30 +381,30 @@ export class StatusBarManager {
       `<th></th><th align="right">${t.share}</th>` +
       `<th align="right">${t.resets}</th></tr>\n`
     );
-    for (const row of groupQuotaRows(windows)) {
-      const { window: w, scoped } = row;
-      // A merged row's bar tracks the HIGHEST of its figures: that is the cap
-      // that will actually stop you, and it keeps the amber/red threshold
-      // meaningful when the per-model cap runs ahead of the all-models one.
-      const barPct = scoped.reduce((m, s) => Math.max(m, s.utilization), w.utilization);
+    // One row per cap, each with its own bar. The tooltip has the width the
+    // status bar does not, so a per-model cap is easier to read on its own line
+    // than folded into the weekly figure.
+    for (const w of windows) {
       md.appendMarkdown(
         this.quotaRowHtml(
           this.quotaRowLabel(w),
-          formatSharesCell(w, scoped),
-          barPct,
+          formatSharePercent(w.utilization),
+          w.utilization,
           formatResetCell(w.resetsAt, { format: this.resetCountdownFormat })
         )
       );
     }
     if (credits) {
+      // The spend sits in parentheses after the reset date, mirroring how the
+      // other rows read "time left (wall clock)".
       const amount = `${this.formatCreditAmount(credits.used, credits.currency)} / ` +
         `${this.formatCreditAmount(credits.limit, credits.currency)}`;
       md.appendMarkdown(
         this.quotaRowHtml(
-          `${t.quotaCredits}<br><span>${amount}</span>`,
+          t.quotaCredits,
           formatSharePercent(credits.percent),
           credits.percent,
-          formatMonthlyReset(credits.resetsAt)
+          `${formatMonthlyReset(credits.resetsAt)} (${amount})`
         )
       );
     }
@@ -430,7 +428,7 @@ export class StatusBarManager {
       return t.quota5h;
     }
     if (w.kind === 'weekly_all') {
-      return t.quotaWeekly;
+      return `${t.quotaWeekly} (${t.quotaAllModels})`;
     }
     return w.scopeLabel ? `${t.quotaWeekly} (${w.scopeLabel})` : `${t.quotaWeekly} (${t.quotaScoped})`;
   }

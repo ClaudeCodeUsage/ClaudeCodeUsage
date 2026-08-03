@@ -41,7 +41,7 @@ test('the quota tooltip strings exist in every UI locale', () => {
   for (const lang of LOCALES) {
     withLanguage(lang, () => {
       const t = I18n.t.popup;
-      for (const key of ['quota5h', 'quotaWeekly', 'quotaScoped', 'quotaCredits'] as const) {
+      for (const key of ['quota5h', 'quotaWeekly', 'quotaAllModels', 'quotaScoped', 'quotaCredits'] as const) {
         assert.equal(typeof t[key], 'string', `${lang}: popup.${key} must be a string`);
         assert.ok(t[key].length > 0, `${lang}: popup.${key} must not be empty`);
       }
