@@ -15,7 +15,14 @@ import {
 } from '../quotaFormat';
 import { QuotaWindow } from '../quotaWindows';
 
-const NOW = 1_700_000_000_000;
+// Anchored to LOCAL noon rather than a fixed epoch constant. wallClockReset
+// names the weekday only when a reset falls on another local day, so the fixture
+// has to make "same day" and "next day" hold in every timezone: +4.8h is 16:48
+// the same afternoon and +38.4h is 02:24 the next morning, wherever this runs.
+// A fixed epoch broke precisely here — 1_700_000_000_000 is 22:13 UTC, so its
+// +4.8h reset crossed into the next UTC day and CI read "Wed 03:01" where a
+// local run read "03:01".
+const NOW = new Date(2023, 10, 14, 12, 0, 0, 0).getTime();
 const at = (ms: number): string => new Date(NOW + ms).toISOString();
 const H = 3_600_000;
 /** Local "HH:MM", matching what wallClockReset emits for a same-day reset. */
