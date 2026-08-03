@@ -3,7 +3,14 @@
 
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { QuotaWindow, creditsFromUsage, groupQuotaRows, liveQuotaWindows, normalizeQuotaWindows } from '../quotaWindows';
+import {
+  QuotaWindow,
+  creditsFromUsage,
+  groupQuotaRows,
+  liveQuotaWindows,
+  normalizeQuotaWindows,
+  visibleQuotaWindows
+} from '../quotaWindows';
 import { ClaudeApiUsageResponse } from '../types';
 
 const NOW = Date.parse('2026-08-03T12:00:00Z');
@@ -180,24 +187,51 @@ test('credits derive a percent when the API omits it', () => {
   assert.equal(c!.percent, 50);
 });
 
-test('credits are null when the feature is off or absent', () => {
+test('credits are null only when the payload says nothing about them', () => {
   assert.equal(creditsFromUsage(null), null);
   assert.equal(creditsFromUsage({} as ClaudeApiUsageResponse), null);
-  assert.equal(
-    creditsFromUsage({ extra_usage: { is_enabled: false, monthly_limit: 30000, used_credits: 0 } } as ClaudeApiUsageResponse),
-    null
-  );
+  assert.equal(creditsFromUsage({ spend: {} } as ClaudeApiUsageResponse), null);
 });
 
-test('credits with a zero limit do not divide by zero', () => {
+test('spend already incurred survives the credits toggle being switched off', () => {
+  // Turning credits off does not un-spend the money, so the figure must not
+  // vanish from the report. The caller hides the row when nothing was spent.
   const c = creditsFromUsage({
     spend: {
-      used: { amount_minor: 0, currency: 'USD', exponent: 2 },
-      limit: { amount_minor: 0, currency: 'USD', exponent: 2 },
-      enabled: true
+      used: { amount_minor: 4200, currency: 'USD', exponent: 2 },
+      limit: { amount_minor: 30000, currency: 'USD', exponent: 2 },
+      enabled: false
     }
   } as ClaudeApiUsageResponse);
-  assert.equal(c, null);
+  assert.equal(c!.used, 42);
+  const legacy = creditsFromUsage({
+    extra_usage: { is_enabled: false, monthly_limit: 30000, used_credits: 4200, decimal_places: 2 }
+  } as ClaudeApiUsageResponse);
+  assert.equal(legacy!.used, 42);
+});
+
+test('a cap that is absent, zero, or unlimited reports no percent', () => {
+  // The cap can be raised, lowered, or removed entirely, so a display cannot
+  // assume one exists. Amount stays; percent goes null rather than 0 or NaN.
+  for (const spend of [
+    { used: { amount_minor: 4200, exponent: 2 }, limit: { amount_minor: 0, exponent: 2 }, enabled: true },
+    { used: { amount_minor: 4200, exponent: 2 }, limit: null, enabled: true },
+    { used: { amount_minor: 4200, exponent: 2 }, enabled: true }
+  ]) {
+    const c = creditsFromUsage({ spend } as ClaudeApiUsageResponse);
+    assert.equal(c!.used, 42, JSON.stringify(spend));
+    assert.equal(c!.limit, null, JSON.stringify(spend));
+    assert.equal(c!.percent, null, JSON.stringify(spend));
+  }
+});
+
+test('an unlimited cap still reports through the legacy shape', () => {
+  const c = creditsFromUsage({
+    extra_usage: { is_enabled: true, monthly_limit: null, used_credits: 4200, decimal_places: 2 }
+  } as ClaudeApiUsageResponse);
+  assert.equal(c!.used, 42);
+  assert.equal(c!.limit, null);
+  assert.equal(c!.percent, null);
 });
 
 
@@ -267,4 +301,66 @@ test('the credits reset rolls into January across a year boundary', () => {
   const reset = new Date(c!.resetsAt);
   assert.equal(reset.getMonth(), 0);
   assert.equal(reset.getFullYear(), 2027);
+});
+
+// Hiding caps with nothing to report. A per-model cap at 0% and unspent credits
+// are noise: they cannot be the binding constraint, and the 5-hour / all-models
+// rows already establish that quota tracking is working.
+
+test('a per-model cap with no usage yet is hidden', () => {
+  const rows = visibleQuotaWindows([
+    { kind: 'session', utilization: 3, resetsAt: at(H), isActive: false },
+    { kind: 'weekly_all', utilization: 9, resetsAt: at(80 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 0, resetsAt: at(80 * H), isActive: true }
+  ]);
+  assert.deepEqual(rows.map((w: QuotaWindow) => w.kind), ['session', 'weekly_all']);
+});
+
+test('a per-model cap with any usage is kept, including a sub-1% share', () => {
+  const rows = visibleQuotaWindows([
+    { kind: 'weekly_all', utilization: 9, resetsAt: at(80 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 0.4, resetsAt: at(80 * H), isActive: false }
+  ]);
+  assert.equal(rows.length, 2);
+});
+
+test('the baseline windows stay visible at 0%', () => {
+  // Never hide these: "5h 0%" is the signal that quota tracking works at all.
+  const rows = visibleQuotaWindows([
+    { kind: 'session', utilization: 0, resetsAt: '', isActive: false },
+    { kind: 'weekly_all', utilization: 0, resetsAt: '', isActive: false }
+  ]);
+  assert.equal(rows.length, 2);
+});
+
+test('a rolled-over per-model cap drops out until usage lands again', () => {
+  // liveQuotaWindows zeroes a window whose period has passed, so the two
+  // compose: after a weekly rollover the scoped row disappears until next use.
+  const rolled = liveQuotaWindows([
+    { kind: 'weekly_all', utilization: 9, resetsAt: at(80 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 88, resetsAt: at(-H), isActive: false }
+  ], NOW);
+  assert.deepEqual(visibleQuotaWindows(rolled).map((w: QuotaWindow) => w.kind), ['weekly_all']);
+});
+
+test('credits report whether anything has been spent', () => {
+  const unspent = creditsFromUsage({
+    spend: {
+      used: { amount_minor: 0, currency: 'USD', exponent: 2 },
+      limit: { amount_minor: 30000, currency: 'USD', exponent: 2 },
+      enabled: true
+    }
+  } as ClaudeApiUsageResponse, NOW);
+  assert.equal(unspent!.used, 0);
+  const spent = creditsFromUsage({
+    spend: {
+      used: { amount_minor: 1, currency: 'USD', exponent: 2 },
+      limit: { amount_minor: 30000, currency: 'USD', exponent: 2 },
+      enabled: true
+    }
+  } as ClaudeApiUsageResponse, NOW);
+  // One cent of real spend must survive, even though it rounds to 0%. This is
+  // why the row gates on the amount rather than on the percentage.
+  assert.ok(spent!.used > 0);
+  assert.equal(Math.round(spent!.percent!), 0);
 });

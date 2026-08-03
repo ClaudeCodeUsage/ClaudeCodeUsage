@@ -15,7 +15,8 @@ import {
   QuotaWindow,
   creditsFromUsage,
   liveQuotaWindows,
-  normalizeQuotaWindows
+  normalizeQuotaWindows,
+  visibleQuotaWindows
 } from './quotaWindows';
 
 export class StatusBarManager {
@@ -245,7 +246,9 @@ export class StatusBarManager {
     // quotaWindows.ts. liveQuotaWindows then drops or zeroes anything whose
     // period has rolled over, because when the OAuth fetch starts failing the
     // caller keeps handing us the last successful response.
-    const live = liveQuotaWindows(normalizeQuotaWindows(usageLimits));
+    // visibleQuotaWindows then hides per-model caps sitting at 0%, applied once
+    // here so the bar text, its warning colour, and the tooltip all agree.
+    const live = visibleQuotaWindows(liveQuotaWindows(normalizeQuotaWindows(usageLimits)));
     // The status bar must stay clean: the default is the airy "5h 6% · wk 1%";
     // reset countdowns are opt-in (showResetInStatusBar), full reset detail
     // lives in the tooltip. The dense colon-heavy form is deliberately gone.
@@ -394,17 +397,21 @@ export class StatusBarManager {
         )
       );
     }
-    if (credits) {
-      // The spend sits in parentheses after the reset date, mirroring how the
-      // other rows read "time left (wall clock)".
-      const amount = `${this.formatCreditAmount(credits.used, credits.currency)} / ` +
-        `${this.formatCreditAmount(credits.limit, credits.currency)}`;
+    if (credits && credits.used > 0) {
+      // The amount rather than a percentage: the cap is user-adjustable and may
+      // be unlimited, so a share of it says little. The bar still tracks the cap
+      // whenever there is a finite one.
+      const spent = this.formatCreditAmount(credits.used, credits.currency);
+      const amount = credits.limit === null
+        ? spent
+        : `${spent} / ${this.formatCreditAmount(credits.limit, credits.currency)}`;
       md.appendMarkdown(
         this.quotaRowHtml(
           t.quotaCredits,
-          formatSharePercent(credits.percent),
-          credits.percent,
-          `${formatMonthlyReset(credits.resetsAt)} (${amount})`
+          amount,
+          credits.percent ?? 0,
+          // Padded so the short date does not crowd the amount beside it.
+          `&nbsp;&nbsp;${formatMonthlyReset(credits.resetsAt)}`
         )
       );
     }

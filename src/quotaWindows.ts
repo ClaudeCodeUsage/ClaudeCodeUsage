@@ -41,9 +41,15 @@ export interface QuotaWindow {
 
 export interface QuotaCredits {
   used: number; // major units, e.g. 12.34
-  limit: number; // major units, e.g. 300
+  /** Monthly cap in major units (e.g. 300), or null when there is no finite cap
+   *  to report. The cap is user-adjustable and may be unlimited, so this is not
+   *  something a display can assume exists. */
+  limit: number | null;
   currency: string;
-  percent: number; // 0-100
+  /** used/limit as 0-100, or null when there is no finite cap to measure
+   *  against. Drives the progress bar only: the row shows the amount, since a
+   *  percentage of a cap the user can change at will says little. */
+  percent: number | null;
   /** Local midnight on the 1st of next month, when the monthly cap rolls over.
    *  Derived, not reported: the payload carries no reset for credits, but the
    *  Anthropic UI labels this cap "Monthly spend limit" and shows it resetting on
@@ -214,6 +220,21 @@ export function liveQuotaWindows(windows: QuotaWindow[], now: number = Date.now(
   return out;
 }
 
+/**
+ * Hide per-model caps that have no usage yet.
+ *
+ * A scoped cap at 0% cannot be the binding constraint, which is the only reason
+ * it earns space, and at the start of a week every one of them reads 0%. The
+ * session and all-models rows always stay: "5h 0%" is the signal that quota
+ * tracking is working at all, so suppressing it would look like breakage.
+ *
+ * Composes with liveQuotaWindows, which zeroes a rolled-over window: after a
+ * weekly rollover a scoped cap drops out until usage lands against it again.
+ */
+export function visibleQuotaWindows(windows: QuotaWindow[]): QuotaWindow[] {
+  return windows.filter((w) => w.kind !== 'weekly_scoped' || w.utilization > 0);
+}
+
 // Two weekly windows count as resetting "together" within this slack. The
 // account-wide and per-model caps roll over on the same schedule but are stamped
 // microseconds apart, and observed values straddle a minute boundary
@@ -278,8 +299,20 @@ function majorUnits(money: ClaudeUsageMoney | null | undefined): number | null {
   return minor / Math.pow(10, exponent);
 }
 
+/** A finite, positive cap, or null. A missing, zero, or unparseable limit all
+ * mean "no cap to measure against": the cap is user-adjustable and may be
+ * unlimited, so its absence is normal rather than an error. */
+function finiteCap(limit: number | null): number | null {
+  return limit !== null && Number.isFinite(limit) && limit > 0 ? limit : null;
+}
+
 /**
- * Usage-credit spend, or null when credits are off / absent / unusable.
+ * Usage-credit spend, or null when the payload says nothing about credits.
+ *
+ * Deliberately NOT gated on the credits toggle. Spend already incurred this
+ * month stays real after the user switches credits off, and hiding it then would
+ * make money disappear from the report. The caller decides what to show; it
+ * hides the row when nothing has been spent.
  *
  * Prefers the `spend` block, whose amounts are unambiguous (minor units plus an
  * explicit exponent). `extra_usage` is the older shape and only a fallback: its
@@ -295,32 +328,33 @@ export function creditsFromUsage(
     return null;
   }
   const spend = usage.spend;
-  if (spend && spend.enabled !== false) {
+  if (spend) {
     const used = majorUnits(spend.used);
-    const limit = majorUnits(spend.limit);
-    if (used !== null && limit !== null && limit > 0) {
+    if (used !== null) {
+      const limit = finiteCap(majorUnits(spend.limit));
       const apiPct = Number(spend.percent);
       return {
         used,
         limit,
         currency: spend.used?.currency || spend.limit?.currency || 'USD',
-        percent: Number.isFinite(apiPct) ? apiPct : (used / limit) * 100,
+        percent: limit === null ? null : Number.isFinite(apiPct) ? apiPct : (used / limit) * 100,
         resetsAt: firstOfNextMonth(now)
       };
     }
   }
   const extra = usage.extra_usage;
-  if (extra && extra.is_enabled !== false) {
+  if (extra) {
     const scale = Math.pow(10, Number.isFinite(Number(extra.decimal_places)) ? Number(extra.decimal_places) : 2);
     const usedMinor = Number(extra.used_credits);
-    const limitMinor = Number(extra.monthly_limit);
-    if (Number.isFinite(usedMinor) && Number.isFinite(limitMinor) && limitMinor > 0) {
+    if (Number.isFinite(usedMinor)) {
+      const limitMinor = Number(extra.monthly_limit);
+      const limit = finiteCap(Number.isFinite(limitMinor) ? limitMinor / scale : null);
       const apiPct = Number(extra.utilization);
       return {
         used: usedMinor / scale,
-        limit: limitMinor / scale,
+        limit,
         currency: extra.currency || 'USD',
-        percent: Number.isFinite(apiPct) ? apiPct : (usedMinor / limitMinor) * 100,
+        percent: limit === null ? null : Number.isFinite(apiPct) ? apiPct : (usedMinor / scale / limit) * 100,
         resetsAt: firstOfNextMonth(now)
       };
     }

@@ -20,8 +20,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Indonesian entry showed English text in the settings panel.
 
 ### Added
-- **Usage credits in the quota tooltip** — credits spent against your monthly
-  cap and the date it resets, when you have credits enabled.
+- **Usage credits in the quota tooltip** — the amount spent this month against
+  your cap, and the date it resets, once you have actually spent some. The figure
+  stays visible after you switch credits off, since the spend already happened,
+  and it copes with a cap you have raised, lowered, or removed entirely.
 
 ### Changed
 - **`showOpusWeekly` is now `showScopedWeekly`** — the setting no longer names a
@@ -33,6 +35,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **The status bar nests a per-model cap in the weekly figure** — "wk 9%
   (fable 17%)" with one countdown, rather than repeating the identical reset for
   each cap. A cap that reset on its own schedule would still get its own segment.
+- **Caps with nothing to report stay hidden** — a per-model weekly cap appears
+  once it has usage against it, so it is absent at the start of a week rather
+  than sitting at 0%. The 5-hour and all-models figures always show.
 - **Reset times read to the minute** — they were shown truncated to the second,
   so a cap resetting at 16:59:59 displayed as "16:59" while the cap it resets
   alongside displayed "17:00".
