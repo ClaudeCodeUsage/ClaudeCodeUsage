@@ -13,7 +13,7 @@ import {
   wallClockReset,
   worstShownUtilisation,
 } from '../quotaFormat';
-import { QuotaWindow } from '../quotaWindows';
+import { QuotaWindow, visibleQuotaWindows } from '../quotaWindows';
 
 // Anchored to LOCAL noon rather than a fixed epoch constant. wallClockReset
 // names the weekday only when a reset falls on another local day, so the fixture
@@ -30,9 +30,9 @@ const formatTime = (d: Date): string =>
   `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
 const live: QuotaWindow[] = [
-  { kind: 'session', utilization: 6, resetsAt: at(4.8 * H), isActive: false },
-  { kind: 'weekly_all', utilization: 1, resetsAt: at(38.4 * H), isActive: false }, // 1.6 days
-  { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 12, resetsAt: at(38.4 * H), isActive: true },
+  { kind: 'session', utilization: 6, decimals: 0, resetsAt: at(4.8 * H), isActive: false },
+  { kind: 'weekly_all', utilization: 1, decimals: 0, resetsAt: at(38.4 * H), isActive: false }, // 1.6 days
+  { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 12, decimals: 0, resetsAt: at(38.4 * H), isActive: true },
 ];
 
 test('default format is clean: "5h 6% · wk 1%" (no reset, middot)', () => {
@@ -68,7 +68,7 @@ test('the shared weekly countdown is printed once, not per cap', () => {
 test('showScopedWeekly nests every scoped window that shares the weekly reset', () => {
   const two: QuotaWindow[] = [
     ...live,
-    { kind: 'weekly_scoped', scopeLabel: 'Cowork', utilization: 3, resetsAt: at(38.4 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Cowork', utilization: 3, decimals: 0, resetsAt: at(38.4 * H), isActive: false },
   ];
   const s = formatQuotaStatusText(two, { showReset: false, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
   assert.equal(s, '5h 6% · wk 1% (fable 12% · cowork 3%)');
@@ -78,14 +78,14 @@ test('a cap on its own schedule stays a separate segment with its own countdown'
   const odd: QuotaWindow[] = [
     live[0],
     live[1],
-    { kind: 'weekly_scoped', scopeLabel: 'Cowork', utilization: 3, resetsAt: at(4 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Cowork', utilization: 3, decimals: 0, resetsAt: at(4 * H), isActive: false },
   ];
   const s = formatQuotaStatusText(odd, { showReset: true, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
   assert.equal(s, '5h 6% ↻4.8h | wk 1% ↻1.6d | cowork 3% ↻4.0h');
 });
 
 test('a scoped window with no scope name falls back to a generic label', () => {
-  const anon: QuotaWindow[] = [{ kind: 'weekly_scoped', utilization: 9, resetsAt: at(H), isActive: false }];
+  const anon: QuotaWindow[] = [{ kind: 'weekly_scoped', utilization: 9, decimals: 0, resetsAt: at(H), isActive: false }];
   const s = formatQuotaStatusText(anon, { showReset: false, fiveHourOnly: false, showScopedWeekly: true, now: NOW });
   assert.equal(s, 'wk* 9%');
 });
@@ -103,7 +103,7 @@ test('no windows → empty string (caller hides the item)', () => {
 test('a window with no reset time prints its share and no countdown', () => {
   // The session window before the first message of a period: /usage shows
   // "Starts when a message is sent", so there is nothing to count down to.
-  const fresh: QuotaWindow[] = [{ kind: 'session', utilization: 0, resetsAt: '', isActive: false }];
+  const fresh: QuotaWindow[] = [{ kind: 'session', utilization: 0, decimals: 0, resetsAt: '', isActive: false }];
   assert.equal(formatQuotaStatusText(fresh, { showReset: true, fiveHourOnly: false, showScopedWeekly: false, now: NOW }), '5h 0%');
 });
 
@@ -247,4 +247,52 @@ test('a monthly cap reset renders as a bare date, not a countdown', () => {
 test('a missing monthly reset renders an em dash', () => {
   assert.equal(formatMonthlyReset(''), '—');
   assert.equal(formatMonthlyReset('not-a-date'), '—');
+});
+
+
+// The pairing users rely on: hiding an idle per-model cap must leave no trace in
+// the status bar either, rather than an empty "(fable 0%)" parenthetical. The two
+// helpers are pure, so their composition can be pinned here even though the code
+// that wires them together lives in statusBar.
+const idleScoped = (pct: number): QuotaWindow[] => [
+  live[0],
+  live[1],
+  { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: pct, decimals: 0, resetsAt: at(38.4 * H), isActive: true },
+];
+const BAR_OPTS = { showReset: true, fiveHourOnly: false, showScopedWeekly: true, now: NOW };
+
+test('a per-model cap with no usage leaves no parenthetical in the status bar', () => {
+  const shown = visibleQuotaWindows(idleScoped(0));
+  assert.equal(formatQuotaStatusText(shown, BAR_OPTS), '5h 6% ↻4.8h | wk 1% ↻1.6d');
+  // The warning colour falls back to the all-models figure rather than tracking
+  // a cap the user cannot see.
+  assert.equal(worstShownUtilisation(shown, BAR_OPTS), 6);
+});
+
+test('the same cap with usage does get nested into the weekly segment', () => {
+  const shown = visibleQuotaWindows(idleScoped(17));
+  assert.equal(formatQuotaStatusText(shown, BAR_OPTS), '5h 6% ↻4.8h | wk 1% (fable 17%) ↻1.6d');
+  assert.equal(worstShownUtilisation(shown, BAR_OPTS), 17);
+});
+
+
+// Display precision follows the API's own field, because JSON.parse cannot tell
+// "3" from "3.0" after the fact. `limits[].percent` is an integer field, while
+// the legacy `utilization` arrives as a float ("3.0"), so the latter earns a
+// tenth even when the sample happens to be whole.
+
+test('an integer-field share prints no decimal', () => {
+  assert.equal(formatSharePercent(9, 0), '9%');
+  assert.equal(formatSharePercent(0, 0), '0%');
+});
+
+test('a float-field share keeps its tenth even when the value is whole', () => {
+  assert.equal(formatSharePercent(9, 1), '9.0%');
+  assert.equal(formatSharePercent(0, 1), '0.0%');
+});
+
+test('a genuinely fractional share keeps a decimal whatever the field says', () => {
+  // Never round real precision away just because the field is nominally integral.
+  assert.equal(formatSharePercent(8.42, 0), '8.4%');
+  assert.equal(formatSharePercent(0.5, 0), '0.5%');
 });

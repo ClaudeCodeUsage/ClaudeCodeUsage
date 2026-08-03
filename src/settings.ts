@@ -340,7 +340,7 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'statusBar',
     label: 'Show per-model weekly limit',
-    help: 'Append any model-specific weekly cap your plan meters (e.g. "fable 16%") after the 5h / weekly figures. The name comes from Anthropic, so it follows whichever model is capped. The tooltip always lists these, whether this is on or off.',
+    help: 'Add any model-specific weekly cap your plan meters to the weekly figure, e.g. "wk 9% (fable 17%)", once it has usage against it. Anthropic supplies the name, so it follows whichever model is capped. Leaving this off does not hide it from the tooltip.',
   },
   {
     // Show only the 5-hour quota window; drop every weekly figure from the bar.

@@ -247,8 +247,8 @@ test('a per-model weekly cap folds into the all-models weekly row', () => {
 test('folding tolerates the sub-minute skew between the two stamps', () => {
   // Observed live: the two caps are stamped either side of a minute boundary.
   const rows = groupQuotaRows([
-    { kind: 'weekly_all', utilization: 8, resetsAt: '2026-08-06T23:59:59.227Z', isActive: false },
-    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 16, resetsAt: '2026-08-07T00:00:00.227Z', isActive: true }
+    { kind: 'weekly_all', utilization: 8, decimals: 0, resetsAt: '2026-08-06T23:59:59.227Z', isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 16, decimals: 0, resetsAt: '2026-08-07T00:00:00.227Z', isActive: true }
   ]);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].scoped.length, 1);
@@ -258,8 +258,8 @@ test('a scoped cap on its own schedule keeps its own row', () => {
   // Guards the merge: a future cap with a different cadence must never be
   // displayed under the all-models reset.
   const rows = groupQuotaRows([
-    { kind: 'weekly_all', utilization: 8, resetsAt: at(80 * H), isActive: false },
-    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 16, resetsAt: at(20 * H), isActive: true }
+    { kind: 'weekly_all', utilization: 8, decimals: 0, resetsAt: at(80 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 16, decimals: 0, resetsAt: at(20 * H), isActive: true }
   ]);
   assert.deepEqual(rows.map((r) => r.window.kind), ['weekly_all', 'weekly_scoped']);
   assert.deepEqual(rows.map((r) => r.scoped.length), [0, 0]);
@@ -267,8 +267,8 @@ test('a scoped cap on its own schedule keeps its own row', () => {
 
 test('two not-yet-started weekly windows fold together', () => {
   const rows = groupQuotaRows([
-    { kind: 'weekly_all', utilization: 0, resetsAt: '', isActive: false },
-    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 0, resetsAt: '', isActive: false }
+    { kind: 'weekly_all', utilization: 0, decimals: 0, resetsAt: '', isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 0, decimals: 0, resetsAt: '', isActive: false }
   ]);
   assert.equal(rows.length, 1);
 });
@@ -309,17 +309,17 @@ test('the credits reset rolls into January across a year boundary', () => {
 
 test('a per-model cap with no usage yet is hidden', () => {
   const rows = visibleQuotaWindows([
-    { kind: 'session', utilization: 3, resetsAt: at(H), isActive: false },
-    { kind: 'weekly_all', utilization: 9, resetsAt: at(80 * H), isActive: false },
-    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 0, resetsAt: at(80 * H), isActive: true }
+    { kind: 'session', utilization: 3, decimals: 0, resetsAt: at(H), isActive: false },
+    { kind: 'weekly_all', utilization: 9, decimals: 0, resetsAt: at(80 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 0, decimals: 0, resetsAt: at(80 * H), isActive: true }
   ]);
   assert.deepEqual(rows.map((w: QuotaWindow) => w.kind), ['session', 'weekly_all']);
 });
 
 test('a per-model cap with any usage is kept, including a sub-1% share', () => {
   const rows = visibleQuotaWindows([
-    { kind: 'weekly_all', utilization: 9, resetsAt: at(80 * H), isActive: false },
-    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 0.4, resetsAt: at(80 * H), isActive: false }
+    { kind: 'weekly_all', utilization: 9, decimals: 0, resetsAt: at(80 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 0.4, decimals: 0, resetsAt: at(80 * H), isActive: false }
   ]);
   assert.equal(rows.length, 2);
 });
@@ -327,8 +327,8 @@ test('a per-model cap with any usage is kept, including a sub-1% share', () => {
 test('the baseline windows stay visible at 0%', () => {
   // Never hide these: "5h 0%" is the signal that quota tracking works at all.
   const rows = visibleQuotaWindows([
-    { kind: 'session', utilization: 0, resetsAt: '', isActive: false },
-    { kind: 'weekly_all', utilization: 0, resetsAt: '', isActive: false }
+    { kind: 'session', utilization: 0, decimals: 0, resetsAt: '', isActive: false },
+    { kind: 'weekly_all', utilization: 0, decimals: 0, resetsAt: '', isActive: false }
   ]);
   assert.equal(rows.length, 2);
 });
@@ -337,8 +337,8 @@ test('a rolled-over per-model cap drops out until usage lands again', () => {
   // liveQuotaWindows zeroes a window whose period has passed, so the two
   // compose: after a weekly rollover the scoped row disappears until next use.
   const rolled = liveQuotaWindows([
-    { kind: 'weekly_all', utilization: 9, resetsAt: at(80 * H), isActive: false },
-    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 88, resetsAt: at(-H), isActive: false }
+    { kind: 'weekly_all', utilization: 9, decimals: 0, resetsAt: at(80 * H), isActive: false },
+    { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 88, decimals: 0, resetsAt: at(-H), isActive: false }
   ], NOW);
   assert.deepEqual(visibleQuotaWindows(rolled).map((w: QuotaWindow) => w.kind), ['weekly_all']);
 });
@@ -363,4 +363,25 @@ test('credits report whether anything has been spent', () => {
   // why the row gates on the amount rather than on the percentage.
   assert.ok(spent!.used > 0);
   assert.equal(Math.round(spent!.percent!), 0);
+});
+
+
+// Precision is recorded per source shape, since JSON.parse collapses 3.0 to 3.
+
+test('windows from limits[] carry integer precision', () => {
+  assert.deepEqual(normalizeQuotaWindows(MODERN).map((w: QuotaWindow) => w.decimals), [0, 0, 0]);
+});
+
+test('windows from the legacy float fields carry one decimal', () => {
+  // The endpoint serializes these as "6.0" / "1.0" / "12.0", so the field can
+  // report a tenth and the display should say so.
+  assert.deepEqual(normalizeQuotaWindows(LEGACY).map((w: QuotaWindow) => w.decimals), [1, 1, 1]);
+});
+
+test('a rolled-over window keeps its source precision', () => {
+  const rolled = liveQuotaWindows(normalizeQuotaWindows({
+    five_hour: { utilization: 100, resets_at: at(-H) }
+  }), NOW);
+  assert.equal(rolled[0].utilization, 0);
+  assert.equal(rolled[0].decimals, 1);
 });

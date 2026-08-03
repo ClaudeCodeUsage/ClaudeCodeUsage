@@ -30,10 +30,10 @@ export class StatusBarManager {
   private usageLimitTracking: boolean = true;
   // First item shows today's cost ('cost'), this month's cost ('monthly-cost'), or today's token count ('tokens').
   private metric: 'cost' | 'monthly-cost' | 'tokens' = 'cost';
-  // Opt-in: append model-scoped weekly caps (e.g. "fable 16%") to the quota
-  // item. Grew out of the weekly-Opus option in PR #38 (@wheelbarrel00), which
-  // named a single model; the API now scopes these caps itself, so the label
-  // follows whatever it reports.
+  // Opt-in: nest model-scoped weekly caps into the quota item's weekly figure,
+  // as "wk 9% (fable 17%)". Grew out of the weekly-Opus option in PR #38
+  // (@wheelbarrel00), which named a single model; the API now scopes these caps
+  // itself, so the label follows whatever it reports.
   private showScopedWeekly: boolean = false;
   // Quota display preferences.
   private quotaFiveHourOnly: boolean = false; // show only the 5h window
@@ -391,7 +391,7 @@ export class StatusBarManager {
       md.appendMarkdown(
         this.quotaRowHtml(
           this.quotaRowLabel(w),
-          formatSharePercent(w.utilization),
+          formatSharePercent(w.utilization, w.decimals),
           w.utilization,
           formatResetCell(w.resetsAt, { format: this.resetCountdownFormat })
         )

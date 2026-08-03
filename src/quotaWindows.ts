@@ -32,6 +32,12 @@ export interface QuotaWindow {
   /** Model or surface the window is scoped to ("Fable"); undefined when global. */
   scopeLabel?: string;
   utilization: number; // 0-100
+  /** Decimal places the API's own precision justifies: 0 for the integer
+   *  `limits[].percent`, 1 for the legacy float `utilization` (serialized "3.0",
+   *  so the field can carry a tenth even when this sample does not). JSON.parse
+   *  collapses 3.0 to 3, so the distinction has to be recorded here at the point
+   *  the shape is known. */
+  decimals: number;
   /** ISO reset time, or '' when the API sends none — a usage-anchored window
    *  that has not started yet. Never null, so callers can Date.parse freely. */
   resetsAt: string;
@@ -116,6 +122,7 @@ function windowFromEntry(entry: ClaudeUsageLimitEntry): QuotaWindow | null {
     kind,
     scopeLabel: kind === 'weekly_scoped' ? scopeLabelOf(entry) : undefined,
     utilization: Number.isFinite(pct) ? pct : 0,
+    decimals: 0, // `percent` is an integer field
     resetsAt: entry.resets_at ?? '',
     isActive: entry.is_active === true
   };
@@ -136,6 +143,7 @@ function windowFromLegacy(
     kind,
     scopeLabel,
     utilization: Number.isFinite(pct) ? pct : 0,
+    decimals: 1, // `utilization` is a float field, sent as "3.0"
     resetsAt: limit.resets_at ?? '',
     isActive: false
   };

@@ -148,14 +148,20 @@ export function formatResetCell(resetsAt: string, opts: ResetCellOptions = {}): 
 }
 
 /**
- * A utilisation percentage for the tooltip, carrying only the precision the API
- * actually sent: "8%" for a whole number, "8.4%" when there really is a
- * fraction. A flat toFixed(1) rendered every window as "8.0% / 16.0% / 0.0%",
- * implying tenths of a percent that the endpoint does not report.
+ * A utilisation percentage for the tooltip, at the precision the API's own field
+ * justifies. `decimals` comes from the window (0 for the integer
+ * `limits[].percent`, 1 for the legacy float `utilization`), so a value the
+ * endpoint sent as "3.0" reads "3.0%" while one sent as "3" reads "3%". A flat
+ * toFixed(1) used to render every window as "8.0% / 16.0% / 0.0%", manufacturing
+ * a digit the integer field never reported.
+ *
+ * A genuinely fractional value always keeps a decimal, whatever `decimals` says,
+ * so real precision is never rounded away.
  */
-export function formatSharePercent(pct: number): string {
+export function formatSharePercent(pct: number, decimals: number = 0): string {
   const clamped = Math.max(0, Math.min(100, pct));
-  return Number.isInteger(clamped) ? `${clamped}%` : `${clamped.toFixed(1)}%`;
+  const places = Number.isInteger(clamped) ? decimals : Math.max(decimals, 1);
+  return `${clamped.toFixed(places)}%`;
 }
 
 /** A monthly cap's reset as a bare date ("Sep 1"). Deliberately not a countdown:

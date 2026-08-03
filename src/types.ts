@@ -282,7 +282,8 @@ export interface ExtensionConfig {
   contextWindowOverride: number;
   // First status-bar item: today's cost, this month's cost, or today's total token count.
   statusBarMetric: 'cost' | 'monthly-cost' | 'tokens';
-  // Opt-in: append model-scoped weekly caps ("fable 16%") to the quota item.
+  // Opt-in: nest model-scoped weekly caps into the quota item's weekly figure,
+  // as "wk 9% (fable 17%)".
   // Was showOpusWeekly (PR #38) before the API began naming the scope itself.
   showScopedWeekly: boolean;
   // Quota status-bar display (V2.2): inline reset countdown; 5h-only.
