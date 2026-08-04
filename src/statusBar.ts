@@ -410,8 +410,7 @@ export class StatusBarManager {
           t.quotaCredits,
           amount,
           credits.percent ?? 0,
-          // Padded so the short date does not crowd the amount beside it.
-          `&nbsp;&nbsp;${formatMonthlyReset(credits.resetsAt)}`
+          formatMonthlyReset(credits.resetsAt)
         )
       );
     }
@@ -442,7 +441,11 @@ export class StatusBarManager {
 
   /** Build one row of the quota tooltip table, with an SVG progress bar. The
    * share text and reset text are pre-formatted by the pure helpers in
-   * quotaFormat, so this only assembles HTML. */
+   * quotaFormat, so this only assembles HTML.
+   *
+   * The reset cell carries a leading pad because both it and the share beside it
+   * are right-aligned: VS Code's tooltip table gives adjacent cells no gutter, so
+   * "9%2d 7h (Thu 17:00)" ran together as one string without it. */
   private quotaRowHtml(label: string, shares: string, barPct: number, resets: string): string {
     const bar = this.progressBarSvg(Math.max(0, Math.min(100, barPct)));
     return (
@@ -450,7 +453,7 @@ export class StatusBarManager {
       `<td align="left"><b>${label}</b></td>` +
       `<td>${bar}</td>` +
       `<td align="right">${shares}</td>` +
-      `<td align="right">${resets}</td>` +
+      `<td align="right">&nbsp;&nbsp;${resets}</td>` +
       `</tr>\n`
     );
   }
