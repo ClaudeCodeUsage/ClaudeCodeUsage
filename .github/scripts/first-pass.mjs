@@ -12,10 +12,12 @@ import {
 } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  chooseFinalReply,
   createRepoReadSession,
   formatAutomatedComment,
+  formatFirstPassFallback,
+  hasTrustedFirstPass,
   parseFirstPassResponse,
+  resolveFirstPassCandidates,
   resolveGeneratorAttribution,
   validateFirstPassEnvironment,
 } from './first-pass-lib.mjs';
@@ -24,6 +26,7 @@ const TRANSPORT = 'anthropic-messages';
 const REPO_ROOT = resolve(process.cwd());
 const env = process.env;
 const base = (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
+const githubApi = (env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
 const model = env.CCU_BOT_MODEL || 'deepseek-v4-flash';
 const modelPro = env.CCU_BOT_MODEL_PRO || 'deepseek-v4-pro';
 
@@ -162,43 +165,65 @@ async function askModel(useModel, system, userText, think = false) {
     .trim();
 }
 
-let selected;
-try {
-  const first = parseFirstPassResponse(await askModel(model, buildSystem(false), buildUser('')));
-  let proCandidate;
+const commentsUrl = `${githubApi}/repos/${owner}/${repo}/issues/${num}/comments`;
+const githubHeaders = {
+  authorization: `Bearer ${env.GH_TOKEN}`,
+  accept: 'application/vnd.github+json',
+  'content-type': 'application/json',
+  'user-agent': 'ccu-bot',
+};
 
-  if (!first.answerable) {
-    const extra = repoReader.read(first.want_files).text;
-    const second = parseFirstPassResponse(
-      await askModel(modelPro, buildSystem(true), buildUser(extra), true),
-    );
-    proCandidate = { reply: second.reply, generator: proGenerator };
+try {
+  const response = await fetch(`${commentsUrl}?per_page=100`, { headers: githubHeaders });
+  if (!response.ok) {
+    fail(`Comment lookup failed ${response.status}: ${(await response.text()).slice(0, 300)}`);
   }
-  selected = chooseFinalReply(
-    { reply: first.reply, generator: cheapGenerator },
-    proCandidate,
-  );
+  if (hasTrustedFirstPass(await response.json(), kind)) {
+    console.log(`First-pass ${kind} already exists on #${num}; skipping duplicate.`);
+    process.exit(0);
+  }
 } catch (error) {
-  fail(`Model call failed: ${error.message}`);
+  fail(`Comment lookup failed: ${error.message}`);
 }
-const { reply, generator: finalGenerator } = selected;
+
+const selected = await resolveFirstPassCandidates({
+  cheap: async () => ({
+    ...parseFirstPassResponse(await askModel(model, buildSystem(false), buildUser(''))),
+    generator: cheapGenerator,
+  }),
+  pro: async (cheapCandidate) => {
+    const extra = repoReader.read(cheapCandidate?.want_files || []).text;
+    return {
+      ...parseFirstPassResponse(
+        await askModel(modelPro, buildSystem(true), buildUser(extra), true),
+      ),
+      generator: proGenerator,
+    };
+  },
+});
 
 let commentBody;
-try {
-  commentBody = formatAutomatedComment(reply, { kind, generator: finalGenerator });
-} catch (error) {
-  fail(`First-pass formatting failed: ${error.message}`);
+if (selected) {
+  try {
+    commentBody = formatAutomatedComment(selected.reply, {
+      kind,
+      generator: selected.generator,
+    });
+  } catch (error) {
+    fail(`First-pass formatting failed: ${error.message}`);
+  }
+} else {
+  const authorWroteInChinese = /[\u3400-\u9fff]/u.test(
+    `${env.ITEM_TITLE || ''}\n${env.ITEM_BODY || ''}`,
+  );
+  commentBody = formatFirstPassFallback({ kind, isChinese: authorWroteInChinese });
+  console.warn(`Both model tiers failed to return a usable first-pass ${kind}; posting fallback.`);
 }
 
 try {
-  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${num}/comments`, {
+  const response = await fetch(commentsUrl, {
     method: 'POST',
-    headers: {
-      authorization: `Bearer ${env.GH_TOKEN}`,
-      accept: 'application/vnd.github+json',
-      'content-type': 'application/json',
-      'user-agent': 'ccu-bot',
-    },
+    headers: githubHeaders,
     body: JSON.stringify({ body: commentBody }),
   });
   if (!response.ok) {

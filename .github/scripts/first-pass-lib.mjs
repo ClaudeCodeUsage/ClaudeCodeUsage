@@ -340,6 +340,77 @@ export function parseFirstPassResponse(raw) {
   return { reply, ...control };
 }
 
+export function needsProFirstPass(parsed) {
+  return parsed?.answerable === false || String(parsed?.reply || '').trim() === '';
+}
+
+export function formatFirstPassFallback({ kind, isChinese = false }) {
+  if (!['reply', 'review'].includes(kind)) {
+    throw new Error(`Unsupported first-pass kind: ${kind}`);
+  }
+  const subject = kind === 'reply' ? 'issue' : 'pull request';
+  const lines = [
+    `🤖 Automated first-pass ${kind}`,
+    '',
+    `The configured analysis model did not return a usable analysis for this ${subject}. ` +
+      'The item has still been received and remains available for maintainer review.',
+    '',
+    kind === 'reply'
+      ? 'To help with triage, please ensure the extension, VS Code, and operating-system versions plus anonymous diagnostic logs are included.'
+      : 'To help with review, please ensure the change summary, tests, and any user-facing documentation or localization updates are included.',
+  ];
+  if (isChinese) {
+    lines.push(
+      '',
+      `自动分析服务没有为这个${kind === 'reply' ? '问题' : '拉取请求'}返回可用结果。` +
+        '该条目已经成功收到，维护者仍可继续审阅。',
+      '',
+      kind === 'reply'
+        ? '为便于排查，请确认已提供扩展、VS Code、操作系统版本以及匿名诊断日志。'
+        : '为便于审阅，请确认已提供改动摘要、测试结果，以及必要的文档和本地化更新。',
+    );
+  }
+  lines.push(
+    '',
+    '---',
+    '🤖 Posted automatically by CCU Bot — not a maintainer decision.',
+  );
+  return lines.join('\n');
+}
+
+export function hasTrustedFirstPass(comments, kind) {
+  if (!['reply', 'review'].includes(kind)) return false;
+  const marker = `🤖 Automated first-pass ${kind}`;
+  return Array.isArray(comments) && comments.some((comment) =>
+    comment?.user?.login === 'github-actions[bot]' &&
+    String(comment?.body || '').trimStart().startsWith(marker)
+  );
+}
+
+export async function resolveFirstPassCandidates({ cheap, pro }) {
+  let cheapCandidate;
+  try {
+    cheapCandidate = await cheap();
+  } catch {
+    cheapCandidate = null;
+  }
+
+  let proCandidate;
+  if (!cheapCandidate || needsProFirstPass(cheapCandidate)) {
+    try {
+      proCandidate = await pro(cheapCandidate);
+    } catch {
+      proCandidate = null;
+    }
+  }
+
+  try {
+    return chooseFinalReply(cheapCandidate, proCandidate);
+  } catch {
+    return null;
+  }
+}
+
 export function chooseFinalReply(cheap, pro) {
   if (pro && typeof pro.reply === 'string' && pro.reply.trim() !== '') {
     return { reply: pro.reply.trim(), generator: pro.generator };

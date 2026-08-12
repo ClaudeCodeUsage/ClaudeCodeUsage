@@ -10,17 +10,28 @@ function read(relativePath) {
   return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
 }
 
-test('runner attributes the tier whose reply becomes final and posts only commentBody', () => {
+test('runner attributes the selected tier and posts only the trusted comment body', () => {
   const runner = read('.github/scripts/first-pass.mjs');
   assert.match(runner, /const TRANSPORT = 'anthropic-messages'/);
   assert.match(runner, /resolveGeneratorAttribution\(env\.CCU_BOT_GENERATOR, model, TRANSPORT\)/);
   assert.match(runner, /resolveGeneratorAttribution\(env\.CCU_BOT_GENERATOR_PRO, modelPro, TRANSPORT\)/);
   assert.match(runner, /parseFirstPassResponse/);
-  assert.match(runner, /chooseFinalReply/);
-  assert.match(runner, /formatAutomatedComment\(reply, \{ kind, generator: finalGenerator \}\)/);
+  assert.match(runner, /resolveFirstPassCandidates/);
+  assert.match(runner, /formatAutomatedComment\(selected\.reply, \{/);
+  assert.match(runner, /generator: selected\.generator/);
   assert.match(runner, /JSON\.stringify\(\{\s*body:\s*commentBody\s*\}\)/);
   assert.doesNotMatch(runner, /JSON\.stringify\(\{\s*body:\s*reply\s*\}\)/);
   assert.doesNotMatch(runner, /CCU_BOT_TRANSPORT|prompt-injection safe|injection-safe/i);
+});
+
+test('issue and PR opened events both use the hardened shared runner', () => {
+  const issue = read('.github/workflows/issue-first-pass.yml');
+  const pr = read('.github/workflows/pr-first-pass.yml');
+  assert.match(issue, /issues:\s*\n\s+types: \[opened\]/);
+  assert.match(pr, /pull_request_target:\s*\n\s+types: \[opened\]/);
+  for (const workflow of [issue, pr]) {
+    assert.match(workflow, /run: node \.github\/scripts\/first-pass\.mjs/);
+  }
 });
 
 test('runner uses one bounded reader for AGENTS grounding and requested source', () => {
