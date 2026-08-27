@@ -1085,8 +1085,18 @@ export class ClaudeCodeUsageExtension {
     'statusBarProvider', 'codex.statusMetric',
   ]);
 
+  // Presentation-only dashboard toggles must not restart watchers, recreate
+  // providers, or trigger a corpus reindex.
+  private static readonly DASHBOARD_ONLY_SETTINGS = new Set([
+    'showWeeklyEquivalentValue',
+  ]);
+
   /** Dashboard Settings change — status-bar-only toggles apply in place, others reload. */
   private onSettingsChangedFromPanel(key?: string): void {
+    if (key && ClaudeCodeUsageExtension.DASHBOARD_ONLY_SETTINGS.has(key)) {
+      this.syncProviderUi();
+      return;
+    }
     if (key && ClaudeCodeUsageExtension.STATUS_BAR_ONLY_SETTINGS.has(key)) {
       const config = this.getConfiguration();
       this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat);

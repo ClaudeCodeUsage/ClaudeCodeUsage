@@ -30,6 +30,11 @@ export interface WeeklyEquivalentUsage {
   pricedTokens: number;
   totalTokens: number;
   sourceKey?: string;
+  /** Inclusive bounds of an aggregate represented by this row. Request-level
+   * rows omit them; Codex daily rows use them to expose reset-boundary
+   * uncertainty without inventing a proportional split. */
+  intervalStart?: number;
+  intervalEnd?: number;
 }
 
 export interface WeeklyValueInputs {
@@ -52,6 +57,10 @@ export interface WeeklyValuePoint {
   observationGapMs: number | null;
   confidence: WeeklyValueConfidence;
   basis: WeeklyValueBasis;
+  /** False only for a real quota window shown before any local usage exists. */
+  usageAvailable?: boolean;
+  /** The source aggregate spans a reset and cannot be split exactly. */
+  boundaryUncertain?: boolean;
 }
 
 export interface WeeklyUsageHistoryOptions {
@@ -61,6 +70,8 @@ export interface WeeklyUsageHistoryOptions {
   seriesKey?: string;
   limit?: number;
 }
+
+export type WeeklyValueTimelineOptions = WeeklyUsageHistoryOptions;
 
 function finiteNonNegative(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -144,11 +155,24 @@ export function equivalentUsageFromProviderTokens(
   model: string,
   tokens: ProviderTokenCounts,
   sourceKey?: string,
+  intervalStart?: number,
+  intervalEnd?: number,
 ): WeeklyEquivalentUsage {
   const totalTokens = tokenTotal(tokens);
   const pricing = getExactModelPricing(model);
+  const interval = {
+    ...(Number.isFinite(intervalStart) ? { intervalStart } : {}),
+    ...(Number.isFinite(intervalEnd) ? { intervalEnd } : {}),
+  };
   if (!pricing) {
-    return { timestamp, equivalentUsd: 0, pricedTokens: 0, totalTokens, sourceKey };
+    return {
+      timestamp,
+      equivalentUsd: 0,
+      pricedTokens: 0,
+      totalTokens,
+      sourceKey,
+      ...interval,
+    };
   }
   const inputTotal = finiteNonNegative(tokens.inputTotal);
   const cachedInput = Math.min(inputTotal, finiteNonNegative(tokens.cachedInput ?? 0));
@@ -156,7 +180,14 @@ export function equivalentUsageFromProviderTokens(
     (inputTotal - cachedInput) * finiteNonNegative(pricing.input_cost_per_token ?? 0) +
     cachedInput * finiteNonNegative(pricing.cache_read_input_token_cost ?? 0) +
     finiteNonNegative(tokens.outputTotal) * finiteNonNegative(pricing.output_cost_per_token ?? 0);
-  return { timestamp, equivalentUsd, pricedTokens: totalTokens, totalTokens, sourceKey };
+  return {
+    timestamp,
+    equivalentUsd,
+    pricedTokens: totalTokens,
+    totalTokens,
+    sourceKey,
+    ...interval,
+  };
 }
 
 export function claudeWeeklyEquivalentUsage(
@@ -322,6 +353,7 @@ export function buildWeeklyUsageHistory(
 ): WeeklyValuePoint[] {
   const now = options.now ?? Date.now();
   const grouped = new Map<number, WeeklyEquivalentUsage[]>();
+  const boundaryUncertainResets = new Set<number>();
   let basis: Extract<WeeklyValueBasis, 'reset-aligned-usage' | 'calendar-usage'> =
     options.anchorResetAt !== undefined ? 'reset-aligned-usage' : 'calendar-usage';
   for (const row of usage) {
@@ -333,6 +365,29 @@ export function buildWeeklyUsageHistory(
     const rows = grouped.get(bucket.resetAt) ?? [];
     rows.push(row);
     grouped.set(bucket.resetAt, rows);
+    if (
+      provider === 'codex' &&
+      options.anchorResetAt !== undefined &&
+      Number.isFinite(row.intervalStart) &&
+      Number.isFinite(row.intervalEnd) &&
+      (row.intervalStart as number) < (row.intervalEnd as number)
+    ) {
+      const firstReset = resetForTimestamp(
+        row.intervalStart as number,
+        options.anchorResetAt,
+      ).resetAt;
+      const lastReset = resetForTimestamp(
+        row.intervalEnd as number,
+        options.anchorResetAt,
+      ).resetAt;
+      if (firstReset !== lastReset) {
+        // The aggregate contains events on both sides of this boundary. Mark
+        // both adjacent windows; the row remains unique but neither period is
+        // presented as precise enough for allowance extrapolation.
+        boundaryUncertainResets.add(firstReset);
+        boundaryUncertainResets.add(lastReset);
+      }
+    }
   }
   const points = [...grouped.entries()].map(([resetAt, rows]): WeeklyValuePoint => {
     const used = totals(rows);
@@ -352,11 +407,240 @@ export function buildWeeklyUsageHistory(
       observationGapMs: null,
       confidence: 'usage-only',
       basis,
+      usageAvailable: true,
+      boundaryUncertain: boundaryUncertainResets.has(resetAt),
     };
   });
   return points
     .sort((left, right) => right.resetAt - left.resetAt)
     .slice(0, Math.max(1, Math.floor(options.limit ?? 12)));
+}
+
+function latestClusterObservation(
+  cluster: ObservationCluster,
+  now: number,
+): WeeklyQuotaObservation | undefined {
+  const windowStart = cluster.resetAt - WEEK_MS;
+  const eligible = cluster.observations
+    .filter((item) =>
+      Number.isFinite(item.observedAt) &&
+      item.observedAt <= now &&
+      item.observedAt >= windowStart &&
+      // Windows are half-open. A sample written at the reset belongs to the
+      // next window and must not decorate the one that just closed.
+      item.observedAt < cluster.resetAt,
+    )
+    .sort((left, right) => left.observedAt - right.observedAt);
+  return eligible[eligible.length - 1];
+}
+
+function alignedResetAt(resetAt: number, anchorResetAt: number): number | null {
+  const periods = Math.round((resetAt - anchorResetAt) / WEEK_MS);
+  const aligned = anchorResetAt + periods * WEEK_MS;
+  return Math.abs(aligned - resetAt) <= RESET_CLUSTER_MS ? aligned : null;
+}
+
+/**
+ * Builds the dashboard's one authoritative weekly timeline. Token-log usage is
+ * first assigned to non-overlapping [start, reset) buckets exactly once. Quota
+ * observations may then decorate their matching bucket with utilization and a
+ * conservative allowance estimate; they never add a second usage row.
+ *
+ * Codex logs do not expose a reliable account identity. Any overlapping,
+ * non-aligned future reset makes the current allowance ambiguous regardless of
+ * its label. Historical Codex periods and source-mixed current periods remain
+ * usage-only rather than manufacturing an account split.
+ */
+export function buildWeeklyValueTimeline(
+  provider: UsageProvider,
+  inputs: WeeklyValueInputs,
+  options: WeeklyValueTimelineOptions = {},
+): WeeklyValuePoint[] {
+  const now = options.now ?? Date.now();
+  const normalizedObservations = inputs.observations
+    .filter((item) =>
+      item.provider === provider &&
+      Number.isFinite(item.observedAt) &&
+      item.observedAt <= now &&
+      Number.isFinite(item.resetAt) &&
+      item.resetAt > 0 &&
+      Number.isFinite(item.usedPercent),
+    )
+    .map((item) => ({
+      ...item,
+      usedPercent: Math.min(100, Math.max(0, item.usedPercent)),
+    }));
+  const validClusters = clusterObservations(normalizedObservations)
+    .map((cluster) => ({
+      cluster,
+      latest: latestClusterObservation(cluster, now),
+    }))
+    .filter((entry): entry is {
+      cluster: ObservationCluster;
+      latest: WeeklyQuotaObservation;
+    } => entry.latest !== undefined);
+
+  const anchorEntry = validClusters
+    .slice()
+    .sort((left, right) =>
+      right.latest.observedAt - left.latest.observedAt ||
+      right.cluster.resetAt - left.cluster.resetAt,
+    )[0];
+  const anchorResetAt = anchorEntry?.cluster.resetAt ?? options.anchorResetAt;
+  const limit = Math.max(1, Math.floor(options.limit ?? 12));
+  let history = buildWeeklyUsageHistory(provider, inputs.usage, {
+    now,
+    ...(anchorResetAt !== undefined ? { anchorResetAt } : {}),
+    seriesKey: options.seriesKey ?? anchorEntry?.cluster.seriesKey,
+    // Decorate before applying the public result limit.
+    limit: Number.MAX_SAFE_INTEGER,
+  });
+  if (!anchorEntry || anchorResetAt === undefined) {
+    return history.slice(0, limit);
+  }
+
+  if (
+    anchorResetAt > now &&
+    !history.some((point) => Math.abs(point.resetAt - anchorResetAt) <= RESET_CLUSTER_MS)
+  ) {
+    const quotaOnlyPoint: WeeklyValuePoint = {
+      provider,
+      seriesKey: options.seriesKey ?? anchorEntry.cluster.seriesKey,
+      seriesLabel: anchorEntry.cluster.seriesLabel,
+      windowStart: anchorResetAt - WEEK_MS,
+      resetAt: anchorResetAt,
+      current: true,
+      usedEquivalentUsd: 0,
+      fullEquivalentUsd: null,
+      unusedEquivalentUsd: null,
+      utilizationPercent: null,
+      pricingCoverage: 0,
+      observationGapMs: null,
+      confidence: 'usage-only',
+      basis: 'reset-aligned-usage',
+      usageAvailable: false,
+      boundaryUncertain: false,
+    };
+    history = [quotaOnlyPoint, ...history]
+      .sort((left, right) => right.resetAt - left.resetAt);
+  }
+
+  const alignedClusters = new Map<number, typeof validClusters[number]>();
+  for (const entry of validClusters) {
+    if (entry.cluster.seriesKey !== anchorEntry.cluster.seriesKey) {
+      continue;
+    }
+    const resetAt = alignedResetAt(entry.cluster.resetAt, anchorResetAt);
+    if (resetAt === null) {
+      continue;
+    }
+    const previous = alignedClusters.get(resetAt);
+    if (!previous || entry.latest.observedAt > previous.latest.observedAt) {
+      alignedClusters.set(resetAt, entry);
+    }
+  }
+  const ambiguousCurrentCodexReset = provider === 'codex' && validClusters.some((entry) => {
+    if (
+      entry === anchorEntry ||
+      entry.cluster.resetAt <= now ||
+      alignedResetAt(entry.cluster.resetAt, anchorResetAt) !== null
+    ) {
+      return false;
+    }
+    const entryStart = entry.cluster.resetAt - WEEK_MS;
+    const anchorStart = anchorResetAt - WEEK_MS;
+    return entryStart < anchorResetAt && anchorStart < entry.cluster.resetAt;
+  });
+
+  return history.map((point): WeeklyValuePoint => {
+    const entry = alignedClusters.get(point.resetAt);
+    if (!entry) {
+      return point;
+    }
+    const latest = entry.latest;
+    const sourceKeys = new Set(
+      entry.cluster.observations.flatMap((item) => item.sourceKey ? [item.sourceKey] : []),
+    );
+    const bucketRows = inputs.usage.filter((row) =>
+      Number.isFinite(row.timestamp) &&
+      row.timestamp <= now &&
+      row.timestamp >= point.windowStart &&
+      row.timestamp < point.resetAt,
+    );
+    const seriesRows = sourceKeys.size === 0
+      ? bucketRows
+      : bucketRows.filter((row) =>
+          row.sourceKey !== undefined && sourceKeys.has(row.sourceKey),
+        );
+    const bucketSourceKeys = new Set(
+      bucketRows.flatMap((row) => row.sourceKey ? [row.sourceKey] : []),
+    );
+    const hasMixedMissingObservationSource = sourceKeys.size > 0 &&
+      entry.cluster.observations.some((item) => !item.sourceKey);
+    const hasMixedMissingUsageSource = bucketSourceKeys.size > 0 &&
+      bucketRows.some((row) => !row.sourceKey && finiteNonNegative(row.totalTokens) > 0);
+    const codexSourceAttributionSafe = provider !== 'codex' || (
+      (sourceKeys.size === 0 && bucketSourceKeys.size === 0) ||
+      (
+        !hasMixedMissingObservationSource &&
+        !hasMixedMissingUsageSource &&
+        sourceKeys.size === 1 &&
+        bucketSourceKeys.size === 1 &&
+        [...bucketSourceKeys].every((sourceKey) => sourceKeys.has(sourceKey))
+      )
+    );
+    const observed = totals(seriesRows.filter((row) => row.timestamp <= latest.observedAt));
+    const seriesTotal = totals(seriesRows);
+    const seriesPricingCoverage = seriesTotal.totalTokens > 0
+      ? Math.min(1, seriesTotal.pricedTokens / seriesTotal.totalTokens)
+      : 0;
+    const observationGapMs = Math.max(
+      0,
+      (point.current ? now : point.resetAt) - latest.observedAt,
+    );
+    const withholdInference = provider === 'codex' && (
+      !point.current ||
+      Math.abs(point.resetAt - anchorResetAt) > RESET_CLUSTER_MS ||
+      ambiguousCurrentCodexReset ||
+      !codexSourceAttributionSafe ||
+      point.boundaryUncertain === true
+    );
+    let fullEquivalentUsd: number | null = null;
+    let observationOverrun = false;
+    if (
+      !withholdInference &&
+      point.usageAvailable !== false &&
+      latest.usedPercent >= MIN_EXTRAPOLATION_PERCENT &&
+      observed.equivalentUsd > 0 &&
+      seriesPricingCoverage >= MIN_PRICED_SHARE
+    ) {
+      fullEquivalentUsd = observed.equivalentUsd / (latest.usedPercent / 100);
+      if (!Number.isFinite(fullEquivalentUsd) || fullEquivalentUsd <= 0) {
+        fullEquivalentUsd = null;
+      } else if (point.usedEquivalentUsd > fullEquivalentUsd) {
+        fullEquivalentUsd = point.usedEquivalentUsd;
+        observationOverrun = true;
+      }
+    }
+    return {
+      ...point,
+      seriesKey: entry.cluster.seriesKey,
+      seriesLabel: entry.cluster.seriesLabel,
+      utilizationPercent: latest.usedPercent,
+      fullEquivalentUsd,
+      unusedEquivalentUsd:
+        !point.current && fullEquivalentUsd !== null
+          ? Math.max(0, fullEquivalentUsd - point.usedEquivalentUsd)
+          : null,
+      observationGapMs,
+      confidence: fullEquivalentUsd === null
+        ? 'usage-only'
+        : observationOverrun
+          ? 'low'
+          : confidenceFor(point.current, observationGapMs, point.pricingCoverage),
+      basis: 'quota-observation',
+    };
+  }).slice(0, limit);
 }
 
 /** Keep observed quota rows authoritative while filling older gaps from logs. */
@@ -417,7 +701,8 @@ export function buildWeeklyValueTrend(
     );
     const matchedUsage = inputs.usage.filter((row) =>
       row.timestamp >= windowStart &&
-      row.timestamp <= periodEnd &&
+      row.timestamp <= now &&
+      row.timestamp < cluster.resetAt &&
       (sourceKeys.size === 0 || (row.sourceKey !== undefined && sourceKeys.has(row.sourceKey))),
     );
     const used = totals(matchedUsage);

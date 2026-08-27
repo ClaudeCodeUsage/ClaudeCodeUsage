@@ -18,11 +18,9 @@ import { renderConversationViewer } from './conversationViewerHtml';
 import { formatUsageDate, shortUsageDate } from './usageDateLabels';
 import { normalizeQuotaWindows } from './quotaWindows';
 import {
-  buildWeeklyUsageHistory,
-  buildWeeklyValueTrend,
+  buildWeeklyValueTimeline,
   claudeWeeklyEquivalentUsage,
   equivalentUsageFromProviderTokens,
-  mergeWeeklyValuePoints,
   summarizeEquivalentUsage,
   WeeklyQuotaObservation,
   WeeklyValuePoint,
@@ -1495,9 +1493,11 @@ export class UsageWebviewProvider {
         return this.renderCodexEmptyState();
       }
       const copy = I18n.t.providers.codex;
-      const metric = (label: string, value: number): string =>
+      const metric = (label: string, value: number | string): string =>
         '<div class="summary-item"><div class="label">' + this.escapeHtml(label) +
-        '</div><div class="value">' + I18n.formatNumber(value) + '</div></div>';
+        '</div><div class="value">' + this.escapeHtml(
+          typeof value === 'number' ? I18n.formatNumber(value) : value,
+        ) + '</div></div>';
       const equivalentRows = scope.models.map((row) =>
         equivalentUsageFromProviderTokens(0, row.key, {
           inputTotal: row.totals.input,
@@ -1575,6 +1575,10 @@ export class UsageWebviewProvider {
         metric(copy.fresh, scope.total.fresh) +
         metric(copy.input, scope.total.input) +
         metric(copy.cachedInput, scope.total.cachedInput) +
+        metric(
+          I18n.t.popup.cacheHitRate,
+          this.formatPercent(scope.total.input > 0 ? scope.cacheShare : null),
+        ) +
         metric(copy.output, scope.total.output) +
         metric(copy.reasoning, scope.total.reasoning) +
         '</div>' + compositionHtml + '</div>' +
@@ -2061,21 +2065,16 @@ export class UsageWebviewProvider {
     if (!inputs) {
       return [];
     }
-    const anchorResetAt = inputs.observations
-      .filter((item) => Number.isFinite(item.observedAt) && Number.isFinite(item.resetAt))
-      .sort((left, right) => right.observedAt - left.observedAt)[0]?.resetAt;
-    const observed = buildWeeklyValueTrend(inputs, now);
-    const history = buildWeeklyUsageHistory(provider, inputs.usage, {
-      now,
-      anchorResetAt,
-    });
-    return mergeWeeklyValuePoints(observed, history);
+    return buildWeeklyValueTimeline(provider, inputs, { now });
   }
 
   /** Shared reset-aligned allowance-value renderer for Claude and Codex. The
    * chart deliberately reuses the dashboard's existing stacked-bar classes:
    * blue is observed use, green is the inferred unused share. */
   private renderWeeklyValuePanel(provider: SettingProvider): string {
+    if (!this.setting<boolean>('showWeeklyEquivalentValue', true)) {
+      return '';
+    }
     const copy = I18n.t.weeklyValue;
     const points = this.weeklyValuePoints(provider);
     const providerLabel = provider === 'codex'
@@ -2089,6 +2088,9 @@ export class UsageWebviewProvider {
         ? [copy.calendarFallback]
         : []),
       ...(provider === 'codex' ? [copy.multiAccount] : []),
+      ...(provider === 'codex' && points.some((point) => point.boundaryUncertain)
+        ? [copy.boundaryApproximation]
+        : []),
       ...(provider === 'codex' && this.codexView && !this.codexView.periodCoverage.allTime.complete
         ? [copy.indexedSubtotal]
         : []),
@@ -2099,12 +2101,18 @@ export class UsageWebviewProvider {
         '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div></div>';
     }
 
-    const dateLabel = (value: number, short = false): string => {
+    const dateLabel = (value: number, short = false, dateOnly = false): string => {
       try {
         return new Intl.DateTimeFormat(I18n.getLocale(), {
           ...(short
             ? { month: 'short' as const, day: 'numeric' as const }
-            : {
+            : dateOnly
+              ? {
+                  year: 'numeric' as const,
+                  month: 'short' as const,
+                  day: 'numeric' as const,
+                }
+              : {
                 year: 'numeric' as const,
                 month: 'short' as const,
                 day: 'numeric' as const,
@@ -2117,7 +2125,24 @@ export class UsageWebviewProvider {
         return new Date(value).toISOString().slice(0, 10);
       }
     };
+    const periodLabel = (point: WeeklyValuePoint, short = false): string => {
+      if (point.current) {
+        if (short) {
+          return copy.currentPeriodShort;
+        }
+        const range = dateLabel(point.windowStart, false, true) + ' – ' +
+          dateLabel(point.resetAt - 1, false, true);
+        return point.basis === 'quota-observation'
+          ? `${copy.currentPeriod} · ${range} (${copy.resetsAt} ${dateLabel(point.resetAt)})`
+          : `${copy.currentPeriod} · ${range}`;
+      }
+      return dateLabel(point.windowStart, short, true) + ' – ' +
+        dateLabel(point.resetAt - 1, short, true);
+    };
     const confidenceLabel = (point: WeeklyValuePoint): string => {
+      if (point.boundaryUncertain) {
+        return `${copy.usageOnly} · ${copy.boundaryApproximate}`;
+      }
       switch (point.confidence) {
         case 'high': return copy.high;
         case 'medium': return copy.medium;
@@ -2128,36 +2153,45 @@ export class UsageWebviewProvider {
     const chartPoints = points.slice(0, 8).reverse();
     const maxValue = Math.max(
       1,
-      ...chartPoints.map((point) => point.fullEquivalentUsd ?? point.usedEquivalentUsd),
+      ...chartPoints.map((point) =>
+        point.unusedEquivalentUsd !== null && point.fullEquivalentUsd !== null
+          ? point.fullEquivalentUsd
+          : point.usedEquivalentUsd,
+      ),
     );
     const maxHeight = 120;
     const bars = chartPoints.map((point) => {
-      const total = Math.max(
-        point.usedEquivalentUsd,
-        point.fullEquivalentUsd ?? point.usedEquivalentUsd,
-      );
+      const total = point.unusedEquivalentUsd !== null && point.fullEquivalentUsd !== null
+        ? Math.max(point.usedEquivalentUsd, point.fullEquivalentUsd)
+        : point.usedEquivalentUsd;
       const barHeight = total > 0 ? (total / maxValue) * maxHeight : 0;
       const usedHeight = total > 0
         ? Math.min(barHeight, (point.usedEquivalentUsd / total) * barHeight)
         : 0;
       const unusedHeight = Math.max(0, barHeight - usedHeight);
-      const title = `${dateLabel(point.resetAt)} · ${copy.usedValue}: ${I18n.formatCurrency(point.usedEquivalentUsd)}`;
+      const usedLabel = point.usageAvailable === false
+        ? '—'
+        : I18n.formatCurrency(point.usedEquivalentUsd);
+      const title = `${periodLabel(point)} · ${copy.usedValue}: ${usedLabel}`;
       return '<div class="hc-col"><div class="stack-bar" title="' +
         this.escapeHtml(title) + '">' +
         '<div class="stack-seg seg-input" style="height:' + usedHeight.toFixed(2) + 'px"></div>' +
-        (point.fullEquivalentUsd !== null
+        (point.unusedEquivalentUsd !== null
           ? '<div class="stack-seg seg-cache-read" style="height:' + unusedHeight.toFixed(2) + 'px"></div>'
           : '') +
         '</div></div>';
     }).join('');
     const xlabels = chartPoints.map((point) =>
-      '<div class="hc-xlabel">' + this.escapeHtml(dateLabel(point.resetAt, true)) + '</div>',
+      '<div class="hc-xlabel">' + this.escapeHtml(periodLabel(point, true)) + '</div>',
     ).join('');
     const legend = (cls: string, label: string): string =>
       '<span class="legend-item"><span class="legend-dot ' + cls + '"></span>' +
       this.escapeHtml(label) + '</span>';
     const chart = '<div class="composition-chart"><div class="stack-legend">' +
-      legend('seg-input', copy.usedValue) + legend('seg-cache-read', copy.unusedValue) +
+      legend('seg-input', copy.usedValue) +
+      (chartPoints.some((point) => point.unusedEquivalentUsd !== null)
+        ? legend('seg-cache-read', copy.unusedValue)
+        : '') +
       '</div><div class="hc-wrap"><div class="hc-yaxis"><span class="hc-yval">' +
       I18n.formatCurrency(maxValue) + '</span><span class="hc-yval">' +
       I18n.formatCurrency(maxValue / 2) + '</span><span class="hc-yval">$0</span></div>' +
@@ -2167,9 +2201,9 @@ export class UsageWebviewProvider {
       xlabels + '</div></div></div></div></div>';
     const dash = '—';
     const tableRows = points.map((point) =>
-      '<tr><td class="date-cell">' + this.escapeHtml(dateLabel(point.resetAt)) +
-      (point.current ? ' · ' + this.escapeHtml(copy.current) : '') + '</td>' +
-      '<td class="cost-cell">' + I18n.formatCurrency(point.usedEquivalentUsd) + '</td>' +
+      '<tr><td class="date-cell">' + this.escapeHtml(periodLabel(point)) + '</td>' +
+      '<td class="cost-cell">' +
+      (point.usageAvailable === false ? dash : I18n.formatCurrency(point.usedEquivalentUsd)) + '</td>' +
       '<td class="number-cell">' +
       (point.utilizationPercent === null ? dash : this.formatPercent(point.utilizationPercent / 100)) + '</td>' +
       '<td class="cost-cell">' +
@@ -2182,7 +2216,7 @@ export class UsageWebviewProvider {
     return '<div class="daily-breakdown"><div class="section-header"><h3>' + heading +
       '</h3></div><p class="table-hint">' + notes + '</p>' + chart +
       '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
-      '<th>' + this.escapeHtml(copy.reset) + '</th><th>' + this.escapeHtml(copy.usedValue) + '</th>' +
+      '<th>' + this.escapeHtml(copy.period) + '</th><th>' + this.escapeHtml(copy.usedValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.utilization) + '</th><th>' + this.escapeHtml(copy.fullValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.unusedValue) + '</th><th>' + this.escapeHtml(copy.confidence) + '</th>' +
       '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th></tr></thead><tbody>' +

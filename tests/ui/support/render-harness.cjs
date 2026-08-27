@@ -142,10 +142,11 @@ const THEMES = {
     '}*,*::before,*::after{animation:none!important;transition:none!important}',
 };
 
-function settingsStore(autoRefresh = false) {
+function settingsStore(autoRefresh = false, weeklyValue = true) {
   const values = new Map(SETTINGS.map((definition) => [definition.key, definition.default]));
   values.set('codex.optimization.enabled', true);
   values.set('dashboardAutoRefresh', autoRefresh);
+  values.set('showWeeklyEquivalentValue', weeklyValue);
   return {
     get: (key) => values.get(key),
     snapshot: () => SETTINGS.map((definition) => ({
@@ -192,9 +193,25 @@ function claudeUsage(multiplier = 1) {
   };
 }
 
-function addClaudeData(provider) {
+function addClaudeData(provider, fixture = 'default') {
   const today = claudeUsage();
   const now = new Date(CODEX_WEBVIEW_NOW);
+  const completedWeeklyFixture = fixture === 'weekly-claude-completed';
+  const completedResetAt = CODEX_WEBVIEW_NOW - 24 * 60 * 60_000;
+  const weeklyRecords = completedWeeklyFixture
+    ? [{
+        timestamp: new Date(completedResetAt - 2 * 60 * 60_000).toISOString(),
+        message: {
+          model: 'claude-sonnet-4-5-20250929',
+          usage: {
+            input_tokens: 1_000_000,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      }]
+    : [];
   provider.updateData(
     { ...today, sessionStart: new Date(now.getTime() - 3_600_000), sessionEnd: now },
     today,
@@ -206,10 +223,71 @@ function addClaudeData(provider) {
       { hour: '18:00', data: claudeUsage(0.35) },
       { hour: '19:00', data: claudeUsage(0.65) },
     ],
+    undefined,
+    undefined,
+    weeklyRecords,
+  );
+  if (completedWeeklyFixture) {
+    provider.updateWeeklyQuotaHistory([{
+      provider: 'claude',
+      seriesKey: 'test-profile',
+      observedAt: completedResetAt - 60 * 60_000,
+      resetAt: completedResetAt,
+      usedPercent: 50,
+    }]);
+  }
+}
+
+function withoutInputTokens(tokens) {
+  return {
+    ...tokens,
+    inputTotal: 0,
+    cachedInput: 0,
+    cacheWriteInput: 0,
+    sourceTotal: Math.max(0, tokens.outputTotal ?? 0),
+  };
+}
+
+function withoutInputBuckets(buckets) {
+  return Object.fromEntries(
+    Object.entries(buckets ?? {}).map(([key, tokens]) => [key, withoutInputTokens(tokens)]),
   );
 }
 
-exports.renderHarness = function renderHarness({ provider: selectedProvider = 'codex', locale = 'en', theme = 'light', fixture = 'default', autoRefresh = false } = {}) {
+/** Keep real output/reasoning activity while removing every input-side token.
+ * This exercises the dashboard's undefined cache-hit denominator rather than
+ * falling into the provider's empty-state path. */
+function withoutInputSnapshot(snapshot) {
+  const files = snapshot.files.map((file) => ({
+    ...file,
+    total: withoutInputTokens(file.total),
+    byDay: withoutInputBuckets(file.byDay),
+    byModel: withoutInputBuckets(file.byModel),
+    byEffort: withoutInputBuckets(file.byEffort),
+    ...(file.period
+      ? {
+          period: {
+            ...file.period,
+            days: Object.fromEntries(
+              Object.entries(file.period.days).map(([day, slice]) => [day, {
+                ...slice,
+                total: withoutInputTokens(slice.total),
+                byModel: withoutInputBuckets(slice.byModel),
+                byEffort: withoutInputBuckets(slice.byEffort),
+              }]),
+            ),
+          },
+        }
+      : {}),
+  }));
+  return {
+    ...snapshot,
+    total: withoutInputTokens(snapshot.total),
+    files,
+  };
+}
+
+exports.renderHarness = function renderHarness({ provider: selectedProvider = 'codex', locale = 'en', theme = 'light', fixture = 'default', autoRefresh = false, weeklyValue = true } = {}) {
   I18n.setLanguage(locale);
   I18n.setTimezone('Asia/Hong_Kong');
   vscodeHost.window.activeColorTheme.kind = theme === 'dark' ? 2 : 1;
@@ -234,12 +312,14 @@ exports.renderHarness = function renderHarness({ provider: selectedProvider = 'c
             ],
           },
         }
-      : baseSnapshot;
+      : fixture === 'zero-input'
+        ? withoutInputSnapshot(baseSnapshot)
+        : baseSnapshot;
     const view = buildCodexUsageView(snapshot, CODEX_WEBVIEW_NOW);
     const provider = new UsageWebviewProvider({});
     const persistedDetailsFixture = fixture === 'persisted-details';
-    provider.settings = settingsStore(autoRefresh);
-    addClaudeData(provider);
+    provider.settings = settingsStore(autoRefresh, weeklyValue);
+    addClaudeData(provider, fixture);
     provider.updateProviderData(
       view,
       buildScopedCodexInsights(view),

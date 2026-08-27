@@ -129,10 +129,12 @@ export function codexWebviewFixture(): CodexProviderSnapshot {
           totalTokens: 1_000,
         },
         {
-          timestamp: CODEX_WEBVIEW_NOW - 25 * 60 * 60_000,
+          timestamp: CODEX_WEBVIEW_NOW - 23 * 60 * 60_000,
           equivalentUsd: 5,
           pricedTokens: 1_000,
           totalTokens: 1_000,
+          intervalStart: CODEX_WEBVIEW_NOW - 25 * 60 * 60_000,
+          intervalEnd: CODEX_WEBVIEW_NOW - 23 * 60 * 60_000,
         },
         {
           timestamp: CODEX_WEBVIEW_NOW - 60 * 60_000,

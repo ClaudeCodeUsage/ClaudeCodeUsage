@@ -456,6 +456,8 @@ test('view builds recent task, 7d, 30d, and projects without double counting sub
   assert.equal(view.lastTask?.total.processed, 1_200);
   assert.equal(view.lastTask?.total.fresh, 400);
   assert.equal(view.lastTask?.total.reasoning, 120);
+  assert.equal(view.lastTask?.cacheShare, 0.8);
+  assert.equal(view.last7Days.cacheShare, 0.8);
   assert.equal(view.last7Days.childFreshShare, 0.5);
   assert.equal(view.last7Days.rootTasks, 1);
   assert.equal(view.last30Days.approvalReviewerThreads, 1);

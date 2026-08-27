@@ -59,6 +59,46 @@ test('showScopedWeekly is translated in every non-English locale', () => {
   }
 });
 
+test('weekly API-equivalent value copy names periods without treating a future reset as the week name', () => {
+  for (const lang of LOCALES) {
+    withLanguage(lang, () => {
+      const copy = I18n.t.weeklyValue;
+      for (const key of [
+        'period',
+        'currentPeriod',
+        'currentPeriodShort',
+        'resetsAt',
+        'boundaryApproximation',
+        'boundaryApproximate',
+      ] as const) {
+        assert.equal(typeof copy[key], 'string', `${lang}: weeklyValue.${key} must be a string`);
+        assert.ok(copy[key].length > 0, `${lang}: weeklyValue.${key} must not be empty`);
+      }
+    });
+  }
+});
+
+test('weekly API-equivalent value panel is a shared default-on feature setting', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'settings.ts'), 'utf8');
+  const match = src.match(/\{\s*key: 'showWeeklyEquivalentValue',[\s\S]*?\n\s*\},/);
+  assert.ok(match, 'showWeeklyEquivalentValue must be declared in the settings catalog');
+  assert.match(match[0], /type: 'boolean'/);
+  assert.match(match[0], /default: true/);
+  assert.match(match[0], /storage: 'state'/);
+  assert.match(match[0], /group: 'features'/);
+  assert.match(match[0], /providers: \['claude', 'codex'\]/);
+});
+
+test('showWeeklyEquivalentValue is translated in every non-English locale', () => {
+  for (const lang of TRANSLATED) {
+    withLanguage(lang, () => {
+      const text = I18n.settingText('showWeeklyEquivalentValue');
+      assert.ok(text.label, `${lang}: showWeeklyEquivalentValue needs a label`);
+      assert.ok(text.help, `${lang}: showWeeklyEquivalentValue needs help text`);
+    });
+  }
+});
+
 test('the retired showOpusWeekly key is gone from the catalog and the locales', () => {
   // Its stored value still migrates (SettingsStore.migrateScopedWeekly); what
   // must not survive is a second, dead entry in the settings panel.

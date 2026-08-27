@@ -269,6 +269,16 @@ export const SETTINGS: SettingDef[] = [
     providers: ['codex'],
   },
   {
+    key: 'showWeeklyEquivalentValue',
+    type: 'boolean',
+    default: true,
+    storage: 'state',
+    group: 'features',
+    label: 'Show weekly API-equivalent value',
+    help: 'On by default. Show the historical weekly API-equivalent value panel in All-time and Compare. This is an estimate, not a bill or subscription allowance.',
+    providers: ['claude', 'codex'],
+  },
+  {
     key: 'showHeatmap',
     type: 'boolean',
     default: false,

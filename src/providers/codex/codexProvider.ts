@@ -193,12 +193,16 @@ function codexWeeklyValueInputs(
       if (timestamp === undefined) {
         continue;
       }
+      const intervalStart = slice.firstObservedAt ?? timestamp;
+      const intervalEnd = slice.lastObservedAt ?? timestamp;
       for (const [model, tokens] of Object.entries(slice.byModel)) {
         usage.push(equivalentUsageFromProviderTokens(
           timestamp,
           model,
           tokens,
           sourceKey,
+          intervalStart,
+          intervalEnd,
         ));
       }
     }

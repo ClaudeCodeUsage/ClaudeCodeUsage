@@ -22,14 +22,18 @@ const server = createServer((request, response) => {
 
     const requestedLocale = url.searchParams.get('locale') ?? 'en';
     const locale = locales.has(requestedLocale) ? requestedLocale : 'en';
-    const provider = url.searchParams.get('provider') === 'claude' ? 'claude' : 'codex';
+    const requestedProvider = url.searchParams.get('provider');
+    const provider = requestedProvider === 'claude' || requestedProvider === 'compare'
+      ? requestedProvider
+      : 'codex';
     const theme = url.searchParams.get('theme') === 'dark' ? 'dark' : 'light';
     const requestedFixture = url.searchParams.get('fixture') ?? 'default';
-    const fixture = ['default', 'rootless-cycle', 'root-over-limit', 'persisted-details', 'weekly-usage-only', 'unknown-models'].includes(requestedFixture)
+    const fixture = ['default', 'rootless-cycle', 'root-over-limit', 'persisted-details', 'weekly-usage-only', 'weekly-claude-completed', 'unknown-models', 'zero-input'].includes(requestedFixture)
       ? requestedFixture
       : 'default';
     const autoRefresh = url.searchParams.get('autoRefresh') === 'true';
-    const html = renderHarness({ provider, locale, theme, fixture, autoRefresh });
+    const weeklyValue = url.searchParams.get('weeklyValue') !== 'false';
+    const html = renderHarness({ provider, locale, theme, fixture, autoRefresh, weeklyValue });
     response.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',

@@ -7,6 +7,19 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.3.0] — Unreleased
 
 ### Fixed
+- **Weekly API-equivalent periods no longer overlap or double-count usage** —
+  the newest valid official reset observation anchors one sequence of unique
+  `[start, reset)` weekly buckets, so each local usage event contributes to
+  exactly one period. Any overlapping, non-aligned future reset is treated as a
+  conflict even when its series name differs; it cannot create an additional
+  "current" row. Codex usage is persisted in daily slices, so a slice that
+  crosses an official intraday reset remains counted once but marks the affected
+  period as a boundary approximation and suppresses total / unused allowance
+  inference. This display-only correction does not change the index schema or
+  trigger a rebuild. Historical Codex periods are always used-value-only; only
+  the newest current period may infer a total when its reset is unambiguous and
+  its indexed usage can be attributed to one observation source. Current unused
+  value remains withheld, and ambiguous multi-sign-in usage stays used-only.
 - **Claude changed-file refreshes no longer reread the full corpus (#87)** —
   the production refresh path now keeps an exact in-memory per-file index,
   reads only a verified append tail, and rebuilds only affected files for
@@ -67,21 +80,24 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   presented as a bill or subscription charge.
 - **Historical weekly allowance value** — Claude and Codex All-time and Compare
   views now calculate historical used API-equivalent value directly from local
-  token logs. Real observed weekly resets align the buckets; without one,
-  usage-only rows use Monday-to-Monday UTC calendar weeks. Full and unused
-  allowance estimates remain limited to windows with a real utilization
-  observation and include confidence and model-price coverage. Current official
-  API prices are applied consistently; this remains an estimate, not a bill or
-  an official subscription price. Codex usage-only history combines local
-  sign-ins, while quota estimates stay tied to their observed reset series; no
-  account split is invented.
+  token logs. One valid observed reset anchors unique, non-overlapping weekly
+  buckets; without one, usage-only rows use Monday-to-Monday UTC calendar weeks.
+  Codex historical periods, boundary-approximate daily slices, conflicting reset
+  sequences, and usage that cannot be assigned to one observed sign-in remain
+  used-value-only. Only an unambiguous newest current period with single-source
+  attribution may infer a total allowance; its unused value is still withheld.
+  Current official API prices are applied consistently and each period includes
+  model-price coverage. This remains an estimate, not a bill or an official
+  subscription price. The panel is enabled by default and can be hidden with
+  `showWeeklyEquivalentValue`.
 - **Complete Claude quota details** — the tooltip now shows every active
   all-model and model-scoped weekly cap reported by Anthropic, plus used monthly
   credits when available. Model-scoped status-bar display remains opt-in and is
   named dynamically instead of assuming Opus.
 - **Codex Beta** — local-only Codex usage views for processed, uncached input +
-  output, cached input, output, reasoning, model, effort, thread structure,
-  index coverage, quality flags, and last-observed limit snapshots.
+  output, cached input, input cache-hit rate, output, reasoning, model, effort,
+  thread structure, index coverage, quality flags, and last-observed limit
+  snapshots.
 - **Provider-aware dashboard** — Claude, Codex Beta, and side-by-side Compare
   modes preserve provider-specific semantics; Compare does not sum cost or quota.
 - **Immediate Codex entry during backfill** — once an allowed Codex home is

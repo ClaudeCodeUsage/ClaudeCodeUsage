@@ -480,6 +480,14 @@ test('provider snapshots promote exact period slices for scoped consumers', asyn
     const refreshed = await provider.refresh();
 
     assert.deepEqual(refreshed.snapshot.files[0].period, file.aggregate.period);
+    assert.equal(
+      refreshed.snapshot.weeklyValueInputs?.usage[0].intervalStart,
+      Date.parse('2026-07-20T00:00:00.000Z'),
+    );
+    assert.equal(
+      refreshed.snapshot.weeklyValueInputs?.usage[0].intervalEnd,
+      Date.parse('2026-07-20T00:05:00.000Z'),
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
