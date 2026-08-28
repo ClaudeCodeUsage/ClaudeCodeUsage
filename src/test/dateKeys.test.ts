@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
   dayKeyInZone,
+  hourKeyInZone,
   monthKeyInZone,
   resolveTimeZone,
   rollingDayKeys,
@@ -74,6 +75,22 @@ test('a fractional-offset zone uses its local calendar day', () => {
   const afterMidnight = new Date('2026-07-20T18:20:00.000Z');
   assert.equal(dayKeyInZone(beforeMidnight, 'Asia/Kathmandu'), '2026-07-20');
   assert.equal(dayKeyInZone(afterMidnight, 'Asia/Kathmandu'), '2026-07-21');
+});
+
+test('hour keys use the same target zone and a stable 00-23 clock', () => {
+  assert.equal(
+    hourKeyInZone(new Date('2026-07-20T16:05:00.000Z'), 'Asia/Hong_Kong'),
+    '00',
+  );
+  assert.equal(
+    hourKeyInZone(new Date('2026-07-20T18:20:00.000Z'), 'Asia/Kathmandu'),
+    '00',
+  );
+  assert.equal(
+    hourKeyInZone(new Date('2026-07-20T23:59:00.000Z'), 'UTC'),
+    '23',
+  );
+  assert.equal(hourKeyInZone(new Date('nonsense'), 'UTC'), '');
 });
 
 test('timezone resolution returns a usable canonical zone', () => {

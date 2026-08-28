@@ -27,8 +27,11 @@ import {
 } from './codexParser';
 import {
   CodexFilePeriodIndex,
+  CodexFileTodayIndex,
   CodexPeriodMigrationState,
   CodexStructuralSummary,
+  CodexTodayMigrationState,
+  reduceCodexHourlySlice,
   reduceCodexStructuralSlice,
   reduceCodexUsageSlice,
 } from './codexPeriodIndex';
@@ -87,6 +90,7 @@ export interface CodexFileAggregate {
   };
   structural: CodexStructuralSummary;
   period?: CodexFilePeriodIndex;
+  today?: CodexFileTodayIndex;
 }
 
 export interface CodexFileContribution {
@@ -107,6 +111,7 @@ export interface CodexFileContribution {
   qualityFlags: string[];
   identityChecked?: boolean;
   periodMigration?: CodexPeriodMigrationState;
+  todayMigration?: CodexTodayMigrationState;
 }
 
 /**
@@ -162,6 +167,16 @@ export interface CodexPeriodCoverage {
   allTime: CodexRangeCoverage;
 }
 
+export interface CodexTodayCoverage {
+  timeZone: string;
+  day: string;
+  indexedFiles: number;
+  totalFiles: number;
+  indexedBytes: number;
+  totalBytes: number;
+  complete: boolean;
+}
+
 export interface CodexIndexCoverage {
   indexedFiles: number;
   totalFiles: number;
@@ -170,6 +185,7 @@ export interface CodexIndexCoverage {
   complete: boolean;
   identity: CodexIdentityCoverage;
   period: CodexPeriodCoverage;
+  today: CodexTodayCoverage;
 }
 
 export interface CodexIdentityCoverage {
@@ -227,7 +243,12 @@ export const DEFAULT_CODEX_INDEX_SCHEDULING: CodexIndexSchedulingPolicy = {
   now: Date.now,
 };
 
-export type CodexFilePassKind = 'main' | 'lineage' | 'period' | 'identity';
+export type CodexFilePassKind =
+  | 'main'
+  | 'lineage'
+  | 'period'
+  | 'today'
+  | 'identity';
 
 /**
  * A self-contained, per-file pass. Runtime paths are sent only to the local
@@ -240,6 +261,7 @@ export interface CodexFilePassTask {
   entry: CodexRuntimeManifestEntry;
   salt: string;
   timeZone: string;
+  asOfDay: string;
   endExclusive: number;
 }
 
@@ -270,6 +292,8 @@ export interface CodexIndexUpdateOptions {
   scheduling?: Partial<CodexIndexSchedulingPolicy>;
   /** Present only for accelerated cold/incomplete backfills. */
   filePassBatch?: CodexFilePassBatchRunner;
+  /** Internal resolved civil day shared with local file-pass workers. */
+  asOfDay?: string;
 }
 
 export interface CodexIndexUpdateResult {
@@ -438,6 +462,15 @@ export function createEmptyCodexIndex(timeZone = 'UTC'): CodexIndexV3 {
         last30Days: emptyRange(),
         allTime: emptyRange(),
       },
+      today: {
+        timeZone: resolvedTimeZone,
+        day: asOfDay,
+        indexedFiles: 0,
+        totalFiles: 0,
+        indexedBytes: 0,
+        totalBytes: 0,
+        complete: true,
+      },
     },
   };
 }
@@ -574,6 +607,43 @@ function promoteCaughtUpPeriod(
   delete contribution.periodMigration;
 }
 
+function emptyTodayIndex(
+  day: string,
+  timeZone: string,
+  indexedThrough = 0,
+): CodexFileTodayIndex {
+  return { day, timeZone, indexedThrough, hours: {} };
+}
+
+function promoteCaughtUpToday(
+  contribution: CodexFileContribution,
+  day: string,
+  timeZone: string,
+): void {
+  const migration = contribution.todayMigration;
+  const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
+  if (
+    migration?.day !== day ||
+    migration.timeZone !== timeZone ||
+    migration.prefixEvents !== prefixEvents ||
+    migration.offset < contribution.offset ||
+    migration.discardingOversizedLine
+  ) {
+    return;
+  }
+  contribution.aggregate.today = {
+    day,
+    timeZone,
+    indexedThrough: contribution.offset,
+    hours: migration.hours,
+  };
+  contribution.qualityFlags = uniqueFlags(
+    contribution.qualityFlags,
+    migration.qualityFlags,
+  );
+  delete contribution.todayMigration;
+}
+
 function pseudonymizer(salt: string): (raw: string) => string {
   return (raw) => pseudonymousIdentityKey(salt, raw);
 }
@@ -652,13 +722,33 @@ async function updateContribution(
   let limit = contribution.limit;
   const limits = { ...(contribution.limits ?? {}) };
   const timeZone = resolveTimeZone(options.timeZone);
+  const asOfDay = options.asOfDay ?? dayKeyInZone(
+    new Date((options.now ?? Date.now)()),
+    timeZone,
+  );
   const advancePeriod =
     aggregate.period?.timeZone === timeZone &&
     aggregate.period.indexedThrough === contribution.offset;
+  if (
+    aggregate.today &&
+    (aggregate.today.day !== asOfDay || aggregate.today.timeZone !== timeZone)
+  ) {
+    delete aggregate.today;
+  }
+  if (!aggregate.today && contribution.offset === 0) {
+    aggregate.today = emptyTodayIndex(asOfDay, timeZone);
+  }
+  const advanceToday =
+    aggregate.today?.day === asOfDay &&
+    aggregate.today.timeZone === timeZone &&
+    aggregate.today.indexedThrough === contribution.offset;
   let invalidEventTimestamp = false;
 
   const snapshot = (cursor: CodexJsonlCursor): CodexFileContribution => {
     syncSession(aggregate, parserState);
+    if (advanceToday && aggregate.today) {
+      aggregate.today.indexedThrough = cursor.offset;
+    }
     return {
       ...contribution,
       fileKey: entry.fileKey,
@@ -705,6 +795,14 @@ async function updateContribution(
           } else if (advancePeriod && aggregate.period) {
             reduceCodexUsageSlice(aggregate.period.days, event, timeZone);
           }
+          if (advanceToday && aggregate.today) {
+            reduceCodexHourlySlice(
+              aggregate.today.hours,
+              event,
+              asOfDay,
+              timeZone,
+            );
+          }
         }
         if (parsed.structural) {
           reduceStructural(aggregate, parsed.structural);
@@ -748,6 +846,9 @@ async function updateContribution(
 
   if (advancePeriod && aggregate.period) {
     aggregate.period.indexedThrough = scan.cursor.offset;
+  }
+  if (advanceToday && aggregate.today) {
+    aggregate.today.indexedThrough = scan.cursor.offset;
   }
   if (
     scan.cursor.offset >= entry.size &&
@@ -796,8 +897,14 @@ async function reconcileContributionLineage(
 ): Promise<CodexFilePassResult> {
   const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
   const timeZone = resolveTimeZone(options.timeZone);
+  const asOfDay = options.asOfDay ?? dayKeyInZone(
+    new Date((options.now ?? Date.now)()),
+    timeZone,
+  );
   const initial = contribution.lineageReconciliation?.prefixEvents ===
-      prefixEvents
+      prefixEvents &&
+      contribution.lineageReconciliation.aggregate.today?.day === asOfDay &&
+      contribution.lineageReconciliation.aggregate.today.timeZone === timeZone
     ? contribution.lineageReconciliation
     : {
         prefixEvents,
@@ -808,6 +915,7 @@ async function reconcileContributionLineage(
         aggregate: {
           ...emptyFileAggregate(entry.fileKey, 'root'),
           period: { timeZone, indexedThrough: 0, days: {} },
+          today: emptyTodayIndex(asOfDay, timeZone),
         },
         qualityFlags: [],
       };
@@ -821,6 +929,9 @@ async function reconcileContributionLineage(
     syncSession(aggregate, parserState);
     if (aggregate.period) {
       aggregate.period.indexedThrough = cursor.offset;
+    }
+    if (aggregate.today) {
+      aggregate.today.indexedThrough = cursor.offset;
     }
     return {
       ...contribution,
@@ -865,6 +976,14 @@ async function reconcileContributionLineage(
             invalidEventTimestamp = true;
           } else if (aggregate.period) {
             reduceCodexUsageSlice(aggregate.period.days, event, timeZone);
+          }
+          if (aggregate.today) {
+            reduceCodexHourlySlice(
+              aggregate.today.hours,
+              event,
+              asOfDay,
+              timeZone,
+            );
           }
         }
       }
@@ -1011,6 +1130,111 @@ async function migrateContributionPeriod(
   return { contribution: updated, bytesRead: scan.bytesRead };
 }
 
+async function migrateContributionToday(
+  contribution: CodexFileContribution,
+  entry: CodexRuntimeManifestEntry,
+  options: CodexIndexUpdateOptions,
+  io: CodexIndexIo,
+  endExclusive: number,
+  onChunk: ContributionChunkHandler,
+): Promise<CodexFilePassResult> {
+  const timeZone = resolveTimeZone(options.timeZone);
+  const day = options.asOfDay ?? dayKeyInZone(
+    new Date((options.now ?? Date.now)()),
+    timeZone,
+  );
+  const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
+  const initial =
+    contribution.todayMigration?.day === day &&
+      contribution.todayMigration.timeZone === timeZone &&
+      contribution.todayMigration.prefixEvents === prefixEvents
+      ? contribution.todayMigration
+      : {
+          day,
+          timeZone,
+          prefixEvents,
+          tokenEventsSeen: 0,
+          offset: 0,
+          discardingOversizedLine: false,
+          parserState: createCodexParserState(entry.fileKey),
+          hours: {},
+          qualityFlags: [],
+        };
+  let parserState = initial.parserState;
+  let tokenEventsSeen = initial.tokenEventsSeen;
+  const hours = initial.hours;
+  let invalidEventTimestamp = false;
+  const pseudonymize = pseudonymizer(options.salt);
+
+  const snapshot = (cursor: CodexJsonlCursor): CodexFileContribution => ({
+    ...contribution,
+    aggregate: {
+      ...contribution.aggregate,
+      today: undefined,
+    },
+    todayMigration: {
+      day,
+      timeZone,
+      prefixEvents,
+      tokenEventsSeen,
+      offset: cursor.offset,
+      discardingOversizedLine: cursor.discardingOversizedLine,
+      parserState,
+      hours,
+      qualityFlags: uniqueFlags(
+        initial.qualityFlags,
+        parserState.qualityFlags,
+        invalidEventTimestamp ? ['invalid-event-timestamp'] : [],
+      ),
+    },
+  });
+
+  const scan = await scanCodexJsonlLines(
+    entry,
+    io,
+    {
+      offset: initial.offset,
+      discardingOversizedLine: initial.discardingOversizedLine,
+    },
+    endExclusive,
+    (line) => {
+      if (line.trim() === '') {
+        return;
+      }
+      const parsed = parseCodexLine(line, parserState, pseudonymize);
+      parserState = parsed.state;
+      if (parsed.lineageTokenKey) {
+        tokenEventsSeen += 1;
+      }
+      if (tokenEventsSeen <= prefixEvents) {
+        return;
+      }
+      for (const event of parsed.events) {
+        if (!Number.isFinite(event.timestamp) || event.timestamp <= 0) {
+          invalidEventTimestamp = true;
+          continue;
+        }
+        reduceCodexHourlySlice(hours, event, day, timeZone);
+      }
+    },
+    async (progress) => {
+      await onChunk(snapshot(progress.cursor), progress.bytesRead);
+    },
+  );
+  if (!scan.reachedEnd) {
+    throw new Error('Codex log changed during current-day migration');
+  }
+  const updated = snapshot(scan.cursor);
+  if (updated.todayMigration && scan.oversizedLines > 0) {
+    updated.todayMigration.qualityFlags = uniqueFlags(
+      updated.todayMigration.qualityFlags,
+      ['oversized-jsonl-line'],
+    );
+  }
+  promoteCaughtUpToday(updated, day, timeZone);
+  return { contribution: updated, bytesRead: scan.bytesRead };
+}
+
 async function backfillIdentity(
   contribution: CodexFileContribution,
   entry: CodexRuntimeManifestEntry,
@@ -1068,6 +1292,7 @@ export async function runCodexFilePass(
   const options: CodexIndexUpdateOptions = {
     salt: task.salt,
     timeZone: task.timeZone,
+    asOfDay: task.asOfDay,
   };
   const noChunk: ContributionChunkHandler = async () => undefined;
   let result: CodexFilePassResult;
@@ -1094,6 +1319,16 @@ export async function runCodexFilePass(
       break;
     case 'period':
       result = await migrateContributionPeriod(
+        task.contribution,
+        task.entry,
+        options,
+        defaultIo(),
+        task.endExclusive,
+        noChunk,
+      );
+      break;
+    case 'today':
+      result = await migrateContributionToday(
         task.contribution,
         task.entry,
         options,
@@ -1501,6 +1736,59 @@ function coverageFor(
   };
   const last7Start = rollingDayKeysFromDayKey(asOfDay, 7)[0];
   const last30Start = rollingDayKeysFromDayKey(asOfDay, 30)[0];
+  const last7Days = rangeCoverage(last7Start);
+  const last30Days = rangeCoverage(last30Start);
+  const allTime = rangeCoverage();
+  let todayIndexedFiles = 0;
+  let todayTotalFiles = 0;
+  let todayIndexedBytes = 0;
+  let todayTotalBytes = 0;
+  for (const entry of manifest.files) {
+    if (!deduplication.canonicalFileKeys.has(entry.fileKey)) {
+      continue;
+    }
+    const contribution = files[entry.fileKey];
+    if (
+      !contribution ||
+      !isCodexUsageContributionCurrent(contribution) ||
+      contribution.lineageReconciliation ||
+      contribution.lineage?.appliedPrefixEvents !==
+        contribution.lineage?.desiredPrefixEvents ||
+      !contribution.aggregate.period?.days[asOfDay]
+    ) {
+      continue;
+    }
+    todayTotalFiles += 1;
+    todayTotalBytes += entry.size;
+    const promoted =
+      contribution.aggregate.today?.day === asOfDay &&
+      contribution.aggregate.today.timeZone === timeZone
+        ? Math.min(
+            contribution.aggregate.today.indexedThrough,
+            contribution.offset,
+            entry.size,
+          )
+        : 0;
+    const draft =
+      contribution.todayMigration?.day === asOfDay &&
+      contribution.todayMigration.timeZone === timeZone &&
+      contribution.todayMigration.prefixEvents ===
+        (contribution.lineage?.desiredPrefixEvents ?? 0)
+        ? Math.min(
+            contribution.todayMigration.offset,
+            contribution.offset,
+            entry.size,
+          )
+        : 0;
+    todayIndexedBytes += Math.max(0, Math.max(promoted, draft));
+    if (
+      contribution.aggregate.today?.day === asOfDay &&
+      contribution.aggregate.today.timeZone === timeZone &&
+      contribution.aggregate.today.indexedThrough >= contribution.offset
+    ) {
+      todayIndexedFiles += 1;
+    }
+  }
   return {
     indexedFiles,
     totalFiles,
@@ -1515,9 +1803,18 @@ function coverageFor(
     period: {
       timeZone,
       asOfDay,
-      last7Days: rangeCoverage(last7Start),
-      last30Days: rangeCoverage(last30Start),
-      allTime: rangeCoverage(),
+      last7Days,
+      last30Days,
+      allTime,
+    },
+    today: {
+      timeZone,
+      day: asOfDay,
+      indexedFiles: todayIndexedFiles,
+      totalFiles: todayTotalFiles,
+      indexedBytes: todayIndexedBytes,
+      totalBytes: todayTotalBytes,
+      complete: last7Days.complete && todayIndexedFiles === todayTotalFiles,
     },
   };
 }
@@ -1579,13 +1876,18 @@ function isWarmNoOp(
     previous.coverage.indexedBytes !== totalBytes ||
     !previous.coverage.period.allTime.complete ||
     previous.coverage.period.timeZone !== timeZone ||
-    previous.coverage.period.asOfDay !== asOfDay
+    previous.coverage.period.asOfDay !== asOfDay ||
+    !previous.coverage.today?.complete ||
+    previous.coverage.today.timeZone !== timeZone ||
+    previous.coverage.today.day !== asOfDay
   ) {
     return false;
   }
+  const canonical = classifyCodexSessionDuplicates(previous.files)
+    .canonicalFileKeys;
   return manifest.files.every((entry) => {
     const contribution = previous.files[entry.fileKey];
-    return Boolean(
+    const baseIsCurrent = Boolean(
       contribution &&
       contribution.offset === entry.size &&
       !contribution.discardingOversizedLine &&
@@ -1597,6 +1899,21 @@ function isWarmNoOp(
       contribution.aggregate.period.indexedThrough >= contribution.offset &&
       !contribution.qualityFlags.includes('stale-file') &&
       !contribution.qualityFlags.includes('stale-reset-required'),
+    );
+    if (!baseIsCurrent || !contribution) {
+      return false;
+    }
+    if (
+      !canonical.has(entry.fileKey) ||
+      !contribution.aggregate.period?.days[asOfDay]
+    ) {
+      return true;
+    }
+    return Boolean(
+      contribution.aggregate.today?.day === asOfDay &&
+      contribution.aggregate.today.timeZone === timeZone &&
+      contribution.aggregate.today.indexedThrough >= contribution.offset &&
+      !contribution.todayMigration
     );
   });
 }
@@ -1618,7 +1935,11 @@ export async function updateCodexIndex(
   const timeZone = resolveTimeZone(options.timeZone);
   const refreshInstant = (options.now ?? Date.now)();
   const asOfDay = dayKeyInZone(new Date(refreshInstant), timeZone);
-  const normalizedOptions: CodexIndexUpdateOptions = { ...options, timeZone };
+  const normalizedOptions: CodexIndexUpdateOptions = {
+    ...options,
+    timeZone,
+    asOfDay,
+  };
   const scheduling: CodexIndexSchedulingPolicy = {
     ...DEFAULT_CODEX_INDEX_SCHEDULING,
     ...options.scheduling,
@@ -1696,6 +2017,9 @@ export async function updateCodexIndex(
     if (contribution.periodMigration) {
       contribution.periodMigration.parserState.fileKey = move.toKey;
     }
+    if (contribution.todayMigration) {
+      contribution.todayMigration.parserState.fileKey = move.toKey;
+    }
     index.files[move.toKey] = contribution;
   }
   for (const key of diff.removed) {
@@ -1710,6 +2034,27 @@ export async function updateCodexIndex(
       delete contribution.periodMigration;
     }
     promoteCaughtUpPeriod(contribution, timeZone);
+    if (
+      contribution.aggregate.today &&
+      (
+        contribution.aggregate.today.day !== asOfDay ||
+        contribution.aggregate.today.timeZone !== timeZone
+      )
+    ) {
+      delete contribution.aggregate.today;
+    }
+    if (
+      contribution.todayMigration &&
+      (
+        contribution.todayMigration.day !== asOfDay ||
+        contribution.todayMigration.timeZone !== timeZone ||
+        contribution.todayMigration.prefixEvents !==
+          (contribution.lineage?.desiredPrefixEvents ?? 0)
+      )
+    ) {
+      delete contribution.todayMigration;
+    }
+    promoteCaughtUpToday(contribution, asOfDay, timeZone);
   }
 
   const resetFlags = new Map<string, string>();
@@ -1960,6 +2305,7 @@ export async function updateCodexIndex(
         entry,
         salt: normalizedOptions.salt,
         timeZone,
+        asOfDay,
         endExclusive,
       });
       priorByTask.set(taskId, prior);
@@ -2097,6 +2443,7 @@ export async function updateCodexIndex(
         entry,
         salt: normalizedOptions.salt,
         timeZone,
+        asOfDay,
         endExclusive,
       });
       priorByTask.set(taskId, prior);
@@ -2221,6 +2568,7 @@ export async function updateCodexIndex(
         entry,
         salt: normalizedOptions.salt,
         timeZone,
+        asOfDay,
         endExclusive,
       });
       priorByTask.set(taskId, prior);
@@ -2283,6 +2631,146 @@ export async function updateCodexIndex(
 
   await finishStage(filePasses > periodPassStart);
 
+  const todayCanonical = classifyCodexSessionDuplicates(index.files)
+    .canonicalFileKeys;
+  const todayWork = manifest.files
+    .filter((entry) => {
+      if (!todayCanonical.has(entry.fileKey)) {
+        return false;
+      }
+      const contribution = index.files[entry.fileKey];
+      return Boolean(
+        contribution &&
+        isCodexUsageContributionCurrent(contribution) &&
+        !contribution.lineageReconciliation &&
+        contribution.lineage?.appliedPrefixEvents ===
+          contribution.lineage?.desiredPrefixEvents &&
+        contribution.offset > 0 &&
+        contribution.offset >= entry.size &&
+        !contribution.discardingOversizedLine &&
+        contribution.aggregate.period?.days[asOfDay] &&
+        (
+          contribution.aggregate.today?.day !== asOfDay ||
+          contribution.aggregate.today.timeZone !== timeZone ||
+          contribution.aggregate.today.indexedThrough !== contribution.offset
+        )
+      );
+    })
+    .sort(recentFirst);
+
+  const todayPassStart = filePasses;
+  if (options.filePassBatch && todayWork.length > 1) {
+    await cancelBeforePass();
+    const tasks: CodexFilePassTask[] = [];
+    const priorByTask = new Map<string, CodexFileContribution>();
+    let reservedBytes = 0;
+    for (const entry of todayWork) {
+      if (
+        filePasses + tasks.length >= budget.maxFilePasses ||
+        bytesRead + reservedBytes >= budget.maxBytes
+      ) {
+        break;
+      }
+      const prior = index.files[entry.fileKey];
+      if (!prior) {
+        continue;
+      }
+      const base = cloneContribution(prior);
+      const migration = base.todayMigration;
+      const start =
+        migration?.day === asOfDay &&
+          migration.timeZone === timeZone &&
+          migration.prefixEvents ===
+            (base.lineage?.desiredPrefixEvents ?? 0)
+          ? migration.offset
+          : 0;
+      const endExclusive = Math.min(
+        base.offset,
+        start + (budget.maxBytes - bytesRead - reservedBytes),
+      );
+      if (endExclusive <= start) {
+        promoteCaughtUpToday(base, asOfDay, timeZone);
+        index.files[entry.fileKey] = base;
+        continue;
+      }
+      const taskId = `today:${entry.fileKey}`;
+      tasks.push({
+        taskId,
+        kind: 'today',
+        contribution: base,
+        entry,
+        salt: normalizedOptions.salt,
+        timeZone,
+        asOfDay,
+        endExclusive,
+      });
+      priorByTask.set(taskId, prior);
+      reservedBytes += endExclusive - start;
+    }
+    await runParallelTasks(tasks, (task) => {
+      const prior = priorByTask.get(task.taskId);
+      if (prior) {
+        index.files[task.entry.fileKey] = prior;
+      }
+    });
+  } else for (const entry of todayWork) {
+    if (!hasBudget()) {
+      break;
+    }
+    await cancelBeforePass();
+    const prior = index.files[entry.fileKey];
+    if (!prior) {
+      continue;
+    }
+    const base = cloneContribution(prior);
+    const migration = base.todayMigration;
+    const start =
+      migration?.day === asOfDay &&
+        migration.timeZone === timeZone &&
+        migration.prefixEvents ===
+          (base.lineage?.desiredPrefixEvents ?? 0)
+        ? migration.offset
+        : 0;
+    const endExclusive = Math.min(
+      base.offset,
+      start + (budget.maxBytes - bytesRead),
+    );
+    if (endExclusive <= start) {
+      promoteCaughtUpToday(base, asOfDay, timeZone);
+      index.files[entry.fileKey] = base;
+      continue;
+    }
+    bodyReads += 1;
+    filePasses += 1;
+    const passStartingBytes = bytesRead;
+    try {
+      const pass = await migrateContributionToday(
+        base,
+        entry,
+        normalizedOptions,
+        io,
+        endExclusive,
+        onChunk(entry, passStartingBytes),
+      );
+      bytesRead = passStartingBytes + pass.bytesRead;
+      index.files[entry.fileKey] = pass.contribution;
+    } catch (error) {
+      if (error instanceof CodexIndexCancelledError) {
+        throw error;
+      }
+      failedFiles += 1;
+      index.files[entry.fileKey] = prior;
+    }
+    dirtySinceCheckpoint = true;
+    filePassesSinceCheckpoint += 1;
+    if (!(await checkpoint(false))) {
+      publishProgress(false);
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  await finishStage(filePasses > todayPassStart);
+
   reconcileLineageForCheckpoint = true;
   const identityPassStart = filePasses;
   const identityWork = manifest.files.sort(recentFirst);
@@ -2312,6 +2800,7 @@ export async function updateCodexIndex(
         entry,
         salt: normalizedOptions.salt,
         timeZone,
+        asOfDay,
         endExclusive: identityBytes,
       });
       reservedBytes += identityBytes;
@@ -2377,7 +2866,10 @@ export async function updateCodexIndex(
     migration: {
       filePasses,
       bytesRead,
-      pending: !index.coverage.complete || !index.coverage.period.allTime.complete,
+      pending:
+        !index.coverage.complete ||
+        !index.coverage.period.allTime.complete ||
+        !index.coverage.today.complete,
     },
   };
 }
@@ -2706,6 +3198,42 @@ function sanitizePeriod(value: unknown): CodexFilePeriodIndex | undefined {
   };
 }
 
+function sanitizeHourlySlices(
+  value: unknown,
+): CodexFileTodayIndex['hours'] {
+  if (!isRecord(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([hour, rawSlice]) => {
+      if (!/^(?:[01]\d|2[0-3])$/.test(hour) || !isRecord(rawSlice)) {
+        return [];
+      }
+      return [[hour, {
+        total: sanitizeTokens(rawSlice.total),
+        byModel: sanitizeLabelBuckets(rawSlice.byModel),
+      }]];
+    }),
+  );
+}
+
+function sanitizeToday(value: unknown): CodexFileTodayIndex | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.timeZone !== 'string' ||
+    typeof value.day !== 'string' ||
+    rollingDayKeysFromDayKey(value.day, 1)[0] !== value.day
+  ) {
+    return undefined;
+  }
+  return {
+    day: value.day,
+    timeZone: resolveTimeZone(value.timeZone),
+    indexedThrough: Math.max(0, finiteNumber(value.indexedThrough)),
+    hours: sanitizeHourlySlices(value.hours),
+  };
+}
+
 function sanitizeLineage(value: unknown): CodexLineageTrace | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -2784,6 +3312,38 @@ function sanitizePeriodMigration(
     discardingOversizedLine: value.discardingOversizedLine === true,
     parserState: sanitizeParserState(value.parserState, fileKey),
     days: period.days,
+    qualityFlags: sanitizeQualityFlags(value.qualityFlags),
+  };
+}
+
+function sanitizeTodayMigration(
+  value: unknown,
+  fileKey: string,
+): CodexTodayMigrationState | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const today = sanitizeToday({
+    day: value.day,
+    timeZone: value.timeZone,
+    indexedThrough: value.offset,
+    hours: value.hours,
+  });
+  if (!today) {
+    return undefined;
+  }
+  return {
+    day: today.day,
+    timeZone: today.timeZone,
+    prefixEvents: Math.max(0, Math.floor(finiteNumber(value.prefixEvents))),
+    tokenEventsSeen: Math.max(
+      0,
+      Math.floor(finiteNumber(value.tokenEventsSeen)),
+    ),
+    offset: Math.max(0, finiteNumber(value.offset)),
+    discardingOversizedLine: value.discardingOversizedLine === true,
+    parserState: sanitizeParserState(value.parserState, fileKey),
+    hours: today.hours,
     qualityFlags: sanitizeQualityFlags(value.qualityFlags),
   };
 }
@@ -2892,6 +3452,7 @@ function sanitizeFileAggregate(
 ): CodexFileAggregate {
   const aggregate = isRecord(value) ? value : {};
   const period = sanitizePeriod(aggregate.period);
+  const today = sanitizeToday(aggregate.today);
   return {
     total: sanitizeTokens(aggregate.total),
     byDay: sanitizeBuckets(aggregate.byDay),
@@ -2900,6 +3461,7 @@ function sanitizeFileAggregate(
     session: sanitizeSession(aggregate.session, parserState),
     structural: sanitizeStructural(aggregate.structural),
     ...(period ? { period } : {}),
+    ...(today ? { today } : {}),
   };
 }
 
@@ -2956,6 +3518,22 @@ function sanitizeCoverage(value: unknown): CodexIndexCoverage {
     : dayKeyInZone(new Date(Date.now()), timeZone);
   const last7Days = sanitizeRange(period.last7Days);
   const last30Days = sanitizeRange(period.last30Days);
+  const rawToday = isRecord(coverage.today) ? coverage.today : {};
+  const todayTimeZone = resolveTimeZone(
+    typeof rawToday.timeZone === 'string' ? rawToday.timeZone : timeZone,
+  );
+  const candidateTodayDay = typeof rawToday.day === 'string'
+    ? rawToday.day
+    : '';
+  const hasValidToday =
+    rollingDayKeysFromDayKey(candidateTodayDay, 1)[0] === candidateTodayDay &&
+    typeof rawToday.timeZone === 'string';
+  const todayDay = hasValidToday ? candidateTodayDay : asOfDay;
+  const todayIndexedFiles = Math.max(
+    0,
+    finiteNumber(rawToday.indexedFiles),
+  );
+  const todayTotalFiles = Math.max(0, finiteNumber(rawToday.totalFiles));
   if (!hasValidAsOfDay) {
     last7Days.complete = false;
     last30Days.complete = false;
@@ -2984,6 +3562,15 @@ function sanitizeCoverage(value: unknown): CodexIndexCoverage {
       last30Days,
       allTime: sanitizeRange(period.allTime),
     },
+    today: {
+      timeZone: todayTimeZone,
+      day: todayDay,
+      indexedFiles: todayIndexedFiles,
+      totalFiles: todayTotalFiles,
+      indexedBytes: Math.max(0, finiteNumber(rawToday.indexedBytes)),
+      totalBytes: Math.max(0, finiteNumber(rawToday.totalBytes)),
+      complete: hasValidToday && rawToday.complete === true,
+    },
   };
 }
 
@@ -2991,6 +3578,8 @@ function markLineageRescanRequired(index: CodexIndexV3): CodexIndexV3 {
   for (const contribution of Object.values(index.files)) {
     delete contribution.lineage;
     delete contribution.lineageReconciliation;
+    delete contribution.aggregate.today;
+    delete contribution.todayMigration;
     contribution.qualityFlags = uniqueFlags(
       contribution.qualityFlags,
       ['stale-reset-required'],
@@ -3013,6 +3602,9 @@ function markLineageRescanRequired(index: CodexIndexV3): CodexIndexV3 {
     range.migratedBytes = 0;
     range.complete = false;
   }
+  index.coverage.today.indexedFiles = 0;
+  index.coverage.today.indexedBytes = 0;
+  index.coverage.today.complete = false;
   return index;
 }
 
@@ -3083,6 +3675,28 @@ function sanitizeFileContribution(
   if (periodMigration) {
     periodMigration.offset = Math.min(periodMigration.offset, safeOffset);
   }
+  const todayMigration = sanitizeTodayMigration(
+    contribution.todayMigration,
+    fileKey,
+  );
+  if (todayMigration) {
+    todayMigration.offset = Math.min(todayMigration.offset, safeOffset);
+    todayMigration.prefixEvents = Math.min(
+      todayMigration.prefixEvents,
+      lineage?.tokenEvents ?? 0,
+    );
+    todayMigration.tokenEventsSeen = Math.min(
+      todayMigration.tokenEventsSeen,
+      lineage?.tokenEvents ?? 0,
+    );
+  }
+  const aggregate = sanitizeFileAggregate(contribution.aggregate, parserState);
+  if (aggregate.today) {
+    aggregate.today.indexedThrough = Math.min(
+      aggregate.today.indexedThrough,
+      safeOffset,
+    );
+  }
   return {
     fileKey,
     ...(contribution.sourceArea === 'sessions' || contribution.sourceArea === 'archive'
@@ -3102,7 +3716,7 @@ function sanitizeFileContribution(
     parserState,
     ...(lineage ? { lineage } : {}),
     ...(lineageReconciliation ? { lineageReconciliation } : {}),
-    aggregate: sanitizeFileAggregate(contribution.aggregate, parserState),
+    aggregate,
     ...(limit ? { limit } : {}),
     ...(limits ? { limits } : {}),
     qualityFlags: sanitizeQualityFlags(contribution.qualityFlags),
@@ -3110,22 +3724,45 @@ function sanitizeFileContribution(
       ? { identityChecked: contribution.identityChecked }
       : {}),
     ...(periodMigration ? { periodMigration } : {}),
+    ...(todayMigration ? { todayMigration } : {}),
   };
 }
 
 function sanitizeIndexV2(value: unknown): CodexIndexV3 {
   const index = isRecord(value) ? value : {};
   const rawFiles = isRecord(index.files) ? index.files : {};
+  const coverage = sanitizeCoverage(index.coverage);
+  const files = Object.fromEntries(
+    Object.entries(rawFiles).map(([key, contribution]) => [
+      key,
+      sanitizeFileContribution(key, contribution),
+    ]),
+  );
+  for (const contribution of Object.values(files)) {
+    if (
+      contribution.aggregate.today &&
+      (
+        contribution.aggregate.today.day !== coverage.today.day ||
+        contribution.aggregate.today.timeZone !== coverage.today.timeZone
+      )
+    ) {
+      delete contribution.aggregate.today;
+    }
+    if (
+      contribution.todayMigration &&
+      (
+        contribution.todayMigration.day !== coverage.today.day ||
+        contribution.todayMigration.timeZone !== coverage.today.timeZone
+      )
+    ) {
+      delete contribution.todayMigration;
+    }
+  }
   return {
     schemaVersion: 3,
-    files: Object.fromEntries(
-      Object.entries(rawFiles).map(([key, contribution]) => [
-        key,
-        sanitizeFileContribution(key, contribution),
-      ]),
-    ),
+    files,
     aggregate: sanitizeProviderAggregate(index.aggregate),
-    coverage: sanitizeCoverage(index.coverage),
+    coverage,
   };
 }
 

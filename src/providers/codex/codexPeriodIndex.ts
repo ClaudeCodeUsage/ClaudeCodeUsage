@@ -1,4 +1,4 @@
-import { dayKeyInZone } from '../../dateKeys';
+import { dayKeyInZone, hourKeyInZone } from '../../dateKeys';
 import {
   NormalizedUsageEvent,
   ProviderTokenCounts,
@@ -27,6 +27,32 @@ export interface CodexFilePeriodIndex {
   timeZone: string;
   indexedThrough: number;
   days: Record<string, CodexDailySlice>;
+}
+
+export interface CodexHourlySlice {
+  total: ProviderTokenCounts;
+  byModel: Record<string, ProviderTokenCounts>;
+}
+
+/**
+ * Deliberately ephemeral across civil days: only one target day is persisted,
+ * and empty hours do not consume index space.
+ */
+export interface CodexFileTodayIndex {
+  day: string;
+  timeZone: string;
+  indexedThrough: number;
+  hours: Record<string, CodexHourlySlice>;
+}
+
+export interface CodexTodayMigrationState extends CodexJsonlCursor {
+  day: string;
+  timeZone: string;
+  prefixEvents: number;
+  tokenEventsSeen: number;
+  parserState: CodexParserState;
+  hours: Record<string, CodexHourlySlice>;
+  qualityFlags: string[];
 }
 
 export interface CodexPeriodMigrationState extends CodexJsonlCursor {
@@ -64,6 +90,10 @@ function emptySlice(): CodexDailySlice {
     byEffort: {},
     structural: emptyStructural(),
   };
+}
+
+function emptyHourlySlice(): CodexHourlySlice {
+  return { total: zeroTokens(), byModel: {} };
 }
 
 function addTokens(
@@ -119,6 +149,28 @@ export function reduceCodexUsageSlice(
   addTokens(tokenBucket(slice.byModel, event.model ?? 'unknown'), event.tokens);
   addTokens(tokenBucket(slice.byEffort, event.effort ?? 'unknown'), event.tokens);
   observe(slice, event.timestamp);
+}
+
+export function reduceCodexHourlySlice(
+  hours: Record<string, CodexHourlySlice>,
+  event: NormalizedUsageEvent,
+  day: string,
+  timeZone: string,
+): void {
+  if (!Number.isFinite(event.timestamp) || event.timestamp <= 0) {
+    return;
+  }
+  const instant = new Date(event.timestamp);
+  if (dayKeyInZone(instant, timeZone) !== day) {
+    return;
+  }
+  const hour = hourKeyInZone(instant, timeZone);
+  if (!/^(?:[01]\d|2[0-3])$/.test(hour)) {
+    return;
+  }
+  const slice = (hours[hour] ??= emptyHourlySlice());
+  addTokens(slice.total, event.tokens);
+  addTokens(tokenBucket(slice.byModel, event.model ?? 'unknown'), event.tokens);
 }
 
 export function reduceCodexStructuralSlice(

@@ -7,11 +7,15 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.3.0] — Unreleased
 
 ### Fixed
-- **Codex daily views stay readable at narrower widths** — the first Codex tab
-  now uses the familiar localized “Today” label while retaining its truthful
-  recent-task aggregation and heading. The Last 30 days daily chart, Token
-  composition chart, and table now scroll horizontally inside their own
-  keyboard-focusable regions instead of widening or clipping the dashboard.
+- **Codex Today is now the configured calendar day** — the first Codex tab now
+  pairs its day total with exact hourly API-equivalent cost and a separate
+  token-composition view. Its additive schema-3 current-day sidecar scans only
+  canonical files already known to contain that day, checkpoints and resumes,
+  and does not trigger a full-history reindex. Daily and monthly primary trends
+  now default to API-equivalent cost while token composition remains separate;
+  unknown models stay unpriced and pricing coverage remains visible. Claude and
+  Codex time-series charts keep aligned responsive widths, with dense content
+  scrolling inside its own keyboard-focusable region.
 - **Weekly API-equivalent periods no longer overlap or double-count usage** —
   the newest valid official reset observation anchors one sequence of unique
   `[start, reset)` weekly buckets, so each local usage event contributes to
@@ -115,8 +119,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   redraw loop. Compare still waits until both providers have real data.
 - **Provider-aware Codex dashboard** — the existing Today / Month / All time /
   Sessions / Projects / Content / Settings render functions now accept a
-  provider and present the corresponding Codex Today (recent task) / Last 30 days /
-  All time / Sessions / Projects / Recommendations / Settings data.
+  provider and present the corresponding Codex calendar Today with hourly detail /
+  Last 30 days / All time / Sessions / Projects / Recommendations / Settings data.
 - **Truthful Codex identities** — root tasks use the latest path-redacted local
   thread title; child rows prefer their own real thread title, then fall back to
   their reported nickname while displaying the parent/root title. If those are

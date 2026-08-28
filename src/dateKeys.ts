@@ -41,6 +41,20 @@ export function monthKeyInZone(date: Date, timeZone: string): string {
   return key ? key.slice(0, 7) : '';
 }
 
+/** "00" through "23" for a timestamp in `timeZone`; '' when invalid. */
+export function hourKeyInZone(date: Date, timeZone: string): string {
+  if (isNaN(date.getTime())) {
+    return '';
+  }
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    hourCycle: 'h23',
+    timeZone: resolveTimeZone(timeZone),
+  });
+  return formatter.formatToParts(date).find((part) => part.type === 'hour')
+    ?.value ?? '';
+}
+
 /**
  * Calendar-day keys ending on `now` in `timeZone`, ordered from oldest to newest.
  * The range walks civil dates rather than subtracting fixed-duration milliseconds.

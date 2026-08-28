@@ -3,6 +3,8 @@ import * as assert from 'node:assert/strict';
 
 import {
   CodexDailySlice,
+  CodexHourlySlice,
+  reduceCodexHourlySlice,
   reduceCodexStructuralSlice,
   reduceCodexUsageSlice,
 } from '../providers/codex/codexPeriodIndex';
@@ -126,4 +128,33 @@ test('reducers do not invent an unknown day for invalid timestamps', () => {
 
   assert.deepEqual(days, {});
   assert.equal('unknown' in days, false);
+});
+
+test('hourly reducer retains only the requested local day as sparse hour buckets', () => {
+  const hours: Record<string, CodexHourlySlice> = {};
+
+  reduceCodexHourlySlice(
+    hours,
+    usage('2026-07-20T15:55:00.000Z', 100, 20, 12),
+    '2026-07-21',
+    'Asia/Hong_Kong',
+  );
+  reduceCodexHourlySlice(
+    hours,
+    usage('2026-07-20T16:05:00.000Z', 50, 10, 6),
+    '2026-07-21',
+    'Asia/Hong_Kong',
+  );
+  reduceCodexHourlySlice(
+    hours,
+    usage('2026-07-20T18:05:00.000Z', 25, 5, 3),
+    '2026-07-21',
+    'Asia/Hong_Kong',
+  );
+
+  assert.deepEqual(Object.keys(hours).sort(), ['00', '02']);
+  assert.equal(hours['00'].total.inputTotal, 50);
+  assert.equal(hours['00'].byModel['gpt-5.6-sol'].inputTotal, 50);
+  assert.equal(hours['02'].total.outputTotal, 5);
+  assert.equal('byEffort' in hours['00'], false);
 });

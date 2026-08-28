@@ -86,6 +86,19 @@ function generatedFile(index: number, template: CodexFileAggregate): CodexFileAg
         },
       },
     },
+    today: dayKey === '2026-07-20'
+      ? {
+          day: dayKey,
+          timeZone: 'Asia/Hong_Kong',
+          indexedThrough: 1,
+          hours: {
+            [String(8 + (index % 4)).padStart(2, '0')]: {
+              total: { ...total },
+              byModel: { [model]: { ...total } },
+            },
+          },
+        }
+      : undefined,
   };
 }
 
@@ -158,6 +171,15 @@ export function codexWebviewFixture(): CodexProviderSnapshot {
         last30Days: { ...periodCoverage },
         allTime: { ...periodCoverage },
       },
+      today: {
+        timeZone: 'Asia/Hong_Kong',
+        day: '2026-07-20',
+        indexedFiles: 4,
+        totalFiles: 4,
+        indexedBytes: 400_000,
+        totalBytes: 400_000,
+        complete: true,
+      },
     },
     qualityFlags: { 'partial-migration': 6 },
     limits: [
@@ -193,6 +215,20 @@ export function unknownModelCodexWebviewFixture(): CodexProviderSnapshot {
                 {
                   ...day,
                   byModel: { 'unknown-model-fixture': { ...day.total } },
+                },
+              ]),
+            ),
+          }
+        : undefined,
+      today: file.today
+        ? {
+            ...file.today,
+            hours: Object.fromEntries(
+              Object.entries(file.today.hours).map(([hour, slice]) => [
+                hour,
+                {
+                  ...slice,
+                  byModel: { 'unknown-model-fixture': { ...slice.total } },
                 },
               ]),
             ),

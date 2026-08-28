@@ -106,6 +106,7 @@ function duplicateIndex(ambiguous: boolean): CodexIndexV1 {
       complete: !ambiguous,
     },
     period: createEmptyCodexIndex('UTC').coverage.period,
+    today: createEmptyCodexIndex('UTC').coverage.today,
   };
   return index;
 }
@@ -132,6 +133,7 @@ function partialIndex(): CodexIndexV1 {
       complete: true,
     },
     period: createEmptyCodexIndex('UTC').coverage.period,
+    today: createEmptyCodexIndex('UTC').coverage.today,
   };
   return index;
 }
@@ -466,6 +468,28 @@ test('provider snapshots promote exact period slices for scoped consumers', asyn
         },
       },
     };
+    file.aggregate.today = {
+      day: '2026-07-20',
+      timeZone: 'UTC',
+      indexedThrough: file.offset,
+      hours: {
+        '00': {
+          total: { inputTotal: 8, cachedInput: 5, outputTotal: 2, reasoningOutput: 1 },
+          byModel: {
+            'gpt-5.6-sol': { inputTotal: 8, cachedInput: 5, outputTotal: 2, reasoningOutput: 1 },
+          },
+        },
+      },
+    };
+    index.coverage.today = {
+      timeZone: 'UTC',
+      day: '2026-07-20',
+      indexedFiles: 1,
+      totalFiles: 1,
+      indexedBytes: file.offset,
+      totalBytes: file.offset,
+      complete: false,
+    };
     const provider = new CodexProvider(
       {
         enabled: true,
@@ -480,6 +504,9 @@ test('provider snapshots promote exact period slices for scoped consumers', asyn
     const refreshed = await provider.refresh();
 
     assert.deepEqual(refreshed.snapshot.files[0].period, file.aggregate.period);
+    assert.deepEqual(refreshed.snapshot.files[0].today, file.aggregate.today);
+    assert.deepEqual(refreshed.snapshot.todayCoverage, index.coverage.today);
+    assert.equal(refreshed.snapshot.todayPartial, true);
     assert.equal(
       refreshed.snapshot.weeklyValueInputs?.usage[0].intervalStart,
       Date.parse('2026-07-20T00:00:00.000Z'),

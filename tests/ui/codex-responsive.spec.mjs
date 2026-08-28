@@ -28,6 +28,38 @@ async function expectTableToFit(table) {
   expect(layout.clippedHeaders).toEqual([]);
 }
 
+async function expectMainCompositionAndTableAligned(panel) {
+  const geometry = await panel.evaluate((element) => {
+    const mainWrap = element.querySelector(':scope > .chart-content > .hc-wrap') ??
+      element.querySelector(':scope > .hc-wrap');
+    const compositionWrap = element.querySelector(':scope > .composition-chart > .hc-wrap');
+    const table = element.querySelector(':scope > .daily-table-container');
+    const rect = (target) => target ? {
+      left: target.getBoundingClientRect().left,
+      right: target.getBoundingClientRect().right,
+      width: target.getBoundingClientRect().width,
+    } : null;
+    return {
+      main: rect(mainWrap),
+      composition: rect(compositionWrap),
+      table: rect(table),
+      mainPlot: rect(mainWrap?.querySelector('.hc-main') ?? null),
+      compositionPlot: rect(compositionWrap?.querySelector('.hc-main') ?? null),
+    };
+  });
+
+  for (const key of ['main', 'composition', 'table', 'mainPlot', 'compositionPlot']) {
+    expect(geometry[key], geometry).not.toBeNull();
+  }
+  const tolerance = 1.5;
+  expect(Math.abs(geometry.main.left - geometry.composition.left), geometry).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(geometry.main.right - geometry.composition.right), geometry).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(geometry.main.left - geometry.table.left), geometry).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(geometry.main.right - geometry.table.right), geometry).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(geometry.mainPlot.left - geometry.compositionPlot.left), geometry).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(geometry.mainPlot.right - geometry.compositionPlot.right), geometry).toBeLessThanOrEqual(tolerance);
+}
+
 for (const locale of locales) {
   test(`${locale} shared Codex shell fits a 360px viewport`, async ({ page }) => {
     await openCodex(page, { locale, width: 360, height: 800 });
@@ -129,7 +161,8 @@ for (const locale of ['en', 'de-DE']) {
     await page.locator('#tab-month').click();
     const dailyTable = page.locator('#month .daily-breakdown .daily-table');
     await expect(dailyTable).toBeVisible();
-    await expect(dailyTable.locator('thead th')).toHaveCount(8);
+    await expect(dailyTable.locator('thead th')).toHaveCount(9);
+    await expect(dailyTable.locator('thead th').nth(1)).toContainText('API');
     await expectTableToFit(dailyTable);
 
     await page.locator('#tab-sessions').click();
@@ -148,12 +181,23 @@ test('desktop Codex destinations use the same container width as Claude', async 
   expect(codexWidth).toBe(claudeWidth);
 });
 
+test('Claude main cost chart aligns with token composition and its table', async ({ page }) => {
+  await openClaude(page, { locale: 'en', width: 1280, height: 900 });
+  await page.locator('#tab-month').click();
+  const month = page.locator('#month .daily-breakdown', {
+    has: page.getByRole('heading', { name: 'Daily Usage', exact: true }),
+  });
+  await expect(month).toBeVisible();
+  await expectMainCompositionAndTableAligned(month);
+});
+
 test('Codex 30-day charts scroll horizontally without widening the dashboard', async ({ page }) => {
   await openCodex(page, { locale: 'en', width: 720, height: 900 });
   await page.locator('#tab-month').click();
 
   const breakdown = page.locator('#month [data-codex-last30-daily]');
   await expect(breakdown).toBeVisible();
+  await expect(breakdown.locator('.chart-tab.active')).toHaveAttribute('data-metric', 'cost');
   const chartScrollers = breakdown.locator('.hc-scroll');
   await expect(chartScrollers).toHaveCount(2);
 
@@ -191,6 +235,8 @@ test('Codex 30-day charts scroll horizontally without widening the dashboard', a
   }
 
   const tableScroller = breakdown.locator('.daily-table-container');
+  await expect(tableScroller.locator('thead th')).toHaveCount(9);
+  await expect(tableScroller.locator('thead th').nth(1)).toHaveText('API-equivalent cost');
   const tableBefore = await tableScroller.evaluate((element) => ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,

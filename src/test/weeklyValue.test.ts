@@ -6,8 +6,10 @@ import {
   buildWeeklyUsageHistory,
   buildWeeklyValueTimeline,
   buildWeeklyValueTrend,
+  equivalentCostBreakdownFromProviderTokens,
   equivalentUsageFromProviderTokens,
   mergeWeeklyValuePoints,
+  summarizeEquivalentCostBreakdowns,
   summarizeEquivalentUsage,
   WeeklyEquivalentUsage,
   WeeklyQuotaObservation,
@@ -163,6 +165,47 @@ test('known Codex models use exact current API prices and unknown models stay un
   assert.equal(unattributedRemainder.equivalentUsd, 35.5);
   assert.equal(unattributedRemainder.totalTokens, 6_000_000);
   assert.equal(unattributedRemainder.pricingCoverage, 0.5);
+});
+
+test('Codex API-equivalent cost breakdown prices fresh cache-read and output buckets without charging reasoning twice', () => {
+  const tokens = {
+    inputTotal: 2_000_000,
+    cachedInput: 1_000_000,
+    outputTotal: 1_000_000,
+    reasoningOutput: 750_000,
+  };
+  const priced = equivalentCostBreakdownFromProviderTokens(
+    'gpt-5.6-sol',
+    tokens,
+  );
+
+  assert.deepEqual(priced, {
+    equivalentUsd: 35.5,
+    freshInputUsd: 5,
+    cachedInputUsd: 0.5,
+    outputUsd: 30,
+    pricedTokens: 3_000_000,
+    totalTokens: 3_000_000,
+    pricingCoverage: 1,
+  });
+
+  const unknown = equivalentCostBreakdownFromProviderTokens(
+    'codex-auto-review',
+    tokens,
+  );
+  const aggregate = summarizeEquivalentCostBreakdowns(
+    [priced, unknown],
+    6_000_000,
+  );
+  assert.deepEqual(aggregate, {
+    equivalentUsd: 35.5,
+    freshInputUsd: 5,
+    cachedInputUsd: 0.5,
+    outputUsd: 30,
+    pricedTokens: 3_000_000,
+    totalTokens: 6_000_000,
+    pricingCoverage: 0.5,
+  });
 });
 
 test('historical token logs still produce usage-only weekly values without quota observations', () => {

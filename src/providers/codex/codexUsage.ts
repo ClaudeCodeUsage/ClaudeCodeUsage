@@ -5,6 +5,7 @@ import {
   CodexPeriodCoverage,
   CodexRangeCoverage,
   CodexStructuralSummary,
+  CodexTodayCoverage,
 } from './codexIndex';
 import { rollingDayKeysFromDayKey } from '../../dateKeys';
 import {
@@ -22,7 +23,12 @@ import {
   PseudonymousIdentityKey,
   stableCodexViewKey,
 } from './codexIdentity';
-import { WeeklyValueInputs } from '../../weeklyValue';
+import {
+  EquivalentCostBreakdown,
+  equivalentCostBreakdownFromProviderTokens,
+  summarizeEquivalentCostBreakdowns,
+  WeeklyValueInputs,
+} from '../../weeklyValue';
 
 export interface CodexMetricTotals {
   processed: number;
@@ -55,6 +61,7 @@ export interface CodexUsageScopeView {
 export interface CodexDailyUsageView {
   day: string;
   total: CodexMetricTotals;
+  apiEquivalent: EquivalentCostBreakdown;
   threads: number;
   childThreads: number;
   approvalReviewerThreads: number;
@@ -119,6 +126,14 @@ export interface CodexTaskIdentityView {
 export interface CodexPeriodUsageView {
   period: string;
   total: CodexMetricTotals;
+  apiEquivalent: EquivalentCostBreakdown;
+  threads: number;
+}
+
+export interface CodexHourlyUsageView {
+  hour: string;
+  total: CodexMetricTotals;
+  apiEquivalent: EquivalentCostBreakdown;
   threads: number;
 }
 
@@ -150,6 +165,11 @@ export interface CodexBehaviorScopesView {
 }
 
 export interface CodexUsageView {
+  /** Calendar day in the configured provider timezone. */
+  today: CodexUsageScopeView;
+  /** Exact, sparse current-day hours from the independently resumable sidecar. */
+  todayHourly: CodexHourlyUsageView[];
+  todayCoverage: CodexTodayCoverage;
   lastTask: CodexUsageScopeView | null;
   lastTaskIdentity: CodexTaskIdentityView | null;
   last7Days: CodexUsageScopeView;
@@ -274,6 +294,18 @@ function bucketRows(
         right.totals.processed - left.totals.processed ||
         left.key.localeCompare(right.key),
     );
+}
+
+function apiEquivalentForBuckets(
+  buckets: Map<string, ProviderTokenCounts>,
+  expectedTotalTokens: number,
+): EquivalentCostBreakdown {
+  return summarizeEquivalentCostBreakdowns(
+    [...buckets.entries()].map(([model, tokens]) =>
+      equivalentCostBreakdownFromProviderTokens(model, tokens),
+    ),
+    expectedTotalTokens,
+  );
 }
 
 function ratio(numerator: number, denominator: number): number {
@@ -463,6 +495,7 @@ function dailyRows(
     string,
     {
       tokens: ProviderTokenCounts;
+      models: Map<string, ProviderTokenCounts>;
       threads: Set<string>;
       childThreads: Set<string>;
       approvalReviewerThreads: Set<string>;
@@ -475,11 +508,13 @@ function dailyRows(
     for (const [day, slice] of Object.entries(file.period.days)) {
       const row = days.get(day) ?? {
         tokens: zeroTokens(),
+        models: new Map<string, ProviderTokenCounts>(),
         threads: new Set<string>(),
         childThreads: new Set<string>(),
         approvalReviewerThreads: new Set<string>(),
       };
       addTokens(row.tokens, slice.total);
+      addBuckets(row.models, slice.byModel, slice.total);
       row.threads.add(file.session.sessionKey);
       if (file.session.role === 'subagent') {
         row.childThreads.add(file.session.sessionKey);
@@ -492,13 +527,20 @@ function dailyRows(
   return [...days.entries()]
     .sort(([left], [right]) => right.localeCompare(left))
     .slice(0, MAX_DAILY_ROWS)
-    .map(([day, row]) => ({
-      day,
-      total: metrics(row.tokens),
-      threads: row.threads.size,
-      childThreads: row.childThreads.size,
-      approvalReviewerThreads: row.approvalReviewerThreads.size,
-    }));
+    .map(([day, row]) => {
+      const total = metrics(row.tokens);
+      return {
+        day,
+        total,
+        apiEquivalent: apiEquivalentForBuckets(
+          row.models,
+          total.processed,
+        ),
+        threads: row.threads.size,
+        childThreads: row.childThreads.size,
+        approvalReviewerThreads: row.approvalReviewerThreads.size,
+      };
+    });
 }
 
 function monthlyRows(
@@ -507,7 +549,11 @@ function monthlyRows(
 ): CodexPeriodUsageView[] {
   const months = new Map<
     string,
-    { tokens: ProviderTokenCounts; sessions: Set<string> }
+    {
+      tokens: ProviderTokenCounts;
+      models: Map<string, ProviderTokenCounts>;
+      sessions: Set<string>;
+    }
   >();
   for (const file of files) {
     if (file.period?.timeZone !== timeZone) {
@@ -520,20 +566,74 @@ function monthlyRows(
       }
       const row = months.get(period) ?? {
         tokens: zeroTokens(),
+        models: new Map<string, ProviderTokenCounts>(),
         sessions: new Set<string>(),
       };
       addTokens(row.tokens, slice.total);
+      addBuckets(row.models, slice.byModel, slice.total);
       row.sessions.add(file.session.sessionKey);
       months.set(period, row);
     }
   }
   return [...months.entries()]
     .sort(([left], [right]) => right.localeCompare(left))
-    .map(([period, row]) => ({
-      period,
-      total: metrics(row.tokens),
-      threads: row.sessions.size,
-    }));
+    .map(([period, row]) => {
+      const total = metrics(row.tokens);
+      return {
+        period,
+        total,
+        apiEquivalent: apiEquivalentForBuckets(
+          row.models,
+          total.processed,
+        ),
+        threads: row.sessions.size,
+      };
+    });
+}
+
+function todayHourlyRows(
+  files: CodexFileAggregate[],
+  day: string,
+  timeZone: string,
+): CodexHourlyUsageView[] {
+  const hours = new Map<
+    string,
+    {
+      tokens: ProviderTokenCounts;
+      models: Map<string, ProviderTokenCounts>;
+      threads: Set<string>;
+    }
+  >();
+  for (const file of files) {
+    if (file.today?.day !== day || file.today.timeZone !== timeZone) {
+      continue;
+    }
+    for (const [hour, slice] of Object.entries(file.today.hours)) {
+      if (!/^(?:[01]\d|2[0-3])$/.test(hour)) {
+        continue;
+      }
+      const row = hours.get(hour) ?? {
+        tokens: zeroTokens(),
+        models: new Map<string, ProviderTokenCounts>(),
+        threads: new Set<string>(),
+      };
+      addTokens(row.tokens, slice.total);
+      addBuckets(row.models, slice.byModel, slice.total);
+      row.threads.add(file.session.sessionKey);
+      hours.set(hour, row);
+    }
+  }
+  return [...hours.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([hour, row]) => {
+      const total = metrics(row.tokens);
+      return {
+        hour,
+        total,
+        apiEquivalent: apiEquivalentForBuckets(row.models, total.processed),
+        threads: row.threads.size,
+      };
+    });
 }
 
 function rollingDailyRows(
@@ -544,6 +644,7 @@ function rollingDailyRows(
   return keys.map((day) => rowsByDay.get(day) ?? {
     day,
     total: metrics(zeroTokens()),
+    apiEquivalent: summarizeEquivalentCostBreakdowns([]),
     threads: 0,
     childThreads: 0,
     approvalReviewerThreads: 0,
@@ -858,6 +959,13 @@ export function buildCodexUsageView(
   const recentScope = recent.length > 0
     ? scope(recent, aggregateIndexIncomplete)
     : null;
+  const todayScope = scopeFromPeriodDays(
+    snapshot.files,
+    [periodCoverage.asOfDay],
+    periodCoverage.last7Days,
+    periodCoverage.timeZone,
+    aggregateIndexIncomplete,
+  );
   const last7DaysScope = scopeFromPeriodDays(
     snapshot.files,
     last7DayKeys,
@@ -911,6 +1019,13 @@ export function buildCodexUsageView(
   }
 
   return {
+    today: todayScope,
+    todayHourly: todayHourlyRows(
+      snapshot.files,
+      periodCoverage.asOfDay,
+      periodCoverage.timeZone,
+    ),
+    todayCoverage: snapshot.coverage.today,
     lastTask: recentScope,
     lastTaskIdentity: recent.length > 0
       ? {

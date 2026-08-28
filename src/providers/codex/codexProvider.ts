@@ -12,6 +12,7 @@ import {
   CodexIndexCoverage,
   CodexIndexProgress,
   CodexIndexRecovery,
+  CodexTodayCoverage,
   CodexIndexV1,
   createEmptyCodexIndex,
   isCodexUsageContributionCurrent,
@@ -52,6 +53,9 @@ export interface CodexProviderSnapshot {
   limit: ProviderLimitSnapshot | null;
   /** Aggregate-only inputs for reset-aligned API-equivalent value estimates. */
   weeklyValueInputs?: WeeklyValueInputs;
+  /** Independent exact-hour backfill state for the current civil day. */
+  todayCoverage: CodexTodayCoverage;
+  todayPartial: boolean;
 }
 
 export interface CodexProviderResult {
@@ -251,6 +255,8 @@ function snapshotFromIndex(
     limits,
     limit: limits[0] ?? null,
     weeklyValueInputs: codexWeeklyValueInputs(usageContributions),
+    todayCoverage: index.coverage.today,
+    todayPartial: !index.coverage.today.complete,
   };
 }
 

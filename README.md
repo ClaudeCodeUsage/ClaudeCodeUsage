@@ -124,6 +124,14 @@ consent prompt.
   input / input. No Codex billing cost is shown. The first Codex summary card is
   a clearly labelled API-equivalent cost estimate for the selected scope; the
   All-time view also shows the weekly trend using the same pricing basis.
+- **Calendar-day Today and cost trends** — Codex Today means the current day in
+  your configured timezone and adds exact hourly API-equivalent cost beside a
+  separate token-composition view. Daily and monthly primary charts default to
+  API-equivalent cost while token composition stays separately visible. Only
+  exact known-model prices contribute; unknown models remain unpriced and every
+  row keeps pricing coverage visible. The schema-3-compatible hourly sidecar
+  processes only canonical files already known to contain today, is checkpointed
+  and resumable, and does not force a full-history reindex.
 - **Request-level token attribution** — valid `last_token_usage` components are
   preferred, while its `total_tokens` remains an active-context measurement,
   not request usage. A full numeric total-plus-last signature suppresses only
@@ -153,7 +161,9 @@ consent prompt.
   Today / Month / All time / Sessions / Projects / Content / Settings structure,
   relabelled where Codex semantics differ. The same render functions, HTML
   classes, charts, tables, spacing, and responsive rules are used for both
-  providers; Codex recommendations use indexed 30-day structural evidence.
+  providers. Claude and Codex time-series charts stay width-aligned while dense
+  content scrolls within its own region; Codex recommendations use indexed
+  30-day structural evidence.
 - **Truthful names, no invented concepts** — root tasks use the latest real
   thread title after path redaction. Child rows prefer their own real thread
   title; when it is missing, they use the reported nickname and display the

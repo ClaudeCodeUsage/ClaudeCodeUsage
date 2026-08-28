@@ -89,15 +89,18 @@ test('Codex shows an unpriced marker without hiding unknown-model token totals',
   expect(costText).toBe('—');
   expect(costText).not.toContain('$');
   await expect(costCard).toHaveAttribute('title', /Priced model coverage: 0%/);
+  await expect(
+    page.locator('#today [data-codex-today-hourly] .chart-content .hc-yaxis .hc-yval'),
+  ).toHaveText(['—', '—', '—']);
   await expect(cards.locator('.value')).toHaveText([
     '—',
-    '61,920',
-    '33,720',
-    '51,600',
-    '28,200',
+    '9,840',
+    '5,340',
+    '8,200',
+    '4,500',
     '55%',
-    '10,320',
-    '3,300',
+    '1,640',
+    '530',
   ]);
 });
 
@@ -204,16 +207,73 @@ for (const theme of ['light', 'dark']) {
   });
 }
 
-test('Codex month chart reuses the shared chart controls and bars', async ({ page }) => {
+test('Codex Today exposes hourly API-equivalent cost and token composition', async ({ page }) => {
+  await openCodex(page);
+
+  const hourly = page.locator('#today .daily-breakdown', {
+    has: page.getByRole('heading', { name: 'Hourly Usage', exact: true }),
+  });
+  await expect(hourly).toBeVisible();
+  await expect(hourly.locator('.chart-tab')).toHaveCount(6);
+  await expect(hourly.locator('.chart-tab.active')).toHaveAttribute('data-metric', 'cost');
+  await expect(hourly.locator('.chart-tab.active')).toHaveText('API-equivalent cost');
+
+  const hourlyBars = hourly.locator('.hc-col[data-hour] .chart-bar[data-cost]');
+  expect(await hourlyBars.count()).toBeGreaterThan(0);
+  await expect(hourly.locator('.hc-yaxis .hc-yval').first()).toHaveText(/^\$/);
+  await expect(hourly.locator('.composition-chart h4')).toHaveText('Token composition');
+  expect(await hourly.locator('.composition-chart .hc-col').count()).toBeGreaterThan(0);
+
+  const table = hourly.locator('.daily-table');
+  await expect(table.locator('thead th').first()).toHaveText('Hour');
+  await expect(table.locator('thead th').nth(1)).toHaveText('API-equivalent cost');
+  await expect(table.locator('tbody .cost-cell').first()).toHaveText(/^(?:\$[\d,.]+|—)$/);
+});
+
+test('Codex month chart defaults to API-equivalent cost and retains token switches', async ({ page }) => {
   await openCodex(page);
   await page.locator('#tab-month').click();
 
   const chart = page.locator('#month .daily-breakdown');
   await expect(chart).toBeVisible();
-  await expect(chart.locator('.chart-tab')).toHaveCount(5);
-  await expect(chart.locator('.chart-bar').first()).toBeVisible();
+  await expect(chart.locator('.chart-tab')).toHaveCount(6);
+  await expect(chart.locator('.chart-tab.active')).toHaveAttribute('data-metric', 'cost');
+  await expect(chart.locator('.chart-tab.active')).toHaveText('API-equivalent cost');
+  await expect(chart.locator('.chart-bar[data-cost]').first()).toBeVisible();
+  await expect(chart.locator('.hc-yaxis .hc-yval').first()).toHaveText(/^\$/);
+  await expect(chart.locator('.daily-table thead th').nth(1)).toHaveText('API-equivalent cost');
+  await expect(chart.locator('.daily-table tbody .cost-cell').first()).toHaveText(/^(?:\$[\d,.]+|—)$/);
+
   await chart.locator('.chart-tab[data-metric="outputTokens"]').click();
   await expect(chart.locator('.chart-tab[data-metric="outputTokens"]')).toHaveClass(/active/);
+  await chart.locator('.chart-tab[data-metric="cost"]').click();
+  await expect(chart.locator('.chart-tab[data-metric="cost"]')).toHaveClass(/active/);
+  await expect(chart.locator('.hc-barval').first()).toHaveText(/^(?:\$[\d,.]+|—)$/);
+  await expect(chart.locator('.chart-bar[data-cost]').first()).toHaveAttribute(
+    'title',
+    /Priced model coverage:/,
+  );
+});
+
+test('Codex all-time chart defaults to monthly API-equivalent cost and retains token switches', async ({ page }) => {
+  await openCodex(page);
+  await page.locator('#tab-all').click();
+
+  const chart = page.locator('#all .daily-breakdown', {
+    has: page.getByRole('heading', { name: 'Monthly', exact: true }),
+  });
+  await expect(chart).toBeVisible();
+  await expect(chart.locator('.chart-tab')).toHaveCount(6);
+  await expect(chart.locator('.chart-tab.active')).toHaveAttribute('data-metric', 'cost');
+  await expect(chart.locator('.chart-tab.active')).toHaveText('API-equivalent cost');
+  await expect(chart.locator('.chart-bar[data-cost]').first()).toBeVisible();
+  await expect(chart.locator('.daily-table thead th').nth(1)).toHaveText('API-equivalent cost');
+  await expect(chart.locator('.daily-table tbody .cost-cell').first()).toHaveText(/^(?:\$[\d,.]+|—)$/);
+
+  await chart.locator('.chart-tab[data-metric="inputTokens"]').click();
+  await expect(chart.locator('.chart-tab[data-metric="inputTokens"]')).toHaveClass(/active/);
+  await chart.locator('.chart-tab[data-metric="cost"]').click();
+  await expect(chart.locator('.chart-tab[data-metric="cost"]')).toHaveClass(/active/);
 });
 
 test('weekly allowance value uses the shared all-time chart and exposes uncertainty', async ({ page }) => {

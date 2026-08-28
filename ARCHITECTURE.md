@@ -37,11 +37,11 @@ aggregate sync are deferred to v2.4.x after a separate privacy review.
 | `providers/codex/codexSchema.ts` | Minimal safe JSON guards; never flattens or returns message/command/tool bodies. |
 | `providers/codex/codexParser.ts` | Codex exact-request parsing with cumulative high-water fallback, pseudonymous lineage metadata, structural counters, quality flags, and last-observed limits. |
 | `providers/codex/codexManifest.ts` | Allowlisted Codex directory discovery, HMAC file keys, fingerprints, and manifest diffing. |
-| `providers/codex/codexIndex.ts` | Schema-3 persistent per-file numeric aggregates and replay evidence, bounded cold/tail parsing, independent aggregate/period coverage, and atomic save/load. |
+| `providers/codex/codexIndex.ts` | Schema-3 persistent per-file numeric aggregates and replay evidence, bounded cold/tail parsing, independent aggregate/period/current-day coverage, and atomic save/load. |
 | `providers/codex/codexIndexWorker.ts` / `codexIndexClient.ts` | Background coordinator, recent-first progress, cancellation, resume, checkpoint persistence, and single-flight client. |
-| `providers/codex/codexFilePassPool.ts` / `codexFilePassWorker.ts` | Adaptive bounded local pool for independent per-file main, lineage, period, and identity passes during one-time incomplete backfills. |
+| `providers/codex/codexFilePassPool.ts` / `codexFilePassWorker.ts` | Adaptive bounded local pool for independent per-file main, lineage, period, current-day, and identity passes during incomplete backfills. |
 | `providers/codex/codexProvider.ts` | Extension-facing Codex snapshot facade and partial/unavailable/error outcomes. |
-| `providers/codex/codexUsage.ts` | Codex-specific task/7-day/30-day/project view-model aggregation. |
+| `providers/codex/codexUsage.ts` | Codex calendar-Today/hourly, 7-day, 30-day, monthly, task, and project view-model aggregation with exact-model API-equivalent cost. |
 | `providers/codex/codexInsights.ts` | Deterministic structural usage guidance; no prompt/body inspection. |
 | `codexView.ts` / `codexViewComponents.ts` | Codex localized-copy and default-provider contracts; no HTML renderer, client script, or CSS ownership. |
 | `settings.ts` | Canonical `SETTINGS` catalog and `SettingsStore`; do not scatter direct reads. |
@@ -68,7 +68,7 @@ allowlisted Codex JSONL
   ──> manifest metadata
   ──> background worker
   ──> schema guard + exact-request parser with lineage high-water fallback
-  ──> per-file numeric aggregate index
+  ──> per-file numeric aggregate index + targeted current-day hourly sidecar
   ──> CodexProviderSnapshot
   ──> Codex scopes + insights
   ──> Codex status + provider-aware dashboard render inputs
@@ -90,6 +90,15 @@ annotation on the full indexed-subtotal dashboard rather than a replacement for
 its cards and tables. Worker progress is coalesced to at most one Webview render
 every 250 ms and repaints only while Codex is selected; the verified snapshot
 still gets a final render when the refresh returns.
+
+Codex Today is the current civil day in the configured timezone, not the most
+recent task. Its summary uses that day's verified period slice; exact hourly
+rows come from the independent current-day sidecar described below. Hourly,
+daily, and monthly primary charts use API-equivalent cost by default, while the
+token-composition chart remains a separate view. Unknown models contribute to
+the token denominator but remain unpriced, so pricing coverage stays visible.
+Claude and Codex time-series layouts share aligned responsive widths and keep
+dense chart/table content inside local keyboard-focusable scrollers.
 
 ## Token and limit semantics
 
@@ -178,6 +187,14 @@ states. The 7/30-day views sum events in their natural calendar days; they do
 not pull an entire older session into a range merely because the session's last
 activity falls inside it.
 
+The current-day hourly index is an additive schema-3 sidecar, not a third source
+of all-time truth. A file becomes eligible only after duplicate classification
+selects it as canonical and its verified period slice already contains
+`asOfDay`. Per-file hourly promotion and in-progress cursors are checkpointed,
+so cancellation resumes from the verified offset. A day or timezone change
+discards the stale sidecar and targets the new civil day. This path neither
+invalidates the primary aggregate nor triggers a full-history reindex.
+
 Identity is also a coverage contract. Git SCP-style SSH and HTTPS repository
 URLs are canonicalized to the same repository identity where their host/path
 matches. Root titles use the latest trusted `updated_at` title, subagents retain
@@ -230,6 +247,9 @@ Codex history is designed for multi-gigabyte local corpora:
 - derived lineage is reconciled only in stages that can change it; period and
   stable stages reuse the verified relationship instead of repeatedly scanning
   the complete index;
+- current-day hourly work is limited to canonical files already known from
+  period slices to contain `asOfDay`; its own checkpoints resume independently
+  and do not reset the primary index;
 - append refresh reads only the new tail; an incomplete line stays only in the
   scanner's short-lived memory and is retried from the safe cursor, never in v3;
 - truncation/replacement reparses only the affected file;

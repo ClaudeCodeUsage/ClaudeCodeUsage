@@ -20,6 +20,7 @@ import { normalizeQuotaWindows } from './quotaWindows';
 import {
   buildWeeklyValueTimeline,
   claudeWeeklyEquivalentUsage,
+  EquivalentCostBreakdown,
   equivalentUsageFromProviderTokens,
   summarizeEquivalentUsage,
   WeeklyQuotaObservation,
@@ -34,6 +35,7 @@ import {
 } from './providers/codex/codexInsights';
 import {
   CodexMetricTotals,
+  CodexHourlyUsageView,
   CodexProjectUsageView,
   CodexThreadUsageView,
   CodexUsageScopeView,
@@ -1270,10 +1272,8 @@ export class UsageWebviewProvider {
         this.escapeHtml(formatters.formatBytes(view.coverage.totalBytes)) + ' · ' +
         this.escapeHtml(view.coverage.complete ? copy.complete : copy.partial) + '</p>' +
         qualityFlags + '</details>';
-      if (!view.lastTask) {
-        return this.renderCodexEmptyState() + coverage;
-      }
-      return this.renderUsageData(null, provider, view.lastTask) + identity + limits + coverage;
+      return this.renderUsageData(null, provider, view.today) +
+        this.renderCodexTodayHourly(view) + identity + limits + coverage;
     }
     if (!this.todayData) {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
@@ -1386,6 +1386,59 @@ export class UsageWebviewProvider {
     }
 
     return todaySummary + hourlyBreakdown;
+  }
+
+  private renderCodexTodayHourly(view: CodexUsageView): string {
+    const rows = view.todayHourly;
+    const coverage = view.todayCoverage;
+    if (rows.length === 0 && coverage.complete) {
+      return '';
+    }
+    const copy = I18n.t.providers.codex;
+    const partial = coverage.complete
+      ? ''
+      : '<p class="model-details">' + this.escapeHtml(copy.indexedLogEntries) + ': ' +
+        I18n.formatNumber(coverage.indexedFiles) + '/' + I18n.formatNumber(coverage.totalFiles) +
+        ' · ' + this.escapeHtml(copy.partial) + '</p>';
+    const tabs = '<div class="chart-tabs">' +
+      '<button class="chart-tab active" data-metric="cost">' + this.escapeHtml(copy.apiEquivalentCost) + '</button>' +
+      '<button class="chart-tab" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
+      '<button class="chart-tab" data-metric="outputTokens">' + this.escapeHtml(copy.fresh) + '</button>' +
+      '<button class="chart-tab" data-metric="cacheCreation">' + this.escapeHtml(copy.output) + '</button>' +
+      '<button class="chart-tab" data-metric="cacheRead">' + this.escapeHtml(copy.reasoning) + '</button>' +
+      '<button class="chart-tab" data-metric="messages">' + this.escapeHtml(copy.threads) + '</button>' +
+      '</div>';
+    const chart = rows.length > 0
+      ? '<div class="chart-content" id="codexTodayHourlyChart">' +
+        this.renderCodexHourlyChart(rows) + '</div>' +
+        this.renderCompositionChart(
+          rows.map((row) => ({ label: row.hour, data: row.total })),
+          'codex',
+        )
+      : '<div class="no-chart-data">' + this.escapeHtml(copy.noDailyData) + '</div>';
+    const table = rows.length > 0
+      ? '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
+        '<th>' + this.escapeHtml(I18n.t.popup.hour) + '</th>' +
+        '<th>' + this.escapeHtml(copy.apiEquivalentCost) + '</th>' +
+        '<th>' + this.escapeHtml(copy.processed) + '</th><th>' + this.escapeHtml(copy.fresh) + '</th>' +
+        '<th>' + this.escapeHtml(copy.input) + '</th><th>' + this.escapeHtml(copy.cachedInput) + '</th>' +
+        '<th>' + this.escapeHtml(copy.output) + '</th><th>' + this.escapeHtml(copy.reasoning) + '</th>' +
+        '<th>' + this.escapeHtml(copy.threads) + '</th></tr></thead><tbody>' +
+        rows.map((row) =>
+          '<tr><td class="date-cell">' + this.escapeHtml(row.hour) + '</td>' +
+          '<td class="cost-cell" title="' + this.escapeHtml(this.codexCostHelp(row.apiEquivalent)) + '">' +
+          (row.apiEquivalent.pricedTokens > 0 ? I18n.formatCurrency(row.apiEquivalent.equivalentUsd) : '—') + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.processed) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.fresh) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.input) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.cachedInput) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.output) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.reasoning) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.threads) + '</td></tr>',
+        ).join('') + '</tbody></table></div>'
+      : '';
+    return '<div class="daily-breakdown" data-codex-time-series data-codex-today-hourly>' +
+      '<h3>' + this.escapeHtml(I18n.t.popup.hourlyBreakdown) + '</h3>' + partial + tabs + chart + table + '</div>';
   }
 
   /** Opt-in (showEfficiency) efficiency chips appended to a usage summary:
@@ -1797,9 +1850,10 @@ export class UsageWebviewProvider {
       const rows = view.last30DaysDaily;
       const breakdown = rows.length === 0
         ? '<div class="no-data"><p>' + this.escapeHtml(copy.noDailyData) + '</p></div>'
-        : '<div class="daily-breakdown" data-codex-last30-daily><h3>' + this.escapeHtml(copy.daily) + '</h3>' +
+        : '<div class="daily-breakdown" data-codex-time-series data-codex-last30-daily><h3>' + this.escapeHtml(copy.daily) + '</h3>' +
           '<div class="chart-tabs">' +
-          '<button class="chart-tab active" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
+          '<button class="chart-tab active" data-metric="cost">' + this.escapeHtml(copy.apiEquivalentCost) + '</button>' +
+          '<button class="chart-tab" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
           '<button class="chart-tab" data-metric="outputTokens">' + this.escapeHtml(copy.fresh) + '</button>' +
           '<button class="chart-tab" data-metric="cacheCreation">' + this.escapeHtml(copy.output) + '</button>' +
           '<button class="chart-tab" data-metric="cacheRead">' + this.escapeHtml(copy.reasoning) + '</button>' +
@@ -1807,12 +1861,15 @@ export class UsageWebviewProvider {
           '</div><div class="chart-content" id="dailyChart">' + this.renderDailyChart(provider) + '</div>' +
           this.renderCompositionChart(rows.map((row) => ({ label: row.day, data: row.total })), provider) +
           '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
-          '<th>' + this.escapeHtml(copy.date) + '</th><th>' + this.escapeHtml(copy.processed) + '</th>' +
+          '<th>' + this.escapeHtml(copy.date) + '</th><th>' + this.escapeHtml(copy.apiEquivalentCost) + '</th>' +
+          '<th>' + this.escapeHtml(copy.processed) + '</th>' +
           '<th>' + this.escapeHtml(copy.fresh) + '</th><th>' + this.escapeHtml(copy.input) + '</th>' +
           '<th>' + this.escapeHtml(copy.cachedInput) + '</th><th>' + this.escapeHtml(copy.output) + '</th>' +
           '<th>' + this.escapeHtml(copy.reasoning) + '</th><th>' + this.escapeHtml(copy.threads) + '</th>' +
           '</tr></thead><tbody>' + rows.map((row) =>
             '<tr><td class="date-cell">' + this.escapeHtml(row.day) + '</td>' +
+            '<td class="cost-cell" title="' + this.escapeHtml(this.codexCostHelp(row.apiEquivalent)) + '">' +
+            (row.apiEquivalent.pricedTokens > 0 ? I18n.formatCurrency(row.apiEquivalent.equivalentUsd) : '—') + '</td>' +
             '<td class="number-cell">' + I18n.formatNumber(row.total.processed) + '</td>' +
             '<td class="number-cell">' + I18n.formatNumber(row.total.fresh) + '</td>' +
             '<td class="number-cell">' + I18n.formatNumber(row.total.input) + '</td>' +
@@ -1923,9 +1980,10 @@ export class UsageWebviewProvider {
       const rows = view.monthly;
       const breakdown = rows.length === 0
         ? '<div class="no-data"><p>' + this.escapeHtml(copy.noMonthlyData) + '</p></div>'
-        : '<div class="daily-breakdown"><h3>' + this.escapeHtml(copy.monthly) + '</h3>' +
+        : '<div class="daily-breakdown" data-codex-time-series><h3>' + this.escapeHtml(copy.monthly) + '</h3>' +
           '<div class="chart-tabs">' +
-          '<button class="chart-tab active" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
+          '<button class="chart-tab active" data-metric="cost">' + this.escapeHtml(copy.apiEquivalentCost) + '</button>' +
+          '<button class="chart-tab" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
           '<button class="chart-tab" data-metric="outputTokens">' + this.escapeHtml(copy.fresh) + '</button>' +
           '<button class="chart-tab" data-metric="cacheCreation">' + this.escapeHtml(copy.output) + '</button>' +
           '<button class="chart-tab" data-metric="cacheRead">' + this.escapeHtml(copy.reasoning) + '</button>' +
@@ -1933,12 +1991,15 @@ export class UsageWebviewProvider {
           '</div><div class="chart-content" id="allTimeChart">' + this.renderAllTimeChart(provider) + '</div>' +
           this.renderCompositionChart(rows.map((row) => ({ label: row.period, data: row.total })), provider) +
           '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
-          '<th>' + this.escapeHtml(copy.date) + '</th><th>' + this.escapeHtml(copy.processed) + '</th>' +
+          '<th>' + this.escapeHtml(copy.date) + '</th><th>' + this.escapeHtml(copy.apiEquivalentCost) + '</th>' +
+          '<th>' + this.escapeHtml(copy.processed) + '</th>' +
           '<th>' + this.escapeHtml(copy.fresh) + '</th><th>' + this.escapeHtml(copy.input) + '</th>' +
           '<th>' + this.escapeHtml(copy.cachedInput) + '</th><th>' + this.escapeHtml(copy.output) + '</th>' +
           '<th>' + this.escapeHtml(copy.reasoning) + '</th><th>' + this.escapeHtml(copy.threads) + '</th>' +
           '</tr></thead><tbody>' + rows.map((row) =>
             '<tr><td class="date-cell">' + this.escapeHtml(row.period) + '</td>' +
+            '<td class="cost-cell" title="' + this.escapeHtml(this.codexCostHelp(row.apiEquivalent)) + '">' +
+            (row.apiEquivalent.pricedTokens > 0 ? I18n.formatCurrency(row.apiEquivalent.equivalentUsd) : '—') + '</td>' +
             '<td class="number-cell">' + I18n.formatNumber(row.total.processed) + '</td>' +
             '<td class="number-cell">' + I18n.formatNumber(row.total.fresh) + '</td>' +
             '<td class="number-cell">' + I18n.formatNumber(row.total.input) + '</td>' +
@@ -4193,7 +4254,10 @@ export class UsageWebviewProvider {
     if (provider === 'codex') {
       const rows = this.codexView?.last30DaysDaily ?? [];
       return this.renderMainCostChart(
-        rows.map((row) => ({ date: row.day, data: { total: row.total, threads: row.threads } })),
+        rows.map((row) => ({
+          date: row.day,
+          data: { total: row.total, apiEquivalent: row.apiEquivalent, threads: row.threads },
+        })),
         false,
         provider,
       );
@@ -4206,7 +4270,10 @@ export class UsageWebviewProvider {
     if (provider === 'codex') {
       const rows = this.codexView?.monthly ?? [];
       return this.renderMainCostChart(
-        rows.map((row) => ({ date: row.period, data: { total: row.total, threads: row.threads } })),
+        rows.map((row) => ({
+          date: row.period,
+          data: { total: row.total, apiEquivalent: row.apiEquivalent, threads: row.threads },
+        })),
         true,
         provider,
       );
@@ -4250,10 +4317,35 @@ export class UsageWebviewProvider {
     );
   }
 
+  private codexCostStackHtml(cost: EquivalentCostBreakdown, barHeight: number): string {
+    const copy = I18n.t.providers.codex;
+    const total = cost.freshInputUsd + cost.cachedInputUsd + cost.outputUsd;
+    const seg = (value: number, cls: string, label: string): string => {
+      const height = total > 0 ? (value / total) * barHeight : 0;
+      return '<div class="stack-seg ' + cls + '" style="height: ' + height + 'px;" title="' +
+        this.escapeHtml(label) + ': ' + I18n.formatCurrency(value) + '"></div>';
+    };
+    return seg(cost.freshInputUsd, 'seg-input', copy.freshInput) +
+      seg(cost.cachedInputUsd, 'seg-cache-read', copy.cachedInput) +
+      seg(cost.outputUsd, 'seg-output', copy.output);
+  }
+
+  private codexCostHelp(cost: EquivalentCostBreakdown): string {
+    const coverage = new Intl.NumberFormat(I18n.getLocale(), {
+      style: 'percent',
+      maximumFractionDigits: 0,
+    }).format(cost.pricingCoverage);
+    return I18n.t.providers.codex.apiEquivalentCostHelp.replace('{coverage}', coverage);
+  }
+
   private renderMainCostChart(
     sortedData: Array<{
       date: string;
-      data: UsageData | { total: CodexMetricTotals; threads: number };
+      data: UsageData | {
+        total: CodexMetricTotals;
+        apiEquivalent: EquivalentCostBreakdown;
+        threads: number;
+      };
     }>,
     monthly = false,
     provider: SettingProvider = 'claude',
@@ -4264,27 +4356,41 @@ export class UsageWebviewProvider {
     if (provider === 'codex') {
       const rows = sortedData as Array<{
         date: string;
-        data: { total: CodexMetricTotals; threads: number };
+        data: {
+          total: CodexMetricTotals;
+          apiEquivalent: EquivalentCostBreakdown;
+          threads: number;
+        };
       }>;
-      const maxProcessed = Math.max(...rows.map((row) => row.data.total.processed), 0);
+      const maxCost = Math.max(...rows.map((row) => row.data.apiEquivalent.equivalentUsd), 0);
+      const hasPricedCost = rows.some((row) => row.data.apiEquivalent.pricedTokens > 0);
+      const costAxisLabel = (value: number): string =>
+        hasPricedCost ? I18n.formatCurrency(value) : '—';
       const maxHeight = 120;
       const bars = rows.map(({ date, data }) => {
-        const height = maxProcessed > 0 ? (data.total.processed / maxProcessed) * maxHeight : 2;
+        const cost = data.apiEquivalent;
+        const height = maxCost > 0 ? (cost.equivalentUsd / maxCost) * maxHeight : 2;
+        const costLabel = cost.pricedTokens > 0 ? I18n.formatCurrency(cost.equivalentUsd) : '—';
         return '<div class="hc-col" data-date="' + this.escapeHtml(date) + '">' +
-          '<div class="hc-barval">' + I18n.formatNumber(data.total.processed) + '</div>' +
-          '<div class="chart-bar cost-bar" style="height:' + height + 'px" ' +
+          '<div class="hc-barval">' + costLabel + '</div>' +
+          '<div class="chart-bar cost-bar cost-stacked" style="height:' + height + 'px" ' +
+          'data-cost="' + cost.equivalentUsd + '" data-priced-tokens="' + cost.pricedTokens + '" ' +
           'data-input="' + data.total.processed + '" data-output="' + data.total.fresh + '" ' +
           'data-cache-creation="' + data.total.output + '" data-cache-read="' + data.total.reasoning + '" ' +
-          'data-messages="' + data.threads + '" title="' + this.escapeHtml(date) + ': ' +
-          I18n.formatNumber(data.total.processed) + '"></div></div>';
+          'data-messages="' + data.threads + '" ' +
+          'data-cost-input="' + cost.freshInputUsd + '" data-cost-output="' + cost.outputUsd + '" ' +
+          'data-cost-cachewrite="0" data-cost-cacheread="' + cost.cachedInputUsd + '" ' +
+          'data-cost-help="' + this.escapeHtml(this.codexCostHelp(cost)) + '" ' +
+          'title="' + this.escapeHtml(date + ': ' + costLabel + ' · ' + this.codexCostHelp(cost)) + '">' +
+          this.codexCostStackHtml(cost, height) + '</div></div>';
       }).join('');
       const xlabels = rows.map(({ date }) =>
         '<div class="hc-xlabel">' + this.escapeHtml(monthly ? this.getShortDate(date, true) : this.getShortDate(date)) + '</div>',
       ).join('');
       return '<div class="hc-wrap"><div class="hc-yaxis">' +
-        '<span class="hc-yval">' + I18n.formatNumber(maxProcessed) + '</span>' +
-        '<span class="hc-yval">' + I18n.formatNumber(maxProcessed / 2) + '</span>' +
-        '<span class="hc-yval">0</span></div><div class="hc-main"><div class="hc-scroll" tabindex="0">' +
+        '<span class="hc-yval">' + costAxisLabel(maxCost) + '</span>' +
+        '<span class="hc-yval">' + costAxisLabel(maxCost / 2) + '</span>' +
+        '<span class="hc-yval">' + costAxisLabel(0) + '</span></div><div class="hc-main"><div class="hc-scroll" tabindex="0">' +
         '<div class="hc-plot"><div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>' +
         '<div class="hc-bars">' + bars + '</div></div><div class="hc-xlabels">' + xlabels +
         '</div></div></div></div>';
@@ -4349,6 +4455,45 @@ export class UsageWebviewProvider {
    * reference lines and a value label on top of every bar, so figures are
    * readable without hovering.
    */
+  private renderCodexHourlyChart(rows: CodexHourlyUsageView[]): string {
+    if (rows.length === 0) {
+      return '<div class="no-chart-data">No data available</div>';
+    }
+    const maxCost = Math.max(...rows.map((row) => row.apiEquivalent.equivalentUsd), 0);
+    const hasPricedCost = rows.some((row) => row.apiEquivalent.pricedTokens > 0);
+    const costAxisLabel = (value: number): string =>
+      hasPricedCost ? I18n.formatCurrency(value) : '—';
+    const maxHeight = 120;
+    const bars = rows.map((row) => {
+      const cost = row.apiEquivalent;
+      const height = maxCost > 0 ? (cost.equivalentUsd / maxCost) * maxHeight : 2;
+      const costLabel = cost.pricedTokens > 0 ? I18n.formatCurrency(cost.equivalentUsd) : '—';
+      return '<div class="hc-col" data-hour="' + this.escapeHtml(row.hour) + '">' +
+        '<div class="hc-barval">' + costLabel + '</div>' +
+        '<div class="chart-bar cost-bar cost-stacked" style="height:' + height + 'px" ' +
+        'data-cost="' + cost.equivalentUsd + '" data-priced-tokens="' + cost.pricedTokens + '" ' +
+        'data-input="' + row.total.processed + '" data-output="' + row.total.fresh + '" ' +
+        'data-cache-creation="' + row.total.output + '" data-cache-read="' + row.total.reasoning + '" ' +
+        'data-messages="' + row.threads + '" ' +
+        'data-cost-input="' + cost.freshInputUsd + '" data-cost-output="' + cost.outputUsd + '" ' +
+        'data-cost-cachewrite="0" data-cost-cacheread="' + cost.cachedInputUsd + '" ' +
+        'data-cost-help="' + this.escapeHtml(this.codexCostHelp(cost)) + '" ' +
+        'title="' + this.escapeHtml(costLabel + ' · ' + this.codexCostHelp(cost)) + '">' +
+        this.codexCostStackHtml(cost, height) + '</div></div>';
+    }).join('');
+    const labels = rows.map((row) =>
+      '<div class="hc-xlabel">' + this.escapeHtml(row.hour) + '</div>'
+    ).join('');
+    return '<div class="hc-wrap"><div class="hc-yaxis">' +
+      '<span class="hc-yval">' + costAxisLabel(maxCost) + '</span>' +
+      '<span class="hc-yval">' + costAxisLabel(maxCost / 2) + '</span>' +
+      '<span class="hc-yval">' + costAxisLabel(0) + '</span></div>' +
+      '<div class="hc-main"><div class="hc-scroll" tabindex="0">' +
+      '<div class="hc-plot"><div class="hc-grid hc-grid-top"></div>' +
+      '<div class="hc-grid hc-grid-mid"></div><div class="hc-bars">' + bars + '</div></div>' +
+      '<div class="hc-xlabels">' + labels + '</div></div></div></div>';
+  }
+
   private renderHourlyChart(): string {
     if (this.hourlyDataForToday.length === 0) {
       return '<div class="no-chart-data">No data available</div>';
@@ -5095,6 +5240,12 @@ export class UsageWebviewProvider {
         display: flex;
         align-items: end;
         justify-content: center;
+      }
+
+      .chart-content > .hc-wrap {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
       }
 
       .chart-bars {
@@ -6078,6 +6229,35 @@ export class UsageWebviewProvider {
         text-align: center;
         font-size: 10px;
         color: var(--vscode-descriptionForeground);
+      }
+
+      [data-codex-time-series],
+      [data-codex-time-series] .chart-content,
+      [data-codex-time-series] .chart-content > .hc-wrap,
+      [data-codex-time-series] .composition-chart,
+      [data-codex-time-series] .hc-wrap,
+      [data-codex-time-series] .hc-main {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      [data-codex-time-series] .hc-scroll,
+      [data-codex-time-series] .daily-table-container {
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        touch-action: pan-x pan-y;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      [data-codex-time-series] .daily-table {
+        width: 100%;
+        min-width: 1080px;
+      }
+
+      [data-codex-time-series] .daily-table th {
+        white-space: nowrap;
       }
 
       /* Codex always renders a complete rolling 30-day track. Keep those
@@ -7277,17 +7457,21 @@ function updateMainChart(metric, container) {
     }
 
     // Update tooltip + on-bar value label
-    const formattedValue = formatValue(value, metric);
+    const formattedValue = metric === 'cost' && bar.dataset.pricedTokens === '0'
+      ? '—'
+      : formatValue(value, metric);
     const container = bar.parentElement;
     const date = container.dataset.date;
     const hour = container.dataset.hour;
+    const costHelp = metric === 'cost' ? bar.dataset.costHelp : '';
+    const valueWithHelp = costHelp ? formattedValue + ' · ' + costHelp : formattedValue;
 
     if (hour) {
       // Hourly chart: tooltip shows the value only (the hour is on the x-axis).
-      bar.title = formattedValue;
+      bar.title = valueWithHelp;
     } else if (date) {
       const dateObj = new Date(date);
-      bar.title = dateObj.toLocaleDateString() + ': ' + formattedValue;
+      bar.title = dateObj.toLocaleDateString() + ': ' + valueWithHelp;
     }
 
     const barVal = container.querySelector('.hc-barval');
@@ -7305,9 +7489,12 @@ function updateMainChart(metric, container) {
   const wrap = firstBar && firstBar.closest ? firstBar.closest('.hc-wrap') : null;
   const yvals = wrap ? wrap.querySelectorAll('.hc-yaxis .hc-yval') : [];
   if (yvals.length === 3) {
-    yvals[0].textContent = formatValue(maxValue, metric);
-    yvals[1].textContent = formatValue(maxValue / 2, metric);
-    yvals[2].textContent = formatValue(0, metric);
+    const hasPricedCost = metric !== 'cost' || Array.from(chartBars).some(function(bar) {
+      return bar.dataset.pricedTokens !== '0';
+    });
+    yvals[0].textContent = hasPricedCost ? formatValue(maxValue, metric) : '—';
+    yvals[1].textContent = hasPricedCost ? formatValue(maxValue / 2, metric) : '—';
+    yvals[2].textContent = hasPricedCost ? formatValue(0, metric) : '—';
   }
 }
 

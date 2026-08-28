@@ -217,8 +217,14 @@ function addClaudeData(provider, fixture = 'default') {
     today,
     claudeUsage(6),
     claudeUsage(18),
-    [],
-    [],
+    [
+      { date: '2026-07-19', data: claudeUsage(0.4) },
+      { date: '2026-07-20', data: claudeUsage(0.6) },
+    ],
+    [
+      { date: '2026-06', data: claudeUsage(5) },
+      { date: '2026-07', data: claudeUsage(13) },
+    ],
     [
       { hour: '18:00', data: claudeUsage(0.35) },
       { hour: '19:00', data: claudeUsage(0.65) },

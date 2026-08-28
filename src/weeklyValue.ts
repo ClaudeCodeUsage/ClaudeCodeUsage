@@ -42,6 +42,15 @@ export interface WeeklyValueInputs {
   usage: WeeklyEquivalentUsage[];
 }
 
+export interface EquivalentCostBreakdown extends EquivalentUsageSummary {
+  /** API-equivalent value of uncached input tokens. */
+  freshInputUsd: number;
+  /** API-equivalent value of cached-input reads. */
+  cachedInputUsd: number;
+  /** API-equivalent value of output tokens; reasoning is already a subset. */
+  outputUsd: number;
+}
+
 export interface WeeklyValuePoint {
   provider: UsageProvider;
   seriesKey: string;
@@ -158,35 +167,60 @@ export function equivalentUsageFromProviderTokens(
   intervalStart?: number,
   intervalEnd?: number,
 ): WeeklyEquivalentUsage {
-  const totalTokens = tokenTotal(tokens);
-  const pricing = getExactModelPricing(model);
+  const cost = equivalentCostBreakdownFromProviderTokens(model, tokens);
   const interval = {
     ...(Number.isFinite(intervalStart) ? { intervalStart } : {}),
     ...(Number.isFinite(intervalEnd) ? { intervalEnd } : {}),
   };
+  return {
+    timestamp,
+    equivalentUsd: cost.equivalentUsd,
+    pricedTokens: cost.pricedTokens,
+    totalTokens: cost.totalTokens,
+    sourceKey,
+    ...interval,
+  };
+}
+
+/** Price one exact Codex model bucket into auditable API-equivalent segments.
+ * Unknown models remain entirely unpriced. Cached input and reasoning are
+ * subsets of input/output respectively, so neither is counted twice. */
+export function equivalentCostBreakdownFromProviderTokens(
+  model: string,
+  tokens: ProviderTokenCounts,
+): EquivalentCostBreakdown {
+  const totalTokens = tokenTotal(tokens);
+  const pricing = getExactModelPricing(model);
   if (!pricing) {
     return {
-      timestamp,
       equivalentUsd: 0,
+      freshInputUsd: 0,
+      cachedInputUsd: 0,
+      outputUsd: 0,
       pricedTokens: 0,
       totalTokens,
-      sourceKey,
-      ...interval,
+      pricingCoverage: 0,
     };
   }
   const inputTotal = finiteNonNegative(tokens.inputTotal);
-  const cachedInput = Math.min(inputTotal, finiteNonNegative(tokens.cachedInput ?? 0));
-  const equivalentUsd =
-    (inputTotal - cachedInput) * finiteNonNegative(pricing.input_cost_per_token ?? 0) +
-    cachedInput * finiteNonNegative(pricing.cache_read_input_token_cost ?? 0) +
-    finiteNonNegative(tokens.outputTotal) * finiteNonNegative(pricing.output_cost_per_token ?? 0);
+  const cachedInput = Math.min(
+    inputTotal,
+    finiteNonNegative(tokens.cachedInput ?? 0),
+  );
+  const freshInputUsd = (inputTotal - cachedInput) *
+    finiteNonNegative(pricing.input_cost_per_token ?? 0);
+  const cachedInputUsd = cachedInput *
+    finiteNonNegative(pricing.cache_read_input_token_cost ?? 0);
+  const outputUsd = finiteNonNegative(tokens.outputTotal) *
+    finiteNonNegative(pricing.output_cost_per_token ?? 0);
   return {
-    timestamp,
-    equivalentUsd,
+    equivalentUsd: freshInputUsd + cachedInputUsd + outputUsd,
+    freshInputUsd,
+    cachedInputUsd,
+    outputUsd,
     pricedTokens: totalTokens,
     totalTokens,
-    sourceKey,
-    ...interval,
+    pricingCoverage: totalTokens > 0 ? 1 : 0,
   };
 }
 
@@ -301,6 +335,43 @@ export function summarizeEquivalentUsage(
   expectedTotalTokens?: number,
 ): EquivalentUsageSummary {
   const summary = totals(rows);
+  const totalTokens = Math.max(
+    summary.totalTokens,
+    finiteNonNegative(expectedTotalTokens ?? summary.totalTokens),
+  );
+  return {
+    ...summary,
+    totalTokens,
+    pricingCoverage: totalTokens > 0
+      ? Math.min(1, summary.pricedTokens / totalTokens)
+      : 0,
+  };
+}
+
+/** Aggregate exact-model cost segments while retaining the same conservative
+ * pricing-coverage denominator used by weekly value and summary cards. */
+export function summarizeEquivalentCostBreakdowns(
+  rows: EquivalentCostBreakdown[],
+  expectedTotalTokens?: number,
+): EquivalentCostBreakdown {
+  const summary = rows.reduce(
+    (total, row) => ({
+      equivalentUsd: total.equivalentUsd + finiteNonNegative(row.equivalentUsd),
+      freshInputUsd: total.freshInputUsd + finiteNonNegative(row.freshInputUsd),
+      cachedInputUsd: total.cachedInputUsd + finiteNonNegative(row.cachedInputUsd),
+      outputUsd: total.outputUsd + finiteNonNegative(row.outputUsd),
+      pricedTokens: total.pricedTokens + finiteNonNegative(row.pricedTokens),
+      totalTokens: total.totalTokens + finiteNonNegative(row.totalTokens),
+    }),
+    {
+      equivalentUsd: 0,
+      freshInputUsd: 0,
+      cachedInputUsd: 0,
+      outputUsd: 0,
+      pricedTokens: 0,
+      totalTokens: 0,
+    },
+  );
   const totalTokens = Math.max(
     summary.totalTokens,
     finiteNonNegative(expectedTotalTokens ?? summary.totalTokens),

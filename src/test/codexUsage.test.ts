@@ -369,6 +369,115 @@ test('rolling scopes use only selected promoted day slices from active sessions'
   assert.equal(view.periodCoverage, snapshot.coverage.period);
 });
 
+test('daily and monthly Codex rows retain exact-model API-equivalent cost and conservative coverage', () => {
+  const snapshot = snapshotFixture();
+  const file = snapshot.files[0];
+  const known = {
+    inputTotal: 2_000_000,
+    cachedInput: 1_000_000,
+    outputTotal: 1_000_000,
+    reasoningOutput: 750_000,
+  };
+  const unknown = {
+    inputTotal: 1_000_000,
+    cachedInput: 0,
+    outputTotal: 500_000,
+    reasoningOutput: 250_000,
+  };
+  file.period = {
+    timeZone: 'UTC',
+    indexedThrough: 1,
+    days: {
+      '2026-07-20': {
+        total: {
+          inputTotal: 3_000_000,
+          cachedInput: 1_000_000,
+          outputTotal: 1_500_000,
+          reasoningOutput: 1_000_000,
+        },
+        byModel: {
+          'gpt-5.6-sol': known,
+          'codex-auto-review': unknown,
+        },
+        byEffort: { high: {
+          inputTotal: 3_000_000,
+          cachedInput: 1_000_000,
+          outputTotal: 1_500_000,
+          reasoningOutput: 1_000_000,
+        } },
+        structural: { ...file.structural },
+      },
+      '2026-07-19': {
+        total: { ...known },
+        byModel: { 'gpt-5.6-sol': { ...known } },
+        byEffort: { high: { ...known } },
+        structural: { ...file.structural },
+      },
+    },
+  };
+  snapshot.files = [file];
+
+  const view = buildCodexUsageView(snapshot, NOW);
+  const today = view.daily.find((row) => row.day === '2026-07-20')!;
+  assert.equal(today.apiEquivalent.equivalentUsd, 35.5);
+  assert.equal(today.apiEquivalent.freshInputUsd, 5);
+  assert.equal(today.apiEquivalent.cachedInputUsd, 0.5);
+  assert.equal(today.apiEquivalent.outputUsd, 30);
+  assert.equal(today.apiEquivalent.pricedTokens, 3_000_000);
+  assert.equal(today.apiEquivalent.totalTokens, 4_500_000);
+  assert.equal(today.apiEquivalent.pricingCoverage, 2 / 3);
+
+  const month = view.monthly.find((row) => row.period === '2026-07')!;
+  assert.equal(month.apiEquivalent.equivalentUsd, 71);
+  assert.equal(month.apiEquivalent.pricedTokens, 6_000_000);
+  assert.equal(month.apiEquivalent.totalTokens, 7_500_000);
+  assert.equal(month.apiEquivalent.pricingCoverage, 0.8);
+});
+
+test('Today is a calendar-day scope with exact sparse hourly cost and token composition', () => {
+  const snapshot = snapshotFixture();
+  for (const [index, file] of snapshot.files.slice(0, 2).entries()) {
+    const slice = file.period!.days['2026-07-20'];
+    const hour = index === 0 ? '10' : '11';
+    file.today = {
+      day: '2026-07-20',
+      timeZone: 'UTC',
+      indexedThrough: file.period!.indexedThrough,
+      hours: {
+        [hour]: {
+          total: { ...slice.total },
+          byModel: Object.fromEntries(
+            Object.entries(slice.byModel).map(([model, tokens]) => [
+              model,
+              { ...tokens },
+            ]),
+          ),
+        },
+      },
+    };
+  }
+  snapshot.coverage.today = {
+    day: '2026-07-20',
+    timeZone: 'UTC',
+    indexedFiles: 2,
+    totalFiles: 2,
+    indexedBytes: 2,
+    totalBytes: 2,
+    complete: true,
+  };
+
+  const view = buildCodexUsageView(snapshot, NOW);
+
+  assert.equal(view.today.total.processed, 1_200);
+  assert.equal(view.today.threads, 2);
+  assert.deepEqual(view.todayHourly.map((row) => row.hour), ['10', '11']);
+  assert.equal(view.todayHourly[0].total.processed, 600);
+  assert.equal(view.todayHourly[0].apiEquivalent.equivalentUsd, 0.0037);
+  assert.equal(view.todayHourly[0].apiEquivalent.pricingCoverage, 1);
+  assert.equal(view.todayHourly[0].threads, 1);
+  assert.equal(view.todayCoverage.complete, true);
+});
+
 test('rolling scopes stay anchored to snapshot coverage across Hong Kong midnight', () => {
   const snapshot = snapshotFixture();
   const coverage = snapshot.coverage.period;
@@ -492,7 +601,9 @@ test('daily and recent-thread details explain where Codex usage came from', () =
   const rootKey = codexFixtureIdentityKey('session:root-a');
   const projectKey = codexFixtureIdentityKey('project:a');
 
-  assert.deepEqual(view.daily[0], {
+  const { apiEquivalent, ...daily } = view.daily[0];
+  assert.equal(apiEquivalent.pricingCoverage, 1);
+  assert.deepEqual(daily, {
     day: '2026-07-20',
     total: {
       processed: 1_200,
@@ -652,6 +763,15 @@ test('usage view exposes classified limits and a safe recent task identity', () 
         totalBytes: 0,
         complete: true,
       },
+    },
+    today: {
+      timeZone: 'UTC',
+      day: '2026-07-20',
+      indexedFiles: 0,
+      totalFiles: 0,
+      indexedBytes: 0,
+      totalBytes: 0,
+      complete: true,
     },
   });
   assert.deepEqual(view.qualityFlags, [

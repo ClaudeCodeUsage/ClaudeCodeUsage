@@ -30,11 +30,11 @@ Opt-in GitHub 认证和跨设备聚合同步延后到 v2.4.x，届时单独做�
 | `providers/codex/codexSchema.ts` | 最小安全 JSON guard，不展开或返回 message/command/tool body。 |
 | `providers/codex/codexParser.ts` | Codex 精确单次请求解析及 cumulative high-water 回退、伪名 lineage metadata、结构计数、quality flag 和 last-observed limit。 |
 | `providers/codex/codexManifest.ts` | Codex 允许目录发现、HMAC file key、fingerprint 和 manifest diff。 |
-| `providers/codex/codexIndex.ts` | schema-3 的 per-file 数字聚合与重放证据持久化、有界 cold/tail parse、独立 aggregate/period coverage 和原子存取。 |
+| `providers/codex/codexIndex.ts` | schema-3 的 per-file 数字聚合与重放证据持久化、有界 cold/tail parse、独立 aggregate/period/current-day coverage 和原子存取。 |
 | `providers/codex/codexIndexWorker.ts` / `codexIndexClient.ts` | 后台协调器、recent-first progress、cancel、resume、checkpoint 持久化和 single-flight client。 |
-| `providers/codex/codexFilePassPool.ts` / `codexFilePassWorker.ts` | 一次性未完成回填期间，用于独立 main、lineage、period 和 identity per-file pass 的自适应受限本地 pool。 |
+| `providers/codex/codexFilePassPool.ts` / `codexFilePassWorker.ts` | 未完成回填期间，用于独立 main、lineage、period、current-day 和 identity per-file pass 的自适应受限本地 pool。 |
 | `providers/codex/codexProvider.ts` | 面向 extension 的 Codex snapshot facade 与 partial/unavailable/error outcome。 |
-| `providers/codex/codexUsage.ts` | Codex-specific 最近 task/7 天/30 天/项目 view model 聚合。 |
+| `providers/codex/codexUsage.ts` | Codex 自然日 Today/小时、7 天、30 天、月度、task 与项目 view model 聚合，以及精确模型 API 等效成本。 |
 | `providers/codex/codexInsights.ts` | 确定性的结构用量建议，不读 prompt/body。 |
 | `codexView.ts` / `codexViewComponents.ts` | Codex 本地化文案与默认 provider contract；不负责 HTML renderer、client script 或 CSS。 |
 | `settings.ts` | 权威 `SETTINGS` catalog 和 `SettingsStore`；不得散落直接读取。 |
@@ -60,7 +60,7 @@ Claude JSONL
   ──> manifest metadata
   ──> background worker
   ──> schema guard + 精确单次请求 parser（lineage high-water 回退）
-  ──> per-file 数字聚合索引
+  ──> per-file 数字聚合索引 + 定向的当日小时 sidecar
   ──> CodexProviderSnapshot
   ──> Codex scope + insight
   ──> Codex 状态栏 + provider-aware dashboard render input
@@ -77,6 +77,11 @@ provider 都已有真实数据时才显示「对比」。worker 启动前先装�
 索引生成第一个检查点后也会在 worker 继续运行时立即采用。因此，进度只是完整「已索引小计」
 仪表盘上的状态说明，不会替代卡片和表格。worker 进度最多每 250 ms 触发一次重绘，且只有
 选中 Codex 时才重绘 Webview；refresh 返回后仍会用已验证 snapshot 做最后一次渲染。
+
+Codex 的「今天」指配置时区中的当前自然日，而不是最近任务。汇总来自该日已验证的 period slice；
+精确小时行来自下文所述的独立当日 sidecar。小时、每日与每月主图默认使用 API 等效成本，Token 构成图
+仍独立展示。未知模型计入 Token 分母但保持未定价，因此定价 coverage 始终可见。Claude 与 Codex 的
+时间序列布局使用对齐的响应式宽度，较密集的图表和表格在各自可键盘聚焦的区域内滚动。
 
 ## Token 与 limit 语义
 
@@ -145,6 +150,11 @@ aggregate；按日的期间切片则独立晋升，因此 partial migration 不�
 all-time 的状态。7 天与 30 天只累加自然日内发生的 event；不会因为 Session 的最后活动落在范围内，
 就把该 Session 的整段较早历史吸收进来。
 
+当日小时索引是 schema 3 的增量 sidecar，不是第三份 all-time 事实来源。只有经重复分类选为 canonical，
+且已验证 period slice 已包含 `asOfDay` 的文件才会进入候选集。每个文件的小时晋升状态与处理中 cursor
+都会写入 checkpoint，因此取消后可从已验证 offset 续传。日期或时区变化时会丢弃过期 sidecar，改为
+目标新自然日；该路径既不使主 aggregate 失效，也不会触发全历史重建。
+
 Identity 同样是一份 coverage 契约。Git 的 SCP 形式 SSH URL 与 HTTPS URL 在 host/path 一致时
 会规范化为同一个 repository identity。Root title 采用可信的最新 `updated_at` title；subagent
 保留其报告的 nickname 及 parent title；project 优先显示 canonical repository name，才回退到目录名；
@@ -182,6 +192,8 @@ Codex 按多 GiB 本地历史设计：
   数十 MB snapshot 主导高速回填耗时；
 - 只有可能改变 lineage 的阶段才重新 reconcile；period 和稳定阶段复用已验证关系，
   不再反复扫描完整索引；
+- 当日小时任务仅处理 period slice 已证明包含 `asOfDay` 的 canonical 文件；它独立 checkpoint/续传，
+  不会重置主索引；
 - append refresh 只读新 tail；未完成行只留在 scanner 的短期内存，从 safe cursor 重试，绝不写入 v3；
 - truncate/replacement 只重解析受影响文件；
 - cancel checkpoint 会原子保存 per-file contribution 与 migration progress，下一轮从已验证 cursor resume；
