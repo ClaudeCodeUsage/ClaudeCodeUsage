@@ -6117,8 +6117,8 @@ export class UsageWebviewProvider {
       }
 
       [data-codex-last30-daily] .daily-table {
-        width: max-content;
-        min-width: 100%;
+        width: 100%;
+        min-width: 960px;
       }
 
       [data-codex-last30-daily] .daily-table th {
