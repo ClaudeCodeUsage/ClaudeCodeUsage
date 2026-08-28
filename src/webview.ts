@@ -871,7 +871,9 @@ export class UsageWebviewProvider {
     const title = provider === 'codex' ? codexCopy.title : I18n.t.popup.title;
     const refresh = I18n.t.popup.refresh;
     const settings = I18n.t.popup.settings;
-    const today = provider === 'codex' ? codexCopy.lastTask : I18n.t.popup.today;
+    // Keep the navigation familiar across providers. Codex still renders the
+    // provider-native "Recent task" heading and aggregation inside this tab.
+    const today = I18n.t.popup.today;
     const thisMonth = provider === 'codex' ? codexCopy.last30Days : I18n.t.popup.thisMonth;
     const allTime = provider === 'codex' ? codexCopy.allTime : I18n.t.popup.allTime;
     const sessions = provider === 'codex' ? codexCopy.sessions : I18n.t.popup.sessions;
@@ -1795,7 +1797,7 @@ export class UsageWebviewProvider {
       const rows = view.last30DaysDaily;
       const breakdown = rows.length === 0
         ? '<div class="no-data"><p>' + this.escapeHtml(copy.noDailyData) + '</p></div>'
-        : '<div class="daily-breakdown"><h3>' + this.escapeHtml(copy.daily) + '</h3>' +
+        : '<div class="daily-breakdown" data-codex-last30-daily><h3>' + this.escapeHtml(copy.daily) + '</h3>' +
           '<div class="chart-tabs">' +
           '<button class="chart-tab active" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
           '<button class="chart-tab" data-metric="outputTokens">' + this.escapeHtml(copy.fresh) + '</button>' +
@@ -6076,6 +6078,51 @@ export class UsageWebviewProvider {
         text-align: center;
         font-size: 10px;
         color: var(--vscode-descriptionForeground);
+      }
+
+      /* Codex always renders a complete rolling 30-day track. Keep those
+         dense charts and their table inside independent, keyboard-focusable
+         horizontal scrollers instead of widening the entire dashboard. The
+         explicit max-content track also keeps grid lines and labels aligned
+         after scrolling in Chromium. */
+      [data-codex-last30-daily] {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      [data-codex-last30-daily] .chart-content,
+      [data-codex-last30-daily] .chart-content > .hc-wrap,
+      [data-codex-last30-daily] .composition-chart,
+      [data-codex-last30-daily] .hc-wrap,
+      [data-codex-last30-daily] .hc-main {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      [data-codex-last30-daily] .hc-scroll,
+      [data-codex-last30-daily] .daily-table-container {
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        touch-action: pan-x pan-y;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      [data-codex-last30-daily] .hc-plot,
+      [data-codex-last30-daily] .hc-xlabels {
+        width: max-content;
+        min-width: 100%;
+      }
+
+      [data-codex-last30-daily] .daily-table {
+        width: max-content;
+        min-width: 100%;
+      }
+
+      [data-codex-last30-daily] .daily-table th {
+        white-space: nowrap;
       }
 
       .git-badge {

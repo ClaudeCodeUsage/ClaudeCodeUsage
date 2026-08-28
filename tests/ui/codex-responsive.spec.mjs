@@ -147,3 +147,59 @@ test('desktop Codex destinations use the same container width as Claude', async 
   const claudeWidth = await page.locator('.container').evaluate((element) => element.getBoundingClientRect().width);
   expect(codexWidth).toBe(claudeWidth);
 });
+
+test('Codex 30-day charts scroll horizontally without widening the dashboard', async ({ page }) => {
+  await openCodex(page, { locale: 'en', width: 720, height: 900 });
+  await page.locator('#tab-month').click();
+
+  const breakdown = page.locator('#month [data-codex-last30-daily]');
+  await expect(breakdown).toBeVisible();
+  const chartScrollers = breakdown.locator('.hc-scroll');
+  await expect(chartScrollers).toHaveCount(2);
+
+  const viewportWidth = page.viewportSize()?.width ?? 720;
+  const widths = await pageWidths(page);
+  expect(widths.document).toBeLessThanOrEqual(viewportWidth);
+  expect(widths.body).toBeLessThanOrEqual(viewportWidth);
+
+  for (const scroller of await chartScrollers.all()) {
+    const before = await scroller.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      overflowX: getComputedStyle(element).overflowX,
+    }));
+    expect(before.overflowX).toBe('auto');
+    expect(before.scrollWidth).toBeGreaterThan(before.clientWidth);
+
+    await scroller.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+    const after = await scroller.evaluate((element) => ({
+      scrollLeft: element.scrollLeft,
+      maxScrollLeft: element.scrollWidth - element.clientWidth,
+    }));
+    expect(after.scrollLeft).toBeGreaterThan(0);
+    expect(after.scrollLeft).toBeCloseTo(after.maxScrollLeft, 0);
+
+    const visibleRightEdge = await scroller.evaluate((element) => {
+      const scrollerRect = element.getBoundingClientRect();
+      const lastLabel = element.querySelector('.hc-xlabel:last-child');
+      const labelRect = lastLabel?.getBoundingClientRect();
+      return labelRect ? labelRect.right <= scrollerRect.right + 1 : false;
+    });
+    expect(visibleRightEdge).toBe(true);
+  }
+
+  const tableScroller = breakdown.locator('.daily-table-container');
+  const tableBefore = await tableScroller.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    overflowX: getComputedStyle(element).overflowX,
+  }));
+  expect(tableBefore.overflowX).toBe('auto');
+  expect(tableBefore.scrollWidth).toBeGreaterThan(tableBefore.clientWidth);
+  await tableScroller.evaluate((element) => {
+    element.scrollLeft = element.scrollWidth;
+  });
+  expect(await tableScroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+});

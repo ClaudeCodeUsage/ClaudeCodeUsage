@@ -26,7 +26,7 @@ test('Codex uses the shared dashboard shell and tab vocabulary', async ({ page }
 
   await expect(page.locator('.container > header')).toBeVisible();
   await expect(page.locator('.tabs > .tab')).toHaveText([
-    'Recent task',
+    'Today',
     'Last 30 days',
     'All time',
     'Sessions',
@@ -35,6 +35,7 @@ test('Codex uses the shared dashboard shell and tab vocabulary', async ({ page }
     'Settings',
   ]);
   await expect(page.locator('.tab-content.active')).toHaveAttribute('id', 'today');
+  await expect(page.locator('#today .model-breakdown h3').filter({ hasText: 'Recent task' })).toBeVisible();
   await expect(page.locator('[class*="codex-"]')).toHaveCount(0);
 });
 

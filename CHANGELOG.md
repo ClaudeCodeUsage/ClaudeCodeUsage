@@ -7,6 +7,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.3.0] — Unreleased
 
 ### Fixed
+- **Codex daily views stay readable at narrower widths** — the first Codex tab
+  now uses the familiar localized “Today” label while retaining its truthful
+  recent-task aggregation and heading. The Last 30 days daily chart, Token
+  composition chart, and table now scroll horizontally inside their own
+  keyboard-focusable regions instead of widening or clipping the dashboard.
 - **Weekly API-equivalent periods no longer overlap or double-count usage** —
   the newest valid official reset observation anchors one sequence of unique
   `[start, reset)` weekly buckets, so each local usage event contributes to
@@ -110,7 +115,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   redraw loop. Compare still waits until both providers have real data.
 - **Provider-aware Codex dashboard** — the existing Today / Month / All time /
   Sessions / Projects / Content / Settings render functions now accept a
-  provider and present the corresponding Codex Recent task / Last 30 days /
+  provider and present the corresponding Codex Today (recent task) / Last 30 days /
   All time / Sessions / Projects / Recommendations / Settings data.
 - **Truthful Codex identities** — root tasks use the latest path-redacted local
   thread title; child rows prefer their own real thread title, then fall back to
