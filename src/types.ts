@@ -268,6 +268,7 @@ export interface UsageAttribution {
 export interface ExtensionConfig {
   refreshInterval: number;
   dataDirectory: string;
+  pricingBackend: 'anthropic' | 'aws-bedrock-in-region';
   codexEnabled: boolean;
   codexDataDirectory: string;
   codexFileWatchSeconds: number;

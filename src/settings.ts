@@ -227,6 +227,18 @@ export const SETTINGS: SettingDef[] = [
 
   // --- Providers ---
   {
+    key: 'pricingBackend',
+    type: 'enum',
+    default: 'anthropic',
+    storage: 'state',
+    group: 'providers',
+    label: 'Claude pricing backend',
+    help: 'Select AWS Bedrock in-region rates when Claude Code usage is routed through Bedrock.',
+    enumValues: ['anthropic', 'aws-bedrock-in-region'],
+    enumLabels: ['Anthropic direct API', 'AWS Bedrock (in-region)'],
+    providers: ['claude'],
+  },
+  {
     key: 'codex.enabled',
     type: 'boolean',
     default: true,

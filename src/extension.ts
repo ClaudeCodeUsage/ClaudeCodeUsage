@@ -18,7 +18,7 @@ import { StatusBarManager } from './statusBar';
 import { UsageWebviewProvider } from './webview';
 import { I18n } from './i18n';
 import { resolveTimeZone } from './dateKeys';
-import { fetchLatestPricing } from './pricing';
+import { fetchLatestPricing, setPricingBackend } from './pricing';
 import { ClaudeApiClient } from './claudeApiClient';
 import {
   buildOptimizerSystemPrompt,
@@ -150,6 +150,7 @@ export class ClaudeCodeUsageExtension {
   private quotaColdRetryDone: boolean = false;
   private claudeProfileGeneration: number = 0;
   private claudeWeeklyQuotaHistory: WeeklyQuotaObservation[] = [];
+  private activePricingBackend: ExtensionConfig['pricingBackend'] = 'anthropic';
   private codexProvider: CodexProvider;
   private readonly codexSalt: string;
   private codexView: CodexUsageView | null = null;
@@ -304,6 +305,7 @@ export class ClaudeCodeUsageExtension {
   private async refreshPricing(): Promise<void> {
     try {
       const result = await fetchLatestPricing();
+      this.invalidateClaudeUsagePricingCache();
       vscode.window.showInformationMessage(`${I18n.t.popup.pricingUpdated} (${result.updated})`);
       // Force a full recompute so the new prices take effect.
       void this.refreshData(true, 'pricing');
@@ -756,6 +758,8 @@ export class ClaudeCodeUsageExtension {
 
   private loadConfiguration(): void {
     const config = this.getConfiguration();
+    this.activePricingBackend = config.pricingBackend;
+    setPricingBackend(config.pricingBackend);
     I18n.setLanguage(config.language as any);
     I18n.setDecimalPlaces(config.decimalPlaces);
     I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
@@ -791,6 +795,7 @@ export class ClaudeCodeUsageExtension {
     return {
       refreshInterval: s.get<number>('refreshInterval'),
       dataDirectory: s.get<string>('dataDirectory'),
+      pricingBackend: s.get<'anthropic' | 'aws-bedrock-in-region'>('pricingBackend'),
       codexEnabled: s.get<boolean>('codex.enabled'),
       codexDataDirectory: s.get<string>('codex.dataDirectory'),
       codexFileWatchSeconds:
@@ -1109,6 +1114,12 @@ export class ClaudeCodeUsageExtension {
 
   private onConfigurationChanged(): void {
     const config = this.getConfiguration();
+    const pricingBackendChanged = this.activePricingBackend !== config.pricingBackend;
+    this.activePricingBackend = config.pricingBackend;
+    setPricingBackend(config.pricingBackend);
+    if (pricingBackendChanged) {
+      this.invalidateClaudeUsagePricingCache();
+    }
     I18n.setLanguage(config.language as any);
     I18n.setDecimalPlaces(config.decimalPlaces);
     I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
@@ -1134,6 +1145,21 @@ export class ClaudeCodeUsageExtension {
       this.startCodexWatching();
       this.startCredentialsWatching();
     });
+  }
+
+  /**
+   * Pricing is part of every cached UsageData aggregate. The incremental
+   * loader normally skips unchanged JSONL files, so changing the pricing
+   * backend would otherwise update only the displayed rate labels while
+   * leaving totalCost/modelBreakdown.cost at the old rates.
+   */
+  private invalidateClaudeUsagePricingCache(): void {
+    this.cache.claudeIndex = createClaudeUsageIndex();
+    this.cache.records = [];
+    this.cache.contentAnalysis = null;
+    this.cache.manifest = null;
+    this.cache.dataDirectory = null;
+    this.cache.lastUpdate = new Date(0);
   }
 
   /** Keep quota credentials on the same Claude profile as this window's logs.

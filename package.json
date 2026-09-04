@@ -2,7 +2,7 @@
   "name": "claude-code-usage",
   "displayName": "Claude Code Usage",
   "description": "Local Claude Code and Codex usage insights in the VS Code status bar",
-  "version": "2.1.1",
+  "version": "2.3.1",
   "publisher": "GrowthJack",
   "author": "GrowthJack",
   "license": "MIT",

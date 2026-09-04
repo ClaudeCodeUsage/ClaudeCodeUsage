@@ -14,7 +14,12 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 
-import { calculateCostFromTokens, calculateCostBreakdown, getModelPricing } from '../pricing';
+import {
+  calculateCostFromTokens,
+  calculateCostBreakdown,
+  getModelPricing,
+  setPricingBackend,
+} from '../pricing';
 
 test('calculateCostFromTokens prices a known model from its per-token rates', () => {
   // Opus current tier: $5 / $25 / $6.25 / $0.50 per million in/out/write/read.
@@ -82,4 +87,115 @@ test('getModelPricing falls back to the right family for an unknown snapshot', (
   const pricing = getModelPricing('claude-opus-4-9-20990101');
   assert.ok(pricing, 'expected a fallback pricing object, got null');
   assert.equal(pricing!.input_cost_per_token, 5 / 1_000_000);
+});
+
+test('AWS Bedrock mode prices Claude 5 models with in-region rates', () => {
+  setPricingBackend('aws-bedrock-in-region');
+  try {
+    for (const model of [
+      'claude-sonnet-5',
+      'us.anthropic.claude-sonnet-5-v1:0',
+      'claude-sonnet-5[1m]',
+    ]) {
+      const pricing = getModelPricing(model);
+      assert.ok(pricing, `expected Bedrock pricing for ${model}, got null`);
+      assert.equal(pricing!.input_cost_per_token, 2.2 / 1_000_000, model);
+      assert.equal(pricing!.output_cost_per_token, 11 / 1_000_000, model);
+      assert.equal(pricing!.cache_creation_input_token_cost, 2.75 / 1_000_000, model);
+      assert.equal(pricing!.cache_creation_1h_input_token_cost, 4.4 / 1_000_000, model);
+      assert.equal(pricing!.cache_read_input_token_cost, 0.22 / 1_000_000, model);
+    }
+
+    const cost = calculateCostFromTokens(
+      {
+        input_tokens: 1_000_000,
+        output_tokens: 1_000_000,
+        cache_creation_input_tokens: 1_000_000,
+        cache_read_input_tokens: 1_000_000,
+      },
+      'claude-sonnet-5',
+    );
+    assert.ok(Math.abs(cost - 16.17) < 1e-9, `expected ~16.17, got ${cost}`);
+  } finally {
+    setPricingBackend('anthropic');
+  }
+});
+
+test('AWS Bedrock mode prices Claude Opus 4.5-4.8 with in-region rates', () => {
+  setPricingBackend('aws-bedrock-in-region');
+  try {
+    for (const model of [
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'claude-opus-4-6',
+      'claude-opus-4-5-20251101',
+      'us.anthropic.claude-opus-4-8-v1:0',
+    ]) {
+      const pricing = getModelPricing(model);
+      assert.ok(pricing, `expected Bedrock pricing for ${model}, got null`);
+      assert.equal(pricing!.input_cost_per_token, 5.5 / 1_000_000, model);
+      assert.equal(pricing!.output_cost_per_token, 27.5 / 1_000_000, model);
+      assert.equal(pricing!.cache_creation_input_token_cost, 6.875 / 1_000_000, model);
+      assert.equal(pricing!.cache_creation_1h_input_token_cost, 11 / 1_000_000, model);
+      assert.equal(pricing!.cache_read_input_token_cost, 0.55 / 1_000_000, model);
+    }
+  } finally {
+    setPricingBackend('anthropic');
+  }
+});
+
+test('AWS Bedrock mode prices Claude Sonnet 4.5 and 4.6 with in-region rates', () => {
+  setPricingBackend('aws-bedrock-in-region');
+  try {
+    for (const model of [
+      'claude-sonnet-4-6',
+      'claude-sonnet-4-5-20250929',
+      'claude-sonnet-4-5',
+      'us.anthropic.claude-sonnet-4-6-v1:0',
+      'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      'claude-sonnet-4.5',
+      'claude_sonnet_4_5',
+    ]) {
+      const pricing = getModelPricing(model);
+      assert.ok(pricing, `expected Bedrock pricing for ${model}, got null`);
+      assert.equal(pricing!.input_cost_per_token, 3.3 / 1_000_000, model);
+      assert.equal(pricing!.output_cost_per_token, 16.5 / 1_000_000, model);
+      assert.equal(pricing!.cache_creation_input_token_cost, 4.125 / 1_000_000, model);
+      assert.equal(pricing!.cache_creation_1h_input_token_cost, 6.6 / 1_000_000, model);
+      assert.equal(pricing!.cache_read_input_token_cost, 0.33 / 1_000_000, model);
+    }
+
+    const cost = calculateCostFromTokens(
+      {
+        input_tokens: 1_000_000,
+        output_tokens: 1_000_000,
+        cache_creation_input_tokens: 1_000_000,
+        cache_read_input_tokens: 1_000_000,
+      },
+      'claude-sonnet-4-5-20250929',
+    );
+    assert.ok(Math.abs(cost - 24.255) < 1e-9, `expected ~24.255, got ${cost}`);
+  } finally {
+    setPricingBackend('anthropic');
+  }
+});
+
+test('Claude Sonnet 4.5 switches between direct and Bedrock rates for the same model id', () => {
+  const model = 'claude-sonnet-4-5-20250929';
+
+  setPricingBackend('anthropic');
+  const direct = getModelPricing(model);
+  assert.ok(direct);
+  assert.equal(direct.input_cost_per_token, 3 / 1_000_000);
+  assert.equal(direct.output_cost_per_token, 15 / 1_000_000);
+
+  setPricingBackend('aws-bedrock-in-region');
+  try {
+    const bedrock = getModelPricing(model);
+    assert.ok(bedrock);
+    assert.equal(bedrock.input_cost_per_token, 3.3 / 1_000_000);
+    assert.equal(bedrock.output_cost_per_token, 16.5 / 1_000_000);
+  } finally {
+    setPricingBackend('anthropic');
+  }
 });

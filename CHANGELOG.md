@@ -7,6 +7,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.3.0] — Unreleased
 
 ### Fixed
+- **AWS Bedrock in-region Claude pricing** — the selectable Bedrock table now
+  covers Claude Opus 4.5, 4.6, 4.7, 4.8, Sonnet 4.5, Sonnet 4.6, Sonnet 5,
+  Opus 5, and Haiku 4.5, including separate 5-minute and 1-hour cache-write
+  rates. Changing the pricing backend invalidates the incremental cost
+  aggregate so existing logs are recalculated immediately.
 - **Codex Today is now the configured calendar day** — the first Codex tab now
   pairs its day total with exact hourly API-equivalent cost and a separate
   token-composition view. Its additive schema-3 current-day sidecar scans only

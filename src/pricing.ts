@@ -8,6 +8,20 @@ import * as https from 'https';
 
 import { ModelPricing } from './types';
 
+export type PricingBackend = 'anthropic' | 'aws-bedrock-in-region';
+
+let pricingBackend: PricingBackend = 'anthropic';
+
+/** Select the price table used for Claude model cost calculations. */
+export function setPricingBackend(backend: PricingBackend): void {
+  pricingBackend = backend === 'aws-bedrock-in-region' ? backend : 'anthropic';
+}
+
+/** Return the currently selected Claude pricing backend. */
+export function getPricingBackend(): PricingBackend {
+  return pricingBackend;
+}
+
 export interface TokenUsage {
   input_tokens: number;
   output_tokens: number;
@@ -125,6 +139,91 @@ const HAIKU_35: ModelPricing = {
   cache_creation_1h_input_token_cost: 1.6 / MILL,
   cache_read_input_token_cost: 0.08 / MILL,
 };
+
+// AWS Bedrock in-region, on-demand pricing (USD per 1M tokens).
+//
+// The Bedrock table also publishes batch prices. Claude Code's normal
+// pay-as-you-go inference is not batch inference, so only the standard input /
+// output rates and the cache rates are used here.
+const BEDROCK_OPUS_5: ModelPricing = {
+  input_cost_per_token: 5.5 / MILL,
+  output_cost_per_token: 27.5 / MILL,
+  cache_creation_input_token_cost: 6.875 / MILL,
+  cache_creation_1h_input_token_cost: 11 / MILL,
+  cache_read_input_token_cost: 0.55 / MILL,
+};
+
+// AWS Bedrock Claude Sonnet 4.5 / 4.6 in-region, on-demand pricing.
+const BEDROCK_SONNET_45_PLUS: ModelPricing = {
+  input_cost_per_token: 3.3 / MILL,
+  output_cost_per_token: 16.5 / MILL,
+  cache_creation_input_token_cost: 4.125 / MILL,
+  cache_creation_1h_input_token_cost: 6.6 / MILL,
+  cache_read_input_token_cost: 0.33 / MILL,
+};
+
+const BEDROCK_SONNET_5: ModelPricing = {
+  input_cost_per_token: 2.2 / MILL,
+  output_cost_per_token: 11 / MILL,
+  cache_creation_input_token_cost: 2.75 / MILL,
+  cache_creation_1h_input_token_cost: 4.4 / MILL,
+  cache_read_input_token_cost: 0.22 / MILL,
+};
+
+const BEDROCK_HAIKU_45: ModelPricing = {
+  input_cost_per_token: 1.1 / MILL,
+  output_cost_per_token: 5.5 / MILL,
+  cache_creation_input_token_cost: 1.375 / MILL,
+  cache_creation_1h_input_token_cost: 2.2 / MILL,
+  cache_read_input_token_cost: 0.11 / MILL,
+};
+
+/**
+ * Resolve the user-supplied Claude model label to an AWS Bedrock model family.
+ *
+ * Claude Code may log a short model name (`claude-sonnet-5`) even when the
+ * request was routed through Bedrock. Bedrock itself may expose a regional
+ * inference-profile prefix such as `us.anthropic.`. In the explicit Bedrock
+ * mode both forms must use the same in-region table.
+ */
+function getBedrockPricing(modelName: string): ModelPricing | null {
+  const name = modelName
+    .toLowerCase()
+    .replace(/\[[^\]]*\]\s*$/, '')
+    .replace(/^(?:(?:global|us|eu|apac|in)\.)?anthropic[./]/, '')
+    // Some integrations display the version separator as "." or "_", while
+    // Claude Code's native IDs use "-". Treat those labels as the same
+    // Bedrock model family so pricing is not silently reduced to Anthropic's
+    // generic Sonnet fallback.
+    .replace(/[._]/g, '-')
+    .replace(/\s+/g, '-');
+
+  if (name.includes('claude-opus-5') || name.includes('opus-5')) {
+    return BEDROCK_OPUS_5;
+  }
+  if (
+    name.includes('claude-opus-4-8') ||
+    name.includes('claude-opus-4-7') ||
+    name.includes('claude-opus-4-6') ||
+    name.includes('claude-opus-4-5') ||
+    name.includes('opus-4-8') ||
+    name.includes('opus-4-7') ||
+    name.includes('opus-4-6') ||
+    name.includes('opus-4-5')
+  ) {
+    return BEDROCK_OPUS_5;
+  }
+  if (name.includes('claude-sonnet-5') || name.includes('sonnet-5')) {
+    return BEDROCK_SONNET_5;
+  }
+  if (name.includes('claude-sonnet-4-6') || name.includes('claude-sonnet-4-5')) {
+    return BEDROCK_SONNET_45_PLUS;
+  }
+  if (name.includes('claude-haiku-4-5') || name.includes('haiku-4-5') || name.includes('haiku-4.5')) {
+    return BEDROCK_HAIKU_45;
+  }
+  return null;
+}
 
 /**
  * Build pricing for non-Anthropic providers, which usually only publish an
@@ -373,6 +472,17 @@ export function getModelPricing(modelName: string | undefined): ModelPricing | n
   // pricing applies.
   modelName = modelName.replace(/\[[^\]]*\]\s*$/, '');
 
+  // A Bedrock route cannot be inferred reliably from the model label alone:
+  // Claude Code commonly records just "claude-sonnet-5". When the user
+  // explicitly selects Bedrock, its known Claude rates must therefore take
+  // precedence over both the generic Anthropic table and LiteLLM overrides.
+  if (pricingBackend === 'aws-bedrock-in-region') {
+    const bedrockPricing = getBedrockPricing(modelName);
+    if (bedrockPricing) {
+      return bedrockPricing;
+    }
+  }
+
   // Try different variation matches (similar to ccusage logic)
   const variations = [modelName, `anthropic/${modelName}`, `claude-3-5-${modelName}`, `claude-3-${modelName}`, `claude-${modelName}`];
 
@@ -416,6 +526,12 @@ export function getExactModelPricing(modelName: string | undefined): ModelPricin
     return null;
   }
   const base = modelName.replace(/\[[^\]]*\]\s*$/, '');
+  if (pricingBackend === 'aws-bedrock-in-region') {
+    const bedrockPricing = getBedrockPricing(base);
+    if (bedrockPricing) {
+      return bedrockPricing;
+    }
+  }
   const variations = [
     base,
     `anthropic/${base}`,
