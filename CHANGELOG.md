@@ -1,8 +1,712 @@
 # Changelog
 
 All notable changes to this fork compared to upstream
-[`jack21/ClaudeCodeUsage`](https://github.com/jack21/ClaudeCodeUsage) (last
+[`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
+
+## [2.3.0] — Unreleased
+
+### Fixed
+- **Codex Today is now the configured calendar day** — the first Codex tab now
+  pairs its day total with exact hourly API-equivalent cost and a separate
+  token-composition view. Its additive schema-3 current-day sidecar scans only
+  canonical files already known to contain that day, checkpoints and resumes,
+  and does not trigger a full-history reindex. Daily and monthly primary trends
+  now default to API-equivalent cost while token composition remains separate;
+  unknown models stay unpriced and pricing coverage remains visible. Claude and
+  Codex time-series charts keep aligned responsive widths, with dense content
+  scrolling inside its own keyboard-focusable region.
+- **Weekly API-equivalent periods no longer overlap or double-count usage** —
+  the newest valid official reset observation anchors one sequence of unique
+  `[start, reset)` weekly buckets, so each local usage event contributes to
+  exactly one period. Any overlapping, non-aligned future reset is treated as a
+  conflict even when its series name differs; it cannot create an additional
+  "current" row. Codex usage is persisted in daily slices, so a slice that
+  crosses an official intraday reset remains counted once but marks the affected
+  period as a boundary approximation and suppresses total / unused allowance
+  inference. This display-only correction does not change the index schema or
+  trigger a rebuild. Historical Codex periods are always used-value-only; only
+  the newest current period may infer a total when its reset is unambiguous and
+  its indexed usage can be attributed to one observation source. Current unused
+  value remains withheld, and ambiguous multi-sign-in usage stays used-only.
+- **Claude changed-file refreshes no longer reread the full corpus (#87)** —
+  the production refresh path now keeps an exact in-memory per-file index,
+  reads only a verified append tail, and rebuilds only affected files for
+  truncate, replacement, move, and delete events. Cross-file response identity,
+  request-ID degradation, content UUID ownership, titles, context, sessions,
+  projects, branches, workflows, costliest messages, and all time buckets retain
+  the established full-loader results. Dashboard aggregates are materialized
+  incrementally, so an unchanged watcher refresh reads zero JSONL bodies and
+  performs zero aggregate mutations. A new Extension Host still performs one
+  cold in-memory build; normal runtime changes no longer repeat that work.
+- **Codex one-time backfills now use high-end hardware** — incomplete indexes
+  use an adaptive local pool of up to half the logical CPUs, capped at six
+  workers, for independent file passes. One-MiB stream chunks, stage-aware
+  lineage reconciliation, one durable write for a small warm append, and
+  coarser resumable checkpoints prevent repeated tens-of-megabytes index writes
+  from dominating the scan. Once complete, refresh returns to the bounded
+  low-power incremental path. Stable duplicate-session ambiguity is now shown
+  as an explicit data-quality warning and no longer leaves the page falsely
+  labelled as still indexing forever.
+- **Codex request-level token attribution** — valid `last_token_usage` snapshots
+  now provide the exact input, cached-input, output, and reasoning components;
+  their `total_tokens` value remains an active-context measurement rather than
+  request usage. A full numeric total-plus-last signature suppresses only a
+  replay from the same pseudonymous rate-limit source or an immediately adjacent
+  duplicate. Missing last snapshots retain the cumulative lineage high-water
+  fallback. Existing schema-3 indexes rebuild once, keep showing indexed
+  subtotals during that pass, and never mix the two attribution semantics.
+- **Conservative Codex rebuild totals** — schema and lineage migrations no
+  longer expose retained legacy aggregates as current usage. Cards, tables,
+  projects, sessions, recommendations, and the status bar now use only freshly
+  indexed contributions and show an indexed-subtotal notice until coverage
+  converges. Stale files remain visible in data-quality reporting. Account
+  limits remain last-observed snapshots and are never summed.
+- **Profile-scoped Claude quota credentials (#89)** — quota reads and token
+  refresh writes now follow explicit `dataDirectory`, then the first valid
+  `CLAUDE_CONFIG_DIR`, then `~/.claude`. A selected custom profile without a
+  credentials file shows quota as unavailable instead of silently using the
+  single global macOS Keychain account, and persisted quota snapshots are
+  isolated by profile. Thanks to [@HoangJN](https://github.com/HoangJN) for the
+  precise report.
+- **Per-model weekly limits are read again** — Anthropic's usage API stopped
+  filling in its per-model quota fields, so the weekly Opus figure had silently
+  gone blank. The extension now reads whichever per-model weekly cap your plan
+  meters and labels it the way Anthropic does, for example "Fable".
+- **The quota tooltip follows the reset countdown format** — it always used
+  whole units, so on the default decimal setting the same window read "4.5h" in
+  the status bar but "4h 29m" in the tooltip. Every row now reads "time left
+  (wall clock)" on one line, the 5-hour window included, which previously showed
+  no reset time at all.
+- **Missing settings translations** — four Brazilian Portuguese entries and one
+  Indonesian entry showed English text in the settings panel.
+
+### Added
+- **Codex API-equivalent cost summary** — every Codex usage scope now begins
+  with a clearly labelled approximate dollar value calculated from currently
+  indexed tokens and exact known-model API prices. Unknown models stay unpriced,
+  the hover text reports priced-model coverage, and the value is explicitly not
+  presented as a bill or subscription charge.
+- **Historical weekly allowance value** — Claude and Codex All-time and Compare
+  views now calculate historical used API-equivalent value directly from local
+  token logs. One valid observed reset anchors unique, non-overlapping weekly
+  buckets; without one, usage-only rows use Monday-to-Monday UTC calendar weeks.
+  Codex historical periods, boundary-approximate daily slices, conflicting reset
+  sequences, and usage that cannot be assigned to one observed sign-in remain
+  used-value-only. Only an unambiguous newest current period with single-source
+  attribution may infer a total allowance; its unused value is still withheld.
+  Current official API prices are applied consistently and each period includes
+  model-price coverage. This remains an estimate, not a bill or an official
+  subscription price. The panel is enabled by default and can be hidden with
+  `showWeeklyEquivalentValue`.
+- **Complete Claude quota details** — the tooltip now shows every active
+  all-model and model-scoped weekly cap reported by Anthropic, plus used monthly
+  credits when available. Model-scoped status-bar display remains opt-in and is
+  named dynamically instead of assuming Opus.
+- **Codex Beta** — local-only Codex usage views for processed, uncached input +
+  output, cached input, input cache-hit rate, output, reasoning, model, effort,
+  thread structure, index coverage, quality flags, and last-observed limit
+  snapshots.
+- **Provider-aware dashboard** — Claude, Codex Beta, and side-by-side Compare
+  modes preserve provider-specific semantics; Compare does not sum cost or quota.
+- **Immediate Codex entry during backfill** — once an allowed Codex home is
+  detected, its provider tab appears before the first index finishes and shows
+  exact indexed-file, percentage, and byte progress inside the page. The last
+  atomic checkpoint is hydrated before the worker starts, so its full indexed-
+  subtotal dashboard remains usable while reconciliation continues; a brand-new
+  index adopts its first checkpoint without waiting for the whole pass. Progress
+  renders are coalesced so the indicator does not turn backfill into a Webview
+  redraw loop. Compare still waits until both providers have real data.
+- **Provider-aware Codex dashboard** — the existing Today / Month / All time /
+  Sessions / Projects / Content / Settings render functions now accept a
+  provider and present the corresponding Codex calendar Today with hourly detail /
+  Last 30 days / All time / Sessions / Projects / Recommendations / Settings data.
+- **Truthful Codex identities** — root tasks use the latest path-redacted local
+  thread title; child rows prefer their own real thread title, then fall back to
+  their reported nickname while displaying the parent/root title. If those are
+  also missing, localized neutral fallbacks are used. Projects use the Git
+  repository name (or a non-Git folder basename). Raw session IDs, repository
+  URLs, and full paths remain excluded.
+- **Codex detail tables and limits** — source-derived task/project names,
+  provider-native token columns, model/range filtering, sortable session and
+  project tables, and unexpired named limit windows make high usage traceable
+  without inventing Branches, Workflows, cost, or real-time subscription state.
+- **Local Codex optimization guidance** — structural signals explain unusually
+  high subagent, effort, approval-reviewer, tool-call, and cache overhead without
+  inspecting or retaining prompt, response, command, or tool-argument content.
+- **Scalable Codex indexing** — a cancellable background worker and persistent
+  per-file aggregate index support incremental progress, tail-only append reads,
+  resume, and zero unchanged usage-record/rollout JSONL body rereads on warm
+  refreshes. Incomplete one-time backfills may use the bounded adaptive local
+  file-pass pool; completed indexes do not retain those extra workers. This does
+  not include the exact `$CODEX_HOME/session_index.jsonl` title stream performed
+  on every refresh.
+- **One-pass initial Codex backfill** — the first non-empty index or an
+  incomplete legacy migration receives a bounded 64 GiB / 16,384-file-pass
+  streaming ceiling, with cancellation and atomic resume checkpoints. The
+  ceiling is not an up-front memory allocation. After convergence, automatic
+  work returns to 128 MiB / 64 file passes and the always-visible Refresh action
+  uses 2 GiB / 512 file passes. Unchanged warm refreshes still read zero
+  usage-record JSONL bodies.
+- **Codex UI release gate** — production-rendered coverage checks shared-tab
+  navigation, settings, charts, sorting, accessibility, responsive overflow,
+  stylesheet identity, and the invariant that Codex-rendered classes are a
+  subset of classes already emitted by the Claude dashboard.
+
+### Changed
+- **`showOpusWeekly` is now `showScopedWeekly`** — the setting no longer names a
+  single model, because the API says which model is capped. Your existing choice
+  carries over, and it stays opt-in and off by default.
+- **The quota tooltip lists every weekly cap** the API reports, each on its own
+  row with its own bar, whether or not the status bar is showing it. A per-model
+  cap can be the binding one, so it is always one hover away.
+- **The status bar nests a per-model cap in the weekly figure** — "wk 9%
+  (fable 17%)" with one countdown, rather than repeating the identical reset for
+  each cap. A cap that reset on its own schedule would still get its own segment.
+- **Caps with nothing to report stay hidden** — a per-model weekly cap appears
+  once it has usage against it, so it is absent at the start of a week rather
+  than sitting at 0%. The 5-hour and all-models figures always show.
+- **Reset times read to the minute** — they were shown truncated to the second,
+  so a cap resetting at 16:59:59 displayed as "16:59" while the cap it resets
+  alongside displayed "17:00".
+- **Quota warns at the same points as the official Claude app.**
+  The quota indicator and every bar in its tooltip now turn amber at 75% and red at 90%, instead of 80% and 95%.
+  The context-window indicator keeps the earlier 80% and 95% steps.
+- **Unified Claude/Codex dashboard shell** — Codex Beta now uses the same
+  header/action order, navigation rhythm, summary cards, detail rows, token
+  composition, tables, spacing, and responsive behavior as the existing Claude
+  dashboard. Usage limits are compact summary cards, recent-task identity is no
+  longer followed by a duplicate statistics block, and recommendation
+  composition uses the established model-detail layout.
+- **Consistent Codex terminology** — user-facing metrics now use Processed,
+  Input, Uncached input, Cached input, Output, Reasoning, and Uncached usage
+  consistently across all eight supported locales; internal field names and
+  persisted setting values remain compatible.
+- **Readable Codex Sessions table** — the collapsed view keeps eight useful
+  columns at 1280 px, prioritizes Thread and Project, and moves secondary token
+  details into an expandable row without duplicating Role.
+- **Stable dashboard UI state** — the selected provider, active tab, chart
+  metric, table sort, expanded rows, recommendation filters, and page scroll
+  position survive a webview reload when still applicable.
+- **Generic model-scoped weekly setting** — the earlier `showOpusWeekly` choice
+  migrates to `showScopedWeekly`, follows the model name supplied by Anthropic,
+  and nests a shared-reset cap into the weekly status-bar segment.
+- **One Claude/Codex dashboard render stack** — Codex Beta is now a provider
+  switch inside `webview.ts`. It uses the same render functions, HTML shell,
+  class names, stylesheet, header/action order, tabs, summary cards, detail
+  rows, charts, tables, spacing, and responsive behavior as Claude.
+- **Exact-version release announcements** — the default-on notification can be
+  disabled, stays quiet on a fresh install, and shows only the content for the
+  complete installed version instead of falling back to stale v2.2 notes.
+- Repository policy and architecture now define provider-neutral contracts,
+  Codex privacy boundaries, eight-locale/seven-README parity, and the real
+  OpenAI Codex co-author trailer for Codex-led commits.
+- Codex indexing follows observed rollout semantics: child counters start from
+  their own zero, repeated metadata preserves lineage, `guardian` sessions are
+  approval reviewers, and known non-usage envelopes are not quality failures.
+- The shared Settings renderer shows only shared and Codex-effective controls
+  when Codex is selected. Codex and its local optimization signals can be
+  disabled independently; recommendations remain grounded in the indexed
+  30-day structural aggregates and disclose partial coverage.
+- Codex period charts now reuse the existing dashboard's Y axis, grid, theme
+  colors, horizontal scrolling, and metric-switching behavior.
+- **Persistent period indexing** — the compatible `codex-index-v1.json` path now
+  persists only sanitized aggregates, promotes exact local day slices in bounded
+  resumable batches, and exposes independent 7-day, 30-day, and all-time
+  coverage. All-time aggregates remain verified independently of partial period
+  slices; exact active/archive copies are deduplicated while ambiguous identities
+  remain visible as incomplete coverage.
+- Rolling 7-day and 30-day views now use exact event-day slices in the configured
+  timezone. Period migration and coverage gaps stay visibly partial instead of
+  being presented as complete data.
+- **Schema-3 lineage reconciliation** — ordered fingerprints of numeric token
+  counters remove only copied parent prefixes across direct, nested, and
+  multi-epoch forks and verified active/archive overlaps while preserving
+  independent sibling work. Missing parents remain conservatively counted and
+  surface a visible quality warning. Legacy indexes rebuild in bounded passes
+  instead of retaining inflated totals.
+
+### Fixed
+- **Claude response-level token counting** — regression fixtures now lock the
+  observed transcript behavior: one response may emit separate `thinking` and
+  `text` rows with the same `messageId`, `requestId`, and complete `usage`
+  vector, so the extension counts that response once and keeps its largest
+  vector rather than summing rows like Claude Code's `stats-cache`. Identity
+  degradation is also covered: a matching row that omits `requestId` still
+  joins the sole known request, while distinct request IDs stay separate.
+- **Shared-dashboard readability** — active tabs remain distinguishable in
+  Light+ and Dark+, sortable headers expose their interaction without changing
+  the established alignment, and the output segment in composition charts uses
+  a fully opaque registered VS Code theme color.
+- **Responsive first-pass automation** — when both configured model tiers fail
+  or return no usable text, the Issue/PR workflow posts a deterministic,
+  provider-neutral fallback instead of exiting without a comment; reruns avoid
+  duplicate first-pass replies.
+- **Consistent Claude quota reset detail** — tooltip countdowns follow the
+  selected format and pair it with the wall-clock reset, while zero-use scoped
+  caps stay out of the compact status bar.
+- **Codex idle energy and multi-window contention** — Unfocused VS Code windows
+  suspend Claude and Codex polling/watchers until focus returns. Complete,
+  unchanged Codex indexes now skip aggregate recomputation and disk writes;
+  cross-window refreshes share a single index lease, and atomic saves use unique
+  temporary files instead of competing for one `.tmp`.
+- **Stable rolling-period tests** — Codex index refreshes use an injectable clock
+  internally so recent-period coverage remains deterministic without changing
+  runtime date or timezone semantics.
+- **Codex index self-recovery** — malformed JSON and unsupported persisted index
+  schemas are atomically preserved as timestamped `.corrupt-*.json` backups,
+  then rebuilt from local usage records instead of leaving Codex Beta stuck in
+  an error state. Diagnostics expose only a safe recovery reason, never the
+  index path or contents; unrelated filesystem errors still fail closed.
+- **Codex fork overcounting** — copied token histories replayed into child
+  rollouts no longer inflate provider totals. Counter regressions use
+  exact last-request components with partial confidence; only the missing-last
+  cumulative fallback uses component-wise high-water containment rather than
+  adding reset gaps again.
+- **Visible Codex backfill state** — while bounded indexing is still converging,
+  Coverage · Quality now warns that current totals are incomplete, shows the
+  real indexed-files/total-files progress, and clears the warning automatically
+  once base and period coverage are complete.
+
+### Removed
+- **Weekly Opus naming retired** — the fixed Opus-specific surface is replaced
+  by the generic, API-named `showScopedWeekly` setting. PR #38 and
+  [@wheelbarrel00](https://github.com/wheelbarrel00) remain credited for the
+  original contribution.
+
+### Privacy
+- Codex usage-record discovery is restricted to `sessions/**/*.jsonl` and
+  `archived_sessions/**/*.jsonl`. Separately, the extension streams exactly
+  `$CODEX_HOME/session_index.jsonl` to map `id` to `thread_name` for truthful
+  thread titles; credentials, SQLite databases, browser/keychain state, and
+  unknown files remain excluded.
+- Absolute filesystem paths embedded in a Codex thread title are replaced with
+  `[path]`, and the sanitized title remains memory-only. Usage-record JSONL lines
+  are streamed and temporarily parsed only for allowlisted metadata; prompt,
+  response, command, and tool-argument fields are not inspected or used for
+  analysis and are never retained.
+- The persistent index contains machine-salted pseudonymous keys, numeric and
+  structural aggregates, and sanitized project, directory, agent, model,
+  effort, role, time, and quality metadata. It never persists raw IDs, full
+  paths or repository URLs, thread titles, or conversation bodies.
+
+## [2.2.2] — Unreleased
+
+### Fixed
+- **Lower multi-window energy use** — Suspend polling and file watchers in
+  unfocused VS Code windows, then refresh immediately when the window regains
+  focus. This avoids repeating the same local scan in every Extension Host.
+- **Quota failure throttling** — Back off repeated quota authentication failures
+  for up to one hour, while retrying immediately after Claude credentials
+  change.
+- **Usage dashboard recovery (#79, fixes #82)** — one oversized non-transcript
+  `.jsonl` can no longer abort the earliest-timestamp probe and blank the whole
+  dashboard. Thanks [@ptweezy](https://github.com/ptweezy).
+- **Opus 5 context window (#81, reported in #84)** — recognise the bare
+  `claude-opus-5` model id as a 1M-context model and remove its spurious
+  unknown-model pricing diagnostic. Thanks [@e7d](https://github.com/e7d).
+## [2.2.1] — 2026-07-18
+
+### Added
+- **Bahasa Indonesia (`id`) (#76)** — the extension's eighth UI language covers
+  the dashboard, status bar, settings, and AI-advice demo, with a dedicated
+  `README-id.md`. Thanks [@projectronic](https://github.com/projectronic).
+- **Sessions: all sessions + filters (#73)** — the Sessions tab can show all
+  sessions and adds persisted time-range, project, and model filters. Thanks
+  [@Carl723000](https://github.com/Carl723000).
+- **Reset countdown formats (#75, closes #74)** — quota reset countdowns can use
+  decimal, whole-unit, or local clock/date formats. Thanks
+  [@projectronic](https://github.com/projectronic).
+- **Indonesian timezone presets (#77)** — the timezone picker now includes WIB,
+  WITA, and WIT presets. Thanks [@projectronic](https://github.com/projectronic).
+
+### Changed
+- **Codex maintenance handoff** — `AGENTS.md` is now the canonical repository
+  policy with a Simplified-Chinese review copy. Claude Code and OpenAI Codex
+  are credited as development tools, separately from human contributors.
+
+### Fixed
+- **High-CPU refresh mitigation (#70)** — polling now always honors the
+  configured 30–3600 second `refreshInterval`; file watching is quiet-debounce
+  only and adds 60/120/300-second choices. First-timestamp reads stop after the
+  first valid timestamp and run with at most eight readers.
+- **Date labels (#54, PR #71)** — daily rows on the first of a month remain
+  daily labels, while monthly keys no longer shift one month backward in
+  negative-UTC zones. Thanks [@YuboZhang](https://github.com/YuboZhang).
+- **Automatic first-pass language (#72)** — repository bot replies now default
+  to English, using English-first bilingual output only for Chinese authors.
+- **Cold-start refresh failures** — an incomplete first scan now clears the
+  loading state and shows a localized retry/diagnostic message while preserving
+  an existing successful snapshot on later transient failures.
+
+### Diagnostics
+- **Anonymous refresh timings** — Show Diagnostic Logs now reports trigger,
+  file/change/reuse/removal counts, bytes, parsed lines, watcher/coalescing
+  counts, and manifest/read-parse/aggregate-render/total timings. It never logs
+  prompts, paths, session IDs, credentials, or raw JSONL lines.
+
+> This is a mitigation pending Linux prerelease validation. Issue #70 remains
+> open until the reporter confirms the result; the per-file incremental index
+> is tracked separately.
+
+### Security
+- Hardened GitHub first-pass automation with truthful per-tier provider attribution,
+  one code-owned footer, fail-closed PR diff handling, and bounded base-repository file reads
+  with traversal, symlink, hidden-path, and secret-path denial.
+- Manual publish retries now require an explicit existing release tag, check out
+  and verify its fully qualified `refs/tags/` commit, and can target only the
+  registry that needs recovery.
+
+## [2.2.0] — 2026-07-07
+
+### Added
+- **`tokenDecimalPlaces`** (default 1, 0–2) — decimals for the *compact* token
+  display (`1.2M` / `345.6K`); full integer counts are unaffected.
+- **Cache-hit-rate column** in the All-time (monthly) and This-month (daily)
+  breakdown tables — and in the expanded per-day / per-hour drill-downs — so the
+  cache efficiency is visible per row, not just in the summary card.
+- **Token heatmap on the All tab** (opt-in, `showHeatmap`, default off) — a
+  GitHub-style yearly token heatmap (Claude orange) at the top of the All tab.
+  Inline SVG, so the per-day hover tooltips work in the dashboard. Mainly a
+  shareable view of data already shown elsewhere, hence off by default.
+- **Export Token Heatmap (GitHub style)** — a command that writes a
+  self-contained, GitHub-contribution-style SVG of the trailing year's token
+  usage (Claude-orange scale, top-left summary, per-day tooltips, source
+  watermark) to a file, with a one-click "copy Markdown embed" — for pasting
+  into a GitHub profile README. Pure, unit-tested renderer (`heatmapSvg.ts`).
+- **Token-composition drill-down** — clicking a month in the All-time *Token
+  composition* chart expands that month's per-day composition (alongside the
+  daily chart + table), so you can read the input / output / cache-write /
+  cache-read split day by day, not just at the month level.
+- **Share-card + heatmap foundations** — tested pure logic (`src/shareCard.ts`,
+  `src/heatmap.ts`) for the upcoming Usage Share Card and Monthly token heatmap.
+
+- **Efficiency insights** (opt-in, `showEfficiency`, default off) — starts with a
+  **top-10 costliest conversations** panel on the Content tab: expandable rows
+  (native disclosure) showing each session's tokens, cache-hit rate, top model
+  and project, ranked by cost. (Cost-per-message + realised cache-savings chips
+  on Today/projects use the same toggle.)
+- **"What's new" prompt after upgrades** — a single, dismissible notification
+  the first time you run a new major.minor version, pointing at the dashboard so
+  new (including opt-in, default-off) features are discoverable. Shown once per
+  version; skipped on a fresh install.
+- **Usage Share Card** (opt-in, `enableShareCard`, default off) — a configurable
+  one-page SVG you can generate and export/share: pick a range (last 30 days /
+  week / month / year / a specific month), a scope (overall / a project / a
+  session), which metrics to show, and a **theme** — **Claude Classic** (orange,
+  default), **Claude Cream**, **Aurora Dark**, or **Auto**. Self-contained SVG;
+  optional GitHub **avatar + name**; deterministic; privacy by construction (no
+  prompts/paths/ids). Built on demand; config + preview survive a refresh.
+- **Publish Token Heatmap to GitHub** — one-click publish of the heatmap SVG to
+  a repo (default: your profile repo) via VS Code's built-in GitHub auth (no
+  PAT). Shows a consent modal first.
+- **Top-10 costliest *messages*** (opt-in, `showCostliestMessages`, default off,
+  Content tab) — ranks single turns by cost; expand for the triggering prompt,
+  model, skill, a **cost split** that distinguishes a **cache miss** from a long
+  answer, the **cache-hit rate**, and the **time since the last turn** (+ a
+  "model switch flushed the cache" / "idle past cache TTL" cause). (Reworked from
+  the earlier costliest-*conversations* panel.)
+- **Cache warmth estimate** (`showEfficiency`) — infers how long your prompt
+  cache stays warm while idle from your own turns (measured **~60 min**, not 5).
+- **Efficiency chips** — cost/message, **tokens/message**, realised cache savings
+  on Today / month / all-time; a **Cost/msg** column in the projects table.
+- **Conversation viewer** (opt-in, `showConversationViewer`, **default on** — it's
+  read-only) — a "view" button on the Sessions tab opens a read-only reader for a
+  past conversation: your prompts up front, the model's answers rendered from
+  Markdown (tables included), with thinking and tool traffic behind toggles. Lets
+  you re-read a session to jog your memory *without* loading it back into the
+  model's context (unlike resume). Reads local logs only; refreshes each time you
+  open it; loads the last 10 rounds.
+- **Experimental insights** (opt-in, `showInsights`, default off, Content tab) —
+  heuristic estimates from your local logs, labelled as estimates: a **cache-churn
+  bill** ($ spent re-writing cache after model switches / idle gaps), **cache
+  warmth by model** (how long each model keeps your cache warm), **big one-shot
+  turns** (a checkpoint nudge), **your active hours** (a 24-h token sparkline +
+  peak window), and **skill ROI** (output tokens returned per $ per skill/plugin).
+- **Sessions "Active" column** — estimated hands-on time per session (gaps between
+  turns, each idle gap capped at 1.5 h), which is far more meaningful than the raw
+  first-to-last span for long-lived sessions. Sortable, with an explanatory tooltip.
+- **Live-refresh delay control** (`fileWatchSeconds`: Off / 1 / 2 / 5 / 10 / 20 /
+  30 s, default 2 s) replaces the on/off "live file watching" toggle. This only
+  re-reads your **local** log files — no API call; the `/usage` quota fetch is
+  throttled separately.
+- **Chinese share-card units** — the share card uses 万/亿 (萬/億 in zh-TW) and its
+  text follows the UI language, so an English card is fully English and a Chinese
+  card fully Chinese.
+
+### Changed
+- **`enableSessionActions`** (default off) gates the Sessions **resume _and_
+  delete** buttons together — both *act* on your Claude Code (reopen / trash a
+  log), at odds with the extension being read-only, so they're opt-in as a pair.
+  (Replaces the earlier `enableSessionDelete`.)
+- **Timezone-aware bucketing** — every Today / day / month / hour total now derives
+  its day boundary from the configured IANA zone (empty = system), kept in lockstep
+  with the display, so the aggregations agree with each other and with the console;
+  an invalid zone falls back to the system zone instead of breaking the dashboard.
+- **Cache-write cost by TTL** — when a log carries the cache-creation TTL split, a
+  1-hour cache write is priced at 2× base input (vs the 5-minute 1.25×), matching
+  Anthropic's billing; logs without the split are unchanged. (PR #62, @zeyutang.)
+- **Timezone dropdown = full UTC-offset coverage** — common zones plus every UTC
+  offset (grouped Common / UTC offset), each labelled with its current offset;
+  IANA identifiers only (no editorialised place names).
+- **`dashboardAutoRefresh`** (positive wording, default true) replaces the
+  double-negative `pauseDashboardRefresh`; existing values are migrated.
+- Repository metadata (`repository` / `bugs` / `homepage`) now points at the
+  `ClaudeCodeUsage` organization.
+
+### Fixed
+- **Thinking share reads "hidden", not a false 0%,** for models that omit their
+  reasoning text (Fable 5 / Opus 4.8 — `"thinking":""` + a signature).
+- **Quota reset countdown** in the tooltip now reads `4d 12h` (the compact
+  status-bar form keeps `4.5d`); a recently-expired usage-anchored window no
+  longer shows a fabricated countdown while idle.
+- **Auto-refresh no longer wipes** the generated share card or collapses expanded
+  Content rows (reset only on tab switch); the GitHub avatar renders (webview CSP
+  now allows `data:` images).
+- Message counts exclude api_error retries and the compaction summary line.
+- **Timezone is a validated dropdown** — the Timezone setting is now a picker of
+  valid IANA zones (`Intl.supportedValuesOf`) instead of free text, so an invalid
+  value can't be entered; a guard also rejects any old bad synced value. Fixes a
+  crash where a hand-typed zone made `Intl` throw and broke the whole dashboard.
+  (#51)
+- **German (de-DE) now selectable** — the German translation (contributed by
+  @mxzinke) existed in the strings and `SupportedLanguage` but had never been
+  added to the `package.json` enum or the settings dropdown, so it couldn't be
+  chosen. Exposed it everywhere; verified the translation and fixed two English
+  leaks (`error`, popup `currentSession`).
+- **pt-BR now selectable** — Brazilian Portuguese (added in 2.1.1) was missing
+  from the dashboard's language dropdown (`settings.ts` enum) and the README
+  language lists, even though the strings, `package.json` enum and
+  `SupportedLanguage` already had it. Wired it through everywhere.
+- **Timezone-correct month / day bucketing** — the This-month and All-time
+  breakdowns now bucket every record's day *and* month in the configured
+  timezone (empty = system). Previously the month boundary was local while the
+  day key was UTC, so a record just after local midnight on the 1st showed up
+  under the previous month's last day. (`src/dateKeys.ts`, unit-tested.)
+- **Breakdown table scroll** — number cells stay on one line, so the compact
+  (k/M) view fits the panel with no horizontal scroll while full integer numbers
+  overflow and scroll the table only; the chart keeps its own scroll.
+- **API-error retries no longer inflate the Messages count** — when a request
+  errors, Claude Code retries it and re-logs the same user prompt; an identical
+  prompt re-appearing within a short window is now counted once (genuine
+  re-sends minutes/hours later still count). (`src/promptDedup.ts`, unit-tested.)
+- **Compaction summary no longer counts as a message** — when a session is
+  auto-compacted, Claude Code injects the "This session is being continued…"
+  summary as a *user* message; it's now excluded from the Messages count (you
+  never typed it). Verified on real logs.
+- **Cache-write ("input cache miss") bars render again** — in every usage bar
+  chart, selecting the cache-write metric showed only the axis and value labels:
+  the bar's gradient referenced a `--vscode-charts-pink` colour VS Code doesn't
+  define, which made the whole gradient invalid (transparent). Added a fallback.
+
+### Removed
+- Dropped the unused `@types/glob` devDependency (clears a vulnerability
+  advisory). Thanks @zeyutang (#63).
+
+### Fixed
+- **Sonnet 5 context window** — `contextWindowFor()` only recognised the 1M
+  window via a "4.6+" pattern (e.g. `sonnet-4-6`), so `claude-sonnet-5` — which
+  has no `-4-` segment — fell through to the 200K legacy default. The dashboard
+  and status-bar context bar now correctly show a 1M window for Sonnet 5.
+
+## [2.1.1] — Unreleased
+
+### Added
+- **Monthly cost in the status bar** — the `statusBarMetric` setting gains a
+  new `monthly-cost` option. When selected, the first status-bar item shows the
+  current calendar month's total cost ($(calendar) icon) instead of today's
+  cost. Hover tooltip mirrors the today tooltip with month-to-date token and
+  cost breakdown. (PR #41, @PhisicsLollo0.)
+- **Sessions: resume / copy / delete** — each session row can copy its id, copy
+  its project path, resume it (in the
+  official Claude Code extension, or a terminal for cross-project sessions), or
+  delete it (to the trash, after a confirm); plus a Current project / All filter.
+  (PR #43, @oxsean.)
+- **Quota display options** — `quotaFiveHourOnly` (show only the 5-hour window)
+  and `showResetInStatusBar` (append a compact reset countdown) in the ⚙ Settings
+  tab. The default stays the clean `5h 6% · wk 1%`; full reset times always live
+  in the tooltip. To hide cost, set `statusBarMetric` to `tokens`. (PR #43.)
+- **Sturdier quota** — the last `/usage` result is cached to disk and shown
+  instantly on startup; on a 429 the fetch backs off instead of hammering the
+  endpoint. (PR #43.)
+- **Wider dashboard** (up to 1600 px) with indented sub-project rows; status-bar
+  setting changes apply without a full dashboard reload. (PR #43.)
+- **Brazilian Portuguese (pt-BR)** — adds pt-BR as a seventh interface
+  language: status bar, dashboard, settings labels/help and the advice demo
+  sample. (PR #48, @henrique-carvalho-dev.)
+
+### Fixed
+- **Account switch now refreshes the quota** — switching Claude accounts no
+  longer leaves the status bar stuck on the previous account's usage until a
+  window reload. The OAuth credentials are re-read on every quota fetch (a
+  switched-in account's token is valid, so the old expiry-only re-read never
+  noticed it), and the credentials file is watched so the change is picked up
+  promptly instead of after a full cache interval. (Keychain-stored credentials
+  on macOS update on the next refresh tick.) (PR #47.)
+- **Model pricing accuracy** — several models had missing or stale pricing:
+  `glm-5.1`, `glm-5.2` (were falling back to glm-4.6 rates), `minimax-m3`
+  (used Sonnet default), `mimo-v2.5-pro` (used Sonnet default),
+  `kimi-k2.7-code` (input/output correct via family inference, cache wrong),
+  `qwen3.5-flash`, `qwen3.5-plus` (used qwen-plus rates),
+  `hy3-preview` (used Sonnet default), `step-3.7-flash`, `step-3.5-flash`
+  (used Sonnet default). Added correct official/exchange rates for each;
+  registered family-inference branches for minimax, mimo, hy3 and step-
+  so unknown future models from these providers also get sensible defaults.
+  (PR #46, @YuboZhang.)
+
+## [2.1.0] — 2026-06-26
+
+### Added
+- **Weekly Opus limit in the status bar** — opt-in `showOpusWeekly` (default
+  off) appends `opus:NN%` after the 5h / weekly quota figures, for heavy Opus
+  users who want an at-a-glance weekly Opus signal. Merged from
+  [PR #38](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/38)
+  (@wheelbarrel00); re-applied here on the dashboard-managed settings.
+- **Settings in the dashboard** — a new ⚙ Settings tab edits every option in
+  place (grouped: General, Status bar, Data & refresh, AI advice & Optimizer),
+  applied immediately. To keep VS Code's own Settings UI uncluttered, only
+  three settings stay declared there (so they still sync via Settings Sync):
+  `language`, `dataDirectory`, `advice.apiKey`. The rest now live in the
+  extension's own storage and are managed from the dashboard. A one-time
+  migration copies any existing `settings.json` values into the new store on
+  first launch, so upgrades keep your configuration. (Setting labels/help are
+  English; group headers and chrome are localised in all six languages.)
+- **Workflows tab** — one row per multi-agent run: true dynamic-workflow
+  runs (wf_ dirs) **and ad-hoc sub-agent batches** (≥2 Task-tool agents in
+  one session, tagged "subagents" — what ultracode produces when the
+  dynamic-workflow feature isn't engaged, e.g. via proxy routing). Columns:
+  start time, name (script-derived or session title), project, **models
+  used**, agent count, cost, token split, **cache hit rate** and duration;
+  expands to a per-agent breakdown where each agent is labelled by **the
+  task it was dispatched** (shared boilerplate hoisted into one pinned row,
+  agent rows show only what differs; full text in tooltips). The cache
+  hit rate is the headline diagnostic: native-Claude workflows reuse the
+  prompt cache across agents (observed ~75%), a provider without cross-agent
+  caching shows ~0% — i.e. the same workflow costs disproportionately more.
+  A summary strip shows this month's workflow count, cost and cost share.
+- **Sub-agent attribution in the loader** — records from `subagents/` logs
+  now carry the workflow id, agent id and agent type (from
+  `agent-*.meta.json`), resolved from the file path so worktree-isolated
+  agents attribute correctly.
+- **Thinking share** — estimated thinking-token share per session (new
+  sortable Sessions column, ⚠ + `/effort` hint above 60%) and a one-line
+  summary on the Today tab. Estimated from text length, like the rest of
+  the content analysis.
+- **Workflow quota guard** — a dismissible dashboard banner when the
+  remaining 5-hour quota drops below `workflowQuotaWarnPercent` (default
+  50%, 0 disables): interrupted workflow runs lose their prompt cache and
+  re-run ~40% more expensive. The status bar stays untouched.
+- **Usage attribution panel** ("What's contributing to your usage?") —
+  modelled on the official `/usage` screen but multi-provider and with five
+  scopes (Day / Week / Month / per-session / per-project, vs. Day/Week
+  officially). Characteristic lines (independent signals, not a breakdown):
+  share of usage at >150k context, from 8h+ active sessions, from
+  subagent-heavy sessions, from workflow runs, plus the top skill and top
+  plugin once they exceed 10%. Tables: Skills, Subagents (by agent type),
+  Plugins, Models. Skill shares follow the official methodology — the
+  session's usage at/after the skill's invocation counts toward it (shares
+  overlap by design); trivial commands like /model and /clear are excluded.
+  Full panel in the Content tab; a compact strip (≥5% lines only) on the
+  Today tab.
+
+- **AI advice transport** — speaks the **Anthropic** `/v1/messages` shape by
+  default (`advice.apiFormat`), with the OpenAI chat-completions shape kept for
+  DeepSeek and other compatible proxies. Timeout / retry / curl-fallback
+  hardening across both. *(A keyless "subscription" backend — reuse the Claude
+  Code OAuth session to call the API with no key — was prototyped and verified
+  working via curl, but is NOT shipped: Anthropic returns 403 "Request not
+  allowed" for that use of the OAuth token, so it's too fragile/inappropriate
+  for a public extension. The transport stays dormant in advisor.ts to
+  re-enable if direct calls become permitted.)*
+- **AI advice fed with the new signals** — the advice prompt now includes
+  the multi-agent runs (per-run cost, agent fan-out, cache hit rate per
+  provider), the estimated thinking share and the usage-attribution panel
+  (characteristics + top skills/subagents/plugins/models), so the model can
+  give targeted advice instead of generic tips. New optional setting
+  `claudeCodeUsage.advice.userContext`: free-text background about you/the
+  project; when set, the advice ends with a "Personalised for this project"
+  section calibrated against it. New `advice.promptWindowDays` (default 30)
+  sets how many days of your own prompts and content the analysis samples.
+- **AI advice card** at the top of the Content tab — the "Get AI advice"
+  button now lives in a labelled card that says, in one line, what gets sent,
+  instead of being tucked into the analysis header.
+- **Usage Optimizer** (opt-in, `advice.optimizer.enabled`, default off) — a
+  card on the Content tab where you paste a rough request and get back ONE
+  tightened, paste-ready prompt plus a recommended reasoning effort / thinking
+  / model for that task. Three optional lenses: flag ambiguous references,
+  condense long pasted material, suggest a style direction. Runs through the
+  same backend as AI advice; **only the text you paste is sent** (never your
+  files or Claude Code's terminal), behind a one-time consent prompt.
+- **Context-window indicator** in the status bar — shows the current
+  session's context fill as a percentage (like `/context`), estimated from
+  the latest log record (`input + cache read + cache write` tokens vs the
+  model's window; `[1m]` long-context variants use 1M). Amber at 80%, red at
+  95%. **Experimental, off by default** (`claudeCodeUsage.showContext`) — it can
+  only show the input-side total, not `/context`'s category breakdown (those are
+  Claude Code internals not on disk). A `~` marks a guessed window size;
+  `contextWindowOverride` pins the real size for proxied/custom models. Reads
+  the main-thread record (a running sub-agent no longer hijacks it) and stays
+  visible across an overnight gap (24 h staleness guard). The tooltip shows a
+  quota-style bar + the input-side composition.
+  (Built on [PR #31](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/31), @ScherbakovAl.)
+- **`claudeCodeUsage.showCost` setting** — hide the status-bar cost item for
+  those who only want the quota / context indicators (the dashboard still
+  shows all cost figures). (PR #31, @ScherbakovAl.)
+- **Authoritative skill / plugin attribution** — the Usage tracking panel now
+  weights skills and plugins by the exact usage Claude Code stamps on each line
+  (`attributionSkill` / `attributionPlugin`, ≥ CC 2.1) instead of the
+  `<command-name>` heuristic, which it keeps only as a fallback for older logs.
+- **Workflow main-session orchestration** — each run's drill-down now shows the
+  main-thread spend that bracketed it (same session, within the run's window),
+  so a native-Claude run whose expensive Opus/Fable orchestration lived in the
+  main thread finally shows its true cost and models, not just the cheap
+  sub-agent files. Heuristic (timestamp-bracketing, capped to focused windows).
+- **Clearer run badges** — "workflow" (a dynamic-workflow run dir) vs
+  "subagents (ad-hoc)" (a plain Task-tool fan-out), with a hint that the effort
+  level itself is not recorded in the logs.
+- **Per-model context-window sizes** in the status-bar context indicator
+  (Opus 4.6+/Sonnet 4.6+/Fable 5 = 1M, Haiku/older Claude = 200K, DeepSeek =
+  128K), and its tooltip is now a `/context`-style breakdown (fresh input /
+  cache read / cache write / free space) with a tightened note. The Today
+  "Usage tracking" card now shows only exact cost-weighted shares — the
+  text-length thinking estimate was dropped from it (it remains on the
+  Sessions tab, marked as an estimate). The Workflows tab gained a note
+  explaining that native-Claude ultracode whose orchestration stays in the
+  main session shows up in Sessions / Usage tracking rather than as a row.
+- **Calibrated content analysis** — the Content tab can now anchor its
+  per-category token figures to the *exact* billed totals (`analysis.calibrate`,
+  default on): relative shares still come from text length, but the absolute
+  numbers are scaled so assistant categories sum to real output tokens and
+  user/tool-result categories to real input + cache-write tokens. This corrects
+  a large undercount the text-length estimate had on the input side (cache
+  creation is invisible to character counts). Sessions' Thinking column gains a
+  calibrated "real thinking tokens" figure in its tooltip.
+
+### Changed
+- **Header trimmed** — the apple-style auto-refresh toggle moved into the ⚙
+  Settings tab (a manual ↻ refresh still appears top-right when auto-refresh is
+  paused). Two shortcut buttons remain: ✨ AI advice and ⚙ Settings, each
+  jumping to its tab. The gear icon sits on the header button; the tab label
+  drops it.
+- **Usage Optimizer output is plain text** — the rewritten prompt is now
+  returned without Markdown (no bold/headings/backticks/bullets) so it pastes
+  cleanly into a terminal. Copy clearer, task-framed help; marked experimental.
+- **AI advice + Optimizer cards redesigned** as a cohesive "action card"
+  treatment (accent rail + icon badge), distinct from the data panels.
+
+### Fixed
+- **"Get AI Usage Advice" hanging or failing with `terminated`** — the
+  request now has a 120 s timeout with a clear error, one retry, and a
+  fallback to the system `curl` (the same transport of last resort the quota
+  client uses); the prompt-sample payload is capped (40 prompts × 1500 chars).
+- **Advice prompt samples polluted by agent traffic** — sub-agent logs,
+  meta/sidechain lines and agent-framework scaffolding text are no longer
+  harvested as "user prompts" for the advice feature.
+- **Quota indicator blanked after switching folders in the same window** — the
+  curl fallback now pins its working directory to the home dir (an inherited,
+  now-invalid cwd made `spawn` fail with ENOENT), and a workspace-folders-change
+  listener forces a fresh fetch — so the quota survives a folder switch without
+  needing a new window.
 
 ## [2.0.2] — 2026-06-09
 
@@ -25,7 +729,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Quota indicator stale / stuck after reset** — an expired window now shows
   0% (rolled forward to the new period) and is refetched, instead of lingering
   on a stale value or vanishing. Adapted from
-  [PR #24](https://github.com/jack21/ClaudeCodeUsage/pull/24) by
+  [PR #24](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/24) by
   [@nickearnshaw](https://github.com/nickearnshaw).
 - **Quota "only comes back after I restart VS Code"** — an expired in-memory
   OAuth token now triggers a re-read of `~/.claude/.credentials.json` (which
@@ -35,7 +739,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Usage not showing the first time you open VS Code** — the status bar now
   shows a loading state immediately and the quota fetch is non-blocking, so
   local cost figures appear at once and the quota follows.
-  ([#26](https://github.com/jack21/ClaudeCodeUsage/issues/26))
+  ([#26](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/26))
 - **"This project" figure undercounted / disappeared** — per-conversation
   attribution now keys off the session's home project directory instead of the
   per-record working directory (which wanders mid-session), and the figure is
@@ -54,16 +758,16 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - Drill-down charts: removed a double scrollbar; date labels parse the date
   textually (UTC parsing shifted labels a day in negative-UTC timezones).
 - `launch.json` `preLaunchTask` fixed so F5 works in a single-root checkout
-  ([PR #22](https://github.com/jack21/ClaudeCodeUsage/pull/22), @nickearnshaw).
+  ([PR #22](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/22), @nickearnshaw).
 
 ### Docs / project
 - Refreshed all language READMEs to v2 (en / zh-TW / ja / ko concise; zh-CN
   full translation); fixed the `CHANGELOG.md` link casing.
 - Added `CONTRIBUTING.md`, a PR template, and issue templates; documented
   `cleanupPeriodDays` for history retention
-  ([PR #21](https://github.com/jack21/ClaudeCodeUsage/pull/21), @nickearnshaw).
+  ([PR #21](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/21), @nickearnshaw).
 - Loading-spinner / re-entrancy guard for the webview
-  ([PR #20](https://github.com/jack21/ClaudeCodeUsage/pull/20), @nickearnshaw).
+  ([PR #20](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/20), @nickearnshaw).
 - Updated `CLAUDE.md` to the v2 architecture and release process.
 
 ---
@@ -153,7 +857,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **5-hour and weekly limit utilisation** + reset times fetched via Claude
   Code's own OAuth session at `~/.claude/.credentials.json` →
   `api.anthropic.com/api/oauth/usage`. Zero configuration. _Approach adapted
-  from upstream [PR #9](https://github.com/jack21/ClaudeCodeUsage/pull/9) by
+  from upstream [PR #9](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/9) by
   [@Dobidop](https://github.com/Dobidop)._
 - Dedicated, quieter status-bar item shows `5h:N% wk:N%`; warns yellow at
   ≥80%, red at ≥95%.
@@ -289,11 +993,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Acknowledgements
 
-Based on [`jack21/ClaudeCodeUsage`](https://github.com/jack21/ClaudeCodeUsage)
+Based on [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)
 MIT-licensed. Significant inspiration / patches from upstream
 PRs:
 
-- [#9](https://github.com/jack21/ClaudeCodeUsage/pull/9) — Real 5-hour and
+- [#9](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/9) — Real 5-hour and
   weekly usage limit tracking via the Anthropic OAuth API, by
   [@Dobidop](https://github.com/Dobidop). The OAuth approach in this fork is
   adapted from that PR.
@@ -306,7 +1010,7 @@ Many code changes in this fork were drafted with assistance from
 
 ## Pre-2.0 history (upstream 1.0.x)
 
-Released under [`jack21/ClaudeCodeUsage`](https://github.com/jack21/ClaudeCodeUsage)
+Released under [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)
 before the 2.0 fork.
 
 ## [1.0.8] — 2025-11-28

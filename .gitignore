@@ -1,8 +1,14 @@
 out
 node_modules
 .vscode-test/
+test-results/
+playwright-report/
 *.vsix
 .DS_Store
+
+# Linux Chromium images are the canonical CI baselines. Playwright creates
+# host-specific bootstrap images during local macOS visual review.
+tests/ui/codex-visual.spec.mjs-snapshots/*-chromium-darwin.png
 
 # Secrets — belt-and-braces. Source never reads these,
 # but keep accidental drops out of git.
@@ -13,3 +19,21 @@ secrets.json
 
 # Personal, per-maintainer Claude Code notes (the shared CLAUDE.md is committed).
 CLAUDE.local.md
+
+# Locally generated AI-advice reports — contain the maintainer's own prompt
+# samples. Curated excerpts may be hand-copied into the README, but the raw
+# reports must never be committed.
+
+# Local-only planning / dev-reference docs. The whole docs/ tree is the
+# maintainer's private context pack (product direction lives in
+# docs/ARCHITECTURE-private.md) — synced to a personal repo, never public.
+# README / CHANGELOG / ARCHITECTURE live at the repo root and ARE public:
+# ARCHITECTURE.md is the technical map the @ccu-bot automation + contributors
+# read (product strategy is kept out of it, in docs/ARCHITECTURE-private.md).
+docs/
+
+# Agent-local state and in-repository worktrees are never source artifacts.
+.claude/
+.agents/
+.codex/
+.worktrees/

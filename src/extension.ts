@@ -1,52 +1,144 @@
 import * as fs from 'fs';
+import * as https from 'https';
 import * as path from 'path';
+import * as os from 'os';
+import { createHash, randomBytes } from 'crypto';
+import { renderHeatmapSvg } from './heatmapSvg';
+import { DEFAULT_SECTIONS, ShareRange, buildShareCardData, shareCardFilename } from './shareCard';
+import { renderShareCardSvg } from './shareCardSvg';
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
+import {
+  ClaudeUsageIndex,
+  claudeUsageDashboardSnapshot,
+  createClaudeUsageIndex,
+  updateClaudeUsageIndex,
+} from './claudeIncrementalIndex';
 import { StatusBarManager } from './statusBar';
 import { UsageWebviewProvider } from './webview';
 import { I18n } from './i18n';
+import { resolveTimeZone } from './dateKeys';
 import { fetchLatestPricing } from './pricing';
 import { ClaudeApiClient } from './claudeApiClient';
-import { getUsageAdvice } from './advisor';
+import {
+  buildOptimizerSystemPrompt,
+  callModel,
+  getUsageAdvice,
+  parseOptimizerOutput
+} from './advisor';
+import { buildAdviceSummary } from './adviceSummary';
 import { getDemoBody } from './adviceDemoSample';
 import { ClaudeApiUsageResponse, ContentAnalysis, ExtensionConfig } from './types';
+import { SettingsStore } from './settings';
+import { normalizeQuotaWindows } from './quotaWindows';
+import {
+  appendWeeklyQuotaObservations,
+  claudeWeeklyQuotaObservations,
+  WeeklyQuotaObservation,
+} from './weeklyValue';
+import {
+  diffUsageManifests,
+  scanUsageManifest,
+  UsageManifest,
+} from './claudeUsageFiles';
+import {
+  commitRefreshSnapshot,
+  codexRefreshProfileForTrigger,
+  pollIntervalMs,
+  quotaFailureBackoffMs,
+  QuietDebounce,
+  RefreshRequest,
+  RefreshSingleFlight,
+  RefreshTrigger,
+  reportColdRefreshFailure,
+  shouldCommitUsageLoad,
+  shouldReloadUsage,
+  WindowActivityGate,
+} from './refreshPolicy';
+import {
+  formatCodexIndexDiagnostic,
+  formatRefreshDiagnostic,
+} from './refreshDiagnostics';
+import {
+  CodexProvider,
+  CodexProviderSnapshot,
+} from './providers/codex/codexProvider';
+import { CodexIndexProgress } from './providers/codex/codexIndex';
+import { resolveCodexHome } from './providers/codex/codexManifest';
+import { buildCodexUsageView, CodexUsageView } from './providers/codex/codexUsage';
+import {
+  buildScopedCodexInsights,
+  CodexScopedInsights,
+  emptyCodexScopedInsights,
+} from './providers/codex/codexInsights';
+import {
+  announcementForUpgrade,
+  latestAnnouncementVersion,
+  ReleaseAnnouncementCatalog,
+} from './releaseAnnouncements';
+
+interface LocalizedReleaseAnnouncement {
+  version: string;
+  body: () => string;
+}
+
+// Full-version entries only: an installed patch must never inherit stale notes
+// from an older major/minor release.
+const WHATS_NEW: ReleaseAnnouncementCatalog<LocalizedReleaseAnnouncement> = {
+  '2.3.0': {
+    version: '2.3.0',
+    body: () => I18n.t.releaseAnnouncement.v230,
+  },
+};
 
 export class ClaudeCodeUsageExtension {
   private statusBar: StatusBarManager;
   private webviewProvider: UsageWebviewProvider;
   private apiClient: ClaudeApiClient;
+  private settings: SettingsStore;
   private refreshTimer: NodeJS.Timeout | undefined;
   private fileWatcher: fs.FSWatcher | undefined;
-  private watchDebounceTimer: NodeJS.Timeout | undefined;
+  private codexWatchers: fs.FSWatcher[] = [];
+  private readonly codexWatchDebounce = new QuietDebounce();
+  private codexWatchedHome: string | null = null;
+  private readonly watchDebounce = new QuietDebounce();
+  private readonly refreshGate = new RefreshSingleFlight();
+  private readonly windowActivity =
+    new WindowActivityGate(vscode.window.state.focused);
+  private watcherEventsSinceRefresh = 0;
+  private coalescedTriggersSinceRefresh = 0;
   private watchedDir: string | null = null;
+  // Watches ~/.claude/.credentials.json so an account switch is reflected
+  // promptly instead of after a full quota TTL (#45).
+  private credsWatcher: fs.FSWatcher | undefined;
+  private credsDebounceTimer: NodeJS.Timeout | undefined;
   private cache: {
     records: any[];
     contentAnalysis: ContentAnalysis | null;
+    claudeIndex: ClaudeUsageIndex;
+    manifest: UsageManifest | null;
     lastUpdate: Date;
     dataDirectory: string | null;
     usageLimits: ClaudeApiUsageResponse | null;
     usageLimitsLastUpdate: Date;
+    usageLimitsBackoffUntil: Date;
+    usageLimitsFailStreak: number;
   } = {
     records: [],
     contentAnalysis: null,
+    claudeIndex: createClaudeUsageIndex(),
+    manifest: null,
     lastUpdate: new Date(0),
     dataDirectory: null,
     usageLimits: null,
-    usageLimitsLastUpdate: new Date(0)
+    usageLimitsLastUpdate: new Date(0),
+    usageLimitsBackoffUntil: new Date(0),
+    usageLimitsFailStreak: 0
   };
 
   private outputChannel: vscode.OutputChannel;
-  // Re-entrancy guard (PR #20 by @nickearnshaw). The auto-refresh timer and
-  // file watcher can both fire while a slow reload is still in flight. Without
-  // this, reloads pile up and keep re-asserting the "Loading…" spinner.
-  private isRefreshing: boolean = false;
-  // Coalesce: a trigger that arrives mid-load sets this so we run exactly one
-  // more refresh after the current one finishes, instead of dropping the event
-  // (which starved updates during rapid ultracode/sub-agent writes).
-  private pendingRefresh: boolean = false;
-  // Epoch ms of the last observed .jsonl change. Drives activity-aware
-  // refresh cadence: while Claude Code is actively writing we refresh faster
-  // (~15 s, quota cache 20 s); when idle we fall back to the user's interval.
+  // Epoch ms of the last observed .jsonl change. It only tunes quota-cache TTL;
+  // local polling always follows the configured refreshInterval.
   private lastActivityAt: number = 0;
   // Generation token for the self-rescheduling refresh timer. Bumped each time
   // startAutoRefresh runs so any older timer chain (e.g. left mid-flight by a
@@ -56,28 +148,126 @@ export class ClaudeCodeUsageExtension {
   // flaky network and the very first /usage fetch fails, try once more shortly
   // after so the indicator appears without waiting for the next regular tick.
   private quotaColdRetryDone: boolean = false;
+  private claudeProfileGeneration: number = 0;
+  private claudeWeeklyQuotaHistory: WeeklyQuotaObservation[] = [];
+  private codexProvider: CodexProvider;
+  private readonly codexSalt: string;
+  private codexView: CodexUsageView | null = null;
+  private codexInsights: CodexScopedInsights = emptyCodexScopedInsights();
+  private codexAvailable = false;
+  private codexHasData = false;
+  private codexRefreshing = false;
+  private codexProgress: CodexIndexProgress | null = null;
+  private codexProgressLastRenderedAt = 0;
+  private codexCheckpointHydration: Promise<void> | null = null;
+  private codexCheckpointHydrationLastAttemptAt = 0;
 
   constructor(private context: vscode.ExtensionContext) {
     console.log('Claude Code Usage Extension: Constructor called');
     this.outputChannel = vscode.window.createOutputChannel('Claude Code Usage');
     context.subscriptions.push(this.outputChannel);
     this.statusBar = new StatusBarManager();
+    this.settings = new SettingsStore(context);
     this.webviewProvider = new UsageWebviewProvider(context);
-    this.apiClient = new ClaudeApiClient(this.outputChannel);
+    this.apiClient = new ClaudeApiClient(
+      this.outputChannel,
+      this.settings.get<string>('dataDirectory'),
+    );
+    const existingCodexSalt = context.globalState.get<string>('ccu.codex.machineSalt');
+    this.codexSalt = existingCodexSalt ?? randomBytes(32).toString('hex');
+    if (!existingCodexSalt) {
+      void context.globalState.update('ccu.codex.machineSalt', this.codexSalt);
+    }
+    this.codexProvider = this.createCodexProvider(this.getConfiguration());
+    // Migrate any pre-2.1 settings.json values for the keys that have moved out
+    // of the VS Code Settings UI into the dashboard-managed store. Runs once.
+    void this.settings.migrateOnce();
+    // V2.2: convert the old pauseDashboardRefresh to the positive
+    // dashboardAutoRefresh (inverted). Runs once.
+    void this.settings.migrateDashboardAutoRefresh();
+    // Rename showOpusWeekly -> showScopedWeekly (the API stopped naming Opus).
+    // Runs once.
+    void this.settings.migrateScopedWeekly();
+    // Usage Optimizer (Phase 9c): the webview posts a draft prompt; we run it
+    // through the same model backend as the advice feature and post back a
+    // tightened prompt + a settings recommendation. Consent gate lives here.
+    this.webviewProvider.onOptimize = (draft, options) => this.runOptimizer(draft, options);
+    // Share the settings store with the dashboard's ⚙ Settings panel, and have
+    // it tell us when the user changes a setting there so we re-apply config
+    // (globalState changes don't fire onDidChangeConfiguration).
+    this.webviewProvider.settings = this.settings;
+    this.webviewProvider.onSettingsChanged = (key) => this.onSettingsChangedFromPanel(key);
 
     this.setupCommands();
     this.loadConfiguration();
-    this.startAutoRefresh();
-    this.refreshData().then(() => this.startFileWatching());
+    this.loadPersistedQuota();
+    if (this.windowActivity.focused) {
+      this.startAutoRefresh();
+      void this.refreshData(false, 'startup').then(() => {
+        void this.startFileWatching();
+        this.startCodexWatching();
+      });
+      this.startCredentialsWatching();
+    }
+    this.startWindowFocusRefresh();
+    this.maybeAnnounceWhatsNew();
     console.log('Claude Code Usage Extension: Initialization complete');
+  }
+
+  /** After an upgrade, show a single "what's new" notification pointing at the
+   * dashboard — so users discover new features (including opt-in, default-off
+   * ones they'd never find otherwise). Shown once per version; skipped on a
+   * fresh install (no nagging new users). */
+  private maybeAnnounceWhatsNew(): void {
+    const current = (this.context.extension?.packageJSON?.version as string) || '';
+    const last = this.context.globalState.get<string>('ccu.lastSeenVersion');
+    if (!current) {
+      return;
+    }
+    const announcement = announcementForUpgrade(
+      current,
+      last,
+      this.getConfiguration().releaseAnnouncements,
+      WHATS_NEW,
+    );
+    void this.context.globalState.update('ccu.lastSeenVersion', current);
+    if (announcement) {
+      this.showWhatsNew(announcement.version);
+    }
+  }
+
+  /** Show the what's-new toast for one exact release, if it is catalogued. */
+  private showWhatsNew(version: string): void {
+    const announcement = WHATS_NEW[version];
+    if (!announcement) {
+      return;
+    }
+    const open = I18n.t.popup.title; // "Show details" entry point label
+    void vscode.window.showInformationMessage(`Claude Code Usage ${version}: ${announcement.body()}`, open).then((pick) => {
+      if (pick === open) {
+        vscode.commands.executeCommand('claudeCodeUsage.showDetails');
+      }
+    });
+  }
+
+  /** Force-show the newest what's-new entry, ignoring the once-per-version
+   * guard — for re-reading the announcement or testing it during development
+   * (a fresh F5 install otherwise just sets the baseline and shows nothing). */
+  private previewWhatsNew(): void {
+    const latest = latestAnnouncementVersion(WHATS_NEW);
+    if (latest) {
+      this.showWhatsNew(latest);
+    } else {
+      void vscode.window.showInformationMessage('No what’s-new entry yet.');
+    }
   }
 
   private setupCommands(): void {
     const commands = [
       vscode.commands.registerCommand('claudeCodeUsage.refresh', () => {
         // Manual refresh always updates the dashboard even when
-        // pauseDashboardRefresh is on.
-        this.refreshData(true);
+        // dashboardAutoRefresh is off.
+        void this.refreshData(true, 'manual');
       }),
       vscode.commands.registerCommand('claudeCodeUsage.showDetails', () => {
         this.webviewProvider.show();
@@ -93,6 +283,18 @@ export class ClaudeCodeUsageExtension {
       }),
       vscode.commands.registerCommand('claudeCodeUsage.showLogs', () => {
         this.outputChannel.show();
+      }),
+      vscode.commands.registerCommand('claudeCodeUsage.exportHeatmap', () => {
+        this.exportHeatmap();
+      }),
+      vscode.commands.registerCommand('claudeCodeUsage.publishHeatmapToGitHub', () => {
+        this.publishHeatmapToGitHub();
+      }),
+      vscode.commands.registerCommand('claudeCodeUsage.exportShareCard', () => {
+        this.exportShareCard();
+      }),
+      vscode.commands.registerCommand('claudeCodeUsage.previewWhatsNew', () => {
+        this.previewWhatsNew();
       })
     ];
 
@@ -104,78 +306,249 @@ export class ClaudeCodeUsageExtension {
       const result = await fetchLatestPricing();
       vscode.window.showInformationMessage(`${I18n.t.popup.pricingUpdated} (${result.updated})`);
       // Force a full recompute so the new prices take effect.
-      this.cache.lastUpdate = new Date(0);
-      this.refreshData();
+      void this.refreshData(true, 'pricing');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`${I18n.t.popup.pricingUpdateFailed}: ${message}`);
     }
   }
 
-  /**
-   * Build the advice prompt for a scope. Includes a usage summary, the content
-   * breakdown, and a sample of the developer's actual prompts so the model can
-   * critique instruction quality.
-   * @param scope 'overall' or a project group path
-   */
-  private buildAdviceSummary(records: any[], analysis: ContentAnalysis, scope: string, scopeLabel: string): string {
-    const norm = (p: string): string => (p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-    const isOverall = scope === 'overall';
-    const scopedRecords = isOverall
-      ? records
-      : records.filter((r) => norm(r._projectPath || '').startsWith(norm(scope)));
-    const usage = ClaudeDataLoader.getAllTimeData(scopedRecords);
-    const prompts = isOverall
-      ? analysis.recentPrompts
-      : analysis.recentPrompts.filter((p) => norm(p.cwd).startsWith(norm(scope)));
-    const promptSample = prompts.slice(-80);
+  /** Export the token heatmap as a GitHub-profile-ready SVG (a "contribution
+   * graph" of the trailing year, Claude orange). Offers to copy the Markdown
+   * embed snippet. */
+  private async exportHeatmap(): Promise<void> {
+    const records = this.cache.records;
+    if (!records || records.length === 0) {
+      vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+      return;
+    }
+    const daily = ClaudeDataLoader.getDailyUsageMap(records, I18n.getTimezone());
+    const svg = renderHeatmapSvg(daily);
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), 'claude-code-heatmap.svg')),
+      filters: { 'SVG image': ['svg'] },
+      saveLabel: 'Export heatmap',
+    });
+    if (!uri) {
+      return;
+    }
+    try {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
+    } catch (e) {
+      vscode.window.showErrorMessage(`Heatmap export failed: ${(e as Error).message}`);
+      return;
+    }
+    const copy = 'Copy Markdown embed';
+    const pick = await vscode.window.showInformationMessage('Token heatmap exported.', copy);
+    if (pick === copy) {
+      await vscode.env.clipboard.writeText(`![Claude Code token heatmap](${path.basename(uri.fsPath)})`);
+    }
+  }
 
-    const lines: string[] = [];
-    lines.push(`Scope: ${isOverall ? 'overall (all projects)' : scopeLabel}`);
-    lines.push(
-      `Usage: cost $${usage.totalCost.toFixed(2)}, input ${usage.totalInputTokens}, ` +
-        `output ${usage.totalOutputTokens}, cache-write ${usage.totalCacheCreationTokens}, ` +
-        `cache-read ${usage.totalCacheReadTokens}, messages ${usage.messageCount}`
+  /** Minimal GitHub REST call over https (the codebase avoids fetch for
+   * older-runtime safety). Returns the status + raw body. */
+  private githubApi(
+    method: string,
+    apiPath: string,
+    token: string,
+    body?: unknown
+  ): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const data = body ? JSON.stringify(body) : undefined;
+      const req = https.request(
+        {
+          hostname: 'api.github.com',
+          path: apiPath,
+          method,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'ClaudeCodeUsage-VSCode',
+            'X-GitHub-Api-Version': '2022-11-28',
+            ...(data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}),
+          },
+          timeout: 20000,
+        },
+        (res) => {
+          let b = '';
+          res.on('data', (c) => (b += c));
+          res.on('end', () => resolve({ status: res.statusCode || 0, body: b }));
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error('GitHub request timed out')));
+      if (data) {
+        req.write(data);
+      }
+      req.end();
+    });
+  }
+
+  /** Publish the token heatmap SVG to a GitHub repo (e.g. the user's profile
+   * repo, so it shows on their GitHub home) using VS Code's built-in GitHub
+   * auth — no PAT handling. Creates or updates the file via the Contents API. */
+  private async publishHeatmapToGitHub(): Promise<void> {
+    const records = this.cache.records;
+    if (!records || records.length === 0) {
+      vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+      return;
+    }
+
+    // This is an authorization + write action, not a local export — make that
+    // explicit and get consent before touching GitHub.
+    const proceed = 'Sign in & publish';
+    const ok = await vscode.window.showWarningMessage(
+      'Publish the token heatmap to GitHub?',
+      {
+        modal: true,
+        detail:
+          'This signs you in to GitHub (VS Code asks once) and commits a single SVG image to a repo you choose (default: your profile repo, so it shows on your GitHub home). Only the aggregate heatmap is uploaded — never prompts, file paths, or session ids. You can delete it from the repo anytime.',
+      },
+      proceed
     );
-    lines.push(`Models used: ${Object.keys(usage.modelBreakdown).join(', ') || 'n/a'}`);
-    lines.push('');
-    lines.push('Content token breakdown, all projects, last 30 days (estimated):');
-    for (const c of analysis.categories) {
-      const pct =
-        analysis.totalEstimatedTokens > 0
-          ? ((c.estimatedTokens / analysis.totalEstimatedTokens) * 100).toFixed(1)
-          : '0';
-      lines.push(`- ${c.key}: ~${c.estimatedTokens} tokens (${pct}%)`);
+    if (ok !== proceed) {
+      return;
     }
-    lines.push('');
-    if (promptSample.length === 0) {
-      lines.push('=== No recent user prompts captured for this scope ===');
-      lines.push(
-        'No prompt samples are available. Base your advice on the aggregate usage above and ' +
-          'on general Claude Code best practices for writing clearer, more complete and more ' +
-          'effective instructions. Also note any easy token savings the aggregates suggest.'
-      );
-    } else {
-      lines.push(`=== Sample of ${promptSample.length} recent user prompts (review these for instruction quality) ===`);
-      promptSample.forEach((p, i) => {
-        lines.push(`[Prompt ${i + 1}]`);
-        lines.push(p.text);
-        lines.push('');
-      });
-      lines.push('=== End of prompts ===');
-      lines.push('');
-      lines.push(
-        'Based primarily on the prompts above, give specific advice on how to write clearer, ' +
-          'more complete and more effective instructions for Claude Code, with concrete rewrite ' +
-          'examples drawn from the samples. Secondarily, note any easy token savings.'
-      );
+
+    let session: vscode.AuthenticationSession | undefined;
+    try {
+      // 'repo' so private profile repos work too; VS Code shows its own consent.
+      session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
+    } catch {
+      vscode.window.showErrorMessage('GitHub sign-in was cancelled.');
+      return;
     }
-    return lines.join('\n');
+    if (!session) {
+      return;
+    }
+    const token = session.accessToken;
+    const login = session.account.label.split(/\s/)[0];
+
+    const repo = await vscode.window.showInputBox({
+      prompt: 'Target repo (owner/name). Your profile repo (name = username) shows the heatmap on your GitHub home page.',
+      value: this.context.globalState.get<string>('ccu.heatmapRepo') || `${login}/${login}`,
+      validateInput: (v) => (/^[^/\s]+\/[^/\s]+$/.test(v.trim()) ? undefined : 'Use the form owner/name'),
+    });
+    if (!repo) {
+      return;
+    }
+    const filePath =
+      (await vscode.window.showInputBox({
+        prompt: 'File path in the repo',
+        value: this.context.globalState.get<string>('ccu.heatmapPath') || 'claude-code-heatmap.svg',
+      })) || '';
+    if (!filePath) {
+      return;
+    }
+    await this.context.globalState.update('ccu.heatmapRepo', repo.trim());
+    await this.context.globalState.update('ccu.heatmapPath', filePath.trim());
+
+    const [owner, name] = repo.trim().split('/');
+    const svg = renderHeatmapSvg(ClaudeDataLoader.getDailyUsageMap(records, I18n.getTimezone()));
+    const contentB64 = Buffer.from(svg, 'utf8').toString('base64');
+    const apiPath = `/repos/${owner}/${name}/contents/${filePath.trim().split('/').map(encodeURIComponent).join('/')}`;
+
+    try {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Publishing heatmap to GitHub…' },
+        async () => {
+          // Look up the current sha (needed to update an existing file).
+          let sha: string | undefined;
+          const getRes = await this.githubApi('GET', apiPath, token);
+          if (getRes.status === 200) {
+            sha = JSON.parse(getRes.body).sha as string;
+          } else if (getRes.status !== 404) {
+            throw new Error(this.githubError(getRes));
+          }
+          const putRes = await this.githubApi('PUT', apiPath, token, {
+            message: 'Update Claude Code usage heatmap',
+            content: contentB64,
+            sha,
+          });
+          if (putRes.status !== 200 && putRes.status !== 201) {
+            throw new Error(this.githubError(putRes));
+          }
+        }
+      );
+    } catch (e) {
+      vscode.window.showErrorMessage(`Heatmap publish failed: ${(e as Error).message}`);
+      return;
+    }
+
+    const view = 'View on GitHub';
+    const pick = await vscode.window.showInformationMessage(
+      `Heatmap published to ${repo.trim()}.`,
+      view
+    );
+    if (pick === view) {
+      void vscode.env.openExternal(vscode.Uri.parse(`https://github.com/${owner}/${name}/blob/HEAD/${filePath.trim()}`));
+    }
+  }
+
+  /** Pull a human message out of a GitHub error response. */
+  private githubError(res: { status: number; body: string }): string {
+    try {
+      const msg = JSON.parse(res.body).message;
+      return `GitHub ${res.status}: ${msg || res.body.slice(0, 120)}`;
+    } catch {
+      return `GitHub ${res.status}`;
+    }
+  }
+
+  /** Export a one-page usage share card as a self-contained SVG. Only aggregate,
+   * non-identifying metrics are drawn (privacy is enforced by ShareCardData's
+   * shape). The user picks the range; the card opens for review after saving. */
+  private async exportShareCard(): Promise<void> {
+    const records = this.cache.records;
+    if (!records || records.length === 0) {
+      vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+      return;
+    }
+    const ranges: (vscode.QuickPickItem & { range: ShareRange })[] = [
+      { label: 'This month', range: 'month' },
+      { label: 'Last 7 days', range: 'week' },
+      { label: 'Today', range: 'today' },
+    ];
+    const picked = await vscode.window.showQuickPick(ranges, {
+      placeHolder: 'Share card range',
+    });
+    if (!picked) {
+      return;
+    }
+    const input = ClaudeDataLoader.buildShareInput(records, picked.range);
+    const data = buildShareCardData(input, DEFAULT_SECTIONS);
+    const kind = vscode.window.activeColorTheme?.kind;
+    const isDark = kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
+    const svg = renderShareCardSvg(data, { theme: 'claudeClassic', isDark, lang: I18n.getLocale() });
+    const defaultName = shareCardFilename(picked.range).replace(/\.png$/, '.svg');
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
+      filters: { 'SVG image': ['svg'] },
+      saveLabel: 'Export share card',
+    });
+    if (!uri) {
+      return;
+    }
+    try {
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
+    } catch (e) {
+      vscode.window.showErrorMessage(`Share card export failed: ${(e as Error).message}`);
+      return;
+    }
+    const open = 'Open';
+    const pick = await vscode.window.showInformationMessage('Usage share card exported.', open);
+    if (pick === open) {
+      await vscode.commands.executeCommand('vscode.open', uri);
+    }
   }
 
   private async getAdvice(): Promise<void> {
     const config = this.getConfiguration();
-    if (!config.adviceApiKey || config.adviceApiKey.trim() === '') {
+    // The subscription backend needs no API key (it reuses the Claude Code
+    // OAuth session); only the 'api' backend requires a configured key.
+    const needsKey =
+      config.adviceBackend === 'api' && (!config.adviceApiKey || config.adviceApiKey.trim() === '');
+    if (needsKey) {
       const picked = await vscode.window.showWarningMessage(
         I18n.t.popup.adviceNeedsKey,
         I18n.t.popup.settings,
@@ -207,7 +580,13 @@ export class ClaudeCodeUsageExtension {
       return;
     }
 
-    const summary = this.buildAdviceSummary(records, analysis, picked.scope, picked.label);
+    const summary = buildAdviceSummary(
+      records,
+      analysis,
+      picked.scope,
+      picked.label,
+      config.advicePromptWindowDays
+    );
 
     await this.runAdviceRequest(config, picked.scope, picked.label, summary);
   }
@@ -239,10 +618,15 @@ export class ClaudeCodeUsageExtension {
       async () => {
         try {
           const advice = await getUsageAdvice({
+            backend: config.adviceBackend,
+            apiFormat: config.adviceApiFormat,
+            subscriptionModel: config.adviceSubscriptionModel,
+            getSubscriptionToken: () => this.apiClient.getAccessToken(),
             apiKey: config.adviceApiKey,
             apiUrl: config.adviceApiUrl,
             model: config.adviceModel,
             reasoningEffort: config.adviceReasoningEffort,
+            userContext: config.adviceUserContext,
             language: I18n.getLanguageName(),
             summary
           });
@@ -271,12 +655,113 @@ export class ClaudeCodeUsageExtension {
     );
   }
 
+  /**
+   * Usage Optimizer round-trip (Phase 9c). Takes the user's rough draft and the
+   * three optional lenses, asks the configured model to return a tightened
+   * paste-ready prompt plus a settings recommendation, and parses the two
+   * sections out. ONLY the pasted draft is sent — no filesystem access. First
+   * use shows a one-time consent modal (the text is going to a model, not to
+   * Claude Code's terminal).
+   */
+  /** Distinct models the user actually uses — Claude reduced to family names
+   * (haiku/sonnet/opus/fable), third-party models kept as-is — so the optimizer
+   * recommends from real options instead of guessing a (possibly stale) name. */
+  private usedModelNames(): string[] {
+    const family = (m: string): string => {
+      const s = m.toLowerCase();
+      if (/fable|mythos/.test(s)) {
+        return 'fable';
+      }
+      if (/opus/.test(s)) {
+        return 'opus';
+      }
+      if (/sonnet/.test(s)) {
+        return 'sonnet';
+      }
+      if (/haiku/.test(s)) {
+        return 'haiku';
+      }
+      return m;
+    };
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const r of this.cache.records) {
+      const m = r?.message?.model;
+      if (!m || typeof m !== 'string') {
+        continue;
+      }
+      const f = family(m);
+      if (!seen.has(f)) {
+        seen.add(f);
+        out.push(f);
+      }
+    }
+    return out.slice(0, 8);
+  }
+
+  private async runOptimizer(
+    draft: string,
+    options: { resolve: boolean; distil: boolean; aesthetic: boolean }
+  ): Promise<{ prompt?: string; settings?: string; error?: string }> {
+    const text = (draft || '').trim();
+    if (text === '') {
+      return { error: I18n.t.popup.noDataMessage };
+    }
+
+    // One-time consent: the draft leaves the machine for whichever model the
+    // advice backend points at. Remember the choice in globalState.
+    const consentKey = 'claudeCodeUsage.optimizerConsented';
+    if (!this.context.globalState.get<boolean>(consentKey, false)) {
+      const proceed = await vscode.window.showWarningMessage(
+        I18n.t.popup.optimizerConsent,
+        { modal: true },
+        I18n.t.popup.optimizerRun
+      );
+      if (proceed !== I18n.t.popup.optimizerRun) {
+        return { error: '' };
+      }
+      await this.context.globalState.update(consentKey, true);
+    }
+
+    const config = this.getConfiguration();
+    const needsKey =
+      config.adviceBackend === 'api' && (!config.adviceApiKey || config.adviceApiKey.trim() === '');
+    if (needsKey) {
+      return { error: I18n.t.popup.adviceNeedsKey };
+    }
+
+    const language = I18n.getLanguageName();
+    const systemPrompt = buildOptimizerSystemPrompt(language, options, this.usedModelNames());
+
+    try {
+      const raw = await callModel(systemPrompt, text, {
+        backend: config.adviceBackend,
+        apiFormat: config.adviceApiFormat,
+        subscriptionModel: config.adviceSubscriptionModel,
+        getSubscriptionToken: () => this.apiClient.getAccessToken(),
+        apiKey: config.adviceApiKey,
+        apiUrl: config.adviceApiUrl,
+        model: config.adviceModel,
+        reasoningEffort: config.adviceReasoningEffort,
+        language,
+        summary: '',
+        timeoutMs: 90_000
+      });
+      return parseOptimizerOutput(raw);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { error: `${I18n.t.popup.adviceFailed}: ${message}` };
+    }
+  }
+
   private loadConfiguration(): void {
     const config = this.getConfiguration();
     I18n.setLanguage(config.language as any);
     I18n.setDecimalPlaces(config.decimalPlaces);
+    I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
+    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat);
 
     // Listen for configuration changes
     vscode.workspace.onDidChangeConfiguration(e => {
@@ -284,59 +769,393 @@ export class ClaudeCodeUsageExtension {
         this.onConfigurationChanged();
       }
     });
+
+    // Switching the open folder in the same window can leave the quota indicator
+    // blank (it does not always restart the extension host, and the inherited
+    // process state — e.g. the curl spawn cwd — can go stale). Force a fresh
+    // quota fetch + refresh so it reappears without needing a new window.
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      this.cache.usageLimitsLastUpdate = new Date(0);
+      this.cache.usageLimitsBackoffUntil = new Date(0);
+      this.cache.usageLimitsFailStreak = 0;
+      this.quotaColdRetryDone = false;
+      void this.refreshData(true, 'workspace');
+    });
   }
 
   private getConfiguration(): ExtensionConfig {
-    const config = vscode.workspace.getConfiguration('claudeCodeUsage');
+    // All settings now flow through SettingsStore: the core trio (language,
+    // dataDirectory, advice.apiKey) still lives in VS Code config; the rest in
+    // the dashboard-managed store. Defaults come from the settings catalog.
+    const s = this.settings;
     return {
-      refreshInterval: config.get('refreshInterval', 60),
-      dataDirectory: config.get('dataDirectory', ''),
-      language: config.get('language', 'auto'),
-      decimalPlaces: config.get('decimalPlaces', 2),
-      compactNumbers: config.get('compactNumbers', false),
-      timezone: config.get('timezone', ''),
-      usageLimitTracking: config.get('usageLimitTracking', true),
-      // apiKey is the gate for the advice feature: ONLY read the new dotted
-      // key. We deliberately do NOT fall back to the pre-2.0 flat
-      // `adviceApiKey` here — otherwise users who clear the new key in
-      // Settings would silently keep the feature enabled via the stale flat
-      // key, with no way to enter demo mode. Other config (URL / model /
-      // effort) still falls back, since they only affect *how* requests are
-      // sent, not whether they are sent.
-      adviceApiKey: config.get<string>('advice.apiKey', ''),
-      adviceApiUrl:
-        config.get<string>('advice.apiUrl') ||
-        config.get<string>('adviceApiUrl', 'https://api.deepseek.com/chat/completions'),
-      adviceModel: config.get<string>('advice.model') || config.get<string>('adviceModel', 'deepseek-v4-pro'),
-      adviceReasoningEffort:
-        config.get<string>('advice.reasoningEffort') ?? config.get<string>('adviceReasoningEffort', 'max'),
-      enableContentAnalysis: config.get('enableContentAnalysis', true),
-      projectGroupingMode: config.get('projectGroupingMode', 'git') as 'git' | 'folder' | 'flat',
-      fileWatching: config.get('fileWatching', true),
-      pauseDashboardRefresh: config.get('pauseDashboardRefresh', false)
+      refreshInterval: s.get<number>('refreshInterval'),
+      dataDirectory: s.get<string>('dataDirectory'),
+      codexEnabled: s.get<boolean>('codex.enabled'),
+      codexDataDirectory: s.get<string>('codex.dataDirectory'),
+      codexFileWatchSeconds:
+        Number(s.get<string>('codex.fileWatchSeconds') ?? '30') || 0,
+      codexOptimizationEnabled: s.get<boolean>('codex.optimization.enabled'),
+      statusBarProvider: s.get<'auto' | 'claude' | 'codex'>('statusBarProvider'),
+      codexStatusMetric: s.get<'fresh' | 'processed' | 'output'>(
+        'codex.statusMetric',
+      ),
+      language: s.get<string>('language'),
+      decimalPlaces: s.get<number>('decimalPlaces'),
+      tokenDecimalPlaces: s.get<number>('tokenDecimalPlaces'),
+      compactNumbers: s.get<boolean>('compactNumbers'),
+      releaseAnnouncements: s.get<boolean>('releaseAnnouncements'),
+      timezone: s.get<string>('timezone'),
+      showCost: s.get<boolean>('showCost'),
+      showContext: s.get<boolean>('showContext'),
+      contextWindowOverride: s.get<number>('contextWindowOverride'),
+      statusBarMetric: s.get<'cost' | 'monthly-cost' | 'tokens'>('statusBarMetric'),
+      showScopedWeekly: s.get<boolean>('showScopedWeekly'),
+      showResetInStatusBar: s.get<boolean>('showResetInStatusBar'),
+      quotaFiveHourOnly: s.get<boolean>('quotaFiveHourOnly'),
+      resetCountdownFormat: s.get<'decimal' | 'units' | 'clock'>('resetCountdownFormat'),
+      usageLimitTracking: s.get<boolean>('usageLimitTracking'),
+      adviceApiKey: s.get<string>('advice.apiKey'),
+      adviceApiUrl: s.get<string>('advice.apiUrl'),
+      adviceModel: s.get<string>('advice.model'),
+      adviceReasoningEffort: s.get<string>('advice.reasoningEffort'),
+      adviceUserContext: s.get<string>('advice.userContext'),
+      // Subscription backend is not shipped this version (Anthropic 403s the
+      // OAuth-token direct call) — advice/optimizer are API-only. The dormant
+      // subscription transport remains in advisor.ts.
+      adviceBackend: 'api',
+      adviceApiFormat: s.get<'anthropic' | 'openai'>('advice.apiFormat'),
+      adviceSubscriptionModel: 'claude-haiku-4-5',
+      advicePromptWindowDays: s.get<number>('advice.promptWindowDays'),
+      enableContentAnalysis: s.get<boolean>('enableContentAnalysis'),
+      projectGroupingMode: s.get<'git' | 'folder' | 'flat'>('projectGroupingMode'),
+      fileWatchSeconds: Number(s.get<string>('fileWatchSeconds') ?? '2') || 0,
+      dashboardAutoRefresh: s.get<boolean>('dashboardAutoRefresh')
     };
+  }
+
+  private codexHome(config: ExtensionConfig): string {
+    return resolveCodexHome(
+      config.codexDataDirectory,
+      process.env,
+      os.homedir(),
+    );
+  }
+
+  private createCodexProvider(config: ExtensionConfig): CodexProvider {
+    return new CodexProvider({
+      enabled: config.codexEnabled,
+      codexHome: this.codexHome(config),
+      indexPath: path.join(
+        this.context.globalStorageUri.fsPath,
+        'codex-index-v1.json',
+      ),
+      salt: this.codexSalt,
+      timeZone: resolveTimeZone(config.timezone),
+    });
+  }
+
+  private syncProviderUi(): void {
+    const config = this.getConfiguration();
+    const claudeHasData = this.cache.records.length > 0;
+    this.webviewProvider.updateProviderData(
+      this.codexView,
+      this.codexInsights,
+      {
+        claude: claudeHasData,
+        codex: this.codexAvailable,
+        codexData: this.codexHasData,
+        codexLoading: this.codexRefreshing,
+        codexProgress: this.codexProgress
+          ? {
+              scannedFiles: this.codexProgress.scannedFiles,
+              totalFiles: this.codexProgress.totalFiles,
+              indexedBytes: this.codexProgress.indexedBytes,
+              totalBytes: this.codexProgress.totalBytes,
+            }
+          : null,
+      },
+    );
+
+    const selected =
+      config.statusBarProvider === 'auto'
+        ? claudeHasData
+          ? 'claude'
+          : this.codexHasData
+            ? 'codex'
+            : 'claude'
+        : config.statusBarProvider;
+    if (selected === 'codex') {
+      if (this.codexView?.lastTask) {
+        this.statusBar.updateCodex(
+          this.codexView.lastTask,
+          config.codexStatusMetric,
+          this.codexView.limit,
+        );
+      }
+      this.statusBar.setProvider('codex');
+    } else {
+      this.statusBar.setProvider('claude');
+    }
+  }
+
+  private async refreshCodexData(trigger: RefreshTrigger): Promise<void> {
+    try {
+      await this.runCodexRefresh(trigger);
+    } catch {
+      this.codexView = null;
+      this.codexInsights = emptyCodexScopedInsights();
+      this.codexHasData = false;
+      this.codexRefreshing = false;
+      this.codexProgress = null;
+      this.codexProgressLastRenderedAt = 0;
+      this.outputChannel.appendLine(
+        formatCodexIndexDiagnostic({
+          outcome: 'error',
+          indexedFiles: 0,
+          totalFiles: 0,
+          indexedBytes: 0,
+          totalBytes: 0,
+          periodMigratedBytes: 0,
+          periodTotalBytes: 0,
+          migrationPending: false,
+          bodyReads: 0,
+          failedFiles: 1,
+          metadataMs: 0,
+          parseMs: 0,
+          qualityFlags: { 'refresh-failed': 1 },
+        }),
+      );
+      this.syncProviderUi();
+    }
+  }
+
+  private async runCodexRefresh(trigger: RefreshTrigger): Promise<void> {
+    const config = this.getConfiguration();
+    if (!config.codexEnabled) {
+      this.codexView = null;
+      this.codexInsights = emptyCodexScopedInsights();
+      this.codexAvailable = false;
+      this.codexHasData = false;
+      this.codexRefreshing = false;
+      this.codexProgress = null;
+      this.codexProgressLastRenderedAt = 0;
+      this.syncProviderUi();
+      return;
+    }
+    this.codexAvailable = await this.codexProvider.isAvailable();
+    if (!this.codexAvailable) {
+      this.codexView = null;
+      this.codexInsights = emptyCodexScopedInsights();
+      this.codexHasData = false;
+      this.codexRefreshing = false;
+      this.codexProgress = null;
+      this.codexProgressLastRenderedAt = 0;
+      this.syncProviderUi();
+      return;
+    }
+    this.codexRefreshing = true;
+    this.codexProgress = null;
+    this.codexProgressLastRenderedAt = 0;
+    this.syncProviderUi();
+    const provider = this.codexProvider;
+    this.codexCheckpointHydrationLastAttemptAt = Date.now();
+    const persisted = await provider.loadPersistedSnapshot();
+    if (provider !== this.codexProvider) {
+      return;
+    }
+    if (persisted) {
+      this.applyCodexSnapshot(persisted);
+      this.syncProviderUi();
+    }
+    try {
+      const result = await provider.refresh(
+        codexRefreshProfileForTrigger(trigger),
+        (progress) => this.onCodexIndexProgress(progress),
+      );
+      if (result.outcome === 'unavailable') {
+        this.codexView = null;
+        this.codexInsights = emptyCodexScopedInsights();
+        this.codexAvailable = false;
+        this.codexHasData = false;
+        return;
+      }
+
+      this.applyCodexSnapshot(result.snapshot);
+      const diagnostic = result.diagnostic;
+      this.outputChannel.appendLine(
+        formatCodexIndexDiagnostic({
+          outcome: result.outcome,
+          indexedFiles: result.snapshot.coverage.indexedFiles,
+          totalFiles: result.snapshot.coverage.totalFiles,
+          indexedBytes: result.snapshot.coverage.indexedBytes,
+          totalBytes: result.snapshot.coverage.totalBytes,
+          periodMigratedBytes:
+            result.snapshot.coverage.period.allTime.migratedBytes,
+          periodTotalBytes: result.snapshot.coverage.period.allTime.totalBytes,
+          migrationPending: diagnostic?.migrationPending ?? false,
+          indexRecovery: diagnostic?.indexRecovery?.reason,
+          bodyReads: diagnostic?.bodyReads ?? 0,
+          failedFiles: diagnostic?.failedFiles ?? 0,
+          metadataMs: diagnostic?.metadataMs ?? 0,
+          parseMs: diagnostic?.parseMs ?? 0,
+          qualityFlags: result.snapshot.qualityFlags,
+        }),
+      );
+    } finally {
+      this.codexRefreshing = false;
+      this.codexProgress = null;
+      this.codexProgressLastRenderedAt = 0;
+      this.syncProviderUi();
+    }
+  }
+
+  private onCodexIndexProgress(progress: CodexIndexProgress): void {
+    this.codexProgress = progress;
+    this.scheduleCodexCheckpointHydration();
+    const now = Date.now();
+    if (
+      this.codexProgressLastRenderedAt === 0 ||
+      now - this.codexProgressLastRenderedAt >= 250
+    ) {
+      this.codexProgressLastRenderedAt = now;
+      this.webviewProvider.updateCodexProgress({
+        scannedFiles: progress.scannedFiles,
+        totalFiles: progress.totalFiles,
+        indexedBytes: progress.indexedBytes,
+        totalBytes: progress.totalBytes,
+      });
+    }
+  }
+
+  private applyCodexSnapshot(snapshot: CodexProviderSnapshot): void {
+    this.codexView = buildCodexUsageView(snapshot);
+    this.codexInsights = buildScopedCodexInsights(this.codexView);
+    this.codexAvailable = true;
+    this.codexHasData = snapshot.coverage.totalFiles > 0;
+  }
+
+  /** Adopt the first atomic checkpoint during a brand-new cold index. */
+  private scheduleCodexCheckpointHydration(): void {
+    if (
+      this.codexView ||
+      !this.codexRefreshing ||
+      this.codexCheckpointHydration
+    ) {
+      return;
+    }
+    const now = Date.now();
+    if (
+      this.codexCheckpointHydrationLastAttemptAt > 0 &&
+      now - this.codexCheckpointHydrationLastAttemptAt < 1_000
+    ) {
+      return;
+    }
+    this.codexCheckpointHydrationLastAttemptAt = now;
+    const provider = this.codexProvider;
+    const pending = provider.loadPersistedSnapshot()
+      .then((snapshot) => {
+        if (
+          !snapshot ||
+          provider !== this.codexProvider ||
+          !this.codexRefreshing ||
+          this.codexView
+        ) {
+          return;
+        }
+        this.applyCodexSnapshot(snapshot);
+        this.syncProviderUi();
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.codexCheckpointHydration === pending) {
+          this.codexCheckpointHydration = null;
+        }
+      });
+    this.codexCheckpointHydration = pending;
+  }
+
+  // Settings whose change only affects the status bar (no dashboard reload).
+  private static readonly STATUS_BAR_ONLY_SETTINGS = new Set([
+    // usageLimitTracking is intentionally excluded: turning it on must trigger a
+    // /usage fetch (the full reload path), else the quota stays empty until the
+    // next tick.
+    'showCost', 'showContext', 'statusBarMetric',
+    'showScopedWeekly', 'quotaFiveHourOnly', 'showResetInStatusBar', 'resetCountdownFormat',
+    'statusBarProvider', 'codex.statusMetric',
+  ]);
+
+  // Presentation-only dashboard toggles must not restart watchers, recreate
+  // providers, or trigger a corpus reindex.
+  private static readonly DASHBOARD_ONLY_SETTINGS = new Set([
+    'showWeeklyEquivalentValue',
+  ]);
+
+  /** Dashboard Settings change — status-bar-only toggles apply in place, others reload. */
+  private onSettingsChangedFromPanel(key?: string): void {
+    if (key && ClaudeCodeUsageExtension.DASHBOARD_ONLY_SETTINGS.has(key)) {
+      this.syncProviderUi();
+      return;
+    }
+    if (key && ClaudeCodeUsageExtension.STATUS_BAR_ONLY_SETTINGS.has(key)) {
+      const config = this.getConfiguration();
+      this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat);
+      this.statusBar.updateQuota(this.cache.usageLimits ?? null);
+      this.syncProviderUi();
+      return;
+    }
+    this.onConfigurationChanged();
   }
 
   private onConfigurationChanged(): void {
     const config = this.getConfiguration();
     I18n.setLanguage(config.language as any);
     I18n.setDecimalPlaces(config.decimalPlaces);
+    I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
     I18n.setCompactNumbers(config.compactNumbers);
     I18n.setTimezone(config.timezone);
+    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat);
 
     // Restart auto-refresh with new interval
     this.startAutoRefresh();
 
-    // Clear cache if data directory changed
-    if (config.dataDirectory !== this.cache.dataDirectory) {
-      this.cache.records = [];
-      this.cache.lastUpdate = new Date(0);
-      this.cache.dataDirectory = config.dataDirectory;
-      this.stopFileWatching();
+    // Apply watcher-delay changes immediately, then refresh and re-attach.
+    this.stopFileWatching();
+    this.stopCodexWatching();
+    this.stopCredentialsWatching();
+    this.selectClaudeProfile(config.dataDirectory);
+    this.codexProvider.dispose();
+    this.codexProvider = this.createCodexProvider(config);
+    if (!this.windowActivity.focused) {
+      return;
     }
+    void this.refreshData(true, 'settings').then(() => {
+      void this.startFileWatching();
+      this.startCodexWatching();
+      this.startCredentialsWatching();
+    });
+  }
 
-    // Refresh data immediately, then (re-)attach the file watcher.
-    this.refreshData().then(() => this.startFileWatching());
+  /** Keep quota credentials on the same Claude profile as this window's logs.
+   * A profile switch invalidates every in-memory quota/backoff value because it
+   * belongs to a different account. */
+  private selectClaudeProfile(dataDirectory?: string | null): void {
+    const nextClient = new ClaudeApiClient(this.outputChannel, dataDirectory);
+    if (nextClient.getCredentialsPath() === this.apiClient.getCredentialsPath()) {
+      return;
+    }
+    this.apiClient = nextClient;
+    this.claudeProfileGeneration += 1;
+    this.cache.usageLimits = null;
+    this.cache.usageLimitsLastUpdate = new Date(0);
+    this.cache.usageLimitsBackoffUntil = new Date(0);
+    this.cache.usageLimitsFailStreak = 0;
+    this.quotaColdRetryDone = false;
+    this.statusBar.updateQuota(null);
+    this.webviewProvider.updateQuota(null);
+    this.claudeWeeklyQuotaHistory = [];
+    this.webviewProvider.updateWeeklyQuotaHistory([]);
+    this.loadPersistedQuota();
   }
 
   /**
@@ -346,12 +1165,20 @@ export class ClaudeCodeUsageExtension {
    * filesystems do not support recursive watching).
    */
   private async startFileWatching(): Promise<void> {
-    const config = this.getConfiguration();
-    if (!config.fileWatching) {
+    if (!this.windowActivity.focused) {
       this.stopFileWatching();
       return;
     }
+    const config = this.getConfiguration();
+    if (!(config.fileWatchSeconds > 0)) {
+      this.stopFileWatching(); // "Off"
+      return;
+    }
     const dataDirectory = await ClaudeDataLoader.findClaudeDataDirectory(config.dataDirectory || undefined);
+    if (!this.windowActivity.focused) {
+      this.stopFileWatching();
+      return;
+    }
     if (!dataDirectory) {
       return;
     }
@@ -365,18 +1192,18 @@ export class ClaudeCodeUsageExtension {
         if (!filename || !String(filename).endsWith('.jsonl')) {
           return;
         }
-        // Mark activity so the polling timer and quota cache switch to the
-        // faster "active" cadence. This fires for sub-agent / workflow files
-        // too, since fs.watch is recursive.
+        // Activity remains authoritative for quota TTL only; poll cadence
+        // always follows refreshInterval.
         this.lastActivityAt = Date.now();
-        // Debounce: Claude Code writes lines in bursts and the file mtime
-        // changes for every line.
-        if (this.watchDebounceTimer) {
-          clearTimeout(this.watchDebounceTimer);
+        this.watcherEventsSinceRefresh += 1;
+        const delaySeconds = this.getConfiguration().fileWatchSeconds;
+        if (!(delaySeconds > 0)) {
+          this.stopFileWatching();
+          return;
         }
-        this.watchDebounceTimer = setTimeout(() => {
-          this.refreshData();
-        }, 1500);
+        this.watchDebounce.push(delaySeconds * 1000, () => {
+          void this.refreshData(false, 'watch');
+        });
       });
       this.watchedDir = projectsDir;
     } catch {
@@ -385,10 +1212,7 @@ export class ClaudeCodeUsageExtension {
   }
 
   private stopFileWatching(): void {
-    if (this.watchDebounceTimer) {
-      clearTimeout(this.watchDebounceTimer);
-      this.watchDebounceTimer = undefined;
-    }
+    this.watchDebounce.clear();
     if (this.fileWatcher) {
       try {
         this.fileWatcher.close();
@@ -400,34 +1224,192 @@ export class ClaudeCodeUsageExtension {
     this.watchedDir = null;
   }
 
+  private startCodexWatching(): void {
+    if (!this.windowActivity.focused) {
+      this.stopCodexWatching();
+      return;
+    }
+    const config = this.getConfiguration();
+    if (!config.codexEnabled || !(config.codexFileWatchSeconds > 0)) {
+      this.stopCodexWatching();
+      return;
+    }
+    const codexHome = this.codexHome(config);
+    if (this.codexWatchedHome === codexHome && this.codexWatchers.length > 0) {
+      return;
+    }
+    this.stopCodexWatching();
+    for (const child of ['sessions', 'archived_sessions']) {
+      const directory = path.join(codexHome, child);
+      if (!fs.existsSync(directory)) {
+        continue;
+      }
+      try {
+        const watcher = fs.watch(
+          directory,
+          { recursive: true },
+          (_event, filename) => {
+            if (!filename || !String(filename).endsWith('.jsonl')) {
+              return;
+            }
+            const delaySeconds = this.getConfiguration().codexFileWatchSeconds;
+            if (!(delaySeconds > 0)) {
+              this.stopCodexWatching();
+              return;
+            }
+            this.codexWatchDebounce.push(delaySeconds * 1000, () => {
+              void this.refreshCodexData('watch');
+            });
+          },
+        );
+        this.codexWatchers.push(watcher);
+      } catch {
+        // Polling remains available when recursive watches are unsupported.
+      }
+    }
+    this.codexWatchedHome =
+      this.codexWatchers.length > 0 ? codexHome : null;
+  }
+
+  private stopCodexWatching(): void {
+    this.codexWatchDebounce.clear();
+    for (const watcher of this.codexWatchers) {
+      try {
+        watcher.close();
+      } catch {
+        // Already closed.
+      }
+    }
+    this.codexWatchers = [];
+    this.codexWatchedHome = null;
+  }
+
+  /**
+   * Watch the OAuth credentials file so switching Claude accounts updates the
+   * quota promptly. Without this, the quota stays on the previous account's
+   * numbers for up to a full TTL (120 s) — long enough to read as "stuck on the
+   * wrong account, only a window reload fixes it" (#45). On a change we drop the
+   * cached quota and refetch; the api client re-reads the new token. Watches the
+   * parent dir (the file is rewritten/replaced, which single-file watches miss)
+   * and filters by name. macOS Keychain-stored credentials have no file to
+   * watch — those still self-correct on the next refresh tick.
+   */
+  private startCredentialsWatching(): void {
+    if (!this.windowActivity.focused) {
+      this.stopCredentialsWatching();
+      return;
+    }
+    this.stopCredentialsWatching();
+    const credsPath = this.apiClient.getCredentialsPath();
+    const dir = path.dirname(credsPath);
+    const name = path.basename(credsPath);
+    if (!fs.existsSync(dir)) {
+      return;
+    }
+    try {
+      this.credsWatcher = fs.watch(dir, (_event, filename) => {
+        if (filename && String(filename) !== name) {
+          return;
+        }
+        if (this.credsDebounceTimer) {
+          clearTimeout(this.credsDebounceTimer);
+        }
+        this.credsDebounceTimer = setTimeout(() => {
+          this.handleCredentialsChange();
+        }, 800);
+      });
+    } catch {
+      // Watching unsupported on this platform/filesystem — the refresh tick
+      // still picks up the new account within a TTL.
+    }
+  }
+
+  private handleCredentialsChange(): void {
+    // The cached quota and any failure backoff belong to the previous
+    // token/account. Clear both so a successful re-login retries immediately.
+    this.cache.usageLimitsLastUpdate = new Date(0);
+    this.cache.usageLimitsFailStreak = 0;
+    this.cache.usageLimitsBackoffUntil = new Date(0);
+    void this.refreshData(false, 'credentials');
+  }
+
+  private stopCredentialsWatching(): void {
+    if (this.credsDebounceTimer) {
+      clearTimeout(this.credsDebounceTimer);
+      this.credsDebounceTimer = undefined;
+    }
+    if (this.credsWatcher) {
+      try {
+        this.credsWatcher.close();
+      } catch {
+        // Already closed.
+      }
+      this.credsWatcher = undefined;
+    }
+  }
+
   /** True when Claude Code has written a log line in the last 60 s. */
   private isActive(): boolean {
     return Date.now() - this.lastActivityAt < 60000;
   }
 
-  private startAutoRefresh(): void {
+  private suspendRecurringWork(): void {
+    this.stopAutoRefresh();
+    this.stopFileWatching();
+    this.stopCodexWatching();
+    this.stopCredentialsWatching();
+  }
+
+  private resumeRecurringWork(): void {
+    this.startAutoRefresh();
+    void this.startFileWatching();
+    this.startCodexWatching();
+    this.startCredentialsWatching();
+    void this.refreshData(false, 'focus');
+  }
+
+  private handleWindowFocusChange(focused: boolean): void {
+    const transition = this.windowActivity.update(focused);
+    if (transition === 'suspend') {
+      this.suspendRecurringWork();
+    } else if (transition === 'resume') {
+      this.resumeRecurringWork();
+    }
+  }
+
+  /** Keep recurring work only in the active VS Code window. Each window owns a
+   * separate Extension Host, so leaving timers and both provider watchers active
+   * in every background window multiplies the same local scans. A focused window
+   * catches up immediately; a background window stays idle until then. */
+  private startWindowFocusRefresh(): void {
+    this.context.subscriptions.push(
+      vscode.window.onDidChangeWindowState((state) => {
+        this.handleWindowFocusChange(state.focused);
+      })
+    );
+  }
+
+  private stopAutoRefresh(): void {
+    this.refreshGen += 1;
     if (this.refreshTimer) {
       clearTimeout(this.refreshTimer);
       this.refreshTimer = undefined;
     }
-    // Self-rescheduling timer with an activity-aware interval: while Claude
-    // Code is actively writing logs we tick every ~15 s (matching the user's
-    // expectation that ultracode / high-consumption runs update promptly);
-    // when idle we use the user's configured interval (min 30 s). fs.watch
-    // already covers near-real-time status-bar cost updates during activity —
-    // this floor guarantees the quota also refreshes during sustained writes
-    // where the debounce never settles.
-    const gen = ++this.refreshGen;
+  }
+
+  private startAutoRefresh(): void {
+    this.stopAutoRefresh();
+    if (!this.windowActivity.focused) {
+      return;
+    }
+    const gen = this.refreshGen;
     const tick = (): void => {
       if (gen !== this.refreshGen) {
         return; // superseded by a newer startAutoRefresh — stop this chain
       }
-      const base = Math.max(this.getConfiguration().refreshInterval * 1000, 30000);
-      // ~8 s while active: high-consumption models (Fable 5) move the numbers
-      // fast enough that 15 s reads as laggy.
-      const intervalMs = this.isActive() ? Math.min(base, 8000) : base;
+      const intervalMs = pollIntervalMs(this.getConfiguration().refreshInterval);
       this.refreshTimer = setTimeout(() => {
-        this.refreshData().finally(() => {
+        this.refreshData(false, 'poll').finally(() => {
           if (gen === this.refreshGen) {
             tick();
           }
@@ -438,9 +1420,90 @@ export class ClaudeCodeUsageExtension {
   }
 
   /** Fetch real usage limits via OAuth, cached for 2 minutes. */
+  // Persist the last-known quota across reloads/restarts.
+  private static readonly QUOTA_STATE_KEY = 'ccu.usageLimits';
+  private static readonly WEEKLY_QUOTA_STATE_KEY = 'ccu.weeklyQuotaHistory.v1';
+
+  private quotaProfileHash(): string {
+    return createHash('sha256')
+      .update(this.apiClient.getCredentialsPath())
+      .digest('hex')
+      .slice(0, 16);
+  }
+
+  private quotaStateKey(): string {
+    return `${ClaudeCodeUsageExtension.QUOTA_STATE_KEY}.${this.quotaProfileHash()}`;
+  }
+
+  private weeklyQuotaStateKey(): string {
+    return `${ClaudeCodeUsageExtension.WEEKLY_QUOTA_STATE_KEY}.${this.quotaProfileHash()}`;
+  }
+
+  private loadPersistedQuota(): void {
+    if (!this.getConfiguration().usageLimitTracking) {
+      return;
+    }
+    try {
+      const storedHistory = this.context.globalState.get<WeeklyQuotaObservation[]>(
+        this.weeklyQuotaStateKey(),
+      ) ?? [];
+      const saved = this.context.globalState.get<{ data: ClaudeApiUsageResponse; ts: number }>(
+        this.quotaStateKey()
+      );
+      const savedObservation = saved?.data
+        ? claudeWeeklyQuotaObservations(
+            saved.data,
+            this.quotaProfileHash(),
+            saved.ts || 0,
+          )
+        : [];
+      this.claudeWeeklyQuotaHistory = appendWeeklyQuotaObservations(
+        [],
+        [...storedHistory, ...savedObservation],
+      );
+      this.webviewProvider.updateWeeklyQuotaHistory(this.claudeWeeklyQuotaHistory);
+      if (saved && saved.data) {
+        this.cache.usageLimits = saved.data;
+        this.cache.usageLimitsLastUpdate = new Date(saved.ts || 0);
+        this.statusBar.updateQuota(saved.data);
+        this.webviewProvider.updateQuota(saved.data);
+      }
+    } catch {
+      /* ignore corrupt persisted state */
+    }
+  }
+
+  private recordClaudeWeeklyQuota(
+    usage: ClaudeApiUsageResponse,
+    observedAt: number,
+  ): void {
+    const additions = claudeWeeklyQuotaObservations(
+      usage,
+      this.quotaProfileHash(),
+      observedAt,
+    );
+    if (additions.length === 0) {
+      return;
+    }
+    this.claudeWeeklyQuotaHistory = appendWeeklyQuotaObservations(
+      this.claudeWeeklyQuotaHistory,
+      additions,
+    );
+    this.webviewProvider.updateWeeklyQuotaHistory(this.claudeWeeklyQuotaHistory);
+    void this.context.globalState.update(
+      this.weeklyQuotaStateKey(),
+      this.claudeWeeklyQuotaHistory,
+    );
+  }
+
   private async maybeFetchUsageLimits(config: ExtensionConfig): Promise<ClaudeApiUsageResponse | null> {
     if (!config.usageLimitTracking) {
       return null;
+    }
+    const now = Date.now();
+    // While backing off after a 429, return the cached value without refetching.
+    if (now < this.cache.usageLimitsBackoffUntil.getTime()) {
+      return this.cache.usageLimits;
     }
     const age = Date.now() - this.cache.usageLimitsLastUpdate.getTime();
     // Activity-aware cache: 20 s while Claude Code is actively writing (so the
@@ -458,13 +1521,39 @@ export class ClaudeCodeUsageExtension {
     if (this.cache.usageLimits && age < ttl && !this.hasExpiredWindow(this.cache.usageLimits)) {
       return this.cache.usageLimits;
     }
-    const fetched = await this.apiClient.fetchUsageLimits();
+    const profileGeneration = this.claudeProfileGeneration;
+    const apiClient = this.apiClient;
+    const fetched = await apiClient.fetchUsageLimits();
+    if (
+      profileGeneration !== this.claudeProfileGeneration ||
+      apiClient !== this.apiClient
+    ) {
+      // A slower request from the previously selected profile must never
+      // overwrite the new account's in-memory or persisted quota snapshot.
+      return this.cache.usageLimits;
+    }
     if (fetched) {
+      const observedAt = Date.now();
       this.cache.usageLimits = fetched;
       this.cache.usageLimitsLastUpdate = new Date();
+      this.cache.usageLimitsFailStreak = 0;
+      // Even on success, hold off /usage for 30s — this floor also covers the
+      // expired-window bypass so a just-rolled window can't trigger an immediate
+      // refetch.
+      this.cache.usageLimitsBackoffUntil = new Date(Date.now() + 30000);
+      // Write through to disk so the next startup/reload has it instantly.
+      void this.context.globalState.update(
+        this.quotaStateKey(),
+        { data: fetched, ts: observedAt }
+      );
+      this.recordClaudeWeeklyQuota(fetched, observedAt);
       return fetched;
     }
-    // Keep showing the last known value if a refresh fails.
+    // Failed (usually a 429 or invalid/expired credentials). Exponentially back
+    // off to one hour; a credentials-file change clears this immediately.
+    this.cache.usageLimitsFailStreak++;
+    const backoffMs = quotaFailureBackoffMs(this.cache.usageLimitsFailStreak);
+    this.cache.usageLimitsBackoffUntil = new Date(now + backoffMs);
     return this.cache.usageLimits;
   }
 
@@ -472,165 +1561,294 @@ export class ClaudeCodeUsageExtension {
    * utilisation is stale and a refetch is warranted). */
   private hasExpiredWindow(u: ClaudeApiUsageResponse): boolean {
     const now = Date.now();
-    const expired = (w?: { resets_at: string }): boolean => {
-      if (!w) {
-        return false;
-      }
-      const t = Date.parse(w.resets_at);
+    // Via the normalizer so scoped weekly caps count too: those live only in the
+    // generic `limits` array, and a stale one is just as much a reason to refetch.
+    return normalizeQuotaWindows(u).some((w) => {
+      const t = Date.parse(w.resetsAt);
       return !isNaN(t) && t <= now;
-    };
-    return expired(u.five_hour) || expired(u.seven_day) || expired(u.seven_day_opus);
+    });
   }
 
-  private async refreshData(manualTrigger: boolean = false): Promise<void> {
-    if (this.isRefreshing) {
-      // Coalesce: remember that another refresh was requested and run exactly
-      // one more after the current finishes (see finally). Dropping the event
-      // outright starved updates during rapid ultracode / sub-agent writes.
-      this.pendingRefresh = true;
+  private async refreshData(
+    forceReload: boolean = false,
+    trigger: RefreshTrigger = 'poll'
+  ): Promise<void> {
+    // `watch` reaches this shared path only from the Claude projects watcher.
+    // Codex has its own watcher and quiet-delay setting, so refreshing it here
+    // would bypass codex.fileWatchSeconds whenever Claude writes a JSONL line.
+    if (trigger !== 'watch') {
+      void this.refreshCodexData(trigger);
+    }
+    const request = this.refreshGate.request(forceReload, trigger);
+    if (request === null) {
+      this.coalescedTriggersSinceRefresh += 1;
       return;
     }
-    this.isRefreshing = true;
+    await this.runRefresh(request);
+  }
+
+  private handleColdRefreshFailure(updateWebview: boolean): void {
+    reportColdRefreshFailure({
+      hasLoadedManifest: this.cache.manifest !== null,
+      updateWebview,
+      error: I18n.t.statusBar.refreshFailed,
+      onStatusError: (error) => {
+        this.statusBar.updateUsageData(null, null, error);
+        this.statusBar.updateContext(null);
+      },
+      onWebviewError: (error) => {
+        this.webviewProvider.updateData(null, null, null, null, [], [], [], error, null);
+      },
+    });
+  }
+
+  private async runRefresh(request: RefreshRequest): Promise<void> {
+    const totalStarted = performance.now();
+    const watcherEvents = this.watcherEventsSinceRefresh;
+    const coalescedTriggers = this.coalescedTriggersSinceRefresh;
+    this.watcherEventsSinceRefresh = 0;
+    this.coalescedTriggersSinceRefresh = 0;
+    let updateWebview = request.trigger === 'manual';
     try {
       const config = this.getConfiguration();
-      // When the user has paused dashboard refresh, auto-triggers (timer +
-      // fs.watch) skip the webview update entirely; the status bar still
-      // refreshes so today's cost / quota stay live. Manual command always
-      // refreshes everything so the user can force-update on demand.
-      const updateWebview = manualTrigger || !config.pauseDashboardRefresh;
+      updateWebview = updateWebview || config.dashboardAutoRefresh;
 
-      // Quota is account-level, decoupled from local data. Fire it without
-      // awaiting so a slow/cold OAuth fetch (curl can take seconds, or fail
-      // outright on a fresh window's flaky network) never delays the local
-      // cost figures — the cause of "usage not showing the first time I open
-      // VS Code". On a cold start with no quota yet, do ONE gentle retry after
-      // ~8 s; beyond that the regular ticks take over. We deliberately do not
-      // retry-storm: repeated /usage hits are what trigger the 429 cool-down.
+      // Account quota is independent from local JSONL. Do not let a slow OAuth
+      // request delay the local usage refresh.
       this.maybeFetchUsageLimits(config).then((limits) => {
         this.statusBar.updateQuota(limits);
+        this.webviewProvider.updateQuota(limits);
         if (!limits && !this.cache.usageLimits && !this.quotaColdRetryDone) {
           this.quotaColdRetryDone = true;
           setTimeout(() => {
             this.maybeFetchUsageLimits(this.getConfiguration()).then((retry) => {
               if (retry) {
                 this.statusBar.updateQuota(retry);
+                this.webviewProvider.updateQuota(retry);
               }
             });
           }, 8000);
         }
       });
 
-      // Find Claude data directory
       const dataDirectory = await ClaudeDataLoader.findClaudeDataDirectory(
         config.dataDirectory || undefined
       );
-
       if (!dataDirectory) {
         const error = 'Claude data directory not found. Please check your configuration.';
         this.statusBar.updateUsageData(null, null, error);
+        this.statusBar.updateContext(null);
         if (updateWebview) {
           this.webviewProvider.updateData(null, null, null, null, [], [], [], error, null);
         }
+        this.outputChannel.appendLine(formatRefreshDiagnostic({
+          trigger: request.trigger,
+          filesDiscovered: 0,
+          filesChanged: 0,
+          filesReused: 0,
+          filesRemoved: 0,
+          filesFailed: 0,
+          bytesRead: 0,
+          linesParsed: 0,
+          watcherEvents,
+          coalescedTriggers,
+          manifestMs: 0,
+          readParseMs: 0,
+          aggregateRenderMs: 0,
+          totalMs: performance.now() - totalStarted,
+        }));
         return;
       }
 
-      // Skip the heavy recompute when nothing has changed since the last load —
-      // this avoids pointless work (and CPU spikes) while you are not running code.
-      const latestMtime = await ClaudeDataLoader.getLatestModifiedTime(dataDirectory);
-      const dirChanged = this.cache.dataDirectory !== dataDirectory;
-      const needFullRefresh =
-        dirChanged || this.cache.records.length === 0 || latestMtime > this.cache.lastUpdate.getTime();
+      const manifestStarted = performance.now();
+      const manifest = await scanUsageManifest([dataDirectory]);
+      const delta = diffUsageManifests(this.cache.manifest, manifest);
+      const manifestMs = performance.now() - manifestStarted;
+      const directoryChanged = this.cache.dataDirectory !== dataDirectory;
+      const needFullRefresh = shouldReloadUsage({
+        forceReload: request.forceReload,
+        directoryChanged,
+        hasLoadedManifest: this.cache.manifest !== null,
+        changedFiles: delta.changed.length,
+        removedFiles: delta.removed.length,
+      });
 
       if (!needFullRefresh) {
-        // Idle: logs unchanged. Quota was already refreshed above.
+        this.statusBar.updateContext(claudeUsageDashboardSnapshot(this.cache.claudeIndex, {
+          workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+          projectGroupingMode: config.projectGroupingMode,
+          contextWindowOverride: config.contextWindowOverride,
+        }).context);
+        this.cache.manifest = manifest;
+        this.cache.dataDirectory = dataDirectory;
+        this.outputChannel.appendLine(formatRefreshDiagnostic({
+          trigger: request.trigger,
+          filesDiscovered: manifest.entries.size,
+          filesChanged: 0,
+          filesReused: delta.reused.length,
+          filesRemoved: 0,
+          filesFailed: 0,
+          bytesRead: 0,
+          linesParsed: 0,
+          watcherEvents,
+          coalescedTriggers,
+          manifestMs,
+          readParseMs: 0,
+          aggregateRenderMs: 0,
+          totalMs: performance.now() - totalStarted,
+        }));
         return;
       }
 
-      // Only show the full-screen spinner on the very first load (cold cache,
-      // nothing on screen yet). Background refreshes keep existing dashboard
-      // visible and swap in fresh data when ready — avoiding panel flicker
-      // on every file-watch tick during active use. (PR #20, @nickearnshaw)
-      if (this.cache.records.length === 0) {
+      // A non-null manifest, not records.length, distinguishes a cold load from
+      // a successfully loaded empty corpus.
+      if (this.cache.manifest === null) {
         this.statusBar.setLoading(true);
         if (updateWebview) {
           this.webviewProvider.setLoading(true);
         }
       }
 
-      const loaded = await ClaudeDataLoader.loadUsageRecords(dataDirectory, {
+      const baseIndex = directoryChanged
+        ? createClaudeUsageIndex()
+        : this.cache.claudeIndex;
+      const loaded = await updateClaudeUsageIndex(baseIndex, dataDirectory, {
         analyzeContent: config.enableContentAnalysis,
-        log: (line) =>
-          this.outputChannel.appendLine(
-            `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${line}`
-          )
+        windowDays: config.advicePromptWindowDays,
+        manifest,
+        log: (line) => this.outputChannel.appendLine(
+          `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${line}`
+        ),
       });
+      if (!shouldCommitUsageLoad(loaded.diagnostics.filesFailed)) {
+        this.handleColdRefreshFailure(updateWebview);
+        this.outputChannel.appendLine(formatRefreshDiagnostic({
+          trigger: request.trigger,
+          filesDiscovered: manifest.entries.size,
+          filesChanged: delta.changed.length,
+          filesReused: delta.reused.length,
+          filesRemoved: delta.removed.length,
+          filesFailed: loaded.diagnostics.filesFailed,
+          bytesRead: loaded.diagnostics.bytesRead,
+          linesParsed: loaded.diagnostics.linesParsed,
+          bodyReads: loaded.diagnostics.bodyReads,
+          aggregateMutations: loaded.diagnostics.aggregateMutations,
+          watcherEvents,
+          coalescedTriggers,
+          manifestMs,
+          readParseMs: loaded.diagnostics.readParseMs,
+          aggregateRenderMs: 0,
+          totalMs: performance.now() - totalStarted,
+        }));
+        return;
+      }
+
+      const aggregateStarted = performance.now();
       const records = loaded.records;
       const contentAnalysis = loaded.contentAnalysis;
-      this.cache.records = records;
-      this.cache.contentAnalysis = contentAnalysis;
-      this.cache.lastUpdate = new Date();
-      this.cache.dataDirectory = dataDirectory;
 
       if (records.length === 0) {
         const error = 'No usage records found. Make sure Claude Code is running.';
         this.statusBar.updateUsageData(null, null, error);
+        this.statusBar.updateContext(null);
         if (updateWebview) {
           this.webviewProvider.updateData(null, null, null, null, [], [], [], error, dataDirectory);
         }
-        return;
+      } else {
+        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const materialized = claudeUsageDashboardSnapshot(loaded.index, {
+          workspacePath,
+          projectGroupingMode: config.projectGroupingMode,
+          contextWindowOverride: config.contextWindowOverride,
+        });
+        const sessionData = materialized.session;
+        const todayData = materialized.today;
+        const workspaceTodayData = materialized.workspaceToday;
+        const monthData = materialized.month;
+        const allTimeData = materialized.allTime;
+        const dailyDataForMonth = materialized.dailyForMonth;
+        const dailyDataForAllTime = materialized.monthlyForAllTime;
+        const hourlyDataForToday = materialized.hourlyForToday;
+        const sessionBreakdown = materialized.sessions;
+        const projectBreakdown = materialized.projects;
+        const branchBreakdown = materialized.branches;
+        const workflowBreakdown = materialized.workflows;
+        const costliestMessages = materialized.costliestMessages;
+
+        this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined, monthData);
+        this.statusBar.updateContext(materialized.context);
+        if (updateWebview) {
+          this.webviewProvider.updateData(sessionData, todayData, monthData, allTimeData, dailyDataForMonth, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages);
+        }
       }
 
-      // Calculate usage data
-      const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      // "Current session" (per-workspace) is still computed for the webview.
-      const sessionData = ClaudeDataLoader.getCurrentSessionData(records, workspacePath);
-      const todayData = ClaudeDataLoader.getTodayData(records);
-      // Status-bar secondary number: today's cost for the current workspace.
-      const workspaceTodayData = workspacePath
-        ? ClaudeDataLoader.getTodayData(ClaudeDataLoader.filterByWorkspace(records, workspacePath))
-        : null;
-      const monthData = ClaudeDataLoader.getThisMonthData(records);
-      const allTimeData = ClaudeDataLoader.getAllTimeData(records);
-      const dailyDataForMonth = ClaudeDataLoader.getDailyDataForMonth(records);
-      const dailyDataForAllTime = ClaudeDataLoader.getDailyDataForAllTime(records);
-      const hourlyDataForToday = ClaudeDataLoader.getHourlyDataForToday(records);
-      const sessionBreakdown = ClaudeDataLoader.getSessionBreakdown(records);
-      const projectBreakdown = ClaudeDataLoader.getProjectBreakdown(records, undefined, config.projectGroupingMode);
-      const branchBreakdown = ClaudeDataLoader.getBranchBreakdown(records);
-
-      // Update UI. Quota is pushed asynchronously by the fire-and-forget fetch
-      // above; passing undefined leaves the quota item untouched here.
-      this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined);
-      if (updateWebview) {
-        this.webviewProvider.updateData(sessionData, todayData, monthData, allTimeData, dailyDataForMonth, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown);
-      }
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      console.error('Error refreshing Claude Code usage data:', error);
-
-      this.statusBar.updateUsageData(null, null, errorMessage);
-      if (manualTrigger || !this.getConfiguration().pauseDashboardRefresh) {
-        this.webviewProvider.updateData(null, null, null, null, [], [], [], errorMessage, null);
-      }
+      const aggregateRenderMs = performance.now() - aggregateStarted;
+      commitRefreshSnapshot(
+        manifest,
+        { records, contentAnalysis },
+        loaded.diagnostics.filesFailed,
+        (nextManifest, snapshot) => {
+          this.cache.records = snapshot.records;
+          this.cache.contentAnalysis = snapshot.contentAnalysis;
+          this.cache.claudeIndex = loaded.index;
+          this.cache.manifest = nextManifest;
+          this.cache.dataDirectory = dataDirectory;
+          this.cache.lastUpdate = new Date();
+        }
+      );
+      this.outputChannel.appendLine(formatRefreshDiagnostic({
+        trigger: request.trigger,
+        filesDiscovered: manifest.entries.size,
+        filesChanged: delta.changed.length,
+        filesReused: delta.reused.length,
+        filesRemoved: delta.removed.length,
+        filesFailed: loaded.diagnostics.filesFailed,
+        bytesRead: loaded.diagnostics.bytesRead,
+        linesParsed: loaded.diagnostics.linesParsed,
+        bodyReads: loaded.diagnostics.bodyReads,
+        aggregateMutations: loaded.diagnostics.aggregateMutations,
+        watcherEvents,
+        coalescedTriggers,
+        manifestMs,
+        readParseMs: loaded.diagnostics.readParseMs,
+        aggregateRenderMs,
+        totalMs: performance.now() - totalStarted,
+      }));
+    } catch {
+      // Keep the previous records and manifest authoritative. The next trigger
+      // retries scanner/reconciliation failures instead of presenting no data.
+      this.handleColdRefreshFailure(updateWebview);
+      this.outputChannel.appendLine(formatRefreshDiagnostic({
+        trigger: request.trigger,
+        filesDiscovered: 0,
+        filesChanged: 0,
+        filesReused: 0,
+        filesRemoved: 0,
+        filesFailed: 1,
+        bytesRead: 0,
+        linesParsed: 0,
+        watcherEvents,
+        coalescedTriggers,
+        manifestMs: 0,
+        readParseMs: 0,
+        aggregateRenderMs: 0,
+        totalMs: performance.now() - totalStarted,
+      }));
     } finally {
-      this.isRefreshing = false;
-      // If triggers arrived mid-load, run one more (background) refresh to pick
-      // up the changes they signalled. The pendingRefresh flag collapses any
-      // number of dropped triggers into a single follow-up.
-      if (this.pendingRefresh) {
-        this.pendingRefresh = false;
-        setTimeout(() => this.refreshData(), 0);
+      this.syncProviderUi();
+      const next = this.refreshGate.complete();
+      if (next !== null) {
+        setTimeout(() => void this.runRefresh(next), 0);
       }
     }
   }
 
   dispose(): void {
-    if (this.refreshTimer) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = undefined;
-    }
+    this.stopAutoRefresh();
     this.stopFileWatching();
+    this.stopCodexWatching();
+    this.stopCredentialsWatching();
+    this.codexProvider.dispose();
     this.statusBar.dispose();
     this.webviewProvider.dispose();
   }

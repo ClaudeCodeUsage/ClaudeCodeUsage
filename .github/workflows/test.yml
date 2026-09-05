@@ -1,0 +1,82 @@
+# Run the release-quality gates on every push and pull request.
+#
+# What this does:
+#   1. Runs the compiled Node logic and repository-policy suite.
+#   2. Runs the complete Webview gate in the canonical Playwright container.
+#   3. Packages and verifies a smoke VSIX only after both test jobs pass.
+#
+# To block merging, require all three checks under the repository's branch
+# protection rules: Test / Node Tests, Test / UI Test, and Test / Release Package.
+
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run Node tests
+        run: npm test
+
+  ui:
+    name: UI Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --ipc=host
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run full Webview gate
+        run: npm run test:ui
+
+  package:
+    name: Release Package
+    needs: [test, ui]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Compile
+        run: npm run compile
+      - name: Package smoke VSIX
+        run: npx -y @vscode/vsce@3.9.1 package --out /tmp/claude-code-usage-ci.vsix
+      - name: Verify smoke VSIX
+        run: node .github/scripts/verify-vsix.mjs /tmp/claude-code-usage-ci.vsix

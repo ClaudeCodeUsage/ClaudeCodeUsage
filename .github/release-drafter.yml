@@ -1,0 +1,70 @@
+# Release Drafter config.
+#
+# Keeps a single DRAFT GitHub Release continuously up to date as PRs merge to
+# main. The maintainer reviews that draft and clicks "Publish" to ship — which
+# creates the tag and triggers publish.yml. Nothing publishes automatically.
+#
+# The next version is inferred from the labels on the merged PRs:
+#   major → "breaking"          minor → "feature"/"enhancement"
+#   patch → everything else (the default)
+#
+# A version label is set by the maintainer when they merge (the PR template shows
+# the mapping; unlabeled defaults to patch). The `autolabeler` block below is
+# kept ready but only runs if a pull_request trigger is added to the workflow —
+# see the note in .github/workflows/release-drafter.yml.
+
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+# Attribution-only merges (work that already shipped in an earlier release) carry
+# this label so they don't pollute the next release's notes.
+exclude-labels:
+  - 'skip-changelog'
+
+categories:
+  - title: '✨ Features'
+    labels: ['feature', 'enhancement']
+  - title: '🐛 Fixes'
+    labels: ['fix', 'bug']
+  - title: '📝 Docs / CI / chore'
+    labels: ['docs', 'ci', 'chore', 'dependencies']
+
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+change-title-escapes: '\<*_&'
+
+version-resolver:
+  major:
+    labels: ['breaking', 'major']
+  minor:
+    labels: ['minor']    # was ['feature', 'enhancement', 'minor']
+  patch:
+    labels: ['feature', 'enhancement', 'fix', 'bug', 'docs', 'ci', 'chore', 'dependencies', 'patch']
+  default: patch
+
+# Apply a label from the branch name or a conventional-commit-style title prefix.
+autolabeler:
+  - label: 'breaking'
+    title: ['/!:/', '/^[a-z]+(\(.+\))?!:/i']
+  - label: 'feature'
+    branch: ['/^feat(ure)?\//']
+    title: ['/^feat(\(.+\))?:/i']
+  - label: 'fix'
+    branch: ['/^(fix|bugfix|hotfix)\//']
+    title: ['/^fix(\(.+\))?:/i']
+  - label: 'docs'
+    branch: ['/^docs?\//']
+    title: ['/^docs(\(.+\))?:/i']
+  - label: 'ci'
+    branch: ['/^ci\//']
+    title: ['/^ci(\(.+\))?:/i']
+  - label: 'chore'
+    branch: ['/^chore\//']
+    title: ['/^chore(\(.+\))?:/i']
+
+template: |
+  ## What's changed
+
+  $CHANGES
+
+  **Contributors:** $CONTRIBUTORS
+  **Full changelog:** https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

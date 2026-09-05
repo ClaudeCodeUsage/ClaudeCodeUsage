@@ -14,11 +14,12 @@ Keep the section headings; fill what applies, delete what doesn't.
 
 ## Type of change
 
-<!-- Keep one: -->
-- [ ] Bug fix (non-breaking)
-- [ ] New feature (non-breaking)
-- [ ] Breaking change (existing behaviour differs afterwards)
-- [ ] Documentation / CI / chore
+<!-- Keep one. A maintainer applies the matching label at merge; that label sets
+     the release version bump. -->
+- [ ] Bug fix (non-breaking) → `fix` (patch)
+- [ ] New feature (non-breaking) → `feature` (minor)
+- [ ] Breaking change (existing behaviour differs afterwards) → `breaking` (major)
+- [ ] Documentation / CI / chore → `docs` / `ci` / `chore` (patch)
 
 ## How was this tested?
 
@@ -28,7 +29,8 @@ Keep the section headings; fill what applies, delete what doesn't.
 ## Checklist
 
 - [ ] `npm run compile` is clean
-- [ ] User-facing strings go through `I18n` with **all six languages** filled
+- [ ] User-facing strings go through `I18n` with **all eight UI locales** filled
+- [ ] Behaviour/documentation changes update **all seven README editions** together
 - [ ] `CHANGELOG.md` updated (user-visible changes)
 - [ ] `README.md` updated if behaviour/settings changed
 - [ ] New settings default to existing behaviour (opt-in)

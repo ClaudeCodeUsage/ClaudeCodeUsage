@@ -1,9 +1,64 @@
-import { spawn } from 'child_process';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { HttpResponse, requestViaCurl, requestViaFetch } from './httpClient';
 import { ClaudeApiUsageResponse, ClaudeCredentials } from './types';
+
+export interface ResolvedClaudeProfile {
+  configDirectory: string;
+  credentialsPath: string;
+  source: 'explicit' | 'environment' | 'default';
+  allowKeychainFallback: boolean;
+}
+
+function isDirectory(candidate: string): boolean {
+  try {
+    return fs.existsSync(candidate) && fs.statSync(candidate).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve the Claude profile represented by this editor window. An explicit
+ * dataDirectory wins even when its credentials file is currently absent: the
+ * quota must become unavailable rather than silently switching accounts. */
+export function resolveClaudeProfile(
+  dataDirectory?: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+  homeDirectory: string = os.homedir(),
+  directoryExists: (candidate: string) => boolean = isDirectory,
+): ResolvedClaudeProfile {
+  const defaultDirectory = path.resolve(homeDirectory, '.claude');
+  const explicit = dataDirectory?.trim();
+  let configDirectory: string;
+  let source: ResolvedClaudeProfile['source'];
+
+  if (explicit) {
+    configDirectory = path.resolve(explicit);
+    source = 'explicit';
+  } else {
+    const environmentDirectory = (env.CLAUDE_CONFIG_DIR ?? '')
+      .split(',')
+      .map((candidate) => candidate.trim())
+      .filter((candidate) => candidate !== '')
+      .map((candidate) => path.resolve(candidate))
+      .find(directoryExists);
+    configDirectory = environmentDirectory ?? defaultDirectory;
+    source = environmentDirectory ? 'environment' : 'default';
+  }
+
+  return {
+    configDirectory,
+    credentialsPath: path.join(configDirectory, '.credentials.json'),
+    source,
+    // Claude Code exposes one global macOS Keychain item. It is safe only for
+    // the default profile; using it for a custom profile can show and refresh
+    // a different account's credentials (#89).
+    allowKeychainFallback: configDirectory === defaultDirectory,
+  };
+}
 
 // Fetches real 5-hour / weekly limit utilisation from Anthropic's OAuth usage
 // endpoint, reusing the credentials Claude Code already stores. This mirrors
@@ -17,24 +72,27 @@ import { ClaudeApiUsageResponse, ClaudeCredentials } from './types';
 // (JA3/JA4) and currently rejects Node's openssl handshake while accepting
 // curl's. `curl.exe` ships with Windows 10+ (2018) and is universally
 // available on macOS / Linux. Every step is logged to the
-// "Claude Code Usage" output channel for diagnosis.
-
-interface HttpResponse {
-  status: number;
-  body: string;
-}
+// "Claude Code Usage" output channel for diagnosis. The transports
+// themselves live in httpClient.ts (shared with the advice feature).
 
 export class ClaudeApiClient {
   private readonly credentialsPath: string;
+  private readonly allowKeychainFallback: boolean;
   private credentials: ClaudeCredentials | null = null;
+  private credentialsSource: 'file' | 'keychain' | null = null;
   private rateLimitedUntil: number = 0;
   private out: vscode.OutputChannel | null;
   // Once curl has succeeded after fetch failed, remember so we don't keep
   // paying the cost of a doomed fetch attempt on every refresh.
   private preferCurl: boolean = false;
 
-  constructor(out: vscode.OutputChannel | null = null) {
-    this.credentialsPath = path.join(os.homedir(), '.claude', '.credentials.json');
+  constructor(
+    out: vscode.OutputChannel | null = null,
+    dataDirectory?: string | null,
+  ) {
+    const profile = resolveClaudeProfile(dataDirectory);
+    this.credentialsPath = profile.credentialsPath;
+    this.allowKeychainFallback = profile.allowKeychainFallback;
     this.out = out;
   }
 
@@ -49,7 +107,9 @@ export class ClaudeApiClient {
     try {
       if (!fs.existsSync(this.credentialsPath)) {
         this.log(`credentials: missing at ${this.credentialsPath}`);
-        return null;
+        return this.allowKeychainFallback
+          ? this.loadCredentialsFromKeychain()
+          : null;
       }
       const content = await fs.promises.readFile(this.credentialsPath, 'utf-8');
       const parsed = JSON.parse(content) as ClaudeCredentials;
@@ -58,6 +118,7 @@ export class ClaudeApiClient {
         return null;
       }
       this.credentials = parsed;
+      this.credentialsSource = 'file';
       return parsed;
     } catch (e) {
       this.log(`credentials: read failed: ${(e as Error).message}`);
@@ -65,9 +126,63 @@ export class ClaudeApiClient {
     }
   }
 
+  /** Absolute path to the OAuth credentials file the client reads. Lets the
+   * extension watch it and refetch quota immediately on an account switch (#45).
+   * On macOS the credentials may instead live in the Keychain (no file to
+   * watch); that case still updates on the next quota refresh tick. */
+  getCredentialsPath(): string {
+    return this.credentialsPath;
+  }
+
+  private loadCredentialsFromKeychain(): ClaudeCredentials | null {
+    if (process.platform !== 'darwin') {
+      return null;
+    }
+    try {
+      const content = execFileSync('/usr/bin/security', [
+        'find-generic-password',
+        '-s',
+        'Claude Code-credentials',
+        '-w'
+      ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+      const parsed = JSON.parse(content) as ClaudeCredentials;
+      if (!parsed || !parsed.claudeAiOauth || !parsed.claudeAiOauth.accessToken) {
+        this.log('credentials: keychain item present but no claudeAiOauth.accessToken');
+        return null;
+      }
+      this.log('credentials: loaded from macOS Keychain');
+      this.credentials = parsed;
+      this.credentialsSource = 'keychain';
+      return parsed;
+    } catch (e) {
+      this.log(`credentials: keychain read failed: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
   private async saveCredentials(credentials: ClaudeCredentials): Promise<void> {
+    if (this.credentialsSource === 'keychain' && process.platform === 'darwin') {
+      try {
+        execFileSync('/usr/bin/security', [
+          'add-generic-password',
+          '-a',
+          os.userInfo().username,
+          '-s',
+          'Claude Code-credentials',
+          '-w',
+          JSON.stringify(credentials),
+          '-U'
+        ], { stdio: ['ignore', 'ignore', 'pipe'] });
+        this.credentials = credentials;
+        this.log('credentials: refreshed in macOS Keychain');
+        return;
+      } catch (e) {
+        this.log(`credentials: keychain write failed: ${(e as Error).message}`);
+      }
+    }
     await fs.promises.writeFile(this.credentialsPath, JSON.stringify(credentials), 'utf-8');
     this.credentials = credentials;
+    this.credentialsSource = 'file';
   }
 
   private isTokenExpired(credentials: ClaudeCredentials): boolean {
@@ -100,7 +215,13 @@ export class ClaudeApiClient {
   }
 
   private async getValidCredentials(): Promise<ClaudeCredentials | null> {
-    let credentials = this.credentials || (await this.loadCredentials());
+    // Re-read from disk/keychain on every call so switching Claude accounts is
+    // honoured without a window reload. #45: a switched-in account has a *valid*
+    // (non-expired) token, so the expiry-only re-read below never noticed it and
+    // we kept serving the previous account's quota until the host restarted.
+    // loadCredentials refreshes this.credentials; fall back to the cached copy
+    // only if the fresh read transiently fails.
+    let credentials = (await this.loadCredentials()) || this.credentials;
     if (!credentials) {
       return null;
     }
@@ -126,6 +247,17 @@ export class ClaudeApiClient {
     return credentials;
   }
 
+  /**
+   * A valid OAuth access token (refreshed if needed), or null when not signed
+   * in. Lets the advice/optimizer features reuse the user's Claude subscription
+   * — `Authorization: Bearer <token>` + `anthropic-beta: oauth-2025-04-20` —
+   * to call the Messages API with no separate API key (verified 2026-06-13).
+   */
+  async getAccessToken(): Promise<string | null> {
+    const credentials = await this.getValidCredentials();
+    return credentials?.claudeAiOauth?.accessToken ?? null;
+  }
+
   /** Run an HTTP request via fetch, falling back to curl on TLS-fingerprint
    * rejection ("403 Request not allowed"). */
   private async request(
@@ -134,7 +266,7 @@ export class ClaudeApiClient {
   ): Promise<HttpResponse> {
     if (!this.preferCurl) {
       try {
-        const r = await this.requestViaFetch(url, opts);
+        const r = await requestViaFetch(url, opts);
         if (r.status === 403 && r.body.includes('Request not allowed')) {
           this.log(`fetch: 403 "Request not allowed" → falling back to curl (Anthropic TLS-fingerprint gate)`);
           this.preferCurl = true;
@@ -146,71 +278,9 @@ export class ClaudeApiClient {
         this.log(`fetch: error ${(e as Error).message} → trying curl`);
       }
     }
-    const r = await this.requestViaCurl(url, opts);
+    const r = await requestViaCurl(url, opts, (line) => this.log(line));
     this.log(`curl:  ${r.status} ${url}`);
     return r;
-  }
-
-  private async requestViaFetch(
-    url: string,
-    opts: { method?: string; headers?: Record<string, string>; body?: string }
-  ): Promise<HttpResponse> {
-    if (typeof fetch === 'undefined') {
-      throw new Error('fetch unavailable in this VS Code version');
-    }
-    const res = await fetch(url, {
-      method: opts.method || 'GET',
-      headers: opts.headers,
-      body: opts.body
-    });
-    return { status: res.status, body: await res.text() };
-  }
-
-  private requestViaCurl(
-    url: string,
-    opts: { method?: string; headers?: Record<string, string>; body?: string; timeoutSec?: number }
-  ): Promise<HttpResponse> {
-    return new Promise((resolve, reject) => {
-      const args: string[] = ['-sS', '-w', '\n__CCU_STATUS__%{http_code}', '--max-time', String(opts.timeoutSec ?? 15)];
-      if (opts.method && opts.method !== 'GET') {
-        args.push('-X', opts.method);
-      }
-      for (const [k, v] of Object.entries(opts.headers || {})) {
-        args.push('-H', `${k}: ${v}`);
-      }
-      if (opts.body !== undefined) {
-        args.push('--data-binary', '@-');
-      }
-      args.push(url);
-
-      // On Windows be explicit about the .exe extension so spawn doesn't
-      // depend on PATHEXT resolution; on POSIX 'curl' is correct.
-      const cmd = process.platform === 'win32' ? 'curl.exe' : 'curl';
-      const child = spawn(cmd, args, { shell: false, windowsHide: true });
-      let stdout = '';
-      let stderr = '';
-      child.stdout.on('data', (c: Buffer) => (stdout += c.toString('utf-8')));
-      child.stderr.on('data', (c: Buffer) => (stderr += c.toString('utf-8')));
-      child.on('error', (e) => {
-        this.log(`curl: spawn error ${(e as Error).message} (is curl on PATH?)`);
-        reject(e);
-      });
-      child.on('close', (code) => {
-        if (code !== 0) {
-          return reject(new Error(`curl exit ${code}: ${stderr.trim().slice(0, 200)}`));
-        }
-        const m = stdout.match(/^([\s\S]*)\n__CCU_STATUS__(\d{3})$/);
-        if (!m) {
-          return reject(new Error(`Could not parse curl output: ${stdout.slice(0, 200)}`));
-        }
-        resolve({ status: parseInt(m[2], 10), body: m[1] });
-      });
-      if (opts.body !== undefined) {
-        child.stdin.end(opts.body);
-      } else {
-        child.stdin.end();
-      }
-    });
   }
 
   private callUsageApi(accessToken: string): Promise<HttpResponse> {

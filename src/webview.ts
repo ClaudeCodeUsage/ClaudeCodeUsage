@@ -1,7 +1,73 @@
 import * as vscode from 'vscode';
+import { ClaudeDataLoader } from './dataLoader';
 import { I18n } from './i18n';
 import { getModelRatesPerMillion } from './pricing';
-import { BranchUsage, ContentAnalysis, ProjectGroup, ProjectUsage, SessionData, SessionUsage, UsageData } from './types';
+import {
+  SETTINGS,
+  SettingsStore,
+  SettingProvider,
+  SettingView,
+  settingAppliesToProvider,
+} from './settings';
+import { buildResumeCommand, isUsableCwd, isValidSessionId, isUnderDir } from './sessionResume';
+import { renderHeatmapSvg } from './heatmapSvg';
+import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename } from './shareCard';
+import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
+import { parseConversation } from './conversationLog';
+import { renderConversationViewer } from './conversationViewerHtml';
+import { formatUsageDate, shortUsageDate } from './usageDateLabels';
+import { normalizeQuotaWindows } from './quotaWindows';
+import {
+  buildWeeklyValueTimeline,
+  claudeWeeklyEquivalentUsage,
+  EquivalentCostBreakdown,
+  equivalentUsageFromProviderTokens,
+  summarizeEquivalentUsage,
+  WeeklyQuotaObservation,
+  WeeklyValuePoint,
+} from './weeklyValue';
+import {
+  defaultDashboardProvider,
+} from './codexView';
+import {
+  CodexScopedInsights,
+  emptyCodexScopedInsights,
+} from './providers/codex/codexInsights';
+import {
+  CodexMetricTotals,
+  CodexHourlyUsageView,
+  CodexProjectUsageView,
+  CodexThreadUsageView,
+  CodexUsageScopeView,
+  CodexUsageView,
+  tokenComposition,
+} from './providers/codex/codexUsage';
+import { createCodexLocalizedFormatters } from './codexFormat';
+import { getProviderNavClientScript } from './providerNavClient';
+import * as os from 'os';
+import * as path from 'path';
+import * as https from 'https';
+import {
+  AttributionScope,
+  BranchUsage,
+  CostlyMessage,
+  ClaudeApiUsageResponse,
+  ContentAnalysis,
+  ProjectGroup,
+  ProjectUsage,
+  SessionData,
+  SessionUsage,
+  UsageAttribution,
+  UsageData,
+  WorkflowUsage,
+} from './types';
+
+interface CodexRenderProgress {
+  scannedFiles: number;
+  totalFiles: number;
+  indexedBytes: number;
+  totalBytes: number;
+}
 
 export class UsageWebviewProvider {
   private panel: vscode.WebviewPanel | undefined;
@@ -16,14 +82,86 @@ export class UsageWebviewProvider {
   private error: string | null = null;
   private dataDirectory: string | null = null;
   private currentTab: string = 'today';
+  private currentProvider: 'claude' | 'codex' | 'compare' = 'claude';
+  private codexView: CodexUsageView | null = null;
+  private codexInsights: CodexScopedInsights = emptyCodexScopedInsights();
+  private providerAvailability = { claude: false, codex: false, codexData: false };
+  private codexLoading = false;
+  private codexProgress: CodexRenderProgress | null = null;
+  private providerSelectionInitialized = false;
   private hourlyDataCache: Map<string, { hour: string; data: UsageData }[]> = new Map();
   private allRecords: any[] = [];
   private sessionBreakdown: SessionUsage[] = [];
   private projectBreakdown: ProjectGroup[] = [];
   private contentAnalysis: ContentAnalysis | null = null;
   private branchBreakdown: BranchUsage[] = [];
+  private workflowBreakdown: WorkflowUsage[] = [];
+  private costliestMessages: CostlyMessage[] = [];
+  private githubIdentity?: { avatar?: string; name?: string }; // fetched on demand
+  // Cache the (slow-moving) cache analyses so they recompute at most weekly, not
+  // every render — Carl: a weekly refresh is plenty for these estimates.
+  private analysisCache?: {
+    at: number;
+    ttl: ReturnType<typeof ClaudeDataLoader.estimateCacheTtl>;
+    churn: ReturnType<typeof ClaudeDataLoader.estimateCacheChurnCost>;
+    byModel: ReturnType<typeof ClaudeDataLoader.cacheStatsByModel>;
+    rightsizing: ReturnType<typeof ClaudeDataLoader.modelRightsizing>;
+    health: ReturnType<typeof ClaudeDataLoader.sessionHealth>;
+    hours: ReturnType<typeof ClaudeDataLoader.activeHours>;
+    skillRoi: ReturnType<typeof ClaudeDataLoader.skillRoi>;
+  };
+  // One reusable conversation-viewer panel: each "view" click re-reads the file
+  // and refreshes this panel rather than piling up new tabs.
+  private conversationPanel?: vscode.WebviewPanel;
+  // Last generated share card + its config, kept so an auto-refresh re-render
+  // doesn't wipe the user's picks or preview (share card / heatmap / optimizer
+  // output should survive data refreshes — only usage numbers update).
+  private lastShareCardSvg?: string;
+  private lastShareCardConfig?: {
+    range: string;
+    scope: string;
+    sections: Record<string, boolean>;
+    avatar: boolean;
+    username: boolean;
+    fullNumbers: boolean;
+    theme: string;
+  };
+  // Real quota utilisation (pushed asynchronously) for the workflow quota
+  // guard banner; dismissal lasts for the lifetime of this window.
+  private usageLimits: ClaudeApiUsageResponse | null = null;
+  private claudeWeeklyQuotaHistory: WeeklyQuotaObservation[] = [];
+  private quotaWarnDismissed: boolean = false;
+  // Set by extension.ts: runs the Usage Optimizer round-trip (model lives there
+  // with the config + OAuth client). Returns the optimised prompt + settings
+  // recommendation, or an error string.
+  public onOptimize?: (
+    draft: string,
+    options: { resolve: boolean; distil: boolean; aesthetic: boolean }
+  ) => Promise<{ prompt?: string; settings?: string; error?: string }>;
+  // Shared settings store + a callback to let extension.ts re-apply config when
+  // the user edits a setting in the dashboard's ⚙ Settings tab. Both are set by
+  // extension.ts right after construction.
+  public settings?: SettingsStore;
+  public onSettingsChanged?: (key?: string) => void;
+  // Last Usage Optimizer interaction (draft + lens choices + result). Persisted
+  // here so an auto-refresh re-render of the webview doesn't wipe a result the
+  // user is still reading — renderOptimizerCard restores it from this.
+  private optimizerState: {
+    draft: string;
+    resolve: boolean;
+    distil: boolean;
+    aesthetic: boolean;
+    prompt?: string;
+    settings?: string;
+    error?: string;
+  } | null = null;
 
   constructor(private context: vscode.ExtensionContext) {}
+
+  /** Read a moved/core setting through the shared store, with a fallback. */
+  private setting<T>(key: string, fallback: T): T {
+    return this.settings ? this.settings.get<T>(key) : fallback;
+  }
 
   private escapeHtml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -42,6 +180,9 @@ export class UsageWebviewProvider {
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
+      // Force a fresh render into the next panel (the lastHtml guard must not
+      // suppress the first paint after the panel was closed and reopened).
+      this.lastHtml = '';
     });
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
@@ -58,16 +199,264 @@ export class UsageWebviewProvider {
         case 'getAdvice':
           vscode.commands.executeCommand('claudeCodeUsage.getAdvice');
           break;
-        case 'setPauseDashboardRefresh':
-          // Persist the in-dashboard toggle so it survives reload and stays in
-          // sync with VS Code Settings.
-          await vscode.workspace
-            .getConfiguration('claudeCodeUsage')
-            .update('pauseDashboardRefresh', !!message.value, vscode.ConfigurationTarget.Global);
+        case 'exportHeatmap':
+          vscode.commands.executeCommand('claudeCodeUsage.exportHeatmap');
+          break;
+        case 'publishHeatmap':
+          vscode.commands.executeCommand('claudeCodeUsage.publishHeatmapToGitHub');
+          break;
+        case 'buildShareCard': {
+          // On-demand preview: build the SVG from the panel's config and send
+          // it back for injection (no full re-render).
+          if (this.panel && this.allRecords && this.allRecords.length > 0) {
+            try {
+              const id = message.avatar || message.username ? await this.getGithubIdentity() : {};
+              const range = String(message.range || 'last30');
+              const scope = String(message.scope || 'all');
+              const sections = (message.sections || {}) as Record<string, boolean>;
+              const theme = (message.theme as ShareCardTheme) || 'claudeClassic';
+              const svg = this.buildShareCardSvgFor(range, scope, sections as Partial<ShareSections>, {
+                avatarDataUri: message.avatar ? id.avatar : undefined,
+                username: message.username ? id.name : undefined,
+                fullNumbers: !!message.fullNumbers,
+                theme,
+              });
+              // Remember it so a re-render restores the preview + picks.
+              this.lastShareCardSvg = svg;
+              this.lastShareCardConfig = {
+                range,
+                scope,
+                sections,
+                avatar: !!message.avatar,
+                username: !!message.username,
+                fullNumbers: !!message.fullNumbers,
+                theme,
+              };
+              this.panel.webview.postMessage({ command: 'shareCardResult', svg });
+            } catch (e) {
+              this.panel.webview.postMessage({ command: 'shareCardResult', error: (e as Error).message });
+            }
+          }
+          break;
+        }
+        case 'exportShareCard': {
+          // Export using the panel's config (range / scope / sections).
+          if (!this.allRecords || this.allRecords.length === 0) {
+            vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+            break;
+          }
+          const range = String(message.range || 'last30');
+          const id = message.avatar || message.username ? await this.getGithubIdentity() : {};
+          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>, {
+            avatarDataUri: message.avatar ? id.avatar : undefined,
+            username: message.username ? id.name : undefined,
+            fullNumbers: !!message.fullNumbers,
+            theme: (message.theme as ShareCardTheme) || 'claudeClassic',
+          });
+          const defaultName = shareCardFilename(range).replace(/\.png$/, '.svg');
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
+            filters: { 'SVG image': ['svg'] },
+            saveLabel: 'Export share card',
+          });
+          if (!uri) {
+            break;
+          }
+          try {
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
+            const open = 'Open';
+            const pick = await vscode.window.showInformationMessage('Usage share card exported.', open);
+            if (pick === open) {
+              await vscode.commands.executeCommand('vscode.open', uri);
+            }
+          } catch (e) {
+            vscode.window.showErrorMessage(`Share card export failed: ${(e as Error).message}`);
+          }
+          break;
+        }
+        case 'setDashboardAutoRefresh':
+          // Persist the in-dashboard toggle so it survives reload. Lives in the
+          // dashboard-managed store now (no longer in VS Code Settings).
+          await this.settings?.set('dashboardAutoRefresh', !!message.value);
           break;
         case 'tabChanged':
           this.currentTab = message.tab;
           break;
+        case 'providerChanged': {
+          const requested = String(message.provider ?? '');
+          const allowed =
+            (requested === 'claude' &&
+              (this.providerAvailability.claude || message.tab === 'settings')) ||
+            (requested === 'codex' && this.providerAvailability.codex) ||
+            (requested === 'compare' &&
+              this.providerAvailability.claude &&
+              this.providerAvailability.codexData);
+          if (allowed) {
+            this.currentProvider = requested as 'claude' | 'codex' | 'compare';
+            const sharedTabs = ['today', 'month', 'all', 'sessions', 'projects', 'content', 'settings'];
+            const allowedTabs = requested === 'claude'
+              ? [...sharedTabs, 'branches', 'workflows']
+              : sharedTabs;
+            if (typeof message.tab === 'string' && allowedTabs.includes(message.tab)) {
+              this.currentTab = message.tab;
+            } else if (requested === 'codex' && !allowedTabs.includes(this.currentTab)) {
+              this.currentTab = 'today';
+            }
+            this.updateWebview();
+          }
+          break;
+        }
+        case 'resumeSession': {
+          // Resume a past session via the official extension, or a terminal fallback.
+          const sessionId = message.sessionId;
+          if (!isValidSessionId(sessionId)) {
+            vscode.window.showWarningMessage(I18n.t.popup.resumeInvalid);
+            break;
+          }
+          const rawCwd = typeof message.cwd === 'string' ? message.cwd : '';
+          const cwd = isUsableCwd(rawCwd) ? rawCwd : undefined;
+          // The official in-tab view only opens sessions from this project; others
+          // go via terminal. A session whose log had no cwd carries the dash-
+          // encoded folder name (e.g. "-Users-ozn-dev-ccp"), so match that too.
+          const ws = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const sameProject = !!ws && (isUnderDir(rawCwd, ws) || rawCwd === ws.replace(/[/\\]/g, '-'));
+          const official = vscode.extensions.getExtension('anthropic.claude-code');
+          if (official && sameProject) {
+            try {
+              if (!official.isActive) { await official.activate(); }
+              await vscode.commands.executeCommand('claude-vscode.editor.open', sessionId);
+              break;
+            } catch {
+              // Fall back to the terminal if the command shape changed.
+            }
+          }
+          const term = vscode.window.createTerminal({ name: 'Claude Resume', cwd });
+          term.show();
+          term.sendText(buildResumeCommand(sessionId) as string);
+          break;
+        }
+        case 'deleteSession': {
+          // Delete a session's log (modal confirm, routed to OS trash).
+          const sessionId = message.sessionId;
+          if (!isValidSessionId(sessionId)) {
+            vscode.window.showWarningMessage(I18n.t.popup.resumeInvalid);
+            break;
+          }
+          const name = String(message.title || sessionId);
+          const yes = I18n.t.popup.deleteSessionYes;
+          const pick = await vscode.window.showWarningMessage(
+            I18n.t.popup.deleteSessionConfirm.replace('{name}', name),
+            { modal: true, detail: I18n.t.popup.deleteSessionDetail },
+            yes
+          );
+          if (pick !== yes) { break; }
+          const { ClaudeDataLoader } = await import('./dataLoader');
+          const targets = await ClaudeDataLoader.findSessionFiles(sessionId, this.dataDirectory);
+          let deleted = 0;
+          for (const f of targets) {
+            try {
+              await vscode.workspace.fs.delete(vscode.Uri.file(f), { recursive: true, useTrash: true });
+              deleted++;
+            } catch { /* skip what we can't remove */ }
+          }
+          // Always force a fresh reload so the row drops — whether files were
+          // removed now or it was already gone (stale row from an earlier
+          // delete). refresh -> refreshData(true) re-reads disk regardless of
+          // mtimes, so the session disappears either way.
+          vscode.commands.executeCommand('claudeCodeUsage.refresh');
+          if (deleted > 0) {
+            vscode.window.showInformationMessage(I18n.t.popup.deleteSessionDone.replace('{name}', name));
+          } else {
+            vscode.window.showWarningMessage(I18n.t.popup.deleteSessionNotFound);
+          }
+          break;
+        }
+        case 'viewConversation': {
+          // Read-only: read the session .jsonl, parse it, open a viewer panel.
+          const sessionId = message.sessionId;
+          if (!isValidSessionId(sessionId)) {
+            vscode.window.showWarningMessage(I18n.t.popup.resumeInvalid);
+            break;
+          }
+          await this.openConversationViewer(sessionId, String(message.title || sessionId));
+          break;
+        }
+        case 'updateSetting':
+          if (this.settings && typeof message.key === 'string') {
+            await this.settings.set(message.key, message.value);
+            // Re-apply config. Pass the key so status-bar-only toggles skip the
+            // dashboard reload (which flickers); globalState changes don't fire
+            // onDidChangeConfiguration, so this callback is the only signal.
+            this.onSettingsChanged?.(message.key);
+          }
+          break;
+        case 'resetSetting':
+          if (this.settings && typeof message.key === 'string') {
+            await this.settings.reset(message.key);
+            // Reset re-renders fully so the control visually reverts to default.
+            this.onSettingsChanged?.();
+          }
+          break;
+        case 'resetAllSettings':
+          if (this.settings) {
+            const requested = Array.isArray(message.keys)
+              ? new Set(message.keys.filter((key: unknown) => typeof key === 'string'))
+              : null;
+            for (const d of SETTINGS) {
+              if (requested && !requested.has(d.key)) {
+                continue;
+              }
+              await this.settings.reset(d.key);
+            }
+            this.onSettingsChanged?.();
+          }
+          break;
+        case 'dismissQuotaWarn':
+          this.quotaWarnDismissed = true;
+          this.updateWebview();
+          break;
+        case 'optimizePrompt': {
+          if (!this.panel) {
+            break;
+          }
+          const draft = String(message.draft || '');
+          const opts = {
+            resolve: !!message.resolve,
+            distil: !!message.distil,
+            aesthetic: !!message.aesthetic,
+          };
+          // Persist the inputs immediately so a refresh mid-request keeps them.
+          this.optimizerState = { draft, ...opts };
+          let result: { prompt?: string; settings?: string; error?: string };
+          if (this.onOptimize) {
+            result = await this.onOptimize(draft, opts);
+          } else {
+            result = { error: 'Optimizer is not available.' };
+          }
+          // Persist the result too, so re-rendering the webview (auto-refresh)
+          // restores it instead of wiping a prompt the user is still reading.
+          this.optimizerState = { draft, ...opts, ...result };
+          if (this.panel) {
+            this.panel.webview.postMessage({ command: 'optimizeResult', ...result });
+          }
+          break;
+        }
+        case 'getAttribution': {
+          // Recompute the attribution panel for a new scope (Day / Week /
+          // Month / one session / one project) and push the rendered HTML.
+          if (this.panel && message.scope) {
+            const attr = ClaudeDataLoader.getUsageAttribution(
+              this.allRecords,
+              this.contentAnalysis,
+              message.scope as AttributionScope
+            );
+            this.panel.webview.postMessage({
+              command: 'attributionResponse',
+              html: this.renderAttributionPanel(attr),
+            });
+          }
+          break;
+        }
         case 'getHourlyData':
           const dateString = message.date;
           if (dateString && this.panel) {
@@ -118,7 +507,9 @@ export class UsageWebviewProvider {
     sessionBreakdown: SessionUsage[] = [],
     projectBreakdown: ProjectGroup[] = [],
     contentAnalysis: ContentAnalysis | null = null,
-    branchBreakdown: BranchUsage[] = []
+    branchBreakdown: BranchUsage[] = [],
+    workflowBreakdown: WorkflowUsage[] = [],
+    costliestMessages: CostlyMessage[] = []
   ): void {
     this.currentSessionData = sessionData;
     this.todayData = todayData;
@@ -137,8 +528,62 @@ export class UsageWebviewProvider {
     this.projectBreakdown = projectBreakdown;
     this.contentAnalysis = contentAnalysis;
     this.branchBreakdown = branchBreakdown;
+    this.workflowBreakdown = workflowBreakdown;
+    this.costliestMessages = costliestMessages;
+    this.providerAvailability.claude = Boolean(
+      sessionData || todayData || monthData || allTimeData,
+    );
 
     if (this.panel) {
+      this.updateWebview();
+    }
+  }
+
+  updateProviderData(
+    codexView: CodexUsageView | null,
+    insights: CodexScopedInsights,
+    providerAvailability: {
+      claude: boolean;
+      codex: boolean;
+      codexData?: boolean;
+      codexLoading?: boolean;
+      codexProgress?: CodexRenderProgress | null;
+    },
+  ): void {
+    this.codexView = codexView;
+    this.codexInsights = codexView ? insights : emptyCodexScopedInsights();
+    this.codexLoading = providerAvailability.codexLoading ?? false;
+    this.codexProgress = providerAvailability.codexProgress ?? null;
+    this.providerAvailability = {
+      claude: providerAvailability.claude,
+      codex: providerAvailability.codex,
+      codexData: providerAvailability.codexData ?? providerAvailability.codex,
+    };
+    if (!this.providerSelectionInitialized) {
+      this.currentProvider = defaultDashboardProvider(
+        providerAvailability.claude,
+        providerAvailability.codex,
+      );
+      this.providerSelectionInitialized = true;
+    } else if (
+      (this.currentProvider === 'claude' && !providerAvailability.claude) ||
+      (this.currentProvider === 'codex' && !providerAvailability.codex) ||
+      (this.currentProvider === 'compare' &&
+        (!providerAvailability.claude || !this.providerAvailability.codexData))
+    ) {
+      this.currentProvider = defaultDashboardProvider(
+        providerAvailability.claude,
+        providerAvailability.codex,
+      );
+    }
+    if (this.panel) {
+      this.updateWebview();
+    }
+  }
+
+  updateCodexProgress(progress: CodexRenderProgress): void {
+    this.codexProgress = progress;
+    if (this.panel && this.currentProvider === 'codex') {
       this.updateWebview();
     }
   }
@@ -150,10 +595,79 @@ export class UsageWebviewProvider {
     }
   }
 
+  /** Receive quota utilisation (decoupled from local data; see extension.ts). */
+  updateQuota(usageLimits: ClaudeApiUsageResponse | null): void {
+    if (!usageLimits) {
+      return;
+    }
+    const changed = JSON.stringify(usageLimits) !== JSON.stringify(this.usageLimits);
+    this.usageLimits = usageLimits;
+    // Re-render only on change so the cheap quota poll doesn't redraw the
+    // dashboard (and reset scroll position) every tick.
+    if (changed && this.panel && !this.isLoading) {
+      this.updateWebview();
+    }
+  }
+
+  /** Sanitized weekly quota observations, persisted per Claude profile by the
+   * extension host. No OAuth data or account identity enters the webview. */
+  updateWeeklyQuotaHistory(history: WeeklyQuotaObservation[]): void {
+    const changed = JSON.stringify(history) !== JSON.stringify(this.claudeWeeklyQuotaHistory);
+    this.claudeWeeklyQuotaHistory = history.map((item) => ({ ...item }));
+    if (changed && this.panel && !this.isLoading) {
+      this.updateWebview();
+    }
+  }
+
+  /** Quota-guard banner: warns before starting a workflow run on a nearly
+   * exhausted 5-hour window. Threshold via workflowQuotaWarnPercent (0 = off);
+   * dismissible per window-session. Status bar stays untouched. */
+  private renderQuotaBanner(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      return '';
+    }
+    if (this.quotaWarnDismissed) {
+      return '';
+    }
+    const warnPercent = this.setting<number>('workflowQuotaWarnPercent', 50);
+    // Via the normalizer, so this keeps working on either payload generation.
+    const session = normalizeQuotaWindows(this.usageLimits).find((w) => w.kind === 'session');
+    if (!warnPercent || warnPercent <= 0 || !session) {
+      return '';
+    }
+    // An already-reset window means a fresh quota — never warn on stale data.
+    const resetsAt = Date.parse(session.resetsAt);
+    if (!isNaN(resetsAt) && resetsAt <= Date.now()) {
+      return '';
+    }
+    const remaining = Math.max(0, Math.round(100 - session.utilization));
+    if (remaining >= warnPercent) {
+      return '';
+    }
+    const text = I18n.t.popup.quotaWarnBanner.replace('{remaining}', String(remaining));
+    return (
+      '<div class="quota-banner">' +
+      '<span class="quota-banner-text">⚠ ' + this.escapeHtml(text) + '</span>' +
+      '<button class="quota-banner-dismiss" title="' + this.escapeHtml(I18n.t.popup.dismiss) +
+      '" onclick="dismissQuotaWarn()">✕</button>' +
+      '</div>'
+    );
+  }
+
+  // Last HTML pushed to the webview. Assigning panel.webview.html triggers a
+  // full reload (re-parse + re-run the inline script + reset scroll), which is
+  // the heaviest recurring cost during active sessions. Skip it when the render
+  // is byte-identical — nothing visible would change anyway.
+  private lastHtml: string = '';
+
   private updateWebview(): void {
     if (!this.panel) return;
-
-    this.panel.webview.html = this.getWebviewContent();
+    const html = this.getWebviewContent();
+    if (html === this.lastHtml) {
+      return;
+    }
+    this.lastHtml = html;
+    this.panel.webview.html = html;
   }
 
   private getWebviewContent(): string {
@@ -161,11 +675,16 @@ export class UsageWebviewProvider {
       return this.getLoadingContent();
     }
 
-    if (this.error) {
+    if (this.error && !this.providerAvailability.codex) {
       return this.getErrorContent();
     }
 
-    if (!this.currentSessionData && !this.todayData && !this.monthData) {
+    if (
+      !this.currentSessionData &&
+      !this.todayData &&
+      !this.monthData &&
+      !this.providerAvailability.codex
+    ) {
       return this.getNoDataContent();
     }
 
@@ -175,10 +694,10 @@ export class UsageWebviewProvider {
   private getLoadingContent(): string {
     return `
       <!DOCTYPE html>
-      <html>
+      <html lang="${this.escapeHtml(I18n.getLocale())}">
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
         <title>${I18n.t.popup.title}</title>
         <style>${this.getStyles()}</style>
       </head>
@@ -197,10 +716,10 @@ export class UsageWebviewProvider {
   private getErrorContent(): string {
     return `
       <!DOCTYPE html>
-      <html>
+      <html lang="${this.escapeHtml(I18n.getLocale())}">
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
         <title>${I18n.t.popup.title}</title>
         <style>${this.getStyles()}</style>
       </head>
@@ -221,10 +740,10 @@ export class UsageWebviewProvider {
   private getNoDataContent(): string {
     return `
       <!DOCTYPE html>
-      <html>
+      <html lang="${this.escapeHtml(I18n.getLocale())}">
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
         <title>${I18n.t.popup.title}</title>
         <style>${this.getStyles()}</style>
       </head>
@@ -245,18 +764,126 @@ export class UsageWebviewProvider {
     `;
   }
 
+  private renderProviderTabs(): string {
+    const button = (
+      provider: 'claude' | 'codex' | 'compare',
+      label: string,
+    ): string => {
+      const selected = this.currentProvider === provider;
+      return `<button id="provider-tab-${provider}" class="provider-tab ${selected ? 'active' : ''}" role="tab" data-provider-target="${provider}" aria-controls="provider-panel" aria-selected="${selected}" tabindex="${selected ? '0' : '-1'}">${this.escapeHtml(label)}</button>`;
+    };
+    let html = `<nav class="provider-tabs" role="tablist" aria-label="${this.escapeHtml(I18n.t.popup.settingsGroupProviders)}">`;
+    const labels = I18n.t.providers;
+    if (this.providerAvailability.claude) {
+      html += button('claude', labels.claude);
+    }
+    if (this.providerAvailability.codex) {
+      html += button('codex', labels.codexBeta);
+    }
+    if (this.providerAvailability.claude && this.providerAvailability.codexData) {
+      html += button('compare', labels.compare);
+    }
+    return html + '</nav>';
+  }
+
+  private renderCodexCompare(): string {
+    const claude = this.allTimeData;
+    const updatedAt = Date.now();
+    const formatters = createCodexLocalizedFormatters(
+      I18n.getLocale(),
+      I18n.getTimezone(),
+    );
+    const codexTotals = (this.codexView?.projects ?? []).reduce(
+      (total, project) => ({
+        input: total.input + project.scope.total.input,
+        output: total.output + project.scope.total.output,
+        cache: total.cache + project.scope.total.cachedInput,
+      }),
+      { input: 0, output: 0, cache: 0 },
+    );
+    const copy = I18n.t.providers.codex;
+    const card = (
+      label: string,
+      accounting: string,
+      input: number,
+      cache: number,
+      output: number,
+    ): string =>
+      '<article class="summary-item"><h3>' + this.escapeHtml(label) + '</h3>' +
+      '<p class="model-details">' + this.escapeHtml(accounting) + '</p>' +
+      '<div class="model-details model-details-stacked">' +
+      '<span><span class="model-stat-label">' + this.escapeHtml(copy.input) + '</span><strong>' + I18n.formatNumber(input) + '</strong></span>' +
+      '<span><span class="model-stat-label">' + this.escapeHtml(copy.cachedInput) + '</span><strong>' + I18n.formatNumber(cache) + '</strong></span>' +
+      '<span><span class="model-stat-label">' + this.escapeHtml(copy.output) + '</span><strong>' + I18n.formatNumber(output) + '</strong></span>' +
+      '</div></article>';
+    return '<section class="usage-summary">' +
+      '<p class="model-details"><strong>' + this.escapeHtml(copy.indexedAllTime) + '</strong> · ' +
+      this.escapeHtml(copy.updatedAt) + ': ' + this.escapeHtml(formatters.formatDateTime(updatedAt)) + '</p>' +
+      '<div class="summary-grid">' +
+      card(
+        I18n.t.providers.claude,
+        copy.claudeTokenAccounting,
+        claude?.totalInputTokens ?? 0,
+        (claude?.totalCacheCreationTokens ?? 0) + (claude?.totalCacheReadTokens ?? 0),
+        claude?.totalOutputTokens ?? 0,
+      ) +
+      card(
+        I18n.t.providers.codexBeta,
+        copy.codexTokenAccounting,
+        codexTotals.input,
+        codexTotals.cache,
+        codexTotals.output,
+      ) +
+      '</div></section>' +
+      this.renderWeeklyValuePanel('claude') +
+      this.renderWeeklyValuePanel('codex');
+  }
+
+  private getAlternateProviderContent(): string {
+    const title = I18n.t.providers.codex.compareTitle;
+    return `
+      <!DOCTYPE html>
+      <html lang="${this.escapeHtml(I18n.getLocale())}">
+      <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
+        <title>${this.escapeHtml(title)}</title>
+        <style>${this.getStyles()}</style>
+      </head>
+      <body class="${this.setting<boolean>('dashboardAutoRefresh', true) ? '' : 'auto-off'}">
+        <div class="container">
+          <header><h1>${this.escapeHtml(title)}</h1><div class="actions"><button onclick="refresh()" class="btn-secondary">↻ ${this.escapeHtml(I18n.t.popup.refresh)}</button></div></header>
+          ${this.renderProviderTabs()}
+          <div id="provider-panel" role="tabpanel" aria-labelledby="provider-tab-${this.currentProvider}">
+            ${this.renderCodexCompare()}
+          </div>
+        </div>
+        <script>${this.getScript()}</script>
+      </body>
+      </html>`;
+  }
+
   private getMainContent(): string {
+    if (this.currentProvider === 'compare') {
+      return this.getAlternateProviderContent();
+    }
+    const provider: SettingProvider = this.currentProvider;
+    const codexCopy = I18n.t.providers.codex;
     // Pre-resolve I18n values to avoid template literal issues
-    const title = I18n.t.popup.title;
+    const title = provider === 'codex' ? codexCopy.title : I18n.t.popup.title;
     const refresh = I18n.t.popup.refresh;
     const settings = I18n.t.popup.settings;
+    // Keep the navigation familiar across providers. Codex still renders the
+    // provider-native "Recent task" heading and aggregation inside this tab.
     const today = I18n.t.popup.today;
-    const thisMonth = I18n.t.popup.thisMonth;
-    const allTime = I18n.t.popup.allTime;
-    const sessions = I18n.t.popup.sessions;
-    const projects = I18n.t.popup.projects;
-    const contentTab = I18n.t.popup.contentAnalysis;
+    const thisMonth = provider === 'codex' ? codexCopy.last30Days : I18n.t.popup.thisMonth;
+    const allTime = provider === 'codex' ? codexCopy.allTime : I18n.t.popup.allTime;
+    const sessions = provider === 'codex' ? codexCopy.sessions : I18n.t.popup.sessions;
+    const projects = provider === 'codex' ? codexCopy.projects : I18n.t.popup.projects;
+    const contentTab = provider === 'codex' ? codexCopy.recommendations : I18n.t.popup.contentAnalysis;
     const branchesTab = I18n.t.popup.branches;
+    const workflowsTab = I18n.t.popup.workflows;
+    const settingsTab = I18n.t.popup.settingsTab;
 
     const todayActive = this.currentTab === 'today' ? 'active' : '';
     const monthActive = this.currentTab === 'month' ? 'active' : '';
@@ -265,25 +892,30 @@ export class UsageWebviewProvider {
     const projectsActive = this.currentTab === 'projects' ? 'active' : '';
     const contentActive = this.currentTab === 'content' ? 'active' : '';
     const branchesActive = this.currentTab === 'branches' ? 'active' : '';
+    const workflowsActive = this.currentTab === 'workflows' ? 'active' : '';
+    const settingsActive = this.currentTab === 'settings' ? 'active' : '';
 
     // The Content tab is hidden when content analysis is disabled via
     // claudeCodeUsage.enableContentAnalysis (the analyser returned null).
-    const contentEnabled = this.contentAnalysis !== null;
+    const contentEnabled = provider === 'codex'
+      ? Boolean(this.codexView && this.setting<boolean>('codex.optimization.enabled', true))
+      : this.contentAnalysis !== null;
     const contentTabButton = contentEnabled
       ? '<button id="tab-content" class="tab ' + contentActive +
         '" onclick="showTab(\'content\')">' + contentTab + '</button>'
       : '';
     const contentTabContent = contentEnabled
-      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData() + '</div>'
+      ? '<div id="content" class="tab-content ' + contentActive + '">' + this.renderContentData(provider) +
+        (provider === 'claude' ? this.renderCacheWarmth() + this.renderInsights() + this.renderCostliestMessages() : '') + '</div>'
       : '';
 
     return (
       `
       <!DOCTYPE html>
-      <html>
+      <html lang="${this.escapeHtml(I18n.getLocale())}">
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
         <title>` +
       title +
       `</title>
@@ -291,36 +923,31 @@ export class UsageWebviewProvider {
       this.getStyles() +
       `</style>
       </head>
-      <body class="${
-        vscode.workspace.getConfiguration('claudeCodeUsage').get('pauseDashboardRefresh', false)
-          ? 'auto-off'
-          : ''
-      }">
+      <body class="${this.setting<boolean>('dashboardAutoRefresh', true) ? '' : 'auto-off'}">
         <div class="container">
           <header>
             <h1>` +
       title +
       `</h1>
             <div class="actions">
-              <label class="auto-refresh-switch" title="${this.escapeHtml(I18n.t.popup.autoRefresh)}">
-                <span class="auto-refresh-label">${I18n.t.popup.autoRefresh}</span>
-                <span class="switch">
-                  <input type="checkbox" id="autoRefreshCheckbox" ${
-                    vscode.workspace.getConfiguration('claudeCodeUsage').get('pauseDashboardRefresh', false)
-                      ? ''
-                      : 'checked'
-                  } onchange="toggleAutoRefresh()">
-                  <span class="slider"></span>
-                </span>
-              </label>
-              <button onclick="refresh()" id="refreshNowBtn" class="btn-secondary btn-refresh-now">↻ ` +
+              <button onclick="refresh()" id="refreshNowBtn" class="btn-secondary btn-refresh-now" title="${this.escapeHtml(
+                I18n.t.popup.refresh
+              )}">↻ ` +
       refresh +
       `</button>
-              <button onclick="openSettings()" class="btn-secondary">` +
+              ` +
+      (provider === 'claude' && contentEnabled
+        ? `<button onclick="showTab('content')" class="btn-secondary">✨ ${this.escapeHtml(contentTab)}</button>`
+        : '') +
+      `
+              <button onclick="showTab('settings')" class="btn-secondary">⚙ ` +
       settings +
       `</button>
             </div>
           </header>` +
+      this.renderProviderTabs() +
+      `<div id="provider-panel" role="tabpanel" aria-labelledby="provider-tab-${this.currentProvider}">` +
+      this.renderQuotaBanner(provider) +
       `
           <div class="tabs">
             <button id="tab-today" class="tab ` +
@@ -351,10 +978,22 @@ export class UsageWebviewProvider {
             ` +
       contentTabButton +
       `
-            <button id="tab-branches" class="tab ` +
+            ` +
+      (provider === 'claude' ? `<button id="tab-branches" class="tab ` +
       branchesActive +
       `" onclick="showTab('branches')">` +
       branchesTab +
+      `</button>
+            <button id="tab-workflows" class="tab ` +
+      workflowsActive +
+      `" onclick="showTab('workflows')">` +
+      workflowsTab +
+      `</button>` : '') +
+      `
+            <button id="tab-settings" class="tab ` +
+      settingsActive +
+      `" onclick="showTab('settings')">` +
+      settingsTab +
       `</button>
           </div>
 
@@ -362,7 +1001,7 @@ export class UsageWebviewProvider {
       todayActive +
       `">
             ` +
-      this.renderTodayData() +
+      this.renderTodayData(provider) +
       `
           </div>
 
@@ -370,7 +1009,7 @@ export class UsageWebviewProvider {
       monthActive +
       `">
             ` +
-      this.renderMonthData() +
+      this.renderMonthData(provider) +
       `
           </div>
 
@@ -378,7 +1017,7 @@ export class UsageWebviewProvider {
       allActive +
       `">
             ` +
-      this.renderAllTimeData() +
+      this.renderAllTimeData(provider) +
       `
           </div>
 
@@ -386,7 +1025,7 @@ export class UsageWebviewProvider {
       sessionsActive +
       `">
             ` +
-      this.renderSessionData() +
+      this.renderSessionData(provider) +
       `
           </div>
 
@@ -394,7 +1033,7 @@ export class UsageWebviewProvider {
       projectsActive +
       `">
             ` +
-      this.renderProjectData() +
+      this.renderProjectData(provider) +
       `
           </div>
 
@@ -402,13 +1041,32 @@ export class UsageWebviewProvider {
       contentTabContent +
       `
 
-          <div id="branches" class="tab-content ` +
+          ` +
+      (provider === 'claude' ? `<div id="branches" class="tab-content ` +
       branchesActive +
       `">
             ` +
       this.renderBranchData() +
       `
           </div>
+
+          <div id="workflows" class="tab-content ` +
+      workflowsActive +
+      `">
+            ` +
+      this.renderWorkflowData() +
+      `
+          </div>` : '') +
+      `
+
+          <div id="settings" class="tab-content ` +
+      settingsActive +
+      `">
+            ` +
+      this.renderSettingsPanel(provider) +
+      `
+          </div>
+        </div>
         </div>
         <script>` +
       this.getScript() +
@@ -419,12 +1077,209 @@ export class UsageWebviewProvider {
     );
   }
 
-  private renderTodayData(): string {
+  /**
+   * The ⚙ Settings tab: every setting, grouped, editable in place. Core
+   * settings (language / dataDirectory / advice.apiKey) still write to VS Code
+   * config; the rest write to the dashboard-managed store. Setting labels/help
+   * are English (technical); group headers + chrome are localised.
+   */
+  private renderSettingsPanel(provider: SettingProvider): string {
+    const t = I18n.t.popup;
+    const snap: SettingView[] = this.settings ? this.settings.snapshot() : [];
+    const visible = snap.filter((setting) => settingAppliesToProvider(setting, provider));
+    const groups: { key: string; label: string }[] = [
+      { key: 'general', label: t.settingsGroupGeneral },
+      { key: 'providers', label: t.settingsGroupProviders },
+      { key: 'features', label: t.settingsGroupFeatures },
+      { key: 'statusBar', label: t.settingsGroupStatusBar },
+      { key: 'data', label: t.settingsGroupData },
+      { key: 'advice', label: t.settingsGroupAdvice },
+    ];
+    let html = '<div class="settings-panel">';
+    html += '<p class="table-hint">' + t.settingsIntro + '</p>';
+    html +=
+      '<div class="settings-toolbar">' +
+      '<button class="btn-secondary btn-small" onclick="resetAllSettings(' +
+      this.escapeHtml(JSON.stringify(visible.map((setting) => setting.key))) +
+      ')">' +
+      t.settingsResetAll +
+      '</button></div>';
+    for (const g of groups) {
+      const items = visible.filter((s) => s.group === g.key);
+      if (items.length === 0) {
+        continue;
+      }
+      html += '<div class="settings-group"><h3>' + this.escapeHtml(g.label) + '</h3>';
+      for (const it of items) {
+        html += this.renderSettingRow(it);
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  /** One row in the settings panel: label + help + the right input control. The
+   * label / help follow the plugin language (I18n.settingText), falling back to
+   * the catalog English for the English UI. */
+  private renderSettingRow(it: SettingView): string {
+    const esc = (s: string): string => this.escapeHtml(s);
+    const tr = I18n.settingText(it.key);
+    const label = tr.label ?? it.label;
+    const help = tr.help !== undefined ? tr.help : it.help;
+    const id = 'set_' + it.key.replace(/[^a-zA-Z0-9]/g, '_');
+    const onCh = (type: string): string =>
+      ` onchange="setSetting('${it.key}', ${
+        type === 'boolean' ? 'this.checked' : 'this.value'
+      }, '${type}')"`;
+    let control = '';
+    if (it.type === 'boolean') {
+      control =
+        '<label class="set-switch"><input type="checkbox" id="' +
+        id +
+        '"' +
+        (it.value ? ' checked' : '') +
+        onCh('boolean') +
+        '><span class="set-slider"></span></label>';
+    } else if (it.type === 'enum') {
+      const cur = String(it.value);
+      const option = (v: string, lbl: string): string =>
+        '<option value="' + esc(v) + '"' + (cur === v ? ' selected' : '') + '>' + esc(lbl) + '</option>';
+      let opts = '';
+      // Keep a previously-stored value selectable even if it's not in the list.
+      const known = new Set(it.enumValues || []);
+      if (cur && !known.has(cur)) {
+        opts += option(cur, cur + ' (current)');
+      }
+      if (it.enumGroups && it.enumGroups.length > 0) {
+        // Grouped <optgroup> rendering (e.g. timezone: Common / All zones).
+        opts += it.enumGroups
+          .map(
+            (g) =>
+              '<optgroup label="' + esc(g.label) + '">' +
+              g.values.map((v, i) => option(v, g.labels[i] || (v === '' ? '(default)' : v))).join('') +
+              '</optgroup>'
+          )
+          .join('');
+      } else {
+        const values = it.enumValues || [];
+        const labels = it.enumLabels || [];
+        opts += values.map((v, i) => option(v, labels[i] || (v === '' ? '(default)' : v))).join('');
+      }
+      control = '<select id="' + id + '"' + onCh('string') + '>' + opts + '</select>';
+    } else if (it.type === 'number') {
+      control =
+        '<input type="number" id="' +
+        id +
+        '" value="' +
+        esc(String(it.value)) +
+        '"' +
+        (it.min !== undefined ? ' min="' + it.min + '"' : '') +
+        (it.max !== undefined ? ' max="' + it.max + '"' : '') +
+        onCh('number') +
+        '>';
+    } else if (it.multiline) {
+      control =
+        '<textarea id="' + id + '" rows="2"' + onCh('string') + '>' + esc(String(it.value)) + '</textarea>';
+    } else {
+      control =
+        '<input type="' +
+        (it.secret ? 'password' : 'text') +
+        '" id="' +
+        id +
+        '" value="' +
+        esc(String(it.value)) +
+        '"' +
+        onCh('string') +
+        '>';
+    }
+    const helpHtml = help ? '<div class="set-help">' + esc(help) + '</div>' : '';
+    return (
+      '<div class="set-row"><div class="set-label"><label for="' +
+      id +
+      '">' +
+      esc(label) +
+      '</label>' +
+      helpHtml +
+      '</div><div class="set-control">' +
+      control +
+      '</div></div>'
+    );
+  }
+
+  private renderTodayData(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      const view = this.codexView;
+      const copy = I18n.t.providers.codex;
+      if (!view) {
+        return this.renderCodexEmptyState();
+      }
+      const formatters = createCodexLocalizedFormatters(I18n.getLocale(), I18n.getTimezone());
+      let identity = '';
+      if (view.lastTaskIdentity) {
+        const task = view.lastTaskIdentity;
+        identity = '<div class="model-breakdown"><div class="section-header"><h3>' +
+          this.escapeHtml(copy.lastTask) + '</h3></div><div class="model-list"><div class="model-item">' +
+          '<div class="model-header"><span class="model-name">' +
+          this.escapeHtml(task.title ?? copy.unnamedSession) + '</span></div>' +
+          '<div class="model-details model-details-stacked">' +
+          '<span><span class="model-stat-label">' + this.escapeHtml(copy.projectLabel) + '</span><strong>' +
+          this.escapeHtml(task.projectName ?? copy.unidentifiedProject) + '</strong></span>' +
+          '<span><span class="model-stat-label">' + this.escapeHtml(copy.lastObserved) + '</span><strong>' +
+          this.escapeHtml(formatters.formatDateTime(task.lastActiveAt)) + '</strong></span>' +
+          (task.projectDirectoryName && task.projectDirectoryName !== task.projectName
+            ? '<span><span class="model-stat-label">' + this.escapeHtml(copy.localDirectory) + '</span><strong>' +
+              this.escapeHtml(task.projectDirectoryName) + '</strong></span>'
+            : '') +
+          '</div></div></div></div>';
+      }
+      const limits = view.limits.length > 0
+        ? '<div class="usage-summary"><div class="section-header"><h3>' + this.escapeHtml(copy.usageLimits) +
+          '</h3></div><p class="model-details">' + this.escapeHtml(copy.accountSnapshotLastObserved) +
+          '</p><div class="summary-grid">' + view.limits.map((limit) => {
+            const label = limit.limitName ?? (limit.windowMinutes === 300
+              ? copy.fiveHourWindow
+              : limit.windowMinutes === 10_080 ? copy.weeklyWindow : copy.usageLimits);
+            const value = limit.state === 'unlimited'
+              ? copy.unlimited
+              : limit.state === 'missing'
+                ? copy.limitMissing
+                : `${I18n.formatNumber(limit.usedPercent ?? 0)}% ${copy.used}`;
+            const reset = limit.resetsAt && limit.state === 'current'
+              ? '<div class="model-details">' + this.escapeHtml(copy.resets) + ': ' +
+                this.escapeHtml(formatters.formatDateTime(limit.resetsAt)) + '</div>'
+              : '';
+            return '<div class="summary-item"><div class="label">' + this.escapeHtml(label) +
+              '</div><div class="value">' + this.escapeHtml(value) + '</div>' + reset + '</div>';
+          }).join('') + '</div></div>'
+        : '';
+      const qualityFlags = view.qualityFlags.length > 0
+        ? '<ul class="model-details">' + view.qualityFlags.map(({ flag, count }) => {
+            const label = copy.qualityFlagLabels[flag as keyof typeof copy.qualityFlagLabels] ??
+              copy.qualityFlagUnknown;
+            const detail = flag === 'index-backfill-incomplete'
+              ? I18n.formatNumber(view.coverage.indexedFiles) + '/' +
+                I18n.formatNumber(view.coverage.totalFiles)
+              : I18n.formatNumber(count);
+            return '<li>' + this.escapeHtml(label) + ' · ' + detail + '</li>';
+          }).join('') + '</ul>'
+        : '';
+      const coverage = '<details class="model-item"><summary>' + this.escapeHtml(copy.coverage) +
+        ' · ' + this.escapeHtml(copy.quality) + '</summary><p class="model-details">' +
+        this.escapeHtml(copy.indexedLogEntries) + ': ' + I18n.formatNumber(view.coverage.indexedFiles) + '/' +
+        I18n.formatNumber(view.coverage.totalFiles) + ' · ' + this.escapeHtml(copy.indexedStorage) + ': ' +
+        this.escapeHtml(formatters.formatBytes(view.coverage.indexedBytes)) + '/' +
+        this.escapeHtml(formatters.formatBytes(view.coverage.totalBytes)) + ' · ' +
+        this.escapeHtml(view.coverage.complete ? copy.complete : copy.partial) + '</p>' +
+        qualityFlags + '</details>';
+      return this.renderUsageData(null, provider, view.today) +
+        this.renderCodexTodayHourly(view) + identity + limits + coverage;
+    }
     if (!this.todayData) {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
     }
 
-    const todaySummary = this.renderUsageData(this.todayData);
+    const todaySummary = this.renderUsageData(this.todayData, provider) + this.renderTodayInsights(provider);
 
     let hourlyBreakdown = '';
     if (this.hourlyDataForToday.length > 0) {
@@ -492,9 +1347,10 @@ export class UsageWebviewProvider {
         this.renderCompositionChart(
           [...this.hourlyDataForToday]
             .sort((a, b) => a.hour.localeCompare(b.hour))
-            .map((h) => ({ label: h.hour, data: h.data }))
+            .map((h) => ({ label: h.hour, data: h.data })),
+          provider,
         ) +
-        '<div class="daily-table-container">' +
+        '<div class="daily-table-container" tabindex="0">' +
         '<table class="daily-table">' +
         '<thead>' +
         '<tr>' +
@@ -532,7 +1388,257 @@ export class UsageWebviewProvider {
     return todaySummary + hourlyBreakdown;
   }
 
-  private renderUsageData(data: UsageData | null): string {
+  private renderCodexTodayHourly(view: CodexUsageView): string {
+    const rows = view.todayHourly;
+    const coverage = view.todayCoverage;
+    if (rows.length === 0 && coverage.complete) {
+      return '';
+    }
+    const copy = I18n.t.providers.codex;
+    const partial = coverage.complete
+      ? ''
+      : '<p class="model-details">' + this.escapeHtml(copy.indexedLogEntries) + ': ' +
+        I18n.formatNumber(coverage.indexedFiles) + '/' + I18n.formatNumber(coverage.totalFiles) +
+        ' · ' + this.escapeHtml(copy.partial) + '</p>';
+    const tabs = '<div class="chart-tabs">' +
+      '<button class="chart-tab active" data-metric="cost">' + this.escapeHtml(copy.apiEquivalentCost) + '</button>' +
+      '<button class="chart-tab" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
+      '<button class="chart-tab" data-metric="outputTokens">' + this.escapeHtml(copy.fresh) + '</button>' +
+      '<button class="chart-tab" data-metric="cacheCreation">' + this.escapeHtml(copy.output) + '</button>' +
+      '<button class="chart-tab" data-metric="cacheRead">' + this.escapeHtml(copy.reasoning) + '</button>' +
+      '<button class="chart-tab" data-metric="messages">' + this.escapeHtml(copy.threads) + '</button>' +
+      '</div>';
+    const chart = rows.length > 0
+      ? '<div class="chart-content" id="codexTodayHourlyChart">' +
+        this.renderCodexHourlyChart(rows) + '</div>' +
+        this.renderCompositionChart(
+          rows.map((row) => ({ label: row.hour, data: row.total })),
+          'codex',
+        )
+      : '<div class="no-chart-data">' + this.escapeHtml(copy.noDailyData) + '</div>';
+    const table = rows.length > 0
+      ? '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
+        '<th>' + this.escapeHtml(I18n.t.popup.hour) + '</th>' +
+        '<th>' + this.escapeHtml(copy.apiEquivalentCost) + '</th>' +
+        '<th>' + this.escapeHtml(copy.processed) + '</th><th>' + this.escapeHtml(copy.fresh) + '</th>' +
+        '<th>' + this.escapeHtml(copy.input) + '</th><th>' + this.escapeHtml(copy.cachedInput) + '</th>' +
+        '<th>' + this.escapeHtml(copy.output) + '</th><th>' + this.escapeHtml(copy.reasoning) + '</th>' +
+        '<th>' + this.escapeHtml(copy.threads) + '</th></tr></thead><tbody>' +
+        rows.map((row) =>
+          '<tr><td class="date-cell">' + this.escapeHtml(row.hour) + '</td>' +
+          '<td class="cost-cell" title="' + this.escapeHtml(this.codexCostHelp(row.apiEquivalent)) + '">' +
+          (row.apiEquivalent.pricedTokens > 0 ? I18n.formatCurrency(row.apiEquivalent.equivalentUsd) : '—') + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.processed) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.fresh) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.input) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.cachedInput) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.output) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.total.reasoning) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(row.threads) + '</td></tr>',
+        ).join('') + '</tbody></table></div>'
+      : '';
+    return '<div class="daily-breakdown" data-codex-time-series data-codex-today-hourly>' +
+      '<h3>' + this.escapeHtml(I18n.t.popup.hourlyBreakdown) + '</h3>' + partial + tabs + chart + table + '</div>';
+  }
+
+  /** Opt-in (showEfficiency) efficiency chips appended to a usage summary:
+   * cost per message (exact: cost ÷ messages) and realised cache savings
+   * (cacheRead tokens × the input−cacheRead price gap, per model). Off by
+   * default — not everyone wants cost-efficiency framing. */
+  private renderEfficiencyChips(data: UsageData): string {
+    if (!this.setting<boolean>('showEfficiency', false) || !data || data.messageCount <= 0) {
+      return '';
+    }
+    const costPerMsg = data.totalCost / data.messageCount;
+    const totalTokens =
+      data.totalInputTokens + data.totalOutputTokens + data.totalCacheCreationTokens + data.totalCacheReadTokens;
+    const tokensPerMsg = totalTokens / data.messageCount;
+    let savings = 0;
+    for (const [model, mb] of Object.entries(data.modelBreakdown)) {
+      if (mb.cacheReadTokens > 0) {
+        const r = getModelRatesPerMillion(model);
+        if (r) {
+          savings += (mb.cacheReadTokens * Math.max(0, r.input - r.cacheRead)) / 1_000_000;
+        }
+      }
+    }
+    const chip = (label: string, value: string, title: string): string =>
+      '<span class="eff-chip" title="' + this.escapeHtml(title) + '"><span class="eff-label">' + label +
+      '</span><span class="eff-value">' + value + '</span></span>';
+    let chips = chip('Cost / message', I18n.formatCurrency(costPerMsg), 'Total cost ÷ messages you sent');
+    chips += chip('Tokens / message', I18n.formatNumber(Math.round(tokensPerMsg)), 'All tokens (in + out + cache) ÷ messages you sent');
+    if (savings > 0) {
+      chips += chip('Cache savings', I18n.formatCurrency(savings), 'What cache reads saved vs. paying full input price');
+    }
+    return '<div class="eff-chips">' + chips + '</div>';
+  }
+
+  private renderCodexIndexedSubtotal(indexedSubtotal?: boolean): string {
+    if (!indexedSubtotal && !(this.codexLoading && this.codexProgress)) {
+      return '';
+    }
+    const copy = I18n.t.providers.codex;
+    const coverage = this.codexView?.coverage;
+    const progress: CodexRenderProgress | null =
+      this.codexLoading && this.codexProgress
+        ? this.codexProgress
+        : coverage
+          ? {
+              scannedFiles: coverage.indexedFiles,
+              totalFiles: coverage.totalFiles,
+              indexedBytes: coverage.indexedBytes,
+              totalBytes: coverage.totalBytes,
+            }
+          : null;
+    const details = progress ? ' · ' + this.renderCodexProgressText(progress) : '';
+    const subtotal = indexedSubtotal
+      ? '<strong>' + this.escapeHtml(copy.indexedSubtotal) + '</strong> · '
+      : '';
+    return '<p class="model-details">' + subtotal +
+      this.escapeHtml(copy.indexingInProgress) + details + '</p>';
+  }
+
+  private renderCodexEmptyState(): string {
+    const copy = I18n.t.providers.codex;
+    const message = this.codexLoading
+      ? copy.indexingInProgress
+      : copy.noRecentTask;
+    const progress = this.codexLoading && this.codexProgress
+      ? '<p class="model-details">' +
+        this.renderCodexProgressText(this.codexProgress) + '</p>'
+      : '';
+    return '<div class="no-data"><p>' + this.escapeHtml(message) + '</p>' +
+      progress + '</div>';
+  }
+
+  private renderCodexProgressText(progress: CodexRenderProgress): string {
+    const copy = I18n.t.providers.codex;
+    const exactCount = new Intl.NumberFormat(I18n.getLocale(), {
+      maximumFractionDigits: 0,
+    });
+    const completedPercent = progress.totalFiles > 0
+      ? Math.min(
+          100,
+          Math.max(0, Math.round(
+            progress.scannedFiles / progress.totalFiles * 100,
+          )),
+        )
+      : 0;
+    const formatters = createCodexLocalizedFormatters(
+      I18n.getLocale(),
+      I18n.getTimezone(),
+    );
+    return this.escapeHtml(copy.indexedLogEntries) + ': ' +
+      exactCount.format(progress.scannedFiles) + '/' +
+      exactCount.format(progress.totalFiles) +
+      (progress.totalFiles > 0 ? ' (' + completedPercent + '%)' : '') + ' · ' +
+      this.escapeHtml(copy.indexedStorage) + ': ' +
+      this.escapeHtml(formatters.formatBytes(progress.indexedBytes)) + '/' +
+      this.escapeHtml(formatters.formatBytes(progress.totalBytes));
+  }
+
+  private renderUsageData(
+    data: UsageData | null,
+    provider: SettingProvider = 'claude',
+    codexScope: CodexUsageScopeView | null = null,
+  ): string {
+    if (provider === 'codex') {
+      const scope = codexScope;
+      if (!scope) {
+        return this.renderCodexEmptyState();
+      }
+      const copy = I18n.t.providers.codex;
+      const metric = (label: string, value: number | string): string =>
+        '<div class="summary-item"><div class="label">' + this.escapeHtml(label) +
+        '</div><div class="value">' + this.escapeHtml(
+          typeof value === 'number' ? I18n.formatNumber(value) : value,
+        ) + '</div></div>';
+      const equivalentRows = scope.models.map((row) =>
+        equivalentUsageFromProviderTokens(0, row.key, {
+          inputTotal: row.totals.input,
+          cachedInput: row.totals.cachedInput,
+          outputTotal: row.totals.output,
+          reasoningOutput: row.totals.reasoning,
+        }),
+      );
+      const equivalent = summarizeEquivalentUsage(
+        equivalentRows,
+        scope.total.processed,
+      );
+      const pricingCoverage = new Intl.NumberFormat(I18n.getLocale(), {
+        style: 'percent',
+        maximumFractionDigits: 0,
+      }).format(equivalent.pricingCoverage);
+      const equivalentHelp = copy.apiEquivalentCostHelp.replace(
+        '{coverage}',
+        pricingCoverage,
+      );
+      const equivalentCost = equivalent.pricedTokens > 0
+        ? I18n.formatCurrency(equivalent.equivalentUsd)
+        : '—';
+      const equivalentCostMetric =
+        '<div class="summary-item" title="' + this.escapeHtml(equivalentHelp) + '">' +
+        '<div class="label">' + this.escapeHtml(copy.apiEquivalentCost) + '</div>' +
+        '<div class="value cost">' + this.escapeHtml(equivalentCost) + '</div></div>';
+      const composition = tokenComposition(scope.total);
+      const compositionTotal = composition.freshInput + composition.cachedInput + composition.output;
+      const width = (value: number): string =>
+        (compositionTotal > 0 ? (value / compositionTotal) * 100 : 0).toFixed(2) + '%';
+      const legend = (className: string, label: string, value: number): string =>
+        '<span class="legend-item"><span class="legend-dot ' + className + '"></span>' +
+        this.escapeHtml(label) + ' ' + I18n.formatNumber(value) + '</span>';
+      const compositionHtml = '<div class="cost-composition"><div class="cost-comp-head">' +
+        this.escapeHtml(copy.tokenComposition) + '</div><div class="cost-comp-bar">' +
+        '<div class="cost-comp-seg seg-input" style="width:' + width(composition.freshInput) + '"></div>' +
+        '<div class="cost-comp-seg seg-cache-read" style="width:' + width(composition.cachedInput) + '"></div>' +
+        '<div class="cost-comp-seg seg-output" style="width:' + width(composition.output) + '"></div>' +
+        '</div><div class="cost-comp-legend">' +
+        legend('seg-input', copy.freshInput, composition.freshInput) +
+        legend('seg-cache-read', copy.cachedInput, composition.cachedInput) +
+        legend('seg-output', copy.output, composition.output) +
+        '</div><p class="model-details">' + this.escapeHtml(copy.reasoning) + ' ' +
+        I18n.formatNumber(composition.reasoningWithinOutput) + ' · ' +
+        this.escapeHtml(copy.reasoningSubset) + '</p></div>';
+      const dimension = (
+        title: string,
+        rows: Array<{ key: string; totals: CodexMetricTotals }>,
+      ): string => {
+        if (rows.length === 0) {
+          return '';
+        }
+        return '<div class="model-breakdown"><div class="section-header"><h3>' +
+          this.escapeHtml(title) + '</h3></div><div class="model-list">' + rows.map((row, index) =>
+            '<details class="model-item"' + (index === 0 ? ' open' : '') + '><summary class="model-header">' +
+            '<span class="model-name">' + this.escapeHtml(row.key) + '</span><span class="model-cost">' +
+            I18n.formatNumber(row.totals.fresh) + ' ' + this.escapeHtml(copy.fresh) + '</span></summary>' +
+            '<div class="model-details model-details-stacked">' +
+            '<span><span class="model-stat-label">' + this.escapeHtml(copy.processed) + '</span><strong>' +
+            I18n.formatNumber(row.totals.processed) + '</strong></span>' +
+            '<span><span class="model-stat-label">' + this.escapeHtml(copy.fresh) + '</span><strong>' +
+            I18n.formatNumber(row.totals.fresh) + '</strong></span>' +
+            '<span><span class="model-stat-label">' + this.escapeHtml(copy.output) + '</span><strong>' +
+            I18n.formatNumber(row.totals.output) + '</strong></span>' +
+            '<span><span class="model-stat-label">' + this.escapeHtml(copy.reasoning) + '</span><strong>' +
+            I18n.formatNumber(row.totals.reasoning) + '</strong></span></div></details>',
+          ).join('') + '</div></div>';
+      };
+      return '<div class="usage-summary">' +
+        this.renderCodexIndexedSubtotal(scope.indexedSubtotal) +
+        '<div class="summary-grid">' +
+        equivalentCostMetric +
+        metric(copy.processed, scope.total.processed) +
+        metric(copy.fresh, scope.total.fresh) +
+        metric(copy.input, scope.total.input) +
+        metric(copy.cachedInput, scope.total.cachedInput) +
+        metric(
+          I18n.t.popup.cacheHitRate,
+          this.formatPercent(scope.total.input > 0 ? scope.cacheShare : null),
+        ) +
+        metric(copy.output, scope.total.output) +
+        metric(copy.reasoning, scope.total.reasoning) +
+        '</div>' + compositionHtml + '</div>' +
+        dimension(copy.models, scope.models) + dimension(copy.efforts, scope.efforts);
+    }
     if (!data) {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
     }
@@ -730,15 +1836,55 @@ export class UsageWebviewProvider {
       html += '</div></div>';
     }
 
+    html += this.renderEfficiencyChips(data);
     return html;
   }
 
-  private renderMonthData(): string {
+  private renderMonthData(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      const view = this.codexView;
+      const copy = I18n.t.providers.codex;
+      if (!view) {
+        return this.renderCodexEmptyState();
+      }
+      const rows = view.last30DaysDaily;
+      const breakdown = rows.length === 0
+        ? '<div class="no-data"><p>' + this.escapeHtml(copy.noDailyData) + '</p></div>'
+        : '<div class="daily-breakdown" data-codex-time-series data-codex-last30-daily><h3>' + this.escapeHtml(copy.daily) + '</h3>' +
+          '<div class="chart-tabs">' +
+          '<button class="chart-tab active" data-metric="cost">' + this.escapeHtml(copy.apiEquivalentCost) + '</button>' +
+          '<button class="chart-tab" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
+          '<button class="chart-tab" data-metric="outputTokens">' + this.escapeHtml(copy.fresh) + '</button>' +
+          '<button class="chart-tab" data-metric="cacheCreation">' + this.escapeHtml(copy.output) + '</button>' +
+          '<button class="chart-tab" data-metric="cacheRead">' + this.escapeHtml(copy.reasoning) + '</button>' +
+          '<button class="chart-tab" data-metric="messages">' + this.escapeHtml(copy.threads) + '</button>' +
+          '</div><div class="chart-content" id="dailyChart">' + this.renderDailyChart(provider) + '</div>' +
+          this.renderCompositionChart(rows.map((row) => ({ label: row.day, data: row.total })), provider) +
+          '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
+          '<th>' + this.escapeHtml(copy.date) + '</th><th>' + this.escapeHtml(copy.apiEquivalentCost) + '</th>' +
+          '<th>' + this.escapeHtml(copy.processed) + '</th>' +
+          '<th>' + this.escapeHtml(copy.fresh) + '</th><th>' + this.escapeHtml(copy.input) + '</th>' +
+          '<th>' + this.escapeHtml(copy.cachedInput) + '</th><th>' + this.escapeHtml(copy.output) + '</th>' +
+          '<th>' + this.escapeHtml(copy.reasoning) + '</th><th>' + this.escapeHtml(copy.threads) + '</th>' +
+          '</tr></thead><tbody>' + rows.map((row) =>
+            '<tr><td class="date-cell">' + this.escapeHtml(row.day) + '</td>' +
+            '<td class="cost-cell" title="' + this.escapeHtml(this.codexCostHelp(row.apiEquivalent)) + '">' +
+            (row.apiEquivalent.pricedTokens > 0 ? I18n.formatCurrency(row.apiEquivalent.equivalentUsd) : '—') + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.processed) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.fresh) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.input) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.cachedInput) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.output) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.reasoning) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.threads) + '</td></tr>',
+          ).join('') + '</tbody></table></div></div>';
+      return this.renderUsageData(null, provider, view.last30Days) + breakdown;
+    }
     if (!this.monthData) {
       return `<div class="no-data"><p>${I18n.t.popup.noDataMessage}</p></div>`;
     }
 
-    const monthSummary = this.renderUsageData(this.monthData);
+    const monthSummary = this.renderUsageData(this.monthData, provider);
 
     const dailyBreakdown =
       this.dailyDataForMonth.length > 0
@@ -758,16 +1904,17 @@ export class UsageWebviewProvider {
 
         <!-- Chart Container (hc-wrap is self-contained: Y-axis + gridlines + scroll) -->
         <div class="chart-content" id="dailyChart">
-          ${this.renderDailyChart()}
+          ${this.renderDailyChart(provider)}
         </div>
 
         ${this.renderCompositionChart(
           [...this.dailyDataForMonth]
             .sort((a, b) => a.date.localeCompare(b.date))
-            .map((d) => ({ label: this.getShortDate(d.date), data: d.data }))
+            .map((d) => ({ label: this.getShortDate(d.date), data: d.data })),
+          provider,
         )}
 
-        <div class="daily-table-container">
+        <div class="daily-table-container" tabindex="0">
           <table class="daily-table">
             <thead>
               <tr>
@@ -777,6 +1924,7 @@ export class UsageWebviewProvider {
                 <th>${I18n.t.popup.outputTokens}</th>
                 <th>${I18n.t.popup.cacheCreation}</th>
                 <th>${I18n.t.popup.cacheRead}</th>
+                <th>${I18n.t.popup.cacheHitRate}</th>
                 <th>${I18n.t.popup.messages}</th>
                 <th></th>
               </tr>
@@ -792,6 +1940,7 @@ export class UsageWebviewProvider {
                   <td class="number-cell">${I18n.formatNumber(data.totalOutputTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalCacheCreationTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalCacheReadTokens)}</td>
+                  <td class="number-cell">${this.formatPercent(this.cacheHitRate(data))}</td>
                   <td class="number-cell">${I18n.formatNumber(data.messageCount)}</td>
                   <td class="detail-cell">
                     <button class="detail-button" onclick="toggleHourlyDetail('${date}')" title="${I18n.t.popup.hourlyBreakdown}">
@@ -802,7 +1951,7 @@ export class UsageWebviewProvider {
                   </td>
                 </tr>
                 <tr class="hourly-detail-row" data-date="${date}" style="display: none;">
-                  <td colspan="8">
+                  <td colspan="9">
                     <div class="hourly-detail-container" id="hourly-detail-${date}">
                       <div class="loading-indicator">載入中...</div>
                     </div>
@@ -821,12 +1970,66 @@ export class UsageWebviewProvider {
     return monthSummary + dailyBreakdown;
   }
 
-  private renderAllTimeData(): string {
+  private renderAllTimeData(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      const view = this.codexView;
+      const copy = I18n.t.providers.codex;
+      if (!view) {
+        return this.renderCodexEmptyState();
+      }
+      const rows = view.monthly;
+      const breakdown = rows.length === 0
+        ? '<div class="no-data"><p>' + this.escapeHtml(copy.noMonthlyData) + '</p></div>'
+        : '<div class="daily-breakdown" data-codex-time-series><h3>' + this.escapeHtml(copy.monthly) + '</h3>' +
+          '<div class="chart-tabs">' +
+          '<button class="chart-tab active" data-metric="cost">' + this.escapeHtml(copy.apiEquivalentCost) + '</button>' +
+          '<button class="chart-tab" data-metric="inputTokens">' + this.escapeHtml(copy.processed) + '</button>' +
+          '<button class="chart-tab" data-metric="outputTokens">' + this.escapeHtml(copy.fresh) + '</button>' +
+          '<button class="chart-tab" data-metric="cacheCreation">' + this.escapeHtml(copy.output) + '</button>' +
+          '<button class="chart-tab" data-metric="cacheRead">' + this.escapeHtml(copy.reasoning) + '</button>' +
+          '<button class="chart-tab" data-metric="messages">' + this.escapeHtml(copy.threads) + '</button>' +
+          '</div><div class="chart-content" id="allTimeChart">' + this.renderAllTimeChart(provider) + '</div>' +
+          this.renderCompositionChart(rows.map((row) => ({ label: row.period, data: row.total })), provider) +
+          '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
+          '<th>' + this.escapeHtml(copy.date) + '</th><th>' + this.escapeHtml(copy.apiEquivalentCost) + '</th>' +
+          '<th>' + this.escapeHtml(copy.processed) + '</th>' +
+          '<th>' + this.escapeHtml(copy.fresh) + '</th><th>' + this.escapeHtml(copy.input) + '</th>' +
+          '<th>' + this.escapeHtml(copy.cachedInput) + '</th><th>' + this.escapeHtml(copy.output) + '</th>' +
+          '<th>' + this.escapeHtml(copy.reasoning) + '</th><th>' + this.escapeHtml(copy.threads) + '</th>' +
+          '</tr></thead><tbody>' + rows.map((row) =>
+            '<tr><td class="date-cell">' + this.escapeHtml(row.period) + '</td>' +
+            '<td class="cost-cell" title="' + this.escapeHtml(this.codexCostHelp(row.apiEquivalent)) + '">' +
+            (row.apiEquivalent.pricedTokens > 0 ? I18n.formatCurrency(row.apiEquivalent.equivalentUsd) : '—') + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.processed) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.fresh) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.input) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.cachedInput) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.output) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.total.reasoning) + '</td>' +
+            '<td class="number-cell">' + I18n.formatNumber(row.threads) + '</td></tr>',
+          ).join('') + '</tbody></table></div></div>';
+      return this.renderUsageData(null, provider, view.allTime) +
+        this.renderWeeklyValuePanel(provider) + breakdown;
+    }
     if (!this.allTimeData) {
       return `<div class="no-data"><p>${I18n.t.popup.noDataMessage}</p></div>`;
     }
 
-    const allTimeSummary = this.renderUsageData(this.allTimeData);
+    const allTimeSummary = this.renderUsageData(this.allTimeData, provider);
+
+    // Optional GitHub-style token heatmap (off by default; mainly a shareable
+    // view). Inline SVG renders with working hover tooltips inside the webview.
+    let heatmapPanel = '';
+    if (this.setting<boolean>('showHeatmap', false) && this.allRecords && this.allRecords.length > 0) {
+      const daily = ClaudeDataLoader.getDailyUsageMap(this.allRecords, I18n.getTimezone());
+      heatmapPanel =
+        '<div class="heatmap-panel"><h3>Token heatmap</h3>' +
+        '<div class="heatmap-svg">' + renderHeatmapSvg(daily) + '</div>' +
+        '<div class="share-actions">' +
+        '<button class="btn-secondary btn-small" onclick="exportHeatmap()">Export as SVG…</button>' +
+        '<button class="btn-secondary btn-small" onclick="publishHeatmap()">Publish to GitHub…</button>' +
+        '</div></div>';
+    }
 
     const dailyBreakdown =
       this.dailyDataForAllTime.length > 0
@@ -846,16 +2049,17 @@ export class UsageWebviewProvider {
 
         <!-- Chart Container (hc-wrap is self-contained: Y-axis + gridlines + scroll) -->
         <div class="chart-content" id="allTimeChart">
-          ${this.renderAllTimeChart()}
+          ${this.renderAllTimeChart(provider)}
         </div>
 
         ${this.renderCompositionChart(
           [...this.dailyDataForAllTime]
             .sort((a, b) => a.date.localeCompare(b.date))
-            .map((d) => ({ label: this.getShortDate(d.date), data: d.data }))
+            .map((d) => ({ label: this.getShortDate(d.date, true), data: d.data, key: d.date })),
+          provider,
         )}
 
-        <div class="daily-table-container">
+        <div class="daily-table-container" tabindex="0">
           <table class="daily-table">
             <thead>
               <tr>
@@ -865,6 +2069,7 @@ export class UsageWebviewProvider {
                 <th>${I18n.t.popup.outputTokens}</th>
                 <th>${I18n.t.popup.cacheCreation}</th>
                 <th>${I18n.t.popup.cacheRead}</th>
+                <th>${I18n.t.popup.cacheHitRate}</th>
                 <th>${I18n.t.popup.messages}</th>
                 <th></th>
               </tr>
@@ -874,12 +2079,13 @@ export class UsageWebviewProvider {
                 .map(
                   ({ date, data }) => `
                 <tr class="daily-row" data-date="${date}">
-                  <td class="date-cell">${this.formatDate(date)}</td>
+                  <td class="date-cell">${this.formatDate(date, true)}</td>
                   <td class="cost-cell">${I18n.formatCurrency(data.totalCost)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalInputTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalOutputTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalCacheCreationTokens)}</td>
                   <td class="number-cell">${I18n.formatNumber(data.totalCacheReadTokens)}</td>
+                  <td class="number-cell">${this.formatPercent(this.cacheHitRate(data))}</td>
                   <td class="number-cell">${I18n.formatNumber(data.messageCount)}</td>
                   <td class="detail-cell">
                     <button class="detail-button" onclick="toggleMonthlyDetail('${date}')" title="顯示每日詳細資料">
@@ -890,7 +2096,7 @@ export class UsageWebviewProvider {
                   </td>
                 </tr>
                 <tr class="monthly-detail-row" data-date="${date}" style="display: none;">
-                  <td colspan="8">
+                  <td colspan="9">
                     <div class="monthly-detail-container" id="monthly-detail-${date}">
                       <div class="loading-indicator">載入中...</div>
                     </div>
@@ -906,30 +2112,549 @@ export class UsageWebviewProvider {
     `
         : '';
 
-    return allTimeSummary + dailyBreakdown;
+    // Heatmap sits right above the "monthly usage" breakdown, below the totals.
+    return allTimeSummary + this.renderWeeklyValuePanel(provider) +
+      this.renderShareCardPanel() + heatmapPanel + dailyBreakdown;
   }
 
-  private renderSessionData(): string {
+  private weeklyValuePoints(provider: SettingProvider): WeeklyValuePoint[] {
+    const now = Date.now();
+    const inputs = provider === 'codex'
+      ? this.codexView?.weeklyValueInputs
+      : {
+          observations: this.claudeWeeklyQuotaHistory,
+          usage: claudeWeeklyEquivalentUsage(this.allRecords),
+        };
+    if (!inputs) {
+      return [];
+    }
+    return buildWeeklyValueTimeline(provider, inputs, { now });
+  }
+
+  /** Shared reset-aligned allowance-value renderer for Claude and Codex. The
+   * chart deliberately reuses the dashboard's existing stacked-bar classes:
+   * blue is observed use, green is the inferred unused share. */
+  private renderWeeklyValuePanel(provider: SettingProvider): string {
+    if (!this.setting<boolean>('showWeeklyEquivalentValue', true)) {
+      return '';
+    }
+    const copy = I18n.t.weeklyValue;
+    const points = this.weeklyValuePoints(provider);
+    const providerLabel = provider === 'codex'
+      ? I18n.t.providers.codexBeta
+      : I18n.t.providers.claude;
+    const heading = this.escapeHtml(`${copy.title} · ${providerLabel}`);
+    const notes = [
+      copy.description,
+      copy.historyFromLogs,
+      ...(points.some((point) => point.basis === 'calendar-usage')
+        ? [copy.calendarFallback]
+        : []),
+      ...(provider === 'codex' ? [copy.multiAccount] : []),
+      ...(provider === 'codex' && points.some((point) => point.boundaryUncertain)
+        ? [copy.boundaryApproximation]
+        : []),
+      ...(provider === 'codex' && this.codexView && !this.codexView.periodCoverage.allTime.complete
+        ? [copy.indexedSubtotal]
+        : []),
+    ].map((line) => this.escapeHtml(line)).join('<br>');
+    if (points.length === 0) {
+      return '<div class="daily-breakdown"><div class="section-header"><h3>' +
+        heading + '</h3></div><p class="table-hint">' + notes + '</p>' +
+        '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div></div>';
+    }
+
+    const dateLabel = (value: number, short = false, dateOnly = false): string => {
+      try {
+        return new Intl.DateTimeFormat(I18n.getLocale(), {
+          ...(short
+            ? { month: 'short' as const, day: 'numeric' as const }
+            : dateOnly
+              ? {
+                  year: 'numeric' as const,
+                  month: 'short' as const,
+                  day: 'numeric' as const,
+                }
+              : {
+                year: 'numeric' as const,
+                month: 'short' as const,
+                day: 'numeric' as const,
+                hour: '2-digit' as const,
+                minute: '2-digit' as const,
+              }),
+          timeZone: I18n.getTimezone(),
+        }).format(new Date(value));
+      } catch {
+        return new Date(value).toISOString().slice(0, 10);
+      }
+    };
+    const periodLabel = (point: WeeklyValuePoint, short = false): string => {
+      if (point.current) {
+        if (short) {
+          return copy.currentPeriodShort;
+        }
+        const range = dateLabel(point.windowStart, false, true) + ' – ' +
+          dateLabel(point.resetAt - 1, false, true);
+        return point.basis === 'quota-observation'
+          ? `${copy.currentPeriod} · ${range} (${copy.resetsAt} ${dateLabel(point.resetAt)})`
+          : `${copy.currentPeriod} · ${range}`;
+      }
+      return dateLabel(point.windowStart, short, true) + ' – ' +
+        dateLabel(point.resetAt - 1, short, true);
+    };
+    const confidenceLabel = (point: WeeklyValuePoint): string => {
+      if (point.boundaryUncertain) {
+        return `${copy.usageOnly} · ${copy.boundaryApproximate}`;
+      }
+      switch (point.confidence) {
+        case 'high': return copy.high;
+        case 'medium': return copy.medium;
+        case 'low': return copy.low;
+        default: return copy.usageOnly;
+      }
+    };
+    const chartPoints = points.slice(0, 8).reverse();
+    const maxValue = Math.max(
+      1,
+      ...chartPoints.map((point) =>
+        point.unusedEquivalentUsd !== null && point.fullEquivalentUsd !== null
+          ? point.fullEquivalentUsd
+          : point.usedEquivalentUsd,
+      ),
+    );
+    const maxHeight = 120;
+    const bars = chartPoints.map((point) => {
+      const total = point.unusedEquivalentUsd !== null && point.fullEquivalentUsd !== null
+        ? Math.max(point.usedEquivalentUsd, point.fullEquivalentUsd)
+        : point.usedEquivalentUsd;
+      const barHeight = total > 0 ? (total / maxValue) * maxHeight : 0;
+      const usedHeight = total > 0
+        ? Math.min(barHeight, (point.usedEquivalentUsd / total) * barHeight)
+        : 0;
+      const unusedHeight = Math.max(0, barHeight - usedHeight);
+      const usedLabel = point.usageAvailable === false
+        ? '—'
+        : I18n.formatCurrency(point.usedEquivalentUsd);
+      const title = `${periodLabel(point)} · ${copy.usedValue}: ${usedLabel}`;
+      return '<div class="hc-col"><div class="stack-bar" title="' +
+        this.escapeHtml(title) + '">' +
+        '<div class="stack-seg seg-input" style="height:' + usedHeight.toFixed(2) + 'px"></div>' +
+        (point.unusedEquivalentUsd !== null
+          ? '<div class="stack-seg seg-cache-read" style="height:' + unusedHeight.toFixed(2) + 'px"></div>'
+          : '') +
+        '</div></div>';
+    }).join('');
+    const xlabels = chartPoints.map((point) =>
+      '<div class="hc-xlabel">' + this.escapeHtml(periodLabel(point, true)) + '</div>',
+    ).join('');
+    const legend = (cls: string, label: string): string =>
+      '<span class="legend-item"><span class="legend-dot ' + cls + '"></span>' +
+      this.escapeHtml(label) + '</span>';
+    const chart = '<div class="composition-chart"><div class="stack-legend">' +
+      legend('seg-input', copy.usedValue) +
+      (chartPoints.some((point) => point.unusedEquivalentUsd !== null)
+        ? legend('seg-cache-read', copy.unusedValue)
+        : '') +
+      '</div><div class="hc-wrap"><div class="hc-yaxis"><span class="hc-yval">' +
+      I18n.formatCurrency(maxValue) + '</span><span class="hc-yval">' +
+      I18n.formatCurrency(maxValue / 2) + '</span><span class="hc-yval">$0</span></div>' +
+      '<div class="hc-main"><div class="hc-scroll" tabindex="0"><div class="hc-plot">' +
+      '<div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>' +
+      '<div class="hc-bars">' + bars + '</div></div><div class="hc-xlabels">' +
+      xlabels + '</div></div></div></div></div>';
+    const dash = '—';
+    const tableRows = points.map((point) =>
+      '<tr><td class="date-cell">' + this.escapeHtml(periodLabel(point)) + '</td>' +
+      '<td class="cost-cell">' +
+      (point.usageAvailable === false ? dash : I18n.formatCurrency(point.usedEquivalentUsd)) + '</td>' +
+      '<td class="number-cell">' +
+      (point.utilizationPercent === null ? dash : this.formatPercent(point.utilizationPercent / 100)) + '</td>' +
+      '<td class="cost-cell">' +
+      (point.fullEquivalentUsd === null ? dash : I18n.formatCurrency(point.fullEquivalentUsd)) + '</td>' +
+      '<td class="cost-cell">' +
+      (point.unusedEquivalentUsd === null ? dash : I18n.formatCurrency(point.unusedEquivalentUsd)) + '</td>' +
+      '<td>' + this.escapeHtml(confidenceLabel(point)) + '</td>' +
+      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td></tr>',
+    ).join('');
+    return '<div class="daily-breakdown"><div class="section-header"><h3>' + heading +
+      '</h3></div><p class="table-hint">' + notes + '</p>' + chart +
+      '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
+      '<th>' + this.escapeHtml(copy.period) + '</th><th>' + this.escapeHtml(copy.usedValue) + '</th>' +
+      '<th>' + this.escapeHtml(copy.utilization) + '</th><th>' + this.escapeHtml(copy.fullValue) + '</th>' +
+      '<th>' + this.escapeHtml(copy.unusedValue) + '</th><th>' + this.escapeHtml(copy.confidence) + '</th>' +
+      '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th></tr></thead><tbody>' +
+      tableRows + '</tbody></table></div></div>';
+  }
+
+  /** The "Share card" panel (All tab). Off by default (`enableShareCard`); when
+   * on, a config form — range / scope / which metrics — with a Generate button.
+   * The preview is built on demand (no per-keystroke re-render), and export uses
+   * the same config. Privacy-safe: built from buildShareCardData, aggregate only. */
+  private renderShareCardPanel(): string {
+    const esc = (s: string): string => this.escapeHtml(s);
+    if (!this.setting<boolean>('enableShareCard', false)) {
+      // Off by default, but leave a discoverable pointer.
+      return (
+        '<div class="share-panel"><h3>Share card</h3>' +
+        '<p class="table-hint">Turn on <b>Enable usage share card</b> in <a href="#" onclick="openSettings();return false;">⚙ Settings</a> to build a one-page, shareable summary of your usage.</p>' +
+        '</div>'
+      );
+    }
+    if (!this.allRecords || this.allRecords.length === 0) {
+      return '';
+    }
+
+    // Range: grouped like the scope dropdown — rolling presets vs. a specific
+    // calendar month (last 12), so the two kinds are visually distinct.
+    const now = new Date();
+    const monthOpts: string[] = [];
+    for (let i = 1; i <= 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      monthOpts.push(`<option value="month:${key}">${esc(label)}${i === 1 ? ' (last month)' : ''}</option>`);
+    }
+    // Rehydrate the last config so an auto-refresh re-render doesn't wipe the
+    // user's picks or their generated preview (Carl: refresh shouldn't blow away
+    // human-operated output). Default range is the last 30 days.
+    const cfg = this.lastShareCardConfig;
+    const curRange = cfg?.range || 'last30';
+    const curScope = cfg?.scope || 'all';
+    const secOn = (key: string, dflt: boolean): boolean => (cfg?.sections?.[key] ?? dflt);
+    const sel = (v: string, cur: string): string => (v === cur ? ' selected' : '');
+
+    const rangeSelect =
+      '<select id="scRange">' +
+      '<optgroup label="Rolling">' +
+      '<option value="last30"' + sel('last30', curRange) + '>Last 30 days</option>' +
+      '<option value="week"' + sel('week', curRange) + '>Last 7 days</option>' +
+      '<option value="month"' + sel('month', curRange) + '>This month</option>' +
+      '<option value="year"' + sel('year', curRange) + '>Last 12 months</option>' +
+      '<option value="today"' + sel('today', curRange) + '>Today (hourly)</option>' +
+      '</optgroup>' +
+      '<optgroup label="Specific month">' +
+      monthOpts.map((o) => o.replace('>', sel(o.match(/value="([^"]+)"/)?.[1] || '', curRange) + '>')).join('') +
+      '</optgroup>' +
+      '</select>';
+
+    // Scope: overall / by project / by session (top few by cost).
+    const projectOpts = (this.projectBreakdown || [])
+      .map((g) => `<option value="project:${esc(g.groupPath)}"${sel('project:' + g.groupPath, curScope)}>${esc(g.groupName)}</option>`)
+      .join('');
+    const sessionOpts = (this.sessionBreakdown || [])
+      .slice()
+      .sort((a, b) => b.data.totalCost - a.data.totalCost)
+      .slice(0, 20)
+      .map((s) => `<option value="session:${esc(s.sessionId)}"${sel('session:' + s.sessionId, curScope)}>${esc((s.title || s.sessionId).slice(0, 48))}</option>`)
+      .join('');
+    const scopeSelect =
+      '<select id="scScope">' +
+      '<optgroup label="All"><option value="all"' + sel('all', curScope) + '>Overall</option></optgroup>' +
+      (projectOpts ? '<optgroup label="By project">' + projectOpts + '</optgroup>' : '') +
+      (sessionOpts ? '<optgroup label="By session">' + sessionOpts + '</optgroup>' : '') +
+      '</select>';
+
+    // Section toggles. Default ON: cost, cache-hit, model (+ the token hero,
+    // rhythm, badge). Optional: sessions, messages, composition, project.
+    const check = (key: string, label: string, dflt: boolean): string =>
+      '<label class="sc-check"><input type="checkbox" class="sc-sec" data-sec="' + key + '"' +
+      (secOn(key, dflt) ? ' checked' : '') + '> ' + esc(label) + '</label>';
+    const toggles =
+      check('totalTokens', 'Total tokens', true) +
+      check('estimatedCost', 'Est. cost', true) +
+      check('cacheEfficiency', 'Cache-hit rate', true) +
+      check('topModel', 'Top model', true) +
+      check('sessions', 'Session count', true) +
+      check('tokenComposition', 'Token mix', true) +
+      check('rhythm', 'Daily pulse', true) +
+      check('badge', 'Badge', true) +
+      check('messages', 'Message count', false) +
+      check('projectName', 'Project name', false);
+    const avatarChecked = cfg?.avatar ? ' checked' : '';
+    const nameChecked = cfg?.username ? ' checked' : '';
+    const fullChecked = cfg?.fullNumbers ? ' checked' : '';
+    const curTheme = cfg?.theme || 'claudeClassic';
+    const themeSelect =
+      '<select id="scTheme">' +
+      '<option value="claudeClassic"' + sel('claudeClassic', curTheme) + '>Claude Classic (orange)</option>' +
+      '<option value="claudeCream"' + sel('claudeCream', curTheme) + '>Claude Cream</option>' +
+      '<option value="auroraDark"' + sel('auroraDark', curTheme) + '>Aurora Dark</option>' +
+      '<option value="auto"' + sel('auto', curTheme) + '>Auto (follow VS Code)</option>' +
+      '</select>';
+
+    const preview = this.lastShareCardSvg
+      ? this.lastShareCardSvg
+      : '<p class="table-hint">Preview appears here after you click Generate.</p>';
+
+    return (
+      '<div class="share-panel"><h3>Share card</h3>' +
+      '<p class="table-hint">Pick a range, scope and metrics, then Generate. Only aggregate numbers are drawn — no prompts, paths, or session ids.</p>' +
+      '<div class="sc-config">' +
+      '<div class="sc-grid">' +
+      '<label class="sc-field"><span>Range</span>' + rangeSelect + '</label>' +
+      '<label class="sc-field"><span>Scope</span>' + scopeSelect + '</label>' +
+      '<label class="sc-field"><span>Theme</span>' + themeSelect + '</label>' +
+      '</div>' +
+      '<div class="sc-checks">' + toggles +
+      '<label class="sc-check" title="Show the exact token count instead of 1.2M"><input type="checkbox" id="scFull"' + fullChecked + '> Full numbers</label>' +
+      '<label class="sc-check" title="Fetches your GitHub avatar (asks to sign in once)"><input type="checkbox" id="scAvatar"' + avatarChecked + '> GitHub avatar</label>' +
+      '<label class="sc-check" title="Shows your GitHub name next to the badge"><input type="checkbox" id="scName"' + nameChecked + '> GitHub name</label>' +
+      '</div>' +
+      '<div class="share-actions">' +
+      '<button class="btn-secondary btn-small" onclick="generateShareCard()">Generate preview</button>' +
+      '<button class="btn-secondary btn-small" onclick="exportShareCardConfigured()">Export as SVG…</button>' +
+      '</div></div>' +
+      '<div class="share-preview" id="scPreview">' + preview + '</div>' +
+      '</div>'
+    );
+  }
+
+  /** Build the share-card SVG for a webview request ({range, scope, sections,
+   * size, avatar}). Shared by the preview (postMessage back) and export paths. */
+  private buildShareCardSvgFor(
+    range: string,
+    scope: string,
+    sections: Partial<ShareSections>,
+    opts: { avatarDataUri?: string; username?: string; fullNumbers?: boolean; theme?: ShareCardTheme } = {}
+  ): string {
+    const input = ClaudeDataLoader.buildShareInput(this.allRecords, range, scope);
+    const merged: ShareSections = { ...DEFAULT_SECTIONS, ...sections };
+    const kind = vscode.window.activeColorTheme?.kind;
+    const isDark = kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
+    // Landscape only for now (other sizes need per-size tuning — a later patch).
+    return renderShareCardSvg(buildShareCardData(input, merged), { ...opts, isDark, lang: I18n.getLocale() });
+  }
+
+  /** Fetch the signed-in GitHub user's avatar (data: URI) and display name,
+   * cached. Only called when the user ticks "GitHub avatar" / "GitHub name", so
+   * auth is on demand (just `read:user`). Missing parts come back undefined. */
+  private async getGithubIdentity(): Promise<{ avatar?: string; name?: string }> {
+    if (this.githubIdentity) {
+      return this.githubIdentity;
+    }
+    let session: vscode.AuthenticationSession | undefined;
+    try {
+      session = await vscode.authentication.getSession('github', ['read:user'], { createIfNone: true });
+    } catch {
+      return {};
+    }
+    if (!session) {
+      return {};
+    }
+    const out: { avatar?: string; name?: string } = {};
+    try {
+      const user = await this.httpsGet('https://api.github.com/user', session.accessToken);
+      const parsed = JSON.parse(user.body.toString('utf8')) as { avatar_url?: string; name?: string; login?: string };
+      out.name = (parsed.name && parsed.name.trim()) || parsed.login;
+      if (parsed.avatar_url) {
+        const url = parsed.avatar_url + (parsed.avatar_url.includes('?') ? '&' : '?') + 's=160';
+        const img = await this.httpsGet(url);
+        out.avatar = `data:${img.contentType || 'image/png'};base64,${img.body.toString('base64')}`;
+      }
+    } catch {
+      /* keep whatever we got */
+    }
+    this.githubIdentity = out;
+    return out;
+  }
+
+  /** Minimal GET over https returning the raw body + content-type. Follows
+   * redirects (GitHub avatar URLs 302 to avatars.githubusercontent.com — not
+   * following them was why the avatar came back empty / broken). */
+  private httpsGet(url: string, token?: string, hops = 0): Promise<{ body: Buffer; contentType: string }> {
+    return new Promise((resolve, reject) => {
+      const req = https.get(
+        url,
+        {
+          headers: {
+            'User-Agent': 'ClaudeCodeUsage-VSCode',
+            ...(token ? { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } : {}),
+          },
+          timeout: 15000,
+        },
+        (res) => {
+          const status = res.statusCode || 0;
+          const loc = res.headers.location;
+          if (status >= 300 && status < 400 && loc && hops < 4) {
+            res.resume(); // drain
+            // Don't forward the auth token to a redirected (CDN) host.
+            const next = new URL(loc, url).toString();
+            this.httpsGet(next, undefined, hops + 1).then(resolve, reject);
+            return;
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(c as Buffer));
+          res.on('end', () =>
+            resolve({ body: Buffer.concat(chunks), contentType: String(res.headers['content-type'] || '') })
+          );
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => req.destroy(new Error('timeout')));
+    });
+  }
+
+  private renderSessionData(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      const copy = I18n.t.providers.codex;
+      const sessions = this.codexView?.recentThreads ?? [];
+      const subtotal = this.renderCodexIndexedSubtotal(
+        this.codexView?.allTime.indexedSubtotal,
+      );
+      if (sessions.length === 0) {
+        return subtotal + '<div class="no-data"><p>' + this.escapeHtml(copy.noThreadData) + '</p></div>';
+      }
+      const formatters = createCodexLocalizedFormatters(I18n.getLocale(), I18n.getTimezone());
+      const role = (value: CodexThreadUsageView['role']): string => {
+        if (value === 'root') return copy.rootRole;
+        if (value === 'subagent') return copy.childRole;
+        if (value === 'approval-reviewer') return copy.approvalReviewerRole;
+        return copy.unknownRole;
+      };
+      const models = [...new Set(sessions.flatMap((session) => session.models))].sort();
+      const filterBar = '<div class="sess-filters"><div class="sess-filter" data-group="range">' +
+        '<button class="sess-filter-btn active" data-range="all" onclick="sessionRange(this)">' + this.escapeHtml(copy.all) + '</button>' +
+        '<button class="sess-filter-btn" data-range="7" onclick="sessionRange(this)">' + this.escapeHtml(copy.last7Days) + '</button>' +
+        '<button class="sess-filter-btn" data-range="30" onclick="sessionRange(this)">' + this.escapeHtml(copy.last30Days) + '</button>' +
+        '</div>' + (models.length > 0
+          ? '<select class="sess-model-select" title="' + this.escapeHtml(copy.models) +
+            '" aria-label="' + this.escapeHtml(copy.models) + '" onchange="sessionModel(this)">' +
+            '<option value="all">' + this.escapeHtml(copy.all + ' ' + copy.models) + '</option>' +
+            models.map((model) => '<option value="' + this.escapeHtml(model.toLowerCase()) + '">' + this.escapeHtml(model) + '</option>').join('') +
+            '</select>'
+          : '') + '</div>';
+      const rows = sessions.map((session) => {
+        const title = session.title ?? session.agentNickname ?? copy.unnamedSession;
+        const project = session.projectName ?? copy.unidentifiedProject;
+        const model = session.models.join(', ') || copy.unavailable;
+        const effort = session.efforts.join(', ') || copy.unavailable;
+        const detailId = 'session-detail-' + session.viewKey;
+        const detail = (label: string, value: string): string =>
+          '<span data-session-detail-item><span class="model-stat-label">' + this.escapeHtml(label) +
+          '</span><strong title="' + this.escapeHtml(value) + '">' + this.escapeHtml(value) + '</strong></span>';
+        const mainRow = '<tr class="sort-row" data-session-row data-sort-time="' + session.observedAt + '" ' +
+          'data-sort-session="' + this.escapeHtml(title.toLowerCase()) + '" ' +
+          'data-sort-project="' + this.escapeHtml(project.toLowerCase()) + '" ' +
+          'data-sort-role="' + this.escapeHtml(session.role) + '" ' +
+          'data-sort-processed="' + session.total.processed + '" data-sort-fresh="' + session.total.fresh + '" ' +
+          'data-sort-output="' + session.total.output + '" data-sort-reasoning="' + session.total.reasoning + '" ' +
+          'data-sort-duration="' + session.durationMs + '" data-models="' +
+          this.escapeHtml(session.models.join('|').toLowerCase()) + '">' +
+          '<td class="date-cell">' + this.escapeHtml(formatters.formatDateTime(session.observedAt)) + '</td>' +
+          '<td class="name-cell"><div class="model-header" data-session-thread-layout>' +
+          '<button class="session-action" data-session-detail-toggle type="button" aria-expanded="false" aria-controls="' +
+          this.escapeHtml(detailId) + '" title="' + this.escapeHtml(copy.expand) +
+          '" onclick="toggleSessionDetails(this)">▶</button><div class="model-details" data-session-thread-copy>' +
+          '<div class="model-name" data-session-thread-title title="' + this.escapeHtml(title) + '">' + this.escapeHtml(title) + '</div>' +
+          '<div class="model-details" data-session-thread-role>' + this.escapeHtml(role(session.role)) + '</div></div></div></td>' +
+          '<td class="project-cell"><div class="project-name" title="' +
+          this.escapeHtml(project) + '">' + this.escapeHtml(project) + '</div></td>' +
+          '<td data-session-model title="' + this.escapeHtml(model) + '">' + this.escapeHtml(model) + '</td>' +
+          '<td data-session-effort title="' + this.escapeHtml(effort) + '">' + this.escapeHtml(effort) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(session.total.processed) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(session.total.output) + '</td>' +
+          '<td class="number-cell">' + this.escapeHtml(formatters.formatDuration(session.durationMs)) + '</td></tr>';
+        const detailRow = '<tr data-sort-child data-session-detail id="' + this.escapeHtml(detailId) +
+          '" data-expanded="false" style="display:none"><td colspan="8"><div class="model-details" data-session-detail-grid>' +
+          detail(copy.parentThread, session.parentTitle ?? copy.unavailable) +
+          detail(copy.input, I18n.formatNumber(session.total.input)) +
+          detail(copy.freshInput, I18n.formatNumber(Math.max(0, session.total.input - session.total.cachedInput))) +
+          detail(copy.cachedInput, I18n.formatNumber(session.total.cachedInput)) +
+          detail(copy.fresh, I18n.formatNumber(session.total.fresh)) +
+          detail(copy.reasoning, I18n.formatNumber(session.total.reasoning)) +
+          '</div></td></tr>';
+        return mainRow + detailRow;
+      }).join('');
+      const th = (key: string, label: string, title?: string): string =>
+        '<th class="sortable" data-sortkey="' + key + '"' +
+        (title ? ' title="' + this.escapeHtml(title) + '"' : '') + '>' + this.escapeHtml(label) + '</th>';
+      return subtotal + '<div class="daily-breakdown"><h3>' + this.escapeHtml(copy.sessions) + '</h3>' +
+        '<p class="table-hint">' + this.escapeHtml(I18n.t.popup.sortHint) + '</p>' + filterBar +
+        '<div class="session-list" id="sessionList"><div class="daily-table-container" tabindex="0">' +
+        '<table class="daily-table sortable-table" data-provider-session-table>' +
+        '<colgroup><col style="width:14%"><col style="width:22%"><col style="width:16%"><col style="width:12%">' +
+        '<col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:11%"></colgroup><thead><tr>' +
+        th('time', copy.lastActive) + th('session', copy.threadLabel) + th('project', copy.projectLabel) +
+        '<th>' + this.escapeHtml(copy.model) + '</th><th>' + this.escapeHtml(copy.efforts) + '</th>' +
+        th('processed', copy.processed) + th('output', copy.output) +
+        th('duration', copy.duration, copy.observedSessionDuration) +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div></div></div>';
+    }
     if (!this.sessionBreakdown || this.sessionBreakdown.length === 0) {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
     }
 
     const t = I18n.t.popup;
 
+    // Thinking share per session is only available while content analysis is
+    // enabled; the column collapses to "-" otherwise (estimate, see hint).
+    const thinkingMap = this.contentAnalysis ? this.contentAnalysis.thinkingBySession : null;
+
+    // Mark sessions outside the current workspace so the list can default to "this project".
+    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+    let currentCount = 0;
+
+    // The delete action touches local Claude Code history files, so it's
+    // Resume + delete both ACT on the user's Claude Code (reopen / trash a log),
+    // so they share one opt-in that's off by default — at odds with read-only.
+    const showActions = this.setting<boolean>('enableSessionActions', false);
+    // Read-only conversation viewer — on by default (it only reads local logs).
+    const showViewer = this.setting<boolean>('showConversationViewer', true);
+    // Active (hands-on) time per session — idle-capped, so it's not the raw
+    // first→last span. Computed once for the whole table.
+    const activeMap = ClaudeDataLoader.activeDurationBySession(this.allRecords);
     let rows = '';
+    // Distinct short model names across all sessions → the model filter dropdown.
+    const modelSet = new Set<string>();
     this.sessionBreakdown.forEach((s) => {
       const d = s.data;
+      const foreign = workspacePath
+        ? !(isUnderDir(s.projectPath, workspacePath) || s.projectPath === workspacePath.replace(/[/\\]/g, '-'))
+        : false;
+      if (!foreign) { currentCount++; }
       // Conversation title (the name `claude --resume` shows); falls back to a
       // short session id so same-project rows stay distinguishable either way.
       const fullName = s.title || s.sessionId;
       const displayName = fullName.length > 40 ? fullName.slice(0, 40) + '…' : fullName;
+      const ts = thinkingMap ? thinkingMap[s.sessionId] : undefined;
+      const thinkingShare = ts && ts.assistantTotal > 0 ? ts.thinking / ts.assistantTotal : null;
+      // Models that omit their raw reasoning (Fable 5 / Opus 4.8) log empty
+      // thinking text, so the estimate reads ~0 even though thinking was on.
+      const thinkingHidden = !!(ts && ts.hiddenThinking);
+      // Calibrated absolute (Phase 8): thinking share × the session's EXACT
+      // output tokens = a billing-anchored "real thinking tokens" figure.
+      const realThinkingTokens =
+        thinkingShare !== null ? Math.round(thinkingShare * d.totalOutputTokens) : null;
+      // Tooltip: calibrated token figure + (for heavy sessions) the effort hint
+      // + a note when part/all of the thinking is hidden by the model.
+      const thinkingTitle = [
+        realThinkingTokens !== null && realThinkingTokens > 0
+          ? '~' + I18n.formatNumber(realThinkingTokens) + ' ' + t.thinkingTokensCalibrated
+          : '',
+        thinkingShare !== null && thinkingShare > 0.6 ? t.effortHint : '',
+        thinkingHidden ? t.thinkingHidden : '',
+      ].filter((x) => x).join(' · ');
+      // Cell text: a measurable share wins; else "hidden" when the model hid it;
+      // else "-". A "*" marks a partial measurement when some turns were hidden.
+      const thinkingCell =
+        thinkingShare !== null && thinkingShare > 0
+          ? this.formatPercent(thinkingShare) + (thinkingHidden ? '*' : '') + (thinkingShare > 0.6 ? ' ⚠' : '')
+          : thinkingHidden
+            ? t.thinkingHiddenShort
+            : '-';
+      // Distinct short model names for this session → the model filter matches on these.
+      const rowModels = [...new Set(Object.keys(d.modelBreakdown || {}).map((m) => this.shortModelName(m)))];
+      rowModels.forEach((m) => modelSet.add(m));
       rows +=
-        '<tr class="sort-row"' +
+        '<tr class="sort-row' + (foreign ? ' session-foreign' : '') + '"' +
         ' data-sort-time="' + s.startTime.getTime() + '"' +
+        ' data-models="' + this.escapeHtml(rowModels.join('|').toLowerCase()) + '"' +
         ' data-sort-session="' + this.escapeHtml(fullName.toLowerCase()) + '"' +
         ' data-sort-project="' + this.escapeHtml((s.projectName || '').toLowerCase()) + '"' +
         ' data-sort-context="' + s.peakContextTokens + '"' +
+        ' data-sort-thinking="' + (thinkingShare ?? -1) + '"' +
         ' data-sort-duration="' + (s.endTime.getTime() - s.startTime.getTime()) + '"' +
+        ' data-sort-active="' + (activeMap[s.sessionId] || 0) + '"' +
         this.usageSortAttrs(d) +
         '>' +
         '<td class="date-cell" title="' + this.escapeHtml(s.sessionId) + '">' +
@@ -945,19 +2670,78 @@ export class UsageWebviewProvider {
         '<td class="number-cell">' + I18n.formatNumber(d.totalCacheCreationTokens) + '</td>' +
         '<td class="number-cell">' + I18n.formatNumber(d.totalCacheReadTokens) + '</td>' +
         '<td class="number-cell">' + I18n.formatNumber(s.peakContextTokens) + '</td>' +
+        '<td class="number-cell"' + (thinkingTitle ? ' title="' + this.escapeHtml(thinkingTitle) + '"' : '') + '>' +
+        this.escapeHtml(thinkingCell) +
+        '</td>' +
         '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>' +
+        '<td class="number-cell" title="' + this.escapeHtml(t.activeDurationHelp) + '">' +
+        this.escapeHtml(this.formatDurationMs(activeMap[s.sessionId] || 0)) +
+        '</td>' +
         '<td class="number-cell">' + this.escapeHtml(this.formatDuration(s.startTime, s.endTime)) + '</td>' +
+        // Copy id / resume / delete actions; id re-validated host-side.
+        '<td class="actions-cell">' +
+        '<button class="session-action" title="' + this.escapeHtml(t.copySessionId) +
+        '" data-session-id="' + this.escapeHtml(s.sessionId) + '" onclick="copySession(this)">⧉</button>' +
+        (showViewer
+          ? '<button class="session-action" title="' + this.escapeHtml(t.viewConversation) +
+            '" data-session-id="' + this.escapeHtml(s.sessionId) +
+            '" data-title="' + this.escapeHtml(fullName) + '" onclick="viewConversation(this)">👁</button>'
+          : '') +
+        (showActions
+          ? '<button class="session-action" title="' + this.escapeHtml(t.resumeSession) +
+            '" data-session-id="' + this.escapeHtml(s.sessionId) +
+            '" data-cwd="' + this.escapeHtml(s.projectPath || '') + '" onclick="resumeSession(this)">▶</button>'
+          : '') +
+        (showActions
+          ? '<button class="session-action session-delete" title="' + this.escapeHtml(t.deleteSession) +
+            '" data-session-id="' + this.escapeHtml(s.sessionId) +
+            '" data-title="' + this.escapeHtml(fullName) + '" onclick="deleteSession(this)">🗑</button>'
+          : '') +
+        '</td>' +
         '</tr>';
     });
 
     const th = (key: string, label: string): string =>
       '<th class="sortable" data-sortkey="' + key + '">' + label + '</th>';
 
+    // Filter bar above the table: time range · project · model. All three narrow the
+    // list client-side; the list now defaults to ALL sessions and ALL projects.
+    const total = this.sessionBreakdown.length;
+    const foreignCount = total - currentCount;
+    const showToggle = !!workspacePath && currentCount > 0 && foreignCount > 0;
+    const modelOptions = [...modelSet]
+      .sort()
+      .map((m) => '<option value="' + this.escapeHtml(m.toLowerCase()) + '">' + this.escapeHtml(m) + '</option>')
+      .join('');
+    const filterBar =
+      '<div class="sess-filters">' +
+      '<div class="sess-filter" data-group="range">' +
+        '<button class="sess-filter-btn active" data-range="all" onclick="sessionRange(this)">' + this.escapeHtml(t.sessionFilterAll) + '</button>' +
+        '<button class="sess-filter-btn" data-range="today" onclick="sessionRange(this)">' + this.escapeHtml(t.sessionRangeToday) + '</button>' +
+        '<button class="sess-filter-btn" data-range="7" onclick="sessionRange(this)">' + this.escapeHtml(t.sessionRange7d) + '</button>' +
+        '<button class="sess-filter-btn" data-range="30" onclick="sessionRange(this)">' + this.escapeHtml(t.sessionRange30d) + '</button>' +
+      '</div>' +
+      (showToggle
+        ? '<div class="sess-filter" data-group="project">' +
+          '<button class="sess-filter-btn" data-mode="current" onclick="sessionFilter(this)">' + this.escapeHtml(t.sessionFilterCurrent) + ' (' + currentCount + ')</button>' +
+          '<button class="sess-filter-btn active" data-mode="all" onclick="sessionFilter(this)">' + this.escapeHtml(t.sessionFilterAll) + ' (' + total + ')</button>' +
+          '</div>'
+        : '') +
+      (modelOptions
+        ? '<select class="sess-model-select" title="' + this.escapeHtml(t.sessionModelAll) + '" onchange="sessionModel(this)">' +
+          '<option value="all">' + this.escapeHtml(t.sessionModelAll) + '</option>' +
+          modelOptions +
+          '</select>'
+        : '') +
+      '</div>';
+
     return (
       '<div class="daily-breakdown">' +
       '<h3>' + t.sessionBreakdown + '</h3>' +
       '<p class="table-hint">' + t.sortHint + '</p>' +
-      '<div class="daily-table-container">' +
+      filterBar +
+      '<div class="session-list" id="sessionList">' +
+      '<div class="daily-table-container" tabindex="0">' +
       '<table class="daily-table sortable-table">' +
       '<thead><tr>' +
       th('time', t.startTime) +
@@ -969,12 +2753,17 @@ export class UsageWebviewProvider {
       th('cachecreate', t.cacheCreation) +
       th('cacheread', t.cacheRead) +
       th('context', t.peakContext) +
+      th('thinking', t.thinkingShare) +
       th('messages', t.messages) +
+      '<th class="sortable" data-sortkey="active" title="' + this.escapeHtml(t.activeDurationHelp) + '">' + t.activeDuration + '</th>' +
       th('duration', t.duration) +
+      '<th>' + t.sessionActions + '</th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
       '</table>' +
       '</div>' +
+      '</div>' +
+      '<p class="table-hint">' + t.thinkingShare + ': ' + t.estimatedNote + '</p>' +
       '</div>'
     );
   }
@@ -1021,6 +2810,55 @@ export class UsageWebviewProvider {
     );
   }
 
+  /** Open a read-only viewer for a past conversation. Reads the session's
+   * .jsonl fresh, parses it, and (re)uses a single viewer panel — nothing is
+   * loaded back into any model context (that's the whole point vs. resume).
+   * Reads on every click, so an ongoing session shows its latest turns. */
+  private async openConversationViewer(sessionId: string, title: string): Promise<void> {
+    const files = await ClaudeDataLoader.findSessionFiles(sessionId, this.dataDirectory);
+    // Prefer the main session file (basename === sessionId.jsonl); else the
+    // largest match. Sub-agent side files can share the id but aren't the chat.
+    const main =
+      files.find((f) => path.basename(f).toLowerCase() === sessionId.toLowerCase() + '.jsonl') || files[0];
+    if (!main) {
+      vscode.window.showWarningMessage(I18n.t.popup.deleteSessionNotFound);
+      return;
+    }
+    let text = '';
+    try {
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(main));
+      text = Buffer.from(bytes).toString('utf8');
+    } catch {
+      vscode.window.showWarningMessage(I18n.t.popup.deleteSessionNotFound);
+      return;
+    }
+    // Cap by ROUNDS (prompts), not raw turns — a single prompt can be followed
+    // by dozens of tool turns, so a raw-turn cap starves the prompt list. Keep
+    // the last 10 rounds (all rendered flat + all in the nav), with a raw-turn
+    // safety ceiling so a pathological round can't bloat the DOM.
+    const parsed = parseConversation(text, { maxRounds: 10, maxTurns: 2500, maxCharsPerTurn: 4000 });
+    const panelTitle = (parsed.title || title || sessionId).slice(0, 60);
+    const html = renderConversationViewer(parsed, { sessionId, timezone: I18n.getTimezone() });
+    // Reuse the single viewer panel (refresh it) if it's still open; else make one.
+    if (this.conversationPanel) {
+      this.conversationPanel.title = panelTitle;
+      this.conversationPanel.webview.html = html;
+      this.conversationPanel.reveal(vscode.ViewColumn.Active, false);
+    } else {
+      const panel = vscode.window.createWebviewPanel(
+        'ccuConversation',
+        panelTitle,
+        { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
+        { enableScripts: false, retainContextWhenHidden: false }
+      );
+      panel.onDidDispose(() => {
+        this.conversationPanel = undefined;
+      });
+      panel.webview.html = html;
+      this.conversationPanel = panel;
+    }
+  }
+
   private formatDuration(start: Date, end: Date): string {
     if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) {
       return '-';
@@ -1041,20 +2879,85 @@ export class UsageWebviewProvider {
     return minutes > 0 ? hours + 'h ' + minutes + 'm' : hours + 'h';
   }
 
+  /** Same formatting as formatDuration but from a raw millisecond span. */
+  private formatDurationMs(ms: number): string {
+    if (!(ms > 0)) {
+      return '<1m';
+    }
+    return this.formatDuration(new Date(0), new Date(ms));
+  }
+
   /** A table cell showing the project's friendly name with its full path beneath. */
   private renderProjectCell(name: string, fullPath: string): string {
     const safeName = this.escapeHtml(name || 'unknown');
-    const safePath = this.escapeHtml(fullPath || '');
-    const pathLine = safePath ? '<div class="project-path" title="' + safePath + '">' + safePath + '</div>' : '';
-    return '<td class="project-cell"><div class="project-name">' + safeName + '</div>' + pathLine + '</td>';
+    return '<td class="project-cell"><div class="project-name">' + safeName + '</div>' + this.projectPathLine(fullPath || '') + '</td>';
   }
 
-  private renderProjectData(): string {
+  /** A project directory line with a small copy-to-clipboard icon. */
+  private projectPathLine(fullPath: string, indent: number = 0): string {
+    if (!fullPath) { return ''; }
+    const safe = this.escapeHtml(fullPath);
+    const pad = '&nbsp;'.repeat(indent);
+    return '<div class="project-path" title="' + safe + '">' +
+      '<span class="project-path-text">' + pad + safe + '</span>' +
+      '<button class="copy-path" data-path="' + safe + '" title="' +
+      this.escapeHtml(I18n.t.popup.copyPath) + '" onclick="copyPath(this, event)">⧉</button>' +
+      '</div>';
+  }
+
+  private renderProjectData(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      const copy = I18n.t.providers.codex;
+      const projects = this.codexView?.projects ?? [];
+      const subtotal = this.renderCodexIndexedSubtotal(
+        this.codexView?.allTime.indexedSubtotal,
+      );
+      if (projects.length === 0) {
+        return subtotal + this.renderCodexEmptyState();
+      }
+      const formatters = createCodexLocalizedFormatters(I18n.getLocale(), I18n.getTimezone());
+      const rows = projects.map((project: CodexProjectUsageView) => {
+        const name = project.name ?? copy.unidentifiedProject;
+        const directory = project.directoryName && project.directoryName !== project.name
+          ? '<div class="project-path"><span class="project-path-text">' +
+            this.escapeHtml(project.directoryName) + '</span></div>'
+          : '';
+        return '<tr class="sort-row" data-sort-name="' + this.escapeHtml(name.toLowerCase()) + '" ' +
+          'data-sort-sessions="' + project.threadCount + '" data-sort-lastactive="' + project.lastActiveAt + '" ' +
+          'data-sort-processed="' + project.scope.total.processed + '" data-sort-fresh="' + project.scope.total.fresh + '" ' +
+          'data-sort-output="' + project.scope.total.output + '" data-sort-reasoning="' + project.scope.total.reasoning + '">' +
+          '<td class="project-cell"><div class="project-name">' + this.escapeHtml(name) + '</div>' + directory + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(project.threadCount) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(project.scope.total.processed) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(project.scope.total.fresh) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(project.scope.total.cachedInput) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(project.scope.total.output) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(project.scope.total.reasoning) + '</td>' +
+          '<td class="date-cell">' + this.escapeHtml(formatters.formatDateTime(project.lastActiveAt)) + '</td></tr>';
+      }).join('');
+      const th = (key: string, label: string): string =>
+        '<th class="sortable" data-sortkey="' + key + '">' + this.escapeHtml(label) + '</th>';
+      return subtotal + '<div class="daily-breakdown"><h3>' + this.escapeHtml(copy.projects) + '</h3>' +
+        '<p class="table-hint">' + this.escapeHtml(I18n.t.popup.sortHint) + '</p>' +
+        '<div class="daily-table-container" tabindex="0"><table class="daily-table sortable-table"><thead><tr>' +
+        th('name', copy.projectLabel) + th('sessions', copy.threads) + th('processed', copy.processed) +
+        th('fresh', copy.fresh) + '<th>' + this.escapeHtml(copy.cachedInput) + '</th>' +
+        th('output', copy.output) + th('reasoning', copy.reasoning) + th('lastactive', copy.lastActive) +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    }
     if (!this.projectBreakdown || this.projectBreakdown.length === 0) {
       return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
     }
 
     const t = I18n.t.popup;
+    // Opt-in efficiency column (cost per message), gated like the Today chips.
+    const showEff = this.setting<boolean>('showEfficiency', false);
+    const effCell = (d: UsageData): string =>
+      showEff
+        ? '<td class="number-cell">' +
+          (d.messageCount > 0 ? I18n.formatCurrency(d.totalCost / d.messageCount) : '—') +
+          '</td>'
+        : '';
 
     const usageCells = (d: UsageData): string =>
       '<td class="cost-cell">' + I18n.formatCurrency(d.totalCost) + '</td>' +
@@ -1062,7 +2965,8 @@ export class UsageWebviewProvider {
       '<td class="number-cell">' + I18n.formatNumber(d.totalOutputTokens) + '</td>' +
       '<td class="number-cell">' + I18n.formatNumber(d.totalCacheCreationTokens) + '</td>' +
       '<td class="number-cell">' + I18n.formatNumber(d.totalCacheReadTokens) + '</td>' +
-      '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>';
+      '<td class="number-cell">' + I18n.formatNumber(d.messageCount) + '</td>' +
+      effCell(d);
 
     let rows = '';
     this.projectBreakdown.forEach((group, idx) => {
@@ -1096,9 +3000,7 @@ export class UsageWebviewProvider {
           this.escapeHtml(group.groupName) +
           ' <span class="group-count">(' + group.projectCount + ')</span>' +
           '</div>' +
-          '<div class="project-path" title="' + this.escapeHtml(group.groupPath) + '">' +
-          this.escapeHtml(group.groupPath) +
-          '</div>' +
+          this.projectPathLine(group.groupPath) +
           '</td>' +
           '<td class="number-cell">' + I18n.formatNumber(group.sessionCount) + '</td>' +
           usageCells(group.data) +
@@ -1108,10 +3010,8 @@ export class UsageWebviewProvider {
           rows +=
             '<tr class="sort-child project-child-row" data-group="' + groupId + '" style="display:none;">' +
             '<td class="project-cell project-child-cell">' +
-            '<div class="project-name">' + this.escapeHtml(child.projectName) + '</div>' +
-            '<div class="project-path" title="' + this.escapeHtml(child.projectPath) + '">' +
-            this.escapeHtml(child.projectPath) +
-            '</div>' +
+            '<div class="project-name">&nbsp;&nbsp;' + this.escapeHtml(child.projectName) + '</div>' +
+            this.projectPathLine(child.projectPath, 2) +
             '</td>' +
             '<td class="number-cell">' + I18n.formatNumber(child.sessionCount) + '</td>' +
             usageCells(child.data) +
@@ -1128,7 +3028,7 @@ export class UsageWebviewProvider {
       '<div class="daily-breakdown">' +
       '<h3>' + t.projectBreakdown + '</h3>' +
       '<p class="table-hint">' + t.sortHint + '</p>' +
-      '<div class="daily-table-container">' +
+      '<div class="daily-table-container" tabindex="0">' +
       '<table class="daily-table sortable-table">' +
       '<thead><tr>' +
       th('name', t.project) +
@@ -1139,6 +3039,7 @@ export class UsageWebviewProvider {
       th('cachecreate', t.cacheCreation) +
       th('cacheread', t.cacheRead) +
       th('messages', t.messages) +
+      (showEff ? '<th title="Total cost ÷ messages">Cost/msg</th>' : '') +
       th('lastactive', t.lastActive) +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
@@ -1186,7 +3087,7 @@ export class UsageWebviewProvider {
       '<div class="daily-breakdown">' +
       '<h3>' + t.branchBreakdown + '</h3>' +
       '<p class="table-hint">' + t.sortHint + '</p>' +
-      '<div class="daily-table-container">' +
+      '<div class="daily-table-container" tabindex="0">' +
       '<table class="daily-table sortable-table">' +
       '<thead><tr>' +
       th('branch', t.branch) +
@@ -1208,18 +3109,954 @@ export class UsageWebviewProvider {
   }
 
   /**
+   * "Usage tracking" card for the Today tab: today's notable usage
+   * characteristics (≥5% only), in the same horizontal-bar style as the
+   * content analysis. Only exact, cost-weighted shares are shown — the
+   * text-length thinking estimate is deliberately excluded here (it lives on
+   * the Sessions tab, clearly marked as an estimate). Hidden on light days.
+   */
+  private renderTodayInsights(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      return '';
+    }
+    const t = I18n.t.popup;
+    const rows: string[] = [];
+    const barRow = (label: string, share: number, colorClass: string, tooltip: string): string =>
+      '<div class="cbar-row" title="' + this.escapeHtml(tooltip) + '">' +
+      '<div class="cbar-label">' + this.escapeHtml(label) + '</div>' +
+      '<div class="cbar-track"><div class="cbar-fill ' + colorClass + '" style="width: ' +
+      (share * 100).toFixed(1) + '%;"></div></div>' +
+      '<div class="cbar-pct">' + this.formatPercent(share) + '</div>' +
+      '</div>';
+
+    // Today's usage characteristics, ≥5% only (full sentence in the tooltip).
+    // All cost-weighted from exact usage — no estimates in this card.
+    if (this.allRecords && this.allRecords.length > 0) {
+      const attr = ClaudeDataLoader.getUsageAttribution(this.allRecords, this.contentAnalysis, { kind: 'day' });
+      if (attr.totalCost > 0) {
+        const add = (share: number, short: string, sentence: string, hint: string, color: string): void => {
+          if (share < 0.05) {
+            return;
+          }
+          const tooltip = sentence.replace('{pct}', String(Math.round(share * 100))) + ' — ' + hint;
+          rows.push(barRow(short, share, color, tooltip));
+        };
+        const c = attr.characteristics;
+        add(c.largeContext, t.attrLargeContextShort, t.attrLargeContext, t.attrLargeContextHint, 'cf-1');
+        add(c.longSessions, t.attrLongSessionsShort, t.attrLongSessions, t.attrLongSessionsHint, 'cf-2');
+        add(c.subagentHeavy, t.attrSubagentHeavyShort, t.attrSubagentHeavy, t.attrSubagentHeavyHint, 'cf-3');
+        add(c.workflows, t.attrWorkflowsShort, t.attrWorkflows, t.attrWorkflowsHint, 'cf-5');
+        if (attr.skills.length > 0) {
+          add(attr.skills[0].share, attr.skills[0].key, t.attrSkillChar.replace('{name}', attr.skills[0].key), t.attrSkillCharHint, 'cf-1');
+        }
+      }
+    }
+
+    if (rows.length === 0) {
+      return '';
+    }
+    return (
+      '<div class="daily-breakdown">' +
+      '<div class="section-header"><h3>' + t.attribution + '</h3>' +
+      '<span class="section-header-right"><span class="cbar-total">→ ' +
+      this.escapeHtml(t.attrTodayPointer) + '</span></span></div>' +
+      '<div class="cbar-list">' + rows.join('') + '</div>' +
+      '</div>'
+    );
+  }
+
+  /** Cache hit rate of input-side tokens: cacheRead / (input + cacheWrite + cacheRead). */
+  private cacheHitRate(d: UsageData): number | null {
+    const denominator = d.totalInputTokens + d.totalCacheCreationTokens + d.totalCacheReadTokens;
+    return denominator > 0 ? d.totalCacheReadTokens / denominator : null;
+  }
+
+  private formatPercent(value: number | null): string {
+    return value === null ? '-' : (value * 100).toFixed(value >= 0.1 ? 0 : 1) + '%';
+  }
+
+  /** Compact model label: "claude-sonnet-4-5-20250929[1m]" → "sonnet-4-5". */
+  private shortModelName(model: string): string {
+    return model
+      .replace(/^claude-/, '')
+      .replace(/\[1m\]$/, '')
+      .replace(/-20\d{6}$/, '');
+  }
+
+  /** Distinct models in a usage aggregate, most expensive first, shortened. */
+  private modelList(d: UsageData): { short: string; full: string } {
+    const sorted = Object.entries(d.modelBreakdown)
+      .sort(([, a], [, b]) => b.cost - a.cost)
+      .map(([model]) => model);
+    return {
+      short: sorted.map((m) => this.shortModelName(m)).join(', '),
+      full: sorted.join(', '),
+    };
+  }
+
+  /**
+   * "Workflows" tab: one row per dynamic-workflow run (ultracode dispatch),
+   * expandable to its per-agent breakdown. The cache hit rate is the headline
+   * diagnostic — it tells whether the provider reuses the prompt cache across
+   * a workflow's agents (see the hint line / V2.1-WORKFLOW-SPEC §Phase 2).
+   */
+  private renderWorkflowData(): string {
+    if (!this.workflowBreakdown || this.workflowBreakdown.length === 0) {
+      return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
+    }
+
+    const t = I18n.t.popup;
+
+    // Summary strip: workflow count + cost this calendar month, and that
+    // cost's share of the month's total spend.
+    const now = new Date();
+    const thisMonth = this.workflowBreakdown.filter(
+      (w) => w.endTime.getFullYear() === now.getFullYear() && w.endTime.getMonth() === now.getMonth()
+    );
+    const monthWorkflowCost = thisMonth.reduce(
+      (sum, w) => sum + w.data.totalCost + (w.orchestration ? w.orchestration.totalCost : 0),
+      0
+    );
+    const monthTotalCost = this.monthData ? this.monthData.totalCost : 0;
+    const monthShare = monthTotalCost > 0 ? monthWorkflowCost / monthTotalCost : null;
+    const summaryStrip =
+      '<p class="table-hint">' +
+      t.workflowsThisMonth + ': ' + thisMonth.length +
+      ' · ' + I18n.formatCurrency(monthWorkflowCost) +
+      (monthShare !== null ? ' · ' + this.formatPercent(monthShare) + ' ' + t.workflowCostShare : '') +
+      '</p>';
+
+    let rows = '';
+    this.workflowBreakdown.forEach((w, idx) => {
+      const groupId = 'wf' + idx;
+      // Headline row = sub-agents + main-session orchestration (Phase 7c), so a
+      // native-Claude run whose Opus/Fable work lived in the main thread shows
+      // its true cost and models; the drill-down splits the two back out.
+      const d = this.mergeUsage(w.data, w.orchestration);
+      const models = this.modelList(d);
+      // Badge: "workflow" (a wf_ run dir) vs "subagents (ad-hoc)" (a plain
+      // Task-tool fan-out). Effort level isn't in the logs — see the hint line.
+      const badge = w.isAdHoc
+        ? ' <span class="git-badge">' + t.adhocBadge + '</span>'
+        : ' <span class="git-badge">' + t.workflowModeBadge + '</span>';
+      rows +=
+        '<tr class="sort-row project-group-row" data-group="' + groupId + '"' +
+        ' data-sort-time="' + w.startTime.getTime() + '"' +
+        ' data-sort-name="' + this.escapeHtml(w.name.toLowerCase()) + '"' +
+        ' data-sort-project="' + this.escapeHtml((w.projectName || '').toLowerCase()) + '"' +
+        ' data-sort-model="' + this.escapeHtml(models.short.toLowerCase()) + '"' +
+        ' data-sort-agents="' + w.agentCount + '"' +
+        ' data-sort-cachehit="' + (this.cacheHitRate(d) ?? -1) + '"' +
+        ' data-sort-duration="' + (w.endTime.getTime() - w.startTime.getTime()) + '"' +
+        this.usageSortAttrs(d) +
+        '>' +
+        '<td class="date-cell">' + this.escapeHtml(this.formatDateTime(w.startTime)) + '</td>' +
+        '<td class="name-cell" title="' + this.escapeHtml(w.workflowId) + '">' +
+        '<span class="group-toggle" onclick="toggleProjectGroup(\'' + groupId + '\')">▶</span> ' +
+        this.escapeHtml(w.name) + badge +
+        '</td>' +
+        '<td>' + this.escapeHtml(w.projectName) + '</td>' +
+        '<td title="' + this.escapeHtml(models.full) + '">' + this.escapeHtml(models.short) + '</td>' +
+        '<td class="number-cell">' + I18n.formatNumber(w.agentCount) + '</td>' +
+        '<td class="cost-cell">' + I18n.formatCurrency(d.totalCost) + '</td>' +
+        '<td class="number-cell">' + I18n.formatNumber(d.totalInputTokens) + '</td>' +
+        '<td class="number-cell">' + I18n.formatNumber(d.totalOutputTokens) + '</td>' +
+        '<td class="number-cell">' + I18n.formatNumber(d.totalCacheCreationTokens) + '</td>' +
+        '<td class="number-cell">' + I18n.formatNumber(d.totalCacheReadTokens) + '</td>' +
+        '<td class="number-cell">' + this.formatPercent(this.cacheHitRate(d)) + '</td>' +
+        '<td class="number-cell">' + this.escapeHtml(this.formatDuration(w.startTime, w.endTime)) + '</td>' +
+        '</tr>';
+
+      // Orchestration drill-down row (Phase 7c): the main-session spend that
+      // bracketed this run — usually where the expensive native-Claude models
+      // are. Rendered as a pinned child row that splits out of the headline.
+      if (w.orchestration) {
+        const o = w.orchestration;
+        const oModels = this.modelList(o);
+        rows +=
+          '<tr class="sort-child project-child-row" data-group="' + groupId + '" style="display:none;">' +
+          '<td class="date-cell"></td>' +
+          '<td class="name-cell project-child-cell">⚙ ' + this.escapeHtml(t.orchestration) + '</td>' +
+          '<td></td>' +
+          '<td title="' + this.escapeHtml(oModels.full) + '">' + this.escapeHtml(oModels.short) + '</td>' +
+          '<td></td>' +
+          '<td class="cost-cell">' + I18n.formatCurrency(o.totalCost) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(o.totalInputTokens) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(o.totalOutputTokens) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(o.totalCacheCreationTokens) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(o.totalCacheReadTokens) + '</td>' +
+          '<td class="number-cell">' + this.formatPercent(this.cacheHitRate(o)) + '</td>' +
+          '<td class="number-cell"></td>' +
+          '</tr>';
+      }
+
+      // Workflow agents often share a long boilerplate preamble; hoist the
+      // common prefix into one pinned row so each agent row shows only what
+      // differs. Tooltips keep the full task text.
+      const tasks = w.agents.map((a) => a.task).filter((task): task is string => !!task);
+      let commonPrefix = '';
+      if (tasks.length >= 2) {
+        commonPrefix = tasks.reduce((prefix, task) => {
+          let i = 0;
+          const max = Math.min(prefix.length, task.length);
+          while (i < max && prefix[i] === task[i]) {
+            i++;
+          }
+          return prefix.slice(0, i);
+        });
+        // Cut back to a word boundary; only worth hoisting when substantial.
+        const boundary = commonPrefix.lastIndexOf(' ');
+        if (boundary > 0) {
+          commonPrefix = commonPrefix.slice(0, boundary);
+        }
+        if (commonPrefix.length < 30) {
+          commonPrefix = '';
+        }
+      }
+      if (commonPrefix) {
+        const display = commonPrefix.length > 160 ? commonPrefix.slice(0, 160) + '…' : commonPrefix;
+        rows +=
+          '<tr class="sort-child project-child-row" data-group="' + groupId + '" style="display:none;">' +
+          '<td colspan="12" class="wf-common-task" title="' + this.escapeHtml(commonPrefix) + '">' +
+          '📌 ' + this.escapeHtml(t.commonTaskPrefix) + ': ' + this.escapeHtml(display) +
+          '</td>' +
+          '</tr>';
+      }
+
+      w.agents.forEach((agent) => {
+        const ad = agent.data;
+        const agentModels = this.modelList(ad);
+        const shortId = agent.agentId.replace(/^agent-/, '').slice(0, 12);
+        // Label the agent by the part of its task that differs from the
+        // hoisted common prefix; the opaque hex id moves to the second line.
+        let diff = agent.task || '';
+        if (commonPrefix && diff.startsWith(commonPrefix)) {
+          diff = diff.slice(commonPrefix.length).replace(/^[\s,.;:·—-]+/, '');
+        }
+        const taskLabel = diff ? (diff.length > 70 ? diff.slice(0, 70) + '…' : diff) : shortId;
+        const nameCell = agent.task
+          ? '<div class="project-name">' + this.escapeHtml(taskLabel) + '</div>' +
+            '<div class="project-path">' + this.escapeHtml(shortId) + '</div>'
+          : this.escapeHtml(shortId);
+        rows +=
+          '<tr class="sort-child project-child-row" data-group="' + groupId + '" style="display:none;">' +
+          '<td class="date-cell">' + this.escapeHtml(this.formatDateTime(agent.startTime)) + '</td>' +
+          '<td class="name-cell project-child-cell" title="' +
+          this.escapeHtml(agent.task ? agent.task + ' (' + agent.agentId + ')' : agent.agentId) +
+          '">' +
+          nameCell +
+          '</td>' +
+          '<td></td>' +
+          '<td title="' + this.escapeHtml(agentModels.full) + '">' + this.escapeHtml(agentModels.short) + '</td>' +
+          '<td class="cost-cell">' + I18n.formatCurrency(ad.totalCost) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(ad.totalInputTokens) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(ad.totalOutputTokens) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(ad.totalCacheCreationTokens) + '</td>' +
+          '<td class="number-cell">' + I18n.formatNumber(ad.totalCacheReadTokens) + '</td>' +
+          '<td class="number-cell">' + this.formatPercent(this.cacheHitRate(ad)) + '</td>' +
+          '<td class="number-cell">' + this.escapeHtml(this.formatDuration(agent.startTime, agent.endTime)) + '</td>' +
+          '</tr>';
+      });
+    });
+
+    const th = (key: string, label: string): string =>
+      '<th class="sortable" data-sortkey="' + key + '">' + label + '</th>';
+
+    return (
+      '<div class="daily-breakdown">' +
+      '<h3>' + t.workflowBreakdown + '</h3>' +
+      summaryStrip +
+      '<p class="table-hint">' + t.sortHint + '</p>' +
+      '<div class="daily-table-container" tabindex="0">' +
+      '<table class="daily-table sortable-table">' +
+      '<thead><tr>' +
+      th('time', t.startTime) +
+      th('name', t.workflowName) +
+      th('project', t.project) +
+      th('model', t.model) +
+      th('agents', t.agents) +
+      th('cost', t.cost) +
+      th('input', t.inputTokens) +
+      th('output', t.outputTokens) +
+      th('cachecreate', t.cacheCreation) +
+      th('cacheread', t.cacheRead) +
+      th('cachehit', t.cacheHitRate) +
+      th('duration', t.duration) +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+      '</div>' +
+      '<p class="table-hint">' + t.workflowModeHint + '</p>' +
+      '<p class="table-hint">' + t.workflowNativeHint + '</p>' +
+      '<p class="table-hint">' + t.workflowCacheHint + '</p>' +
+      '</div>'
+    );
+  }
+
+  /** Sum two UsageData (run sub-agents + main-session orchestration), merging
+   * the per-model breakdowns. Used for the Workflows headline row (Phase 7c). */
+  private mergeUsage(a: UsageData, b?: UsageData): UsageData {
+    if (!b) {
+      return a;
+    }
+    const merged: UsageData = {
+      totalInputTokens: a.totalInputTokens + b.totalInputTokens,
+      totalOutputTokens: a.totalOutputTokens + b.totalOutputTokens,
+      totalCacheCreationTokens: a.totalCacheCreationTokens + b.totalCacheCreationTokens,
+      totalCacheReadTokens: a.totalCacheReadTokens + b.totalCacheReadTokens,
+      totalCost: a.totalCost + b.totalCost,
+      costBreakdown: {
+        input: a.costBreakdown.input + b.costBreakdown.input,
+        output: a.costBreakdown.output + b.costBreakdown.output,
+        cacheWrite: a.costBreakdown.cacheWrite + b.costBreakdown.cacheWrite,
+        cacheRead: a.costBreakdown.cacheRead + b.costBreakdown.cacheRead,
+      },
+      messageCount: a.messageCount + b.messageCount,
+      modelBreakdown: {},
+    };
+    for (const src of [a.modelBreakdown, b.modelBreakdown]) {
+      for (const [m, md] of Object.entries(src)) {
+        const e = merged.modelBreakdown[m] || {
+          inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cost: 0, count: 0,
+        };
+        e.inputTokens += md.inputTokens;
+        e.outputTokens += md.outputTokens;
+        e.cacheCreationTokens += md.cacheCreationTokens;
+        e.cacheReadTokens += md.cacheReadTokens;
+        e.cost += md.cost;
+        e.count += md.count;
+        merged.modelBreakdown[m] = e;
+      }
+    }
+    return merged;
+  }
+
+  /** Inner panel of the usage-attribution section: disclaimer, the
+   * characteristic lines (independent signals, not a breakdown) and the
+   * Skills / Subagents / Plugins / Models tables. Re-rendered per scope. */
+  private renderAttributionPanel(attr: UsageAttribution): string {
+    const t = I18n.t.popup;
+    if (attr.totalCost <= 0) {
+      return '<p class="table-hint">' + t.noDataMessage + '</p>';
+    }
+    const pct = (share: number): string => String(Math.round(share * 100));
+
+    let html = '<p class="table-hint">' + t.attrDisclaimer + '</p>';
+
+    const charLine = (share: number, template: string, hint: string, name?: string): string => {
+      if (share < 0.01) {
+        return '';
+      }
+      let text = template.replace('{pct}', pct(share));
+      if (name !== undefined) {
+        text = text.replace('{name}', name);
+      }
+      return (
+        '<div class="attr-char">' + this.escapeHtml(text) +
+        '<div class="attr-hint">' + this.escapeHtml(hint) + '</div></div>'
+      );
+    };
+    const c = attr.characteristics;
+    html += charLine(c.largeContext, t.attrLargeContext, t.attrLargeContextHint);
+    html += charLine(c.longSessions, t.attrLongSessions, t.attrLongSessionsHint);
+    html += charLine(c.subagentHeavy, t.attrSubagentHeavy, t.attrSubagentHeavyHint);
+    html += charLine(c.workflows, t.attrWorkflows, t.attrWorkflowsHint);
+    // Official parity: the top skill / plugin get their own characteristic
+    // line once they contribute a noticeable share.
+    if (attr.skills.length > 0 && attr.skills[0].share >= 0.1) {
+      html += charLine(attr.skills[0].share, t.attrSkillChar, t.attrSkillCharHint, attr.skills[0].key);
+    }
+    if (attr.plugins.length > 0 && attr.plugins[0].share >= 0.1) {
+      html += charLine(attr.plugins[0].share, t.attrPluginChar, t.attrPluginCharHint, attr.plugins[0].key);
+    }
+
+    // Sub-tables in the same horizontal-bar style as the content analysis
+    // (bar width relative to the group's max; percentage is of scope usage).
+    const group = (
+      title: string,
+      entries: { key: string; share: number; count: number; estTokens?: number }[],
+      colorClass: string
+    ): string => {
+      if (entries.length === 0) {
+        return '';
+      }
+      const top = entries.slice(0, 8);
+      const maxShare = Math.max(...top.map((e) => e.share), 0.0001);
+      let rows = '';
+      top.forEach((e) => {
+        const tooltip =
+          e.key + ' · ' + t.count + ': ' + I18n.formatNumber(e.count) +
+          (e.estTokens !== undefined ? ' · ' + t.estTokens + ': ~' + I18n.formatNumber(e.estTokens) : '');
+        rows +=
+          '<div class="cbar-row" title="' + this.escapeHtml(tooltip) + '">' +
+          '<div class="cbar-label">' + this.escapeHtml(e.key) + '</div>' +
+          '<div class="cbar-track"><div class="cbar-fill ' + colorClass + '" style="width: ' +
+          ((e.share / maxShare) * 100).toFixed(1) + '%;"></div></div>' +
+          '<div class="cbar-val">×' + I18n.formatNumber(e.count) + '</div>' +
+          '<div class="cbar-pct">' + this.formatPercent(e.share) + '</div>' +
+          '</div>';
+      });
+      return '<h4 class="cbar-subhead">' + this.escapeHtml(title) + '</h4><div class="cbar-list">' + rows + '</div>';
+    };
+    html +=
+      group(t.attrSkills, attr.skills, 'cf-1') +
+      group(t.attrSubagents, attr.subagents, 'cf-2') +
+      group(t.attrPlugins, attr.plugins, 'cf-3') +
+      (attr.models.length > 1 ? group(t.attrModels, attr.models, 'cf-5') : '');
+    return html;
+  }
+
+  /** Usage-attribution section for the Content tab: scope selector (Day /
+   * Week / Month / one session / one project) + the panel, default Week. */
+  private renderAttributionSection(): string {
+    const t = I18n.t.popup;
+    if (!this.allRecords || this.allRecords.length === 0) {
+      return '';
+    }
+    const weekAttr = ClaudeDataLoader.getUsageAttribution(this.allRecords, this.contentAnalysis, { kind: 'week' });
+
+    const sessionOptions = this.sessionBreakdown
+      .slice(0, 30)
+      .map((s) => {
+        const label = (s.title || s.sessionId).slice(0, 50);
+        return '<option value="' + this.escapeHtml(s.sessionId) + '">' + this.escapeHtml(label) + '</option>';
+      })
+      .join('');
+    const projectOptions = this.projectBreakdown
+      .map(
+        (g) =>
+          '<option value="' + this.escapeHtml(g.groupPath) + '">' + this.escapeHtml(g.groupName) + '</option>'
+      )
+      .join('');
+
+    const tab = (kind: string, label: string, active: boolean): string =>
+      '<button class="attr-tab' + (active ? ' active' : '') + '" data-kind="' + kind +
+      '" onclick="attrSetScope(\'' + kind + '\')">' + label + '</button>';
+
+    return (
+      '<div class="daily-breakdown">' +
+      '<div class="section-header"><h3>' + t.attribution + '</h3>' +
+      '<span class="section-header-right attr-controls">' +
+      '<select id="attrTargetSession" onchange="requestAttribution()" style="display:none">' + sessionOptions + '</select>' +
+      '<select id="attrTargetProject" onchange="requestAttribution()" style="display:none">' + projectOptions + '</select>' +
+      tab('day', t.scopeDay, false) +
+      tab('week', t.scopeWeek, true) +
+      tab('month', t.scopeMonth, false) +
+      tab('session', t.sessionTitle, false) +
+      tab('project', t.project, false) +
+      '</span></div>' +
+      '<div id="attrPanel">' + this.renderAttributionPanel(weekAttr) + '</div>' +
+      '</div>'
+    );
+  }
+
+  /**
+   * Prominent "AI advice" card at the top of the Content tab (Phase 9a). The
+   * advice button used to live in the content-analysis header; this gives it a
+   * proper home with a one-line explanation of what gets sent.
+   */
+  private renderAdviceCard(): string {
+    const t = I18n.t.popup;
+    return (
+      '<div class="action-card">' +
+      '<div class="action-card-head">' +
+      '<span class="action-icon">✨</span>' +
+      '<div class="action-card-titles">' +
+      '<h3>' + t.adviceCardTitle + '</h3>' +
+      '<p class="action-card-desc">' + t.adviceCardDesc + '</p>' +
+      '</div>' +
+      '<button class="btn-primary" onclick="getAdvice()">' + t.getAdvice + '</button>' +
+      '</div>' +
+      '</div>'
+    );
+  }
+
+  /**
+   * Usage Optimizer card (Phase 9c). Default OFF — until the user opts in via
+   * settings it shows only a description + an "enable" button. When enabled it
+   * exposes a textarea + toggles; the round-trip runs in extension.ts via the
+   * onOptimize hook (consent modal lives there). The result skeleton is baked
+   * in (hidden) so the webview JS only fills text — no labels passed to JS.
+   */
+  private renderOptimizerCard(): string {
+    const t = I18n.t.popup;
+    const enabled = this.setting<boolean>('advice.optimizer.enabled', false);
+    // Shared header: icon badge + title (with an "experimental" pill) + purpose.
+    const head = (action: string): string =>
+      '<div class="action-card-head">' +
+      '<span class="action-icon">🛠</span>' +
+      '<div class="action-card-titles">' +
+      '<h3>' + t.optimizerTitle +
+      ' <span class="exp-pill">' + t.experimentalBadge + '</span></h3>' +
+      '<p class="action-card-desc">' + t.optimizerDesc + '</p>' +
+      '</div>' +
+      action +
+      '</div>';
+
+    if (!enabled) {
+      return (
+        '<div class="action-card">' +
+        head(
+          '<button class="btn-secondary btn-small" onclick="showTab(\'settings\')">' +
+            t.optimizerEnableBtn +
+            '</button>'
+        ) +
+        '</div>'
+      );
+    }
+    // Restore the last interaction so an auto-refresh re-render doesn't wipe it.
+    const st = this.optimizerState;
+    const ck = (b?: boolean): string => (b ? ' checked' : '');
+    const draftVal = st ? this.escapeHtml(st.draft) : '';
+    const hasResult = !!(st && (st.prompt || st.settings));
+    const hasErr = !!(st && st.error);
+    const lens = (id: string, label: string, hint: string, on?: boolean): string =>
+      '<label title="' + this.escapeHtml(hint) + '"><input type="checkbox" id="' + id + '"' +
+      ck(on) + '> ' + this.escapeHtml(label) + '</label>';
+    return (
+      '<div class="action-card">' +
+      head('') +
+      '<p class="action-card-howto">' + t.optimizerHowto + '</p>' +
+      '<textarea id="optDraft" class="opt-input" rows="4" placeholder="' +
+      this.escapeHtml(t.optimizerPlaceholder) + '">' + draftVal + '</textarea>' +
+      '<div class="opt-controls">' +
+      lens('optResolve', t.optimizerResolve, t.optimizerResolveHint, st?.resolve) +
+      lens('optDistil', t.optimizerDistil, t.optimizerDistilHint, st?.distil) +
+      lens('optAesthetic', t.optimizerAesthetic, t.optimizerAestheticHint, st?.aesthetic) +
+      '<button class="btn-primary" id="optRunBtn" data-run="' +
+      this.escapeHtml(t.optimizerRun) + '" data-running="' +
+      this.escapeHtml(t.optimizerRunning) + '" onclick="runOptimizer()">' +
+      t.optimizerRun + '</button>' +
+      '</div>' +
+      '<div id="optError" class="opt-error" style="display:' + (hasErr ? '' : 'none') + '">' +
+      (hasErr ? this.escapeHtml(st!.error as string) : '') + '</div>' +
+      '<div id="optResult" class="opt-result" style="display:' + (hasResult ? '' : 'none') + '">' +
+      '<h4 class="opt-subhead">' + t.optimizerPromptHeading + '</h4>' +
+      '<div class="opt-output"><pre id="optPrompt">' +
+      (st && st.prompt ? this.escapeHtml(st.prompt) : '') + '</pre>' +
+      '<button class="opt-copy" data-copy="' + this.escapeHtml(t.optimizerCopy) +
+      '" data-copied="' + this.escapeHtml(t.optimizerCopied) +
+      '" title="' + this.escapeHtml(t.optimizerCopy) + '" onclick="copyOptPrompt(this)">' +
+      '<span class="opt-copy-ico">⧉</span><span class="opt-copy-lbl">' +
+      this.escapeHtml(t.optimizerCopy) + '</span></button></div>' +
+      '<h4 class="opt-subhead">' + t.optimizerSettingsHeading + '</h4>' +
+      '<div id="optSettings" class="opt-settings" data-raw="' +
+      (st && st.settings ? this.escapeHtml(st.settings) : '') + '">' +
+      (st && st.settings ? this.escapeHtml(st.settings) : '') + '</div>' +
+      '</div>' +
+      '</div>'
+    );
+  }
+
+  /**
    * "Content" tab: an estimated breakdown of which conversation content consumes
    * tokens (your prompts vs. tool results vs. assistant output), to help spot
    * habits worth optimising. Token figures are estimated from text length.
    */
-  private renderContentData(): string {
-    const t = I18n.t.popup;
-    const analysis = this.contentAnalysis;
-    if (!analysis || analysis.categories.length === 0 || analysis.totalEstimatedTokens === 0) {
-      return '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>';
+  /** Opt-in (showEfficiency) "top 10 costliest messages" panel for the Content
+   * tab. Ranks single assistant turns by cost; each row expands (native
+   * <details>) to the prompt that triggered it, its token breakdown, model and
+   * skill — so an expensive turn can be understood, in the same spirit as the
+   * AI advice and optimizer cards that live alongside it. */
+  /** Opt-in (showInsights) "Experimental insights" section on the Content tab.
+   * Our own heuristic estimates from the local logs — labelled as estimates,
+   * off by default, no prompts. First card: the cache-churn bill. Styled to the
+   * plugin's existing card language (theme vars), with a small "estimate" tag
+   * as the honest signature. */
+  /** The cache analyses, recomputed at most once a week (they move slowly). */
+  private getAnalysis(): NonNullable<UsageWebviewProvider['analysisCache']> {
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    if (!this.analysisCache || Date.now() - this.analysisCache.at > WEEK) {
+      this.analysisCache = {
+        at: Date.now(),
+        ttl: ClaudeDataLoader.estimateCacheTtl(this.allRecords),
+        churn: ClaudeDataLoader.estimateCacheChurnCost(this.allRecords, 30),
+        byModel: ClaudeDataLoader.cacheStatsByModel(this.allRecords, 30),
+        rightsizing: ClaudeDataLoader.modelRightsizing(this.allRecords, 30),
+        health: ClaudeDataLoader.sessionHealth(this.allRecords, 30),
+        hours: ClaudeDataLoader.activeHours(this.allRecords, 30, I18n.getTimezone()),
+        skillRoi: ClaudeDataLoader.skillRoi(this.allRecords, 30),
+      };
+    }
+    return this.analysisCache;
+  }
+
+  private renderInsights(): string {
+    if (!this.setting<boolean>('showInsights', false) || !this.allRecords || this.allRecords.length === 0) {
+      return '';
+    }
+    const cards: string[] = [];
+    const analysis = this.getAnalysis();
+    const money = (n: number): string => I18n.formatCurrency(n);
+
+    // Cache-churn bill (缓存损耗账单).
+    const churn = analysis.churn;
+    if (churn && churn.wastedUsd >= 0.5) {
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Cache-churn bill</span>' +
+          '<span class="insight-tag">estimate · last 30 days</span></div>' +
+          '<div class="insight-hero">' + money(churn.wastedUsd) + '</div>' +
+          '<div class="insight-sub">wasted re-writing cache a warm cache would have served cheaply</div>' +
+          '<div class="insight-split">' +
+          '<span class="insight-pill"><b>' + money(churn.idleUsd) + '</b> · idle gaps · ' + churn.idleCount + '×</span>' +
+          '<span class="insight-pill"><b>' + money(churn.switchUsd) + '</b> · model switches · ' + churn.switchCount + '×</span>' +
+          '</div>' +
+          '<div class="insight-tip">💡 Most is recoverable — keep momentum inside the ~60-min warm window and batch same-model work.</div>' +
+          '<div class="insight-note">A switch can still be worth it if the other model is cheaper per token; this counts only the churn cost.</div>' +
+          '</div>'
+      );
     }
 
-    const total = analysis.totalEstimatedTokens;
+    // Cache TTL by model / provider — how long each model's cache stays warm
+    // (the durable, cross-user-comparable signal; it drifts over time). Bar and
+    // number are the SAME metric (TTL) so there's no ambiguity; hit rate and
+    // volume ride along as secondary. (Provider is the family's nominal vendor;
+    // the serving endpoint isn't logged — a true cross-provider comparison needs
+    // pooled cross-user data, reserved via dataContribution.ts.)
+    const byModel = analysis.byModel;
+    const withTtl = byModel.filter((s) => s.ttlMin != null);
+    if (byModel.length >= 2 && withTtl.length >= 1) {
+      const maxTtl = Math.max(...withTtl.map((s) => s.ttlMin as number), 60);
+      const rows = byModel
+        .map((s) => {
+          const ttl = s.ttlMin;
+          const w = ttl != null ? Math.max(4, Math.round((ttl / maxTtl) * 100)) : 0;
+          const ttlLabel = ttl != null ? '~' + ttl + ' min' : '—';
+          const sub = Math.round(s.hitRate * 100) + '% hit · ' + I18n.formatNumber(s.tokens) + ' tok';
+          return (
+            '<div class="cbm-row" title="' + this.escapeHtml(s.provider + ' · warm ' + ttlLabel + ' · ' + Math.round(s.hitRate * 100) + '% cache hit · ' + I18n.formatNumber(s.tokens) + ' tokens · ' + s.turns + ' turns') + '">' +
+            '<div class="cbm-label">' + this.escapeHtml(this.shortModelName(s.model)) +
+            '<span class="cbm-provider">' + this.escapeHtml(s.provider) + '</span></div>' +
+            '<div class="cbm-mid"><div class="cbm-track"><div class="cbm-fill" style="width:' + w + '%"></div></div>' +
+            '<div class="cbm-sub">' + this.escapeHtml(sub) + '</div></div>' +
+            '<div class="cbm-pct">' + this.escapeHtml(ttlLabel) + '</div>' +
+            '</div>'
+          );
+        })
+        .join('');
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Cache warmth by model</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-sub">how long each model keeps your cache warm (bar &amp; number = estimated warm window; hit rate + volume below)</div>' +
+          '<div class="cbm-list">' + rows + '</div>' +
+          '<div class="insight-tip">💡 A shorter warm window means that model re-writes cache sooner after an idle gap — keep momentum tighter on it, or lean on the longer-lived model for stop-start work.</div>' +
+          '<div class="insight-note">Warm window is inferred from idle-gap hit rates; “—” means too few gaps to estimate yet. The serving provider isn\'t logged, so provider is nominal.</div>' +
+          '</div>'
+      );
+    }
+
+    // Model right-sizing (C5) is DEFERRED, not rendered. Carl's call: output size
+    // is a weak proxy for task difficulty, and "use a cheaper model for simple
+    // tasks" isn't an insight users lack — in practice they habitually stay on
+    // the top model and just tack a simple task onto a long one. A worthwhile
+    // version needs a real judgement of each task's "difficulty", which means
+    // sampling prompt text through the (opt-in, user-key) AI-advice API — and
+    // that upload must be clearly labelled. `modelRightsizing` stays in
+    // dataLoader as dormant scaffolding for that v2. (analysis.rightsizing is
+    // still computed weekly but intentionally not shown.)
+    void analysis.rightsizing;
+
+    // Session health: big one-shot turns → a nudge toward more checkpoints.
+    const health = analysis.health;
+    if (health) {
+      const bigK = Math.round(health.biggestOut / 1000);
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Big one-shot turns</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-hero">' + Math.round(health.jumboSharePct) + '%</div>' +
+          '<div class="insight-sub">of your output came from ' + health.jumboCount + ' single turns over 4k tokens each (largest ≈ ' + bigK + 'k)</div>' +
+          '<div class="insight-tip">💡 Big one-shot generations are costlier and slower to review, and a wrong direction is caught late. More, smaller checkpoints keep review cheap and catch mistakes early — reserve the big one-shots for when you genuinely can\'t monitor the run.</div>' +
+          '<div class="insight-note">A large single turn is sometimes exactly right (a whole file, a long doc); this is a habit signal, not a verdict.</div>' +
+          '</div>'
+      );
+    }
+
+    // Active hours: when in the day you actually drive work (24h sparkline).
+    const hrs = analysis.hours;
+    if (hrs) {
+      const max = Math.max(...hrs.hours, 1);
+      const pk = hrs.peakStart;
+      const hh = (h: number): string => String(((h % 24) + 24) % 24).padStart(2, '0') + ':00';
+      const bars = hrs.hours
+        .map((v, h) => {
+          const inPeak = (((h - pk) % 24) + 24) % 24 < 4;
+          const height = Math.max(2, Math.round((v / max) * 100));
+          return (
+            '<div class="hr-col" title="' + hh(h) + ' · ' + I18n.formatNumber(v) + ' tokens">' +
+            '<div class="hr-bar' + (inPeak ? ' pk' : '') + '" style="height:' + height + '%"></div>' +
+            (h % 6 === 0 ? '<div class="hr-lab">' + String(h).padStart(2, '0') + '</div>' : '<div class="hr-lab"></div>') +
+            '</div>'
+          );
+        })
+        .join('');
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Your active hours</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-hero">' + hh(pk) + '–' + hh(pk + 4) + '</div>' +
+          '<div class="insight-sub">your busiest 4-hour window — ' + Math.round(hrs.peakShare) + '% of your work happens then (bars = tokens per hour of day, your timezone)</div>' +
+          '<div class="hr-spark">' + bars + '</div>' +
+          '<div class="insight-tip">💡 Protect that window for the heavy work, and try to keep a task inside one warm session there — momentum in your peak hours is where the cache stays hot and review is sharpest.</div>' +
+          '</div>'
+      );
+    }
+
+    // Skill ROI: output returned per $ spent, per skill/plugin. Bar AND the
+    // right-hand number are the SAME metric (out tokens per $) so they line up;
+    // cost + turns ride along as secondary. Sorted by ROI so the bars rank.
+    const roi = (analysis.skillRoi || []).slice().sort((a, b) => b.outPerUsd - a.outPerUsd);
+    if (roi.length >= 2) {
+      const maxRoi = Math.max(...roi.map((s) => s.outPerUsd), 1);
+      const rows = roi
+        .map((s) => {
+          const short = s.name.includes(':') ? s.name.slice(s.name.indexOf(':') + 1) : s.name;
+          const roiLabel = I18n.formatNumber(Math.round(s.outPerUsd)); // output tokens per $
+          const w = Math.max(4, Math.round((s.outPerUsd / maxRoi) * 100));
+          return (
+            '<div class="cbm-row" title="' + this.escapeHtml(s.name + ' · ' + s.kind + ' · ' + roiLabel + ' output tokens per $ · ' + money(s.costUsd) + ' · ' + s.turns + ' turns') + '">' +
+            '<div class="cbm-label">' + this.escapeHtml(short) +
+            '<span class="cbm-provider">' + s.kind + '</span></div>' +
+            '<div class="cbm-mid"><div class="cbm-track"><div class="cbm-fill" style="width:' + w + '%"></div></div>' +
+            '<div class="cbm-sub">' + this.escapeHtml(money(s.costUsd) + ' · ' + s.turns + ' turns') + '</div></div>' +
+            '<div class="cbm-pct" title="output tokens per $">' + roiLabel + '<span class="cbm-unit">/$</span></div>' +
+            '</div>'
+          );
+        })
+        .join('');
+      cards.push(
+        '<div class="insight-card">' +
+          '<div class="insight-head"><span class="insight-title">Skill ROI</span>' +
+          '<span class="insight-tag">last 30 days</span></div>' +
+          '<div class="insight-sub">output tokens returned per $ spent while each skill / plugin was active (bar &amp; number = out tokens per $; cost + turns below)</div>' +
+          '<div class="cbm-list">' + rows + '</div>' +
+          '<div class="insight-tip">💡 A low out-tokens/$ skill is burning context for little output — worth invoking deliberately, or trimming what it loads. A high one is a lean win you can lean on.</div>' +
+          '<div class="insight-note">Only turns Claude Code tagged with a skill/plugin (≥2.1) are counted; cost is attributed to the active skill and output isn\'t "value", so treat it as a proxy.</div>' +
+          '</div>'
+      );
+    }
+
+    if (cards.length === 0) {
+      return '';
+    }
+    return (
+      '<div class="insights-panel"><h3>Experimental insights</h3>' +
+      '<p class="table-hint">Our own estimates from your local logs — heuristics, not standardized metrics (hence opt-in + labelled). No prompts leave your machine.</p>' +
+      cards.join('') +
+      '</div>'
+    );
+  }
+
+  /** Opt-in (showEfficiency) "cache warmth" insight: an estimate of how long the
+   * prompt cache stays warm while idle, measured from the user's own turns.
+   * Aggregate only (no prompts) — so it rides on the efficiency toggle. */
+  private renderCacheWarmth(): string {
+    if (!this.setting<boolean>('showEfficiency', false) || !this.allRecords || this.allRecords.length === 0) {
+      return '';
+    }
+    const est = this.getAnalysis().ttl; // recomputed at most weekly
+    if (!est) {
+      return '';
+    }
+    return (
+      '<div class="costly-panel"><h3>Cache warmth</h3>' +
+      '<p class="table-hint">Estimated from ' + I18n.formatNumber(est.sampleN) +
+      ' of your same-model turns — the cache TTL is platform-side and can vary, so this is a measurement, not a guarantee.</p>' +
+      '<div class="cache-warmth">Your prompt cache appears to stay warm for about <strong>' + est.estimateMin +
+      ' min</strong> of idle; the hit rate drops off after ~' + est.coldFromMin +
+      ' min. Keep a complex task moving within that window to avoid re-paying for cold-cache rewrites.</div>' +
+      '</div>'
+    );
+  }
+
+  private renderCostliestMessages(): string {
+    // Own opt-in (separate from showEfficiency) because it displays your prompt
+    // text — a privacy step above the aggregate efficiency chips.
+    if (!this.setting<boolean>('showCostliestMessages', false)) {
+      return '';
+    }
+    const top = this.costliestMessages || [];
+    if (top.length === 0) {
+      return '';
+    }
+    const t = I18n.t.popup;
+    const detailRow = (label: string, value: string): string =>
+      '<div class="costly-kv"><span>' + label + '</span><span>' + value + '</span></div>';
+    // Bold row for the two signals that explain a costly turn.
+    const detailRowBold = (label: string, value: string): string =>
+      '<div class="costly-kv costly-kv-strong"><span>' + label + '</span><span>' + value + '</span></div>';
+    // Human gap since the previous turn; "New conversation" for a session's first.
+    const fmtGap = (ms: number | undefined): string => {
+      if (ms === undefined) {
+        return 'New conversation';
+      }
+      const m = Math.round(ms / 60000);
+      if (m < 60) {
+        return m + 'm';
+      }
+      const h = Math.floor(m / 60);
+      return h < 24 ? h + 'h ' + (m % 60) + 'm' : (h / 24).toFixed(1) + 'd';
+    };
+    // Which token type drove the cost? Names the reason a turn was expensive so
+    // the prompt alone isn't the only signal Carl has to go on.
+    const driverOf = (m: CostlyMessage): string => {
+      const parts: { key: string; v: number }[] = [
+        { key: 'cache writes (miss)', v: m.costCacheWrite },
+        { key: 'output', v: m.costOutput },
+        { key: 'uncached input', v: m.costInput },
+        { key: 'cache reads', v: m.costCacheRead },
+      ];
+      parts.sort((a, b) => b.v - a.v);
+      const share = m.cost > 0 ? Math.round((parts[0].v / m.cost) * 100) : 0;
+      return `${parts[0].key} (${share}% of cost)`;
+    };
+    let rows = '';
+    top.forEach((m, i) => {
+      const tokens = m.inputTokens + m.outputTokens + m.cacheCreationTokens + m.cacheReadTokens;
+      const inputSide = m.inputTokens + m.cacheCreationTokens + m.cacheReadTokens;
+      const hitRate = inputSide > 0 ? m.cacheReadTokens / inputSide : 0;
+      const promptText = m.prompt && m.prompt.trim() ? m.prompt.trim() : '(no prompt captured)';
+      const promptShort = promptText.length > 80 ? promptText.slice(0, 80) + '…' : promptText;
+      const truncated = !!(m.prompt && m.prompt.length >= 4000);
+      const skillLabel = m.skill ? (m.plugin ? m.skill + ' · ' + m.plugin : m.skill) : '—';
+      // Cost split — the key to telling a cache miss from a long answer.
+      const costSplit =
+        'write ' + I18n.formatCurrency(m.costCacheWrite) +
+        ' · read ' + I18n.formatCurrency(m.costCacheRead) +
+        ' · out ' + I18n.formatCurrency(m.costOutput) +
+        ' · in ' + I18n.formatCurrency(m.costInput);
+      rows +=
+        '<details class="costly-row" data-persist="costly-' + i + '"><summary>' +
+        '<span class="costly-rank">' + (i + 1) + '</span>' +
+        '<span class="costly-name" title="' + this.escapeHtml(promptText) + '">' + this.escapeHtml(promptShort) + '</span>' +
+        '<span class="costly-cost">' + I18n.formatCurrency(m.cost) + '</span>' +
+        '</summary><div class="costly-detail">' +
+        (m.prompt
+          ? '<div class="costly-prompt">' + this.escapeHtml(promptText) + (truncated ? '\n… (truncated)' : '') + '</div>'
+          : '') +
+        detailRow('Main cost driver', this.escapeHtml(driverOf(m))) +
+        detailRowBold('Cache-hit rate', this.formatPercent(hitRate)) +
+        detailRowBold('Time since last turn', this.escapeHtml(fmtGap(m.gapMs)) +
+          (m.gapMs !== undefined && m.gapMs > 5 * 60000 ? ' ⚠ past cache TTL' : '')) +
+        // Name the likely cache-miss cause when the hit rate is low.
+        (hitRate < 0.2 && m.prevModel && m.prevModel !== m.model
+          ? detailRowBold('Likely cause', 'model switch (' + this.escapeHtml(this.shortModelName(m.prevModel)) + ' → ' + this.escapeHtml(this.shortModelName(m.model)) + ') flushed the cache')
+          : hitRate < 0.2 && m.gapMs !== undefined && m.gapMs > 5 * 60000
+            ? detailRowBold('Likely cause', 'idle ' + this.escapeHtml(fmtGap(m.gapMs)) + ' — cache went cold')
+            : '') +
+        detailRow('Cost split', this.escapeHtml(costSplit)) +
+        detailRow(t.model, this.escapeHtml(m.model)) +
+        detailRow('Skill', this.escapeHtml(skillLabel)) +
+        detailRow(t.totalTokens, I18n.formatNumber(tokens)) +
+        detailRow(t.inputTokens, I18n.formatNumber(m.inputTokens)) +
+        detailRow(t.outputTokens, I18n.formatNumber(m.outputTokens)) +
+        detailRow(t.cacheCreation, I18n.formatNumber(m.cacheCreationTokens)) +
+        detailRow(t.cacheRead, I18n.formatNumber(m.cacheReadTokens)) +
+        detailRow(t.project, this.escapeHtml(m.projectName || '—')) +
+        '</div></details>';
+    });
+    return (
+      '<div class="costly-panel"><h3>Top 10 costliest messages</h3>' +
+      '<p class="table-hint">Single responses ranked by cost. Expand for the prompt and a cost split — a high "cache writes (miss)" share means the context was re-sent uncached, not that the answer was long.</p>' +
+      rows +
+      '</div>'
+    );
+  }
+
+  private renderContentData(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      const view = this.codexView;
+      const copy = I18n.t.providers.codex;
+      if (!view) {
+        return this.renderCodexEmptyState();
+      }
+      const behavior = view.behaviorScopes.last30Days;
+      const percent = (value: number): string => `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+      const metric = (label: string, value: string): string =>
+        '<div class="summary-item"><div class="label">' + this.escapeHtml(label) +
+        '</div><div class="value">' + this.escapeHtml(value) + '</div></div>';
+      const behaviorSummary = '<div class="usage-summary"><div class="summary-grid">' +
+        metric(copy.childThreadsPerRootTask, behavior.childThreadsPerRootTask.toFixed(1)) +
+        metric(copy.childFreshShare, percent(behavior.childFreshShare)) +
+        metric(copy.approvalFreshShare, percent(behavior.approvalReviewerFreshShare)) +
+        metric(copy.highEffortFreshShare, percent(behavior.highEffortFreshShare)) +
+        metric(copy.processedToFreshRatio, behavior.processedToFreshRatio.toFixed(1) + '×') +
+        metric(copy.reasoningOutputShare, percent(behavior.reasoningOutputShare)) +
+        metric(copy.postPatchToolCallsPerPatchCall, behavior.postPatchToolCallsPerPatchCall.toFixed(1)) +
+        metric(copy.compactions, I18n.formatNumber(behavior.compactCount)) +
+        '</div></div>';
+      const insights = this.codexInsights.last30Days;
+      const insightHtml = insights.length === 0
+        ? '<div class="model-item"><p class="table-hint">' + this.escapeHtml(copy.recommendationEmpty) + '</p></div>'
+        : '<div class="model-list">' + insights.map((insight) => {
+            const evidence = Object.entries(insight.evidence).map(([key, value]) => {
+              const label = copy.insightEvidenceLabels[key as keyof typeof copy.insightEvidenceLabels] ?? key;
+              const formattedValue = typeof value === 'number' ? I18n.formatNumber(value) : String(value);
+              return '<span><span class="model-stat-label">' + this.escapeHtml(label) + '</span><strong>' +
+                this.escapeHtml(formattedValue) + '</strong></span>';
+            }).join('');
+            return '<div class="model-item"><div class="model-header"><span class="model-name">' +
+              this.escapeHtml(copy.insightTitles[insight.kind]) + '</span></div>' +
+              '<p class="model-details"><strong>' + this.escapeHtml(copy.insightObservation) + ':</strong> ' +
+              this.escapeHtml(copy.insightObservations[insight.kind]) + '</p>' +
+              '<div class="model-details model-details-stacked">' + evidence + '</div>' +
+              '<p class="model-details"><strong>' + this.escapeHtml(copy.insightConditionalAction) + ':</strong> ' +
+              this.escapeHtml(copy.insightTips[insight.kind]) + '</p></div>';
+          }).join('') + '</div>';
+      const partial = view.periodCoverage.last30Days.complete
+        ? ''
+        : '<p class="table-hint">' + this.escapeHtml(copy.recommendationPartial) + '</p>';
+      return '<div class="action-card"><div class="action-card-head"><span class="action-icon">✨</span>' +
+        '<div class="action-card-titles"><h3>' + this.escapeHtml(copy.optimization) + '</h3>' +
+        '<p class="action-card-desc">' + this.escapeHtml(copy.structuralProxy) + '</p></div></div></div>' +
+        '<div class="daily-breakdown"><div class="section-header"><h3>' +
+        this.escapeHtml(copy.behavior + ' · ' + copy.last30Days) + '</h3></div>' +
+        partial + behaviorSummary + insightHtml + '</div>';
+    }
+    const t = I18n.t.popup;
+    const topCards = this.renderAdviceCard() + this.renderOptimizerCard();
+    const analysis = this.contentAnalysis;
+    if (!analysis || analysis.categories.length === 0 || analysis.totalEstimatedTokens === 0) {
+      return topCards + (this.renderAttributionSection() ||
+        '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>');
+    }
+
+    // Calibration (Phase 8): scale the text-length category estimates to the
+    // EXACT billed totals — assistant-side categories to real output tokens,
+    // input-side to real (input + cache-creation). Within-side relative shares
+    // stay as estimated; the cross-side ratio (e.g. tool-results vs assistant
+    // output) is corrected to billing reality. Toggle: analysis.calibrate.
+    const calibrateOn = this.setting<boolean>('analysis.calibrate', true);
+    const cal = calibrateOn && analysis.calibration ? analysis.calibration : null;
+    const ASSISTANT_CATS = new Set(['assistantText', 'assistantThinking', 'toolCalls']);
+    const INPUT_CATS = new Set(['userPrompts', 'toolResults']);
+    let estAssistant = 0;
+    let estInput = 0;
+    analysis.categories.forEach((c) => {
+      if (ASSISTANT_CATS.has(c.key)) {
+        estAssistant += c.estimatedTokens;
+      } else if (INPUT_CATS.has(c.key)) {
+        estInput += c.estimatedTokens;
+      }
+    });
+    const factorFor = (key: string): number => {
+      if (!cal) {
+        return 1;
+      }
+      if (ASSISTANT_CATS.has(key)) {
+        return estAssistant > 0 ? cal.realOutputTokens / estAssistant : 1;
+      }
+      if (INPUT_CATS.has(key)) {
+        return estInput > 0 ? cal.realInputSideTokens / estInput : 1;
+      }
+      return 1;
+    };
+    const tokensFor = (key: string, estTokens: number): number => Math.round(estTokens * factorFor(key));
+    const total = cal
+      ? analysis.categories.reduce((sum, c) => sum + tokensFor(c.key, c.estimatedTokens), 0)
+      : analysis.totalEstimatedTokens;
 
     const catLabel = (key: string): string => {
       switch (key) {
@@ -1258,30 +4095,39 @@ export class UsageWebviewProvider {
       );
     };
 
-    const maxCat = Math.max(...analysis.categories.map((c) => c.estimatedTokens), 1);
+    const catTokens = analysis.categories.map((c) => tokensFor(c.key, c.estimatedTokens));
+    const maxCat = Math.max(...catTokens, 1);
     let catRows = '';
-    analysis.categories.forEach((c) => {
-      catRows += barRow(catLabel(c.key), c.estimatedTokens, maxCat, catColor[c.key] || 'cf-1');
+    analysis.categories.forEach((c, i) => {
+      catRows += barRow(catLabel(c.key), catTokens[i], maxCat, catColor[c.key] || 'cf-1');
     });
 
     let toolSection = '';
     if (analysis.toolResultBreakdown.length > 0) {
-      const maxTool = Math.max(...analysis.toolResultBreakdown.map((s) => s.estimatedTokens), 1);
+      // Tool results are input-side; scale by the same factor as toolResults.
+      const toolTokens = analysis.toolResultBreakdown.map((s) => tokensFor('toolResults', s.estimatedTokens));
+      const maxTool = Math.max(...toolTokens, 1);
       let toolRows = '';
-      analysis.toolResultBreakdown.forEach((s) => {
-        toolRows += barRow(s.key, s.estimatedTokens, maxTool, 'cf-4');
+      analysis.toolResultBreakdown.forEach((s, i) => {
+        toolRows += barRow(s.key, toolTokens[i], maxTool, 'cf-4');
       });
       toolSection = '<h4 class="cbar-subhead">' + t.byTool + '</h4><div class="cbar-list">' + toolRows + '</div>';
     }
 
+    // Calibrated figures are exact-anchored; estimates are text-length only.
+    const totalLabel = cal ? t.calibratedTokens : t.estTokens;
+    const totalPrefix = cal ? '' : '~';
+    const noteLine = cal ? t.calibratedNote : t.estimatedNote;
+
     return (
+      topCards +
+      this.renderAttributionSection() +
       '<div class="daily-breakdown">' +
       '<div class="section-header"><h3>' + t.contentAnalysis + '</h3>' +
       '<span class="section-header-right">' +
-      '<span class="cbar-total">' + t.estTokens + ': ~' + I18n.formatNumber(total) + '</span>' +
-      '<button class="btn-secondary btn-small" onclick="getAdvice()">✨ ' + t.getAdvice + '</button>' +
+      '<span class="cbar-total">' + totalLabel + ': ' + totalPrefix + I18n.formatNumber(total) + '</span>' +
       '</span></div>' +
-      '<p class="table-hint">' + t.last30days + ' · ' + t.estimatedNote + '</p>' +
+      '<p class="table-hint">' + t.last30days + ' · ' + noteLine + '</p>' +
       '<div class="cbar-list">' + catRows + '</div>' +
       toolSection +
       '</div>'
@@ -1292,22 +4138,41 @@ export class UsageWebviewProvider {
    * Static stacked-bar chart breaking each period into input / cache-read /
    * cache-write / output tokens — a finer view than the single-metric chart.
    */
-  private renderCompositionChart(items: { label: string; data: UsageData }[]): string {
+  private renderCompositionChart(
+    items: { label: string; data: UsageData | CodexMetricTotals; key?: string }[],
+    provider: SettingProvider = 'claude',
+  ): string {
     if (!items || items.length === 0) {
       return '';
     }
 
     const t = I18n.t.popup;
+    const codexCopy = I18n.t.providers.codex;
     const maxHeight = 120;
-    const totals = items.map(
-      (it) =>
-        it.data.totalInputTokens + it.data.totalOutputTokens + it.data.totalCacheCreationTokens + it.data.totalCacheReadTokens
-    );
+    const values = items.map((item) => {
+      if (provider === 'codex') {
+        const composition = tokenComposition(item.data as CodexMetricTotals);
+        return {
+          input: composition.freshInput,
+          cacheRead: composition.cachedInput,
+          cacheCreation: 0,
+          output: composition.output,
+        };
+      }
+      const data = item.data as UsageData;
+      return {
+        input: data.totalInputTokens,
+        cacheRead: data.totalCacheReadTokens,
+        cacheCreation: data.totalCacheCreationTokens,
+        output: data.totalOutputTokens,
+      };
+    });
+    const totals = values.map((value) => value.input + value.cacheRead + value.cacheCreation + value.output);
     const maxTotal = Math.max(...totals, 1);
 
     let bars = '';
     items.forEach((it, idx) => {
-      const d = it.data;
+      const d = values[idx];
       const total = totals[idx];
       const barHeight = (total / maxTotal) * maxHeight;
       const seg = (value: number, cls: string, label: string): string => {
@@ -1324,17 +4189,24 @@ export class UsageWebviewProvider {
           '"></div>'
         );
       };
+      // In the all-time view each bar is a month (it.key = its date); make it
+      // click-to-expand that month's per-day composition (reuses the table's
+      // month-detail round-trip).
+      const colOpen = provider === 'claude' && it.key
+        ? '<div class="hc-col hc-col-clickable" onclick="toggleMonthlyDetail(\'' + it.key + '\')" title="' +
+          this.escapeHtml(it.label) + ' — ' + I18n.formatNumber(total) + '">'
+        : '<div class="hc-col">';
       bars +=
-        '<div class="hc-col">' +
+        colOpen +
         '<div class="stack-bar" title="' +
         this.escapeHtml(it.label) +
         ': ' +
         I18n.formatNumber(total) +
         '">' +
-        seg(d.totalInputTokens, 'seg-input', t.inputTokens) +
-        seg(d.totalCacheReadTokens, 'seg-cache-read', t.cacheRead) +
-        seg(d.totalCacheCreationTokens, 'seg-cache-creation', t.cacheCreation) +
-        seg(d.totalOutputTokens, 'seg-output', t.outputTokens) +
+        seg(d.input, 'seg-input', provider === 'codex' ? codexCopy.freshInput : t.inputTokens) +
+        seg(d.cacheRead, 'seg-cache-read', provider === 'codex' ? codexCopy.cachedInput : t.cacheRead) +
+        (provider === 'claude' ? seg(d.cacheCreation, 'seg-cache-creation', t.cacheCreation) : '') +
+        seg(d.output, 'seg-output', provider === 'codex' ? codexCopy.output : t.outputTokens) +
         '</div>' +
         '</div>';
     });
@@ -1347,13 +4219,13 @@ export class UsageWebviewProvider {
     return (
       '<div class="composition-chart">' +
       '<h4>' +
-      t.tokenComposition +
+      (provider === 'codex' ? codexCopy.tokenComposition : t.tokenComposition) +
       '</h4>' +
       '<div class="stack-legend">' +
-      dot('seg-input', t.inputTokens) +
-      dot('seg-cache-read', t.cacheRead) +
-      dot('seg-cache-creation', t.cacheCreation) +
-      dot('seg-output', t.outputTokens) +
+      dot('seg-input', provider === 'codex' ? codexCopy.freshInput : t.inputTokens) +
+      dot('seg-cache-read', provider === 'codex' ? codexCopy.cachedInput : t.cacheRead) +
+      (provider === 'claude' ? dot('seg-cache-creation', t.cacheCreation) : '') +
+      dot('seg-output', provider === 'codex' ? codexCopy.output : t.outputTokens) +
       '</div>' +
       '<div class="hc-wrap">' +
       '<div class="hc-yaxis">' +
@@ -1361,7 +4233,7 @@ export class UsageWebviewProvider {
       '<span class="hc-yval">' + I18n.formatNumber(Math.round(maxTotal / 2)) + '</span>' +
       '<span class="hc-yval">0</span>' +
       '</div>' +
-      '<div class="hc-main"><div class="hc-scroll">' +
+      '<div class="hc-main"><div class="hc-scroll" tabindex="0">' +
       '<div class="hc-plot">' +
       '<div class="hc-grid hc-grid-top"></div>' +
       '<div class="hc-grid hc-grid-mid"></div>' +
@@ -1378,14 +4250,36 @@ export class UsageWebviewProvider {
     );
   }
 
-  private renderDailyChart(): string {
+  private renderDailyChart(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      const rows = this.codexView?.last30DaysDaily ?? [];
+      return this.renderMainCostChart(
+        rows.map((row) => ({
+          date: row.day,
+          data: { total: row.total, apiEquivalent: row.apiEquivalent, threads: row.threads },
+        })),
+        false,
+        provider,
+      );
+    }
     const sortedData = [...this.dailyDataForMonth].sort((a, b) => a.date.localeCompare(b.date));
-    return this.renderMainCostChart(sortedData);
+    return this.renderMainCostChart(sortedData, false, provider);
   }
 
-  private renderAllTimeChart(): string {
+  private renderAllTimeChart(provider: SettingProvider = 'claude'): string {
+    if (provider === 'codex') {
+      const rows = this.codexView?.monthly ?? [];
+      return this.renderMainCostChart(
+        rows.map((row) => ({
+          date: row.period,
+          data: { total: row.total, apiEquivalent: row.apiEquivalent, threads: row.threads },
+        })),
+        true,
+        provider,
+      );
+    }
     const sortedData = [...this.dailyDataForAllTime].sort((a, b) => a.date.localeCompare(b.date));
-    return this.renderMainCostChart(sortedData);
+    return this.renderMainCostChart(sortedData, true, provider);
   }
 
   /**
@@ -1423,16 +4317,91 @@ export class UsageWebviewProvider {
     );
   }
 
-  private renderMainCostChart(sortedData: { date: string; data: UsageData }[]): string {
+  private codexCostStackHtml(cost: EquivalentCostBreakdown, barHeight: number): string {
+    const copy = I18n.t.providers.codex;
+    const total = cost.freshInputUsd + cost.cachedInputUsd + cost.outputUsd;
+    const seg = (value: number, cls: string, label: string): string => {
+      const height = total > 0 ? (value / total) * barHeight : 0;
+      return '<div class="stack-seg ' + cls + '" style="height: ' + height + 'px;" title="' +
+        this.escapeHtml(label) + ': ' + I18n.formatCurrency(value) + '"></div>';
+    };
+    return seg(cost.freshInputUsd, 'seg-input', copy.freshInput) +
+      seg(cost.cachedInputUsd, 'seg-cache-read', copy.cachedInput) +
+      seg(cost.outputUsd, 'seg-output', copy.output);
+  }
+
+  private codexCostHelp(cost: EquivalentCostBreakdown): string {
+    const coverage = new Intl.NumberFormat(I18n.getLocale(), {
+      style: 'percent',
+      maximumFractionDigits: 0,
+    }).format(cost.pricingCoverage);
+    return I18n.t.providers.codex.apiEquivalentCostHelp.replace('{coverage}', coverage);
+  }
+
+  private renderMainCostChart(
+    sortedData: Array<{
+      date: string;
+      data: UsageData | {
+        total: CodexMetricTotals;
+        apiEquivalent: EquivalentCostBreakdown;
+        threads: number;
+      };
+    }>,
+    monthly = false,
+    provider: SettingProvider = 'claude',
+  ): string {
     if (sortedData.length === 0) {
       return '<div class="no-chart-data">No data available</div>';
     }
-    const maxCost = Math.max(...sortedData.map((d) => d.data.totalCost), 0);
+    if (provider === 'codex') {
+      const rows = sortedData as Array<{
+        date: string;
+        data: {
+          total: CodexMetricTotals;
+          apiEquivalent: EquivalentCostBreakdown;
+          threads: number;
+        };
+      }>;
+      const maxCost = Math.max(...rows.map((row) => row.data.apiEquivalent.equivalentUsd), 0);
+      const hasPricedCost = rows.some((row) => row.data.apiEquivalent.pricedTokens > 0);
+      const costAxisLabel = (value: number): string =>
+        hasPricedCost ? I18n.formatCurrency(value) : '—';
+      const maxHeight = 120;
+      const bars = rows.map(({ date, data }) => {
+        const cost = data.apiEquivalent;
+        const height = maxCost > 0 ? (cost.equivalentUsd / maxCost) * maxHeight : 2;
+        const costLabel = cost.pricedTokens > 0 ? I18n.formatCurrency(cost.equivalentUsd) : '—';
+        return '<div class="hc-col" data-date="' + this.escapeHtml(date) + '">' +
+          '<div class="hc-barval">' + costLabel + '</div>' +
+          '<div class="chart-bar cost-bar cost-stacked" style="height:' + height + 'px" ' +
+          'data-cost="' + cost.equivalentUsd + '" data-priced-tokens="' + cost.pricedTokens + '" ' +
+          'data-input="' + data.total.processed + '" data-output="' + data.total.fresh + '" ' +
+          'data-cache-creation="' + data.total.output + '" data-cache-read="' + data.total.reasoning + '" ' +
+          'data-messages="' + data.threads + '" ' +
+          'data-cost-input="' + cost.freshInputUsd + '" data-cost-output="' + cost.outputUsd + '" ' +
+          'data-cost-cachewrite="0" data-cost-cacheread="' + cost.cachedInputUsd + '" ' +
+          'data-cost-help="' + this.escapeHtml(this.codexCostHelp(cost)) + '" ' +
+          'title="' + this.escapeHtml(date + ': ' + costLabel + ' · ' + this.codexCostHelp(cost)) + '">' +
+          this.codexCostStackHtml(cost, height) + '</div></div>';
+      }).join('');
+      const xlabels = rows.map(({ date }) =>
+        '<div class="hc-xlabel">' + this.escapeHtml(monthly ? this.getShortDate(date, true) : this.getShortDate(date)) + '</div>',
+      ).join('');
+      return '<div class="hc-wrap"><div class="hc-yaxis">' +
+        '<span class="hc-yval">' + costAxisLabel(maxCost) + '</span>' +
+        '<span class="hc-yval">' + costAxisLabel(maxCost / 2) + '</span>' +
+        '<span class="hc-yval">' + costAxisLabel(0) + '</span></div><div class="hc-main"><div class="hc-scroll" tabindex="0">' +
+        '<div class="hc-plot"><div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>' +
+        '<div class="hc-bars">' + bars + '</div></div><div class="hc-xlabels">' + xlabels +
+        '</div></div></div></div>';
+    }
+    const claudeRows = sortedData as { date: string; data: UsageData }[];
+    const maxCost = Math.max(...claudeRows.map((d) => d.data.totalCost), 0);
     const maxHeight = 120;
 
     const costStack = (data: UsageData, barHeight: number): string => this.costStackHtml(data, barHeight);
 
-    const bars = sortedData
+    const bars = claudeRows
       .map(({ date, data }) => {
         const barHeight = maxCost > 0 ? (data.totalCost / maxCost) * maxHeight : 0;
         const cb = data.costBreakdown;
@@ -1450,7 +4419,7 @@ export class UsageWebviewProvider {
           'data-cost-output="' + cb.output + '" ' +
           'data-cost-cachewrite="' + cb.cacheWrite + '" ' +
           'data-cost-cacheread="' + cb.cacheRead + '" ' +
-          'title="' + this.escapeHtml(this.formatDate(date)) + ': ' + I18n.formatCurrency(data.totalCost) + '">' +
+          'title="' + this.escapeHtml(this.formatDate(date, monthly)) + ': ' + I18n.formatCurrency(data.totalCost) + '">' +
           costStack(data, barHeight) +
           '</div>' +
           '</div>'
@@ -1458,8 +4427,8 @@ export class UsageWebviewProvider {
       })
       .join('');
 
-    const xlabels = sortedData
-      .map(({ date }) => '<div class="hc-xlabel">' + this.getShortDate(date) + '</div>')
+    const xlabels = claudeRows
+      .map(({ date }) => '<div class="hc-xlabel">' + this.getShortDate(date, monthly) + '</div>')
       .join('');
 
     return (
@@ -1469,7 +4438,7 @@ export class UsageWebviewProvider {
       '<span class="hc-yval">' + I18n.formatCurrency(maxCost / 2) + '</span>' +
       '<span class="hc-yval">' + I18n.formatCurrency(0) + '</span>' +
       '</div>' +
-      '<div class="hc-main"><div class="hc-scroll">' +
+      '<div class="hc-main"><div class="hc-scroll" tabindex="0">' +
       '<div class="hc-plot">' +
       '<div class="hc-grid hc-grid-top"></div>' +
       '<div class="hc-grid hc-grid-mid"></div>' +
@@ -1486,6 +4455,45 @@ export class UsageWebviewProvider {
    * reference lines and a value label on top of every bar, so figures are
    * readable without hovering.
    */
+  private renderCodexHourlyChart(rows: CodexHourlyUsageView[]): string {
+    if (rows.length === 0) {
+      return '<div class="no-chart-data">No data available</div>';
+    }
+    const maxCost = Math.max(...rows.map((row) => row.apiEquivalent.equivalentUsd), 0);
+    const hasPricedCost = rows.some((row) => row.apiEquivalent.pricedTokens > 0);
+    const costAxisLabel = (value: number): string =>
+      hasPricedCost ? I18n.formatCurrency(value) : '—';
+    const maxHeight = 120;
+    const bars = rows.map((row) => {
+      const cost = row.apiEquivalent;
+      const height = maxCost > 0 ? (cost.equivalentUsd / maxCost) * maxHeight : 2;
+      const costLabel = cost.pricedTokens > 0 ? I18n.formatCurrency(cost.equivalentUsd) : '—';
+      return '<div class="hc-col" data-hour="' + this.escapeHtml(row.hour) + '">' +
+        '<div class="hc-barval">' + costLabel + '</div>' +
+        '<div class="chart-bar cost-bar cost-stacked" style="height:' + height + 'px" ' +
+        'data-cost="' + cost.equivalentUsd + '" data-priced-tokens="' + cost.pricedTokens + '" ' +
+        'data-input="' + row.total.processed + '" data-output="' + row.total.fresh + '" ' +
+        'data-cache-creation="' + row.total.output + '" data-cache-read="' + row.total.reasoning + '" ' +
+        'data-messages="' + row.threads + '" ' +
+        'data-cost-input="' + cost.freshInputUsd + '" data-cost-output="' + cost.outputUsd + '" ' +
+        'data-cost-cachewrite="0" data-cost-cacheread="' + cost.cachedInputUsd + '" ' +
+        'data-cost-help="' + this.escapeHtml(this.codexCostHelp(cost)) + '" ' +
+        'title="' + this.escapeHtml(costLabel + ' · ' + this.codexCostHelp(cost)) + '">' +
+        this.codexCostStackHtml(cost, height) + '</div></div>';
+    }).join('');
+    const labels = rows.map((row) =>
+      '<div class="hc-xlabel">' + this.escapeHtml(row.hour) + '</div>'
+    ).join('');
+    return '<div class="hc-wrap"><div class="hc-yaxis">' +
+      '<span class="hc-yval">' + costAxisLabel(maxCost) + '</span>' +
+      '<span class="hc-yval">' + costAxisLabel(maxCost / 2) + '</span>' +
+      '<span class="hc-yval">' + costAxisLabel(0) + '</span></div>' +
+      '<div class="hc-main"><div class="hc-scroll" tabindex="0">' +
+      '<div class="hc-plot"><div class="hc-grid hc-grid-top"></div>' +
+      '<div class="hc-grid hc-grid-mid"></div><div class="hc-bars">' + bars + '</div></div>' +
+      '<div class="hc-xlabels">' + labels + '</div></div></div></div>';
+  }
+
   private renderHourlyChart(): string {
     if (this.hourlyDataForToday.length === 0) {
       return '<div class="no-chart-data">No data available</div>';
@@ -1531,7 +4539,7 @@ export class UsageWebviewProvider {
       '<span class="hc-yval">' + I18n.formatCurrency(0) + '</span>' +
       '</div>' +
       '<div class="hc-main">' +
-      '<div class="hc-scroll">' +
+      '<div class="hc-scroll" tabindex="0">' +
       '<div class="hc-plot" id="hourlyChart">' +
       '<div class="hc-grid hc-grid-top"></div>' +
       '<div class="hc-grid hc-grid-mid"></div>' +
@@ -1544,25 +4552,12 @@ export class UsageWebviewProvider {
     );
   }
 
-  private getShortDate(dateString: string): string {
-    // Parse 'YYYY-MM-DD' textually — new Date('YYYY-MM-DD') is UTC midnight,
-    // which shifts the displayed day back by one in negative-UTC timezones.
-    const [y, m, d] = dateString.split('-').map(Number);
-    // Month-only dates (first of month) label as YYYY/MM for monthly charts.
-    if (dateString.endsWith('-01')) {
-      return `${y}/${String(m).padStart(2, '0')}`;
-    }
-    return `${m}/${d}`;
+  private getShortDate(dateString: string, monthly = false): string {
+    return shortUsageDate(dateString, monthly);
   }
 
-  private formatDate(dateString: string): string {
-    const date = new Date(dateString);
-    // Check if this is a month-only date (ends with -01)
-    if (dateString.endsWith('-01')) {
-      return date.toLocaleDateString(I18n.getLocale(), I18n.dateFormatOptions({ year: 'numeric', month: 'long' }));
-    }
-    // Standard date formatting for daily data, locale + timezone aware.
-    return date.toLocaleDateString(I18n.getLocale(), I18n.dateFormatOptions());
+  private formatDate(dateString: string, monthly = false): string {
+    return formatUsageDate(dateString, I18n.getLocale(), I18n.dateFormatOptions(), monthly);
   }
 
   private getStyles(): string {
@@ -1577,7 +4572,8 @@ export class UsageWebviewProvider {
       }
 
       .container {
-        max-width: 800px;
+        /* Widen for big monitors; fluid below the cap. */
+        max-width: 1600px;
         margin: 0 auto;
       }
 
@@ -1624,13 +4620,361 @@ export class UsageWebviewProvider {
         background: var(--vscode-button-secondaryHoverBackground);
       }
 
-      /* Refresh-Now button is only relevant when auto-refresh is OFF — hide
-         it by default, show only when the body carries the .auto-off class. */
-      .btn-refresh-now {
-        display: none;
+      .btn-primary {
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        font-weight: 600;
       }
-      body.auto-off .btn-refresh-now {
+      .btn-primary:hover {
+        background: var(--vscode-button-hoverBackground);
+      }
+      .btn-primary:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+
+      /* AI advice + Usage Optimizer "action cards" lead the Content tab. They
+         share one treatment — an accent rail + an icon badge — so they read as
+         the two tools, distinct from the data panels below, while staying quiet
+         and on-theme. The rail is the single signature element. */
+      .action-card {
+        position: relative;
+        border: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.25));
+        border-radius: 8px;
+        padding: 13px 16px 13px 18px;
+        margin-bottom: 14px;
+        background: var(--vscode-editor-background);
+      }
+      .action-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 12px;
+        bottom: 12px;
+        width: 3px;
+        border-radius: 0 3px 3px 0;
+        background: var(--vscode-textLink-foreground, var(--vscode-button-background));
+      }
+      .action-card-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .action-icon {
+        flex: 0 0 auto;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 15px;
+        border-radius: 8px;
+        background: var(--vscode-badge-background);
+      }
+      .action-card-titles {
+        flex: 1;
+        min-width: 0;
+      }
+      .action-card-titles h3 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .action-card-desc {
+        margin: 3px 0 0;
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--vscode-descriptionForeground);
+      }
+      .action-card-howto {
+        margin: 12px 0 8px;
+        font-size: 12px;
+        line-height: 1.45;
+        color: var(--vscode-descriptionForeground);
+      }
+      .action-card-head .btn-primary,
+      .action-card-head .btn-secondary {
+        flex: 0 0 auto;
+        align-self: center;
+        white-space: nowrap;
+      }
+      .exp-pill {
+        font-size: 9.5px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        color: var(--vscode-descriptionForeground);
+        border: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.4));
+      }
+      .opt-input {
+        width: 100%;
+        box-sizing: border-box;
+        resize: vertical;
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 12px;
+        padding: 6px 8px;
+        margin: 4px 0 8px;
+        color: var(--vscode-input-foreground);
+        background: var(--vscode-input-background);
+        border: 1px solid var(--vscode-input-border, transparent);
+        border-radius: 4px;
+      }
+      .opt-controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .opt-controls label {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+      }
+      .opt-controls #optRunBtn {
+        margin-left: auto;
+      }
+      .opt-error {
+        color: var(--vscode-errorForeground);
+        font-size: 12px;
+        margin: 4px 0;
+      }
+      .opt-subhead {
+        margin: 10px 0 4px;
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+      }
+      .opt-output {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      /* The optimised prompt is meant to be copied verbatim — keep it monospace. */
+      .opt-output pre {
+        flex: 1;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 12px;
+        padding: 8px;
+        margin: 0;
+        background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.1));
+        border-radius: 4px;
+      }
+      /* Floating "copy" button on the optimised-prompt block. */
+      .opt-output { position: relative; }
+      .opt-copy {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        padding: 3px 8px;
+        border: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.35));
+        border-radius: 5px;
+        color: var(--vscode-descriptionForeground);
+        background: var(--vscode-editor-background);
+        cursor: pointer;
+        opacity: 0.85;
+      }
+      .opt-copy:hover {
+        opacity: 1;
+        color: var(--vscode-foreground);
+        border-color: var(--vscode-focusBorder, var(--vscode-button-background));
+      }
+      .opt-copy.copied {
+        color: var(--vscode-testing-iconPassed, #2ea043);
+        border-color: var(--vscode-testing-iconPassed, #2ea043);
+      }
+      .opt-copy-ico { font-size: 12px; line-height: 1; }
+      /* The settings recommendation is read, not copied — render each line as a
+         "Label  [value chip]  reason" row so the key choice stands out. */
+      .opt-settings {
+        font-size: 12px;
+        padding: 8px 10px;
+        margin: 0;
+        color: var(--vscode-foreground);
+        background: var(--vscode-textBlockQuote-background, rgba(127, 127, 127, 0.06));
+        border-left: 2px solid var(--vscode-textLink-foreground, var(--vscode-button-background));
+        border-radius: 0 4px 4px 0;
+      }
+      .opt-set-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 8px;
+        padding: 3px 0;
+      }
+      .opt-set-row + .opt-set-row {
+        border-top: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.12));
+      }
+      .opt-set-key {
+        flex: 0 0 auto;
+        min-width: 64px;
+        color: var(--vscode-descriptionForeground);
+      }
+      .opt-set-val {
+        flex: 0 0 auto;
+        font-weight: 600;
+        padding: 1px 8px;
+        border-radius: 999px;
+        color: var(--vscode-button-foreground);
+        background: var(--vscode-button-background);
+      }
+      .opt-set-rest {
+        flex: 1 1 auto;
+        min-width: 120px;
+        color: var(--vscode-descriptionForeground);
+      }
+
+      /* ⚙ Settings tab */
+      .settings-panel { max-width: 780px; }
+      .settings-toolbar { margin: 4px 0 14px; }
+      .settings-group { margin-bottom: 18px; }
+      .settings-group h3 {
+        margin: 0 0 8px;
+        padding-bottom: 4px;
+        font-size: 13px;
+        border-bottom: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.2));
+      }
+      .set-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 7px 0;
+      }
+      .set-label { flex: 1; min-width: 0; }
+      .set-label label { font-size: 13px; }
+      .set-help {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        margin-top: 2px;
+      }
+      .set-control { flex: 0 0 auto; display: flex; align-items: center; }
+      .set-control input[type="text"],
+      .set-control input[type="password"],
+      .set-control input[type="number"],
+      .set-control select,
+      .set-control textarea {
+        font-family: inherit;
+        font-size: 12px;
+        padding: 4px 6px;
+        color: var(--vscode-input-foreground);
+        background: var(--vscode-input-background);
+        border: 1px solid var(--vscode-input-border, transparent);
+        border-radius: 4px;
+        min-width: 230px;
+      }
+      .set-control input[type="number"] { min-width: 96px; width: 96px; }
+      .set-control textarea { resize: vertical; min-width: 260px; }
+      .set-switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+      .set-switch input { opacity: 0; width: 0; height: 0; }
+      .set-slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: var(--vscode-input-background);
+        border: 1px solid var(--vscode-input-border, rgba(127, 127, 127, 0.4));
+        border-radius: 22px;
+        transition: 0.15s;
+      }
+      .set-slider:before {
+        content: "";
+        position: absolute;
+        height: 16px;
+        width: 16px;
+        left: 2px;
+        bottom: 2px;
+        background: var(--vscode-descriptionForeground);
+        border-radius: 50%;
+        transition: 0.15s;
+      }
+      .set-switch input:checked + .set-slider {
+        background: var(--vscode-testing-iconPassed, #2ea043);
+      }
+      .set-switch input:checked + .set-slider:before {
+        transform: translateX(18px);
+        background: #fff;
+      }
+
+      /* Manual refresh is also the explicit accelerated Codex catch-up path. */
+      .btn-refresh-now {
         display: inline-block;
+      }
+
+      /* Session row action buttons. */
+      .actions-cell {
+        white-space: nowrap;
+        text-align: center;
+      }
+      .session-action {
+        background: none;
+        border: 1px solid var(--vscode-panel-border);
+        color: var(--vscode-foreground);
+        border-radius: 4px;
+        cursor: pointer;
+        padding: 1px 6px;
+        margin: 0 1px;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .session-action:hover {
+        background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+      }
+      .session-action.copied {
+        color: var(--vscode-charts-green, #4caf50);
+        border-color: var(--vscode-charts-green, #4caf50);
+      }
+      .session-delete:hover {
+        color: var(--vscode-errorForeground, #f44336);
+        border-color: var(--vscode-errorForeground, #f44336);
+      }
+
+      /* Sessions filter bar: time range · project · model. */
+      .sess-filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 10px;
+      }
+      .sess-filter {
+        display: flex;
+        gap: 6px;
+      }
+      .sess-filter-btn {
+        background: none;
+        border: 1px solid var(--vscode-panel-border);
+        color: var(--vscode-foreground);
+        border-radius: 4px;
+        cursor: pointer;
+        padding: 2px 10px;
+        font-size: 12px;
+      }
+      .sess-filter-btn.active {
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border-color: var(--vscode-button-background);
+      }
+      .sess-model-select {
+        background: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-size: 12px;
       }
 
       /* iOS-style auto-refresh toggle. The label/switch sit next to the other
@@ -1711,8 +5055,10 @@ export class UsageWebviewProvider {
       }
 
       .tab.active {
+        background: transparent;
         border-bottom-color: var(--vscode-focusBorder);
-        color: var(--vscode-focusBorder);
+        color: var(--vscode-foreground);
+        font-weight: 600;
       }
 
       .tab-content {
@@ -1847,7 +5193,7 @@ export class UsageWebviewProvider {
 
       .model-stat-label {
         color: var(--vscode-descriptionForeground);
-        opacity: 0.85;
+        opacity: 1;
       }
 
       .chart-tabs {
@@ -1894,6 +5240,12 @@ export class UsageWebviewProvider {
         display: flex;
         align-items: end;
         justify-content: center;
+      }
+
+      .chart-content > .hc-wrap {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
       }
 
       .chart-bars {
@@ -1947,19 +5299,21 @@ export class UsageWebviewProvider {
       }
 
       .output-bar {
-        background: linear-gradient(to top, var(--vscode-charts-orange), var(--vscode-charts-red));
+        background: linear-gradient(to top, var(--vscode-charts-yellow), var(--vscode-charts-red));
       }
 
       .cache-creation-bar {
-        background: linear-gradient(to top, var(--vscode-charts-purple), var(--vscode-charts-pink));
+        /* NB: VS Code has no --vscode-charts-pink; without a fallback the whole
+           gradient is invalid and the bar renders transparent (invisible). */
+        background: linear-gradient(to top, var(--vscode-charts-purple), var(--vscode-charts-pink, #d16ba5));
       }
 
       .cache-read-bar {
-        background: linear-gradient(to top, var(--vscode-charts-yellow), var(--vscode-charts-orange));
+        background: linear-gradient(to top, var(--vscode-charts-yellow), var(--vscode-charts-green));
       }
 
       .messages-bar {
-        background: linear-gradient(to top, var(--vscode-charts-foreground), var(--vscode-charts-lines));
+        background: var(--vscode-charts-foreground);
       }
 
       .chart-label {
@@ -2029,6 +5383,63 @@ export class UsageWebviewProvider {
       .number-cell {
         text-align: right;
         font-family: var(--vscode-editor-font-family);
+        /* Keep figures on one line: compact (k/M) numbers fit the panel with no
+         * horizontal scroll; full integer numbers overflow so the table (only)
+         * scrolls, while the chart above keeps its own independent scroll. */
+        white-space: nowrap;
+      }
+
+      [data-provider-session-table] {
+        table-layout: fixed;
+        min-width: 960px;
+      }
+
+      [data-provider-session-table] .date-cell,
+      [data-provider-session-table] [data-session-model],
+      [data-provider-session-table] [data-session-effort],
+      [data-provider-session-table] .project-name {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      [data-session-thread-layout] {
+        min-width: 0;
+        margin-bottom: 0;
+      }
+
+      [data-session-thread-copy] {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      [data-session-thread-title],
+      [data-session-thread-role] {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      [data-session-detail] td {
+        background: var(--vscode-editorWidget-background, var(--vscode-input-background));
+      }
+
+      [data-session-detail-grid] {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 8px 16px;
+      }
+
+      [data-session-detail-item] {
+        min-width: 0;
+      }
+
+      [data-session-detail-item] > span,
+      [data-session-detail-item] > strong {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .loading, .error, .no-data {
@@ -2120,12 +5531,340 @@ export class UsageWebviewProvider {
       .project-path {
         font-size: 11px;
         color: var(--vscode-descriptionForeground);
-        word-break: break-all;
         margin-top: 2px;
+        display: flex;
+        align-items: flex-start;
+        gap: 4px;
+      }
+      .project-path-text {
+        word-break: break-all;
+      }
+      /* Small copy-path icon, revealed on row hover. */
+      .copy-path {
+        flex-shrink: 0;
+        background: none;
+        border: none;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        padding: 0 2px;
+        font-size: 11px;
+        line-height: 1.3;
+        opacity: 0;
+        transition: opacity 0.1s;
+      }
+      .sort-row:hover .copy-path,
+      .project-child-row:hover .copy-path,
+      .copy-path.copied {
+        opacity: 0.7;
+      }
+      .copy-path:hover {
+        opacity: 1 !important;
+        color: var(--vscode-foreground);
+      }
+      .copy-path.copied {
+        color: var(--vscode-charts-green, #4caf50);
       }
 
       .composition-chart {
         margin: 12px 0 20px;
+      }
+
+      /* Efficiency chips (opt-in), appended under a usage summary. */
+      .eff-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0 2px;
+      }
+      .eff-chip {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 6px;
+        padding: 4px 10px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 999px;
+        font-size: 12px;
+      }
+      .eff-chip .eff-label { color: var(--vscode-descriptionForeground); }
+      .eff-chip .eff-value { font-weight: bold; }
+
+      /* Top-10 costliest conversations (opt-in, Content tab). */
+      .costly-panel { margin: 18px 0 8px; }
+      .costly-row {
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 6px;
+        margin: 6px 0;
+        background: var(--vscode-editorWidget-background, transparent);
+      }
+      .costly-row > summary {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        cursor: pointer;
+        list-style: none;
+      }
+      .costly-row > summary::-webkit-details-marker { display: none; }
+      .costly-rank {
+        flex: 0 0 auto;
+        min-width: 20px;
+        text-align: center;
+        font-weight: bold;
+        color: var(--vscode-descriptionForeground);
+      }
+      .costly-name {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .costly-cost {
+        flex: 0 0 auto;
+        font-weight: bold;
+        color: var(--vscode-charts-green);
+      }
+      .costly-detail {
+        padding: 6px 12px 10px 42px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+      .costly-kv {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        padding: 2px 0;
+        color: var(--vscode-descriptionForeground);
+      }
+      .costly-kv-strong {
+        font-weight: 700;
+        color: var(--vscode-foreground);
+      }
+      .cache-warmth {
+        font-size: 13px;
+        line-height: 1.5;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: var(--vscode-textBlockQuote-background);
+        border-left: 3px solid var(--vscode-textBlockQuote-border);
+        color: var(--vscode-foreground);
+      }
+      /* Experimental insights section — cards in the plugin's existing language. */
+      .insights-panel { margin: 18px 0 8px; }
+      .insight-card {
+        margin: 10px 0;
+        padding: 14px 16px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 10px;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+      }
+      .insight-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .insight-title { font-size: 14px; font-weight: 700; color: var(--vscode-foreground); }
+      .insight-tag {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 2px 8px;
+        border-radius: 999px;
+        color: var(--vscode-descriptionForeground);
+        border: 1px solid var(--vscode-panel-border);
+        white-space: nowrap;
+      }
+      .insight-hero {
+        font-size: 34px;
+        font-weight: 800;
+        line-height: 1.1;
+        margin: 8px 0 2px;
+        color: var(--vscode-charts-yellow, var(--vscode-foreground));
+      }
+      .insight-sub { font-size: 12px; color: var(--vscode-descriptionForeground); margin-bottom: 10px; }
+      .insight-split { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+      .insight-pill {
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: var(--vscode-badge-background);
+        color: var(--vscode-badge-foreground);
+      }
+      .insight-pill b { font-weight: 700; }
+      .insight-tip {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--vscode-foreground);
+        margin-bottom: 8px;
+      }
+      .insight-note {
+        font-size: 11px;
+        line-height: 1.5;
+        color: var(--vscode-descriptionForeground);
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+      .hr-spark { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin: 10px 0 2px; }
+      .hr-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: stretch; height: 100%; justify-content: flex-end; }
+      .hr-bar { width: 100%; border-radius: 2px 2px 0 0; background: var(--vscode-panel-border); min-height: 2px; }
+      .hr-bar.pk { background: var(--vscode-charts-yellow, var(--vscode-badge-background)); }
+      .hr-lab { font-size: 8px; line-height: 10px; text-align: center; color: var(--vscode-descriptionForeground); height: 10px; }
+      .cbm-list { margin: 6px 0 4px; }
+      .cbm-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+      .cbm-label {
+        flex: 0 0 190px;
+        font-size: 12px;
+        color: var(--vscode-foreground);
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+        overflow: hidden;
+      }
+      .cbm-provider { color: var(--vscode-descriptionForeground); font-size: 11px; white-space: nowrap; }
+      .cbm-mid { flex: 1 1 auto; min-width: 0; }
+      .cbm-track {
+        height: 8px;
+        border-radius: 4px;
+        background: var(--vscode-panel-border);
+        overflow: hidden;
+      }
+      .cbm-fill { height: 100%; background: var(--vscode-charts-yellow, var(--vscode-badge-background)); }
+      .cbm-sub { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 3px; }
+      .cbm-pct { flex: 0 0 72px; text-align: right; font-size: 12px; font-weight: 700; color: var(--vscode-foreground); }
+      .cbm-unit { font-size: 10px; font-weight: 400; color: var(--vscode-descriptionForeground); margin-left: 1px; }
+      .costly-prompt {
+        font-size: 12px;
+        line-height: 1.4;
+        margin: 0 0 8px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        /* Show the whole prompt, but cap the height and scroll long ones. */
+        max-height: 220px;
+        overflow-y: auto;
+        background: var(--vscode-textBlockQuote-background);
+        border-left: 3px solid var(--vscode-textBlockQuote-border);
+        color: var(--vscode-foreground);
+      }
+
+      /* Share card panel (All tab): config card + responsive preview. Styled to
+       * sit inside the plugin's existing card language (theme vars, soft border,
+       * the shared .btn-secondary buttons). */
+      .share-panel {
+        margin: 8px 0 22px;
+      }
+      .sc-config {
+        margin: 12px 0;
+        padding: 16px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 10px;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+      }
+      .sc-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 12px 16px;
+        margin-bottom: 14px;
+      }
+      .sc-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--vscode-descriptionForeground);
+      }
+      .sc-field select {
+        width: 100%;
+        padding: 5px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+        background: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+        font-size: 13px;
+        text-transform: none;
+        letter-spacing: normal;
+      }
+      .sc-checks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 10px;
+        margin-bottom: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--vscode-panel-border);
+      }
+      .sc-check {
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px 4px 8px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 999px;
+        color: var(--vscode-foreground);
+        cursor: pointer;
+        user-select: none;
+      }
+      .sc-check:hover {
+        border-color: var(--vscode-focusBorder);
+      }
+      .share-preview {
+        margin: 12px 0 0;
+        padding: 10px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 10px;
+        overflow: auto;
+        max-height: 640px;
+        background:
+          linear-gradient(45deg, #f3f3f3 25%, transparent 25%, transparent 75%, #f3f3f3 75%),
+          linear-gradient(45deg, #f3f3f3 25%, #fff 25%, #fff 75%, #f3f3f3 75%);
+        background-size: 20px 20px;
+        background-position: 0 0, 10px 10px;
+      }
+      .share-preview svg {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-width: 560px;
+        margin: 0 auto;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+        border-radius: 8px;
+      }
+      .share-preview p {
+        text-align: center;
+      }
+      .share-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 4px;
+      }
+
+      /* Optional token heatmap panel (All tab). The SVG has a fixed size; let it
+       * scroll horizontally on narrow panels rather than squash. */
+      .heatmap-panel {
+        margin: 4px 0 22px;
+      }
+      .heatmap-svg {
+        overflow-x: auto;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 6px;
+        padding: 6px;
+        background: #ffffff;
+      }
+      .heatmap-svg svg {
+        display: block;
+      }
+
+      /* Clickable month bars in the all-time composition chart (drill to daily). */
+      .hc-col-clickable {
+        cursor: pointer;
+      }
+      .hc-col-clickable:hover .stack-bar {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
       }
 
       .cost-composition {
@@ -2221,7 +5960,7 @@ export class UsageWebviewProvider {
       }
 
       .seg-output {
-        background: var(--vscode-charts-orange);
+        background: var(--vscode-charts-yellow);
       }
 
       .seg-cache-creation {
@@ -2271,6 +6010,78 @@ export class UsageWebviewProvider {
         margin: 0 0 8px 0;
       }
 
+      .quota-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 0 0 12px 0;
+        padding: 8px 10px;
+        border: 1px solid var(--vscode-inputValidation-warningBorder, #d8a200);
+        background: var(--vscode-inputValidation-warningBackground, rgba(216, 162, 0, 0.15));
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .quota-banner-text {
+        flex: 1;
+      }
+      .quota-banner-dismiss {
+        flex: none;
+        background: none;
+        border: none;
+        color: inherit;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 0 2px;
+      }
+
+      .attr-controls {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .attr-controls select {
+        background: var(--vscode-dropdown-background);
+        color: var(--vscode-dropdown-foreground);
+        border: 1px solid var(--vscode-dropdown-border, transparent);
+        border-radius: 3px;
+        padding: 2px 6px;
+        font-size: 11px;
+        max-width: 260px;
+      }
+      .attr-tab {
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        border: 1px solid var(--vscode-input-border);
+        border-radius: 4px;
+        padding: 3px 9px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .attr-tab.active {
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border-color: var(--vscode-focusBorder);
+      }
+      .attr-char {
+        margin: 8px 0;
+        font-size: 13px;
+      }
+      .attr-hint {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        margin-top: 2px;
+      }
+      .wf-common-task {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        background: var(--vscode-textBlockQuote-background, rgba(127, 127, 127, 0.06));
+        white-space: normal;
+        line-height: 1.5;
+      }
+
       th.sortable {
         cursor: pointer;
         user-select: none;
@@ -2278,7 +6089,8 @@ export class UsageWebviewProvider {
       }
 
       th.sortable:hover {
-        color: var(--vscode-focusBorder);
+        color: var(--vscode-foreground);
+        text-decoration: underline;
       }
 
       th.sortable.sorted-asc::after {
@@ -2419,6 +6231,80 @@ export class UsageWebviewProvider {
         color: var(--vscode-descriptionForeground);
       }
 
+      [data-codex-time-series],
+      [data-codex-time-series] .chart-content,
+      [data-codex-time-series] .chart-content > .hc-wrap,
+      [data-codex-time-series] .composition-chart,
+      [data-codex-time-series] .hc-wrap,
+      [data-codex-time-series] .hc-main {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      [data-codex-time-series] .hc-scroll,
+      [data-codex-time-series] .daily-table-container {
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        touch-action: pan-x pan-y;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      [data-codex-time-series] .daily-table {
+        width: 100%;
+        min-width: 1080px;
+      }
+
+      [data-codex-time-series] .daily-table th {
+        white-space: nowrap;
+      }
+
+      /* Codex always renders a complete rolling 30-day track. Keep those
+         dense charts and their table inside independent, keyboard-focusable
+         horizontal scrollers instead of widening the entire dashboard. The
+         explicit max-content track also keeps grid lines and labels aligned
+         after scrolling in Chromium. */
+      [data-codex-last30-daily] {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      [data-codex-last30-daily] .chart-content,
+      [data-codex-last30-daily] .chart-content > .hc-wrap,
+      [data-codex-last30-daily] .composition-chart,
+      [data-codex-last30-daily] .hc-wrap,
+      [data-codex-last30-daily] .hc-main {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+
+      [data-codex-last30-daily] .hc-scroll,
+      [data-codex-last30-daily] .daily-table-container {
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        touch-action: pan-x pan-y;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      [data-codex-last30-daily] .hc-plot,
+      [data-codex-last30-daily] .hc-xlabels {
+        width: max-content;
+        min-width: 100%;
+      }
+
+      [data-codex-last30-daily] .daily-table {
+        width: 100%;
+        min-width: 960px;
+      }
+
+      [data-codex-last30-daily] .daily-table th {
+        white-space: nowrap;
+      }
+
       .git-badge {
         display: inline-block;
         font-size: 9px;
@@ -2498,7 +6384,7 @@ export class UsageWebviewProvider {
       }
 
       .cf-2 {
-        background: var(--vscode-charts-orange);
+        background: var(--vscode-charts-yellow);
       }
 
       .cf-3 {
@@ -2512,16 +6398,152 @@ export class UsageWebviewProvider {
       .cf-5 {
         background: var(--vscode-charts-red);
       }
+
+      .provider-tabs {
+        display: flex;
+        gap: 6px;
+        margin: 4px 0 18px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--vscode-panel-border);
+      }
+      .provider-tab {
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 999px;
+        padding: 5px 13px;
+        background: transparent;
+        color: var(--vscode-foreground);
+        cursor: pointer;
+      }
+      .provider-tab.active {
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border-color: var(--vscode-button-background);
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
     `;
   }
 
   private getScript(): string {
     return `
-console.log("[DEBUG] === JAVASCRIPT INITIALIZATION START ===");
-
 // Get VSCode API
 const vscode = acquireVsCodeApi();
-console.log("[DEBUG] VSCode API acquired");
+
+function ccuReadUiState() {
+  try { return vscode.getState() || {}; } catch (e) { return {}; }
+}
+function ccuWriteUiState(key, value) {
+  try {
+    var st = ccuReadUiState();
+    st[key] = value;
+    vscode.setState(st);
+  } catch (e) {}
+}
+function ccuProviderName() {
+  var selected = document.querySelector('.provider-tab[aria-selected="true"]');
+  return selected ? (selected.getAttribute('data-provider') || selected.id.replace('provider-tab-', '')) : 'claude';
+}
+function ccuElementStateKey(element, kind) {
+  var tab = element && element.closest ? element.closest('.tab-content') : null;
+  var root = tab || document;
+  var elements = Array.prototype.slice.call(root.querySelectorAll(kind === 'table' ? 'table' : '.daily-breakdown, .hourly-breakdown'));
+  return ccuProviderName() + ':' + (tab ? tab.id : 'page') + ':' + kind + ':' + Math.max(0, elements.indexOf(element));
+}
+
+// Keep expanded <details data-persist> open across auto-refresh re-renders — a
+// data refresh shouldn't collapse something you're reading. Only a tab switch
+// resets to the default (see clearPersistedDetails in showTab).
+function savePersistedDetails() {
+  try {
+    var open = [];
+    document.querySelectorAll('details[data-persist]').forEach(function(d){
+      if (d.open) { open.push(d.getAttribute('data-persist')); }
+    });
+    var st = ccuReadUiState();
+    st.openDetails = open;
+    vscode.setState(st);
+  } catch (e) {}
+}
+function restorePersistedDetails() {
+  try {
+    var st = ccuReadUiState();
+    var open = st.openDetails || [];
+    if (!open.length) { return; }
+    document.querySelectorAll('details[data-persist]').forEach(function(d){
+      if (open.indexOf(d.getAttribute('data-persist')) !== -1) { d.open = true; }
+    });
+  } catch (e) {}
+}
+function clearPersistedDetails() {
+  try { var st = ccuReadUiState(); st.openDetails = []; vscode.setState(st); } catch (e) {}
+}
+// 'toggle' doesn't bubble — listen in the capture phase.
+document.addEventListener('toggle', function(e){
+  if (e.target && e.target.matches && e.target.matches('details[data-persist]')) { savePersistedDetails(); }
+}, true);
+
+// Restore the active tab from localStorage before first paint, so a reload can't change it.
+function restoreActiveTab() {
+  try {
+    var t = localStorage.getItem('ccu.activeTab');
+    if (t && document.getElementById('tab-' + t) && document.getElementById(t)) {
+      showTab(t, true);
+    }
+  } catch (e) {}
+}
+var __ccuUiReady = false;
+function restoreUi() {
+  restoreActiveTab();
+  restoreSessionFilter();
+  restorePersistedDetails();
+  restoreSessionDetails();
+  restoreTableSorts();
+  restoreChartMetrics();
+  restoreScrollPosition();
+}
+function ccuScrollStateKey() {
+  var active = document.querySelector('.tab.active');
+  return ccuProviderName() + ':' + (active ? active.id.replace('tab-', '') : 'today');
+}
+function saveScrollPosition() {
+  if (!__ccuUiReady) { return; }
+  var positions = ccuReadUiState().scrollPositions || {};
+  positions[ccuScrollStateKey()] = window.scrollY;
+  ccuWriteUiState('scrollPositions', positions);
+}
+function restoreScrollPosition() {
+  var positions = ccuReadUiState().scrollPositions || {};
+  var y = positions[ccuScrollStateKey()];
+  if (typeof y !== 'number') { __ccuUiReady = true; return; }
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      window.scrollTo(0, y);
+      __ccuUiReady = true;
+    });
+  });
+}
+var __ccuScrollFrame = 0;
+window.addEventListener('scroll', function() {
+  if (!__ccuUiReady || __ccuScrollFrame) { return; }
+  __ccuScrollFrame = requestAnimationFrame(function() {
+    __ccuScrollFrame = 0;
+    saveScrollPosition();
+  });
+}, { passive: true });
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', restoreUi);
+} else {
+  restoreUi();
+}
 
 // Locale + timezone baked in at render time so drill-down renders match the
 // user's UI language and configured timezone (instead of the hardcoded zh-TW
@@ -2535,31 +6557,382 @@ const __dateOpts = (extra) => {
 };
 
 // Define basic functions
+function showProvider(provider, tab) {
+  vscode.postMessage({ command: 'providerChanged', provider: provider, tab: tab || '' });
+}
+
+${getProviderNavClientScript()}
+
+function scReadConfig() {
+  var rangeEl = document.getElementById('scRange');
+  var scopeEl = document.getElementById('scScope');
+  var sections = {};
+  var boxes = document.querySelectorAll('.sc-sec');
+  for (var i = 0; i < boxes.length; i++) {
+    sections[boxes[i].getAttribute('data-sec')] = boxes[i].checked;
+  }
+  var avatarEl = document.getElementById('scAvatar');
+  var nameEl = document.getElementById('scName');
+  var fullEl = document.getElementById('scFull');
+  var themeEl = document.getElementById('scTheme');
+  return {
+    range: rangeEl ? rangeEl.value : 'last30',
+    scope: scopeEl ? scopeEl.value : 'all',
+    theme: themeEl ? themeEl.value : 'claudeCream',
+    avatar: avatarEl ? avatarEl.checked : false,
+    username: nameEl ? nameEl.checked : false,
+    fullNumbers: fullEl ? fullEl.checked : false,
+    sections: sections
+  };
+}
+function generateShareCard() {
+  var cfg = scReadConfig();
+  var prev = document.getElementById('scPreview');
+  if (prev) { prev.innerHTML = '<p class="table-hint">Generating…</p>'; }
+  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+}
+function exportShareCardConfigured() {
+  var cfg = scReadConfig();
+  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+}
+function exportHeatmap() {
+  vscode.postMessage({ command: 'exportHeatmap' });
+}
+function publishHeatmap() {
+  vscode.postMessage({ command: 'publishHeatmap' });
+}
 function refresh() {
-  console.log("[DEBUG] refresh called");
   vscode.postMessage({ command: 'refresh' });
 }
 
-function toggleAutoRefresh() {
-  var checkbox = document.getElementById('autoRefreshCheckbox');
-  var nowOff = !checkbox.checked;
-  document.body.classList.toggle('auto-off', nowOff);
-  vscode.postMessage({ command: 'setPauseDashboardRefresh', value: nowOff });
-}
-
 function openSettings() {
-  console.log("[DEBUG] openSettings called");
   vscode.postMessage({ command: 'openSettings' });
 }
 
 function refreshPricing() {
-  console.log("[DEBUG] refreshPricing called");
   vscode.postMessage({ command: 'refreshPricing' });
 }
 
 function getAdvice() {
-  console.log("[DEBUG] getAdvice called");
   vscode.postMessage({ command: 'getAdvice' });
+}
+
+function setSetting(key, value, type) {
+  if (type === 'number') {
+    var n = Number(value);
+    if (!isFinite(n)) { return; }
+    value = n;
+  }
+  vscode.postMessage({ command: 'updateSetting', key: key, value: value });
+}
+
+function resetAllSettings(keys) {
+  vscode.postMessage({ command: 'resetAllSettings', keys: Array.isArray(keys) ? keys : undefined });
+}
+
+function runOptimizer() {
+  var ta = document.getElementById('optDraft');
+  var btn = document.getElementById('optRunBtn');
+  if (!ta || !ta.value.trim()) { return; }
+  var err = document.getElementById('optError');
+  var res = document.getElementById('optResult');
+  if (err) { err.style.display = 'none'; }
+  if (res) { res.style.display = 'none'; }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = btn.getAttribute('data-running') || '…';
+  }
+  vscode.postMessage({
+    command: 'optimizePrompt',
+    draft: ta.value,
+    resolve: !!(document.getElementById('optResolve') || {}).checked,
+    distil: !!(document.getElementById('optDistil') || {}).checked,
+    aesthetic: !!(document.getElementById('optAesthetic') || {}).checked,
+  });
+}
+
+function showOptimizeResult(msg) {
+  var btn = document.getElementById('optRunBtn');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = btn.getAttribute('data-run') || 'Optimize';
+  }
+  var err = document.getElementById('optError');
+  var res = document.getElementById('optResult');
+  if (msg.error) {
+    if (err) { err.textContent = msg.error; err.style.display = ''; }
+    return;
+  }
+  var promptEl = document.getElementById('optPrompt');
+  var settingsEl = document.getElementById('optSettings');
+  if (promptEl) { promptEl.textContent = msg.prompt || ''; }
+  if (settingsEl) {
+    settingsEl.setAttribute('data-raw', msg.settings || '');
+    formatOptSettings();
+  }
+  if (res) { res.style.display = ''; }
+}
+
+function copyOptPrompt(btn) {
+  var promptEl = document.getElementById('optPrompt');
+  if (!promptEl) { return; }
+  var text = promptEl.textContent || '';
+  var lbl = btn ? btn.querySelector('.opt-copy-lbl') : null;
+  var done = function() {
+    if (!btn) { return; }
+    btn.classList.add('copied');
+    if (lbl) { lbl.textContent = btn.getAttribute('data-copied') || 'Copied'; }
+    setTimeout(function() {
+      btn.classList.remove('copied');
+      if (lbl) { lbl.textContent = btn.getAttribute('data-copy') || 'Copy'; }
+    }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, done);
+  } else {
+    promptEl.focus();
+    done();
+  }
+}
+
+// Render the optimiser's "Recommended run settings" with the key value of each
+// line (high / on / opus …) highlighted as a chip. Parses "Label: value — reason"
+// from the raw text stashed in data-raw (so re-runs don't double-format).
+function optEscHtml(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function formatOptSettings() {
+  var el = document.getElementById('optSettings');
+  if (!el) { return; }
+  var raw = el.getAttribute('data-raw');
+  if (raw === null) { raw = el.textContent || ''; el.setAttribute('data-raw', raw); }
+  var lines = raw.split('\\n').filter(function(l) { return l.trim() !== ''; });
+  if (!lines.length) { el.innerHTML = ''; return; }
+  el.innerHTML = lines.map(function(line) {
+    var clean = line.replace(/^[\\s\\-*•]+/, '');
+    var m = clean.match(/^([^:：]{1,28})[:：]\\s*([^\\s—()（]+)\\s*[—-]?\\s*(.*)$/);
+    if (m) {
+      var rest = m[3] && m[3].trim() ? '<span class="opt-set-rest">' + optEscHtml(m[3].trim()) + '</span>' : '';
+      return '<div class="opt-set-row"><span class="opt-set-key">' + optEscHtml(m[1].trim()) +
+        '</span><span class="opt-set-val">' + optEscHtml(m[2].trim()) + '</span>' + rest + '</div>';
+    }
+    return '<div class="opt-set-row">' + optEscHtml(clean) + '</div>';
+  }).join('');
+}
+
+function dismissQuotaWarn() {
+  vscode.postMessage({ command: 'dismissQuotaWarn' });
+}
+
+// Session row actions.
+function copySession(btn) {
+  if (!btn) { return; }
+  var id = btn.getAttribute('data-session-id') || '';
+  if (!id) { return; }
+  var orig = btn.textContent;
+  var done = function() {
+    btn.classList.add('copied');
+    btn.textContent = '✓';
+    setTimeout(function() { btn.classList.remove('copied'); btn.textContent = orig; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(id).then(done, done);
+  } else {
+    done();
+  }
+}
+
+function resumeSession(btn) {
+  if (!btn) { return; }
+  var id = btn.getAttribute('data-session-id') || '';
+  if (!id) { return; }
+  vscode.postMessage({
+    command: 'resumeSession',
+    sessionId: id,
+    cwd: btn.getAttribute('data-cwd') || ''
+  });
+}
+
+function deleteSession(btn) {
+  if (!btn) { return; }
+  var id = btn.getAttribute('data-session-id') || '';
+  if (!id) { return; }
+  // The host shows a modal confirm before anything is removed.
+  vscode.postMessage({
+    command: 'deleteSession',
+    sessionId: id,
+    title: btn.getAttribute('data-title') || ''
+  });
+}
+
+function viewConversation(btn) {
+  if (!btn) { return; }
+  var id = btn.getAttribute('data-session-id') || '';
+  if (!id) { return; }
+  // Host reads the .jsonl, parses it, and opens a read-only viewer panel.
+  vscode.postMessage({
+    command: 'viewConversation',
+    sessionId: id,
+    title: btn.getAttribute('data-title') || ''
+  });
+}
+
+function ccuSessState() {
+  var pb = document.querySelector('.sess-filter[data-group="project"] .sess-filter-btn.active');
+  var rb = document.querySelector('.sess-filter[data-group="range"] .sess-filter-btn.active');
+  var ms = document.querySelector('.sess-model-select');
+  return {
+    project: pb ? pb.getAttribute('data-mode') : 'all',
+    range: rb ? rb.getAttribute('data-range') : 'all',
+    model: ms ? ms.value : 'all'
+  };
+}
+function toggleSessionDetails(btn) {
+  if (!btn) { return; }
+  var row = btn.closest('tr');
+  var detail = row ? row.nextElementSibling : null;
+  if (!detail || !detail.hasAttribute('data-session-detail')) { return; }
+  var expanded = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+  btn.textContent = expanded ? '▶' : '▼';
+  detail.setAttribute('data-expanded', expanded ? 'false' : 'true');
+  detail.style.display = expanded ? 'none' : 'table-row';
+  saveSessionDetails();
+}
+function saveSessionDetails() {
+  var all = ccuReadUiState().sessionDetails || {};
+  all[ccuProviderName()] = Array.prototype.slice.call(document.querySelectorAll('[data-session-detail][data-expanded="true"]'))
+    .map(function(row) { return row.id; }).filter(Boolean);
+  ccuWriteUiState('sessionDetails', all);
+}
+function restoreSessionDetails() {
+  var all = ccuReadUiState().sessionDetails || {};
+  var open = all[ccuProviderName()] || [];
+  open.forEach(function(id) {
+    var detail = document.getElementById(id);
+    var btn = document.querySelector('[data-session-detail-toggle][aria-controls="' + id + '"]');
+    var row = btn ? btn.closest('tr') : null;
+    if (!detail || !btn) { return; }
+    btn.setAttribute('aria-expanded', 'true');
+    btn.textContent = '▼';
+    detail.setAttribute('data-expanded', 'true');
+    detail.style.display = row && row.style.display === 'none' ? 'none' : 'table-row';
+  });
+}
+function applySessionFilters() {
+  var list = document.getElementById('sessionList');
+  if (!list) { return; }
+  var st = ccuSessState();
+  var now = Date.now();
+  var threshold = st.range === 'today' ? new Date().setHours(0, 0, 0, 0)
+    : st.range === '7' ? now - 7 * 86400000
+    : st.range === '30' ? now - 30 * 86400000
+    : 0;
+  list.querySelectorAll('tr.sort-row').forEach(function(tr) {
+    var okProject = st.project === 'all' || !tr.classList.contains('session-foreign');
+    var okTime = st.range === 'all' || Number(tr.getAttribute('data-sort-time')) >= threshold;
+    var okModel = st.model === 'all' || (tr.getAttribute('data-models') || '').split('|').indexOf(st.model) !== -1;
+    var visible = okProject && okTime && okModel;
+    tr.style.display = visible ? '' : 'none';
+    var detail = tr.nextElementSibling;
+    if (detail && detail.hasAttribute('data-session-detail')) {
+      detail.style.display = visible && detail.getAttribute('data-expanded') === 'true' ? 'table-row' : 'none';
+    }
+  });
+}
+// One handler per filter group; all persist and re-apply the combined filter.
+function ccuSetActive(btn) {
+  var group = btn.parentNode;
+  if (!group) { return; }
+  group.querySelectorAll('.sess-filter-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+function sessionFilter(btn) {
+  if (!btn) { return; }
+  ccuSetActive(btn);
+  try { localStorage.setItem('ccu.sessionFilter', btn.getAttribute('data-mode')); } catch (e) {}
+  applySessionFilters();
+}
+function sessionRange(btn) {
+  if (!btn) { return; }
+  ccuSetActive(btn);
+  try { localStorage.setItem('ccu.sessionRange', btn.getAttribute('data-range')); } catch (e) {}
+  applySessionFilters();
+}
+function sessionModel(sel) {
+  if (!sel) { return; }
+  try { localStorage.setItem('ccu.sessionModel', sel.value); } catch (e) {}
+  applySessionFilters();
+}
+function restoreSessionFilter() {
+  // Restore each dimension from localStorage (survives the post-delete reload),
+  // then apply once. Defaults (nothing stored) = All range, All projects, All models.
+  try {
+    var mode = localStorage.getItem('ccu.sessionFilter');
+    if (mode) {
+      var pb = document.querySelector('.sess-filter[data-group="project"] .sess-filter-btn[data-mode="' + mode + '"]');
+      if (pb) { ccuSetActive(pb); }
+    }
+    var range = localStorage.getItem('ccu.sessionRange');
+    if (range) {
+      var rb = document.querySelector('.sess-filter[data-group="range"] .sess-filter-btn[data-range="' + range + '"]');
+      if (rb) { ccuSetActive(rb); }
+    }
+    var model = localStorage.getItem('ccu.sessionModel');
+    if (model) {
+      var ms = document.querySelector('.sess-model-select');
+      if (ms) {
+        for (var i = 0; i < ms.options.length; i++) {
+          if (ms.options[i].value === model) { ms.value = model; break; }
+        }
+      }
+    }
+  } catch (e) {}
+  applySessionFilters();
+}
+
+function copyPath(btn, e) {
+  if (e) { e.stopPropagation(); }
+  if (!btn) { return; }
+  var p = btn.getAttribute('data-path') || '';
+  if (!p) { return; }
+  var orig = btn.textContent;
+  var done = function() {
+    btn.classList.add('copied');
+    btn.textContent = '✓';
+    setTimeout(function() { btn.classList.remove('copied'); btn.textContent = orig; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(p).then(done, done);
+  } else { done(); }
+}
+
+function attrSetScope(kind) {
+  document.querySelectorAll('.attr-tab').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-kind') === kind);
+  });
+  var sessSel = document.getElementById('attrTargetSession');
+  var projSel = document.getElementById('attrTargetProject');
+  if (sessSel) { sessSel.style.display = kind === 'session' ? '' : 'none'; }
+  if (projSel) { projSel.style.display = kind === 'project' ? '' : 'none'; }
+  requestAttribution();
+}
+
+function requestAttribution() {
+  var active = document.querySelector('.attr-tab.active');
+  if (!active) { return; }
+  var kind = active.getAttribute('data-kind');
+  var scope = { kind: kind };
+  if (kind === 'session') {
+    var sessSel = document.getElementById('attrTargetSession');
+    if (!sessSel || !sessSel.value) { return; }
+    scope.sessionId = sessSel.value;
+  } else if (kind === 'project') {
+    var projSel = document.getElementById('attrTargetProject');
+    if (!projSel || !projSel.value) { return; }
+    scope.projectPath = projSel.value;
+  }
+  vscode.postMessage({ command: 'getAttribution', scope: scope });
 }
 
 function toggleProjectGroup(groupId) {
@@ -2578,7 +6951,7 @@ function toggleProjectGroup(groupId) {
 
 // Sort a table by a column key. Rows with class "sort-child" travel with the
 // preceding "sort-row" (used for expandable project groups).
-function sortTable(table, key, th) {
+function sortTable(table, key, th, restoring) {
   var tbody = table.querySelector('tbody');
   if (!tbody) { return; }
   var allRows = Array.prototype.slice.call(tbody.children);
@@ -2586,7 +6959,7 @@ function sortTable(table, key, th) {
   var units = [];
   var current = null;
   allRows.forEach(function(row) {
-    if (row.classList.contains('sort-child') && current) {
+    if ((row.classList.contains('sort-child') || row.hasAttribute('data-sort-child')) && current) {
       current.rows.push(row);
     } else {
       current = { lead: row, rows: [row] };
@@ -2623,11 +6996,27 @@ function sortTable(table, key, th) {
   units.forEach(function(u) {
     u.rows.forEach(function(r) { tbody.appendChild(r); });
   });
+
+  if (!restoring) {
+    var sorts = ccuReadUiState().tableSorts || {};
+    sorts[ccuElementStateKey(table, 'table')] = { key: key, direction: ascending ? 'asc' : 'desc' };
+    ccuWriteUiState('tableSorts', sorts);
+  }
+}
+function restoreTableSorts(root) {
+  var scope = root || document;
+  var sorts = ccuReadUiState().tableSorts || {};
+  scope.querySelectorAll('table').forEach(function(table) {
+    var saved = sorts[ccuElementStateKey(table, 'table')];
+    if (!saved) { return; }
+    var th = table.querySelector('th.sortable[data-sortkey="' + saved.key + '"]');
+    if (!th) { return; }
+    th.setAttribute('data-sortdir', saved.direction === 'asc' ? 'desc' : 'asc');
+    sortTable(table, saved.key, th, true);
+  });
 }
 
-function showTab(tabName) {
-  console.log("[DEBUG] showTab called:", tabName);
-
+function showTab(tabName, restoring) {
   try {
     // Remove active from all tabs and contents
     document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
@@ -2640,33 +7029,28 @@ function showTab(tabName) {
     if (selectedTab && selectedContent) {
       selectedTab.classList.add('active');
       selectedContent.classList.add('active');
-      console.log("[DEBUG] Tab switched successfully to:", tabName);
 
-      // Notify extension
-      vscode.postMessage({ command: 'tabChanged', tab: tabName });
+      if (!restoring) {
+        vscode.postMessage({ command: 'tabChanged', tab: tabName });
+        // Switching tabs resets expanded rows to their default (Carl's rule).
+        clearPersistedDetails();
+        // Persist in localStorage too — survives the reload, restored before paint.
+        try { localStorage.setItem('ccu.activeTab', tabName); } catch (e) {}
+      }
     } else {
-      console.error("[DEBUG] Tab or content not found:", tabName);
+      console.error("Tab or content not found:", tabName);
     }
   } catch (error) {
-    console.error("[DEBUG] Error switching tabs:", error);
+    console.error("Error switching tabs:", error);
   }
 }
 
 function toggleHourlyDetail(date) {
-  console.log("[DEBUG] toggleHourlyDetail called for date:", date);
-
   try {
     const detailRow = document.querySelector('.hourly-detail-row[data-date="' + date + '"]');
     const button = document.querySelector('.daily-row[data-date="' + date + '"] .detail-button');
     const container = document.getElementById('hourly-detail-' + date);
     const chartBar = document.querySelector('.chart-bar-container[data-date="' + date + '"] .chart-bar');
-
-    console.log("[DEBUG] Found elements:", {
-      detailRow: !!detailRow,
-      button: !!button,
-      container: !!container,
-      chartBar: !!chartBar
-    });
 
     if (detailRow && button && container) {
       const isExpanded = detailRow.style.display !== 'none' && detailRow.style.display !== '';
@@ -2682,14 +7066,10 @@ function toggleHourlyDetail(date) {
         // Update chart bar selection state
         if (chartBar) {
           chartBar.classList.add('selected');
-          console.log("[DEBUG] Chart bar selected for date:", date);
         }
-
-        console.log("[DEBUG] Showing hourly detail for date:", date);
 
         // Request hourly data if not loaded
         if (!container.dataset.loaded) {
-          console.log("[DEBUG] Requesting hourly data for date:", date);
           vscode.postMessage({ command: 'getHourlyData', date: date });
           container.dataset.loaded = 'true';
         }
@@ -2706,23 +7086,18 @@ function toggleHourlyDetail(date) {
         // Update chart bar selection state
         if (chartBar) {
           chartBar.classList.remove('selected');
-          console.log("[DEBUG] Chart bar deselected for date:", date);
         }
-
-        console.log("[DEBUG] Hiding hourly detail for date:", date);
       }
 
     } else {
-      console.error("[DEBUG] Could not find required elements for date:", date);
+      console.error("Could not find required elements for date:", date);
     }
   } catch (error) {
-    console.error("[DEBUG] Error in toggleHourlyDetail:", error);
+    console.error("Error in toggleHourlyDetail:", error);
   }
 }
 
 function closeAllHourlyDetails() {
-  console.log("[DEBUG] closeAllHourlyDetails called");
-
   // Close all expanded detail rows
   const allDetailRows = document.querySelectorAll('.hourly-detail-row');
   const allButtons = document.querySelectorAll('.detail-button.expanded');
@@ -2740,24 +7115,14 @@ function closeAllHourlyDetails() {
     bar.classList.remove('selected');
   });
 
-  console.log("[DEBUG] Closed all detail rows");
 }
 
 function toggleMonthlyDetail(monthDate) {
-  console.log("[DEBUG] toggleMonthlyDetail called for month:", monthDate);
-
   try {
     const detailRow = document.querySelector('.monthly-detail-row[data-date="' + monthDate + '"]');
     const button = document.querySelector('.daily-row[data-date="' + monthDate + '"] .detail-button');
     const container = document.getElementById('monthly-detail-' + monthDate);
     const chartBar = document.querySelector('.chart-bar-container[data-date="' + monthDate + '"] .chart-bar');
-
-    console.log("[DEBUG] Found elements:", {
-      detailRow: !!detailRow,
-      button: !!button,
-      container: !!container,
-      chartBar: !!chartBar
-    });
 
     if (detailRow && button && container) {
       const isExpanded = detailRow.style.display !== 'none' && detailRow.style.display !== '';
@@ -2773,14 +7138,10 @@ function toggleMonthlyDetail(monthDate) {
         // Update chart bar selection state
         if (chartBar) {
           chartBar.classList.add('selected');
-          console.log("[DEBUG] Chart bar selected for month:", monthDate);
         }
-
-        console.log("[DEBUG] Showing monthly detail for month:", monthDate);
 
         // Request monthly data if not loaded
         if (!container.dataset.loaded) {
-          console.log("[DEBUG] Requesting daily data for month:", monthDate);
           vscode.postMessage({ command: 'getDailyData', month: monthDate });
           container.dataset.loaded = 'true';
         }
@@ -2795,23 +7156,18 @@ function toggleMonthlyDetail(monthDate) {
         // Update chart bar selection state
         if (chartBar) {
           chartBar.classList.remove('selected');
-          console.log("[DEBUG] Chart bar deselected for month:", monthDate);
         }
-
-        console.log("[DEBUG] Hiding monthly detail for month:", monthDate);
       }
 
     } else {
-      console.error("[DEBUG] Could not find required elements for month:", monthDate);
+      console.error("Could not find required elements for month:", monthDate);
     }
   } catch (error) {
-    console.error("[DEBUG] Error in toggleMonthlyDetail:", error);
+    console.error("Error in toggleMonthlyDetail:", error);
   }
 }
 
 function closeAllMonthlyDetails() {
-  console.log("[DEBUG] closeAllMonthlyDetails called");
-
   // Close all expanded monthly detail rows
   const allDetailRows = document.querySelectorAll('.monthly-detail-row');
   const allButtons = document.querySelectorAll('.detail-button.expanded');
@@ -2829,12 +7185,9 @@ function closeAllMonthlyDetails() {
     bar.classList.remove('selected');
   });
 
-  console.log("[DEBUG] Closed all monthly detail rows");
 }
 
 function updateHourlyChart(date, metric) {
-  console.log("[DEBUG] updateHourlyChart called with date:", date, "metric:", metric);
-
   const container = document.getElementById('hourly-detail-' + date);
   if (!container) return;
 
@@ -2858,8 +7211,6 @@ function updateHourlyChart(date, metric) {
 
 // Sync chart bar selection state
 function syncChartBarSelection(date, isSelected) {
-  console.log("[DEBUG] syncChartBarSelection called for date:", date, "selected:", isSelected);
-
   const chartBar = document.querySelector('.chart-bar-container[data-date="' + date + '"] .chart-bar');
   if (chartBar) {
     if (isSelected) {
@@ -2877,6 +7228,10 @@ window.refreshPricing = refreshPricing;
 window.getAdvice = getAdvice;
 window.toggleProjectGroup = toggleProjectGroup;
 window.sortTable = sortTable;
+window.dismissQuotaWarn = dismissQuotaWarn;
+window.toggleSessionDetails = toggleSessionDetails;
+window.attrSetScope = attrSetScope;
+window.requestAttribution = requestAttribution;
 window.showTab = showTab;
 window.toggleHourlyDetail = toggleHourlyDetail;
 window.toggleMonthlyDetail = toggleMonthlyDetail;
@@ -2888,35 +7243,89 @@ window.closeAllMonthlyDetails = closeAllMonthlyDetails;
 // Handle messages from extension
 window.addEventListener('message', function(event) {
   const message = event.data;
-  console.log("[DEBUG] Received message from extension:", message);
+
+  if (message.command === 'shareCardResult') {
+    const prev = document.getElementById('scPreview');
+    if (prev) {
+      prev.innerHTML = message.error
+        ? '<p class="table-hint">Could not build the card: ' + message.error + '</p>'
+        : (message.svg || '');
+    }
+  }
 
   if (message.command === 'hourlyDataResponse') {
     const container = document.getElementById('hourly-detail-' + message.date);
     if (container && message.data) {
-      console.log("[DEBUG] Rendering hourly data for date:", message.date);
       container.innerHTML = renderHourlyData(message.data, message.date);
 
       // Re-bind chart tab events after rendering
       bindChartTabEvents(container);
+      restoreChartMetrics(container);
     }
   }
 
   if (message.command === 'dailyDataResponse') {
     const container = document.getElementById('monthly-detail-' + message.month);
     if (container && message.data) {
-      console.log("[DEBUG] Rendering daily data for month:", message.month);
       container.innerHTML = renderDailyData(message.data, message.month);
 
       // Re-bind chart tab events after rendering
       bindChartTabEvents(container);
+      restoreChartMetrics(container);
     }
+  }
+
+  if (message.command === 'attributionResponse') {
+    const attrPanel = document.getElementById('attrPanel');
+    if (attrPanel && typeof message.html === 'string') {
+      attrPanel.innerHTML = message.html;
+    }
+  }
+
+  if (message.command === 'optimizeResult') {
+    showOptimizeResult(message);
   }
 });
 
+// Format any optimiser settings restored into the DOM by a re-render.
+formatOptSettings();
+
+function ccuChartStateKey(container) {
+  var content = container.querySelector('.chart-content[id]');
+  return ccuProviderName() + ':chart:' + (content ? content.id : ccuElementStateKey(container, 'chart'));
+}
+function saveChartMetric(container, metric) {
+  var metrics = ccuReadUiState().chartMetrics || {};
+  metrics[ccuChartStateKey(container)] = metric;
+  ccuWriteUiState('chartMetrics', metrics);
+}
+function applyChartMetric(container, metric, persist) {
+  var tab = container.querySelector('.chart-tab[data-metric="' + metric + '"]');
+  if (!tab) { return; }
+  container.querySelectorAll('.chart-tab').forEach(function(item) { item.classList.remove('active'); });
+  tab.classList.add('active');
+  if (container.classList.contains('hourly-breakdown')) {
+    var chartContent = container.querySelector('[id^="hourly-chart-"]');
+    if (chartContent) { updateHourlyChart(chartContent.id.replace('hourly-chart-', ''), metric); }
+  } else {
+    updateMainChart(metric, container);
+  }
+  if (persist) { saveChartMetric(container, metric); }
+}
+function restoreChartMetrics(root) {
+  var scope = root || document;
+  var containers = [];
+  if (scope.matches && scope.matches('.daily-breakdown, .hourly-breakdown')) { containers.push(scope); }
+  scope.querySelectorAll('.daily-breakdown, .hourly-breakdown').forEach(function(item) { containers.push(item); });
+  var metrics = ccuReadUiState().chartMetrics || {};
+  containers.forEach(function(container) {
+    var metric = metrics[ccuChartStateKey(container)];
+    if (metric) { applyChartMetric(container, metric, false); }
+  });
+}
+
 // Global event delegation for chart tabs and chart bars
 document.addEventListener('click', function(event) {
-  console.log("[DEBUG] Document click event:", event.target);
-
   // Handle sortable table header clicks
   var sortableTh = event.target.closest ? event.target.closest('th.sortable') : null;
   if (sortableTh) {
@@ -2929,46 +7338,21 @@ document.addEventListener('click', function(event) {
   }
 
   // Handle chart tab clicks
-  if (event.target.classList.contains('chart-tab')) {
-    console.log("[DEBUG] Chart tab clicked:", event.target);
-
+  var chartTab = event.target.closest ? event.target.closest('.chart-tab[data-metric]') : null;
+  if (chartTab) {
     event.preventDefault();
-    const metric = event.target.dataset.metric;
-    console.log("[DEBUG] Chart tab metric:", metric);
+    const metric = chartTab.dataset.metric;
 
     // Find the container and determine the context
-    const container = event.target.closest('.daily-breakdown') || event.target.closest('.hourly-breakdown');
-    console.log("[DEBUG] Chart tab container:", container);
+    const container = chartTab.closest('.daily-breakdown') || chartTab.closest('.hourly-breakdown');
 
     if (container) {
-      // Update active tab
-      const tabs = container.querySelectorAll('.chart-tab');
-      tabs.forEach(function(tab) {
-        tab.classList.remove('active');
-      });
-      event.target.classList.add('active');
-
-      // Determine chart type and update accordingly
-      if (container.classList.contains('hourly-breakdown')) {
-        // This is an hourly detail chart - extract date from the chart content ID
-        const chartContent = container.querySelector('[id^="hourly-chart-"]');
-        if (chartContent) {
-          const date = chartContent.id.replace('hourly-chart-', '');
-          console.log("[DEBUG] Updating hourly chart for date:", date, "metric:", metric);
-          updateHourlyChart(date, metric);
-        }
-      } else {
-        // This is a main chart (daily/monthly)
-        console.log("[DEBUG] Updating main chart with metric:", metric);
-        updateMainChart(metric, container);
-      }
+      applyChartMetric(container, metric, true);
     }
   }
 
   // Handle chart bar clicks - only for clickable charts
   if (event.target.classList.contains('chart-bar') && event.target.classList.contains('clickable')) {
-    console.log("[DEBUG] Clickable chart bar clicked:", event.target);
-
     event.preventDefault();
     // Daily/monthly charts now use .hc-col; the JS-rendered drill-downs still
     // use .chart-bar-container — support both.
@@ -2976,8 +7360,6 @@ document.addEventListener('click', function(event) {
     if (container) {
       const date = container.dataset.date;
       if (date) {
-        console.log("[DEBUG] Chart bar clicked for date:", date);
-
         // Determine if this is a monthly chart or daily chart based on current tab
         const activeTab = document.querySelector('.tab.active');
         if (activeTab && activeTab.id === 'tab-all') {
@@ -2993,14 +7375,9 @@ document.addEventListener('click', function(event) {
 });
 
 function bindChartTabEvents(container) {
-  console.log("[DEBUG] Binding chart tab events for container:", container);
+  const chartTabs = container.querySelectorAll('.chart-tab[data-metric]');
 
-  const chartTabs = container.querySelectorAll('.chart-tab');
-  console.log("[DEBUG] Found chart tabs:", chartTabs.length);
-
-  chartTabs.forEach(function(tab, index) {
-    console.log("[DEBUG] Processing chart tab", index, ":", tab.dataset.metric);
-
+  chartTabs.forEach(function(tab) {
     // Remove existing event listeners to prevent duplicates
     tab.removeEventListener('click', handleChartTabClick);
 
@@ -3010,42 +7387,28 @@ function bindChartTabEvents(container) {
 }
 
 function handleChartTabClick(event) {
-  console.log("[DEBUG] handleChartTabClick called");
   event.preventDefault();
 
   const metric = this.dataset.metric;
+  if (!metric) { return; }
   const container = this.closest('.daily-breakdown') || this.closest('.hourly-breakdown');
 
   if (container) {
-    // Update active tab
-    const tabs = container.querySelectorAll('.chart-tab');
-    tabs.forEach(function(tab) {
-      tab.classList.remove('active');
-    });
-    this.classList.add('active');
-
-    // Update chart based on context
-    if (container.classList.contains('hourly-breakdown')) {
-      const chartContent = container.querySelector('[id^="hourly-chart-"]');
-      if (chartContent) {
-        const date = chartContent.id.replace('hourly-chart-', '');
-        updateHourlyChart(date, metric);
-      }
-    } else {
-      updateMainChart(metric, null);
-    }
+    applyChartMetric(container, metric, true);
   }
 }
 
 function updateMainChart(metric, container) {
-  console.log("[DEBUG] updateMainChart called with metric:", metric, "container:", container);
-
+  if (typeof metric !== 'string' ||
+      ['cost', 'inputTokens', 'outputTokens', 'cacheCreation', 'cacheRead', 'messages'].indexOf(metric) === -1) {
+    return;
+  }
   // If container is provided, use it; otherwise find the active tab content
   let targetContainer = container;
   if (!targetContainer) {
     targetContainer = document.querySelector('.tab-content.active');
     if (!targetContainer) {
-      console.error("[DEBUG] No active tab content found");
+      console.error("No active tab content found");
       return;
     }
   }
@@ -3053,11 +7416,8 @@ function updateMainChart(metric, container) {
   // Update chart in the target container
   const chartBars = targetContainer.querySelectorAll('.chart-bar');
   if (chartBars.length === 0) {
-    console.log("[DEBUG] No chart bars found in target container");
     return;
   }
-
-  console.log("[DEBUG] Updating", chartBars.length, "chart bars with metric:", metric);
 
   // Calculate max values for the metric
   const values = Array.from(chartBars).map(function(bar) {
@@ -3067,8 +7427,6 @@ function updateMainChart(metric, container) {
 
   const maxValue = Math.max(...values);
   const maxHeight = 120;
-
-  console.log("[DEBUG] Max value for metric", metric, ":", maxValue);
 
   // Update each bar
   chartBars.forEach(function(bar, index) {
@@ -3099,17 +7457,21 @@ function updateMainChart(metric, container) {
     }
 
     // Update tooltip + on-bar value label
-    const formattedValue = formatValue(value, metric);
+    const formattedValue = metric === 'cost' && bar.dataset.pricedTokens === '0'
+      ? '—'
+      : formatValue(value, metric);
     const container = bar.parentElement;
     const date = container.dataset.date;
     const hour = container.dataset.hour;
+    const costHelp = metric === 'cost' ? bar.dataset.costHelp : '';
+    const valueWithHelp = costHelp ? formattedValue + ' · ' + costHelp : formattedValue;
 
     if (hour) {
       // Hourly chart: tooltip shows the value only (the hour is on the x-axis).
-      bar.title = formattedValue;
+      bar.title = valueWithHelp;
     } else if (date) {
       const dateObj = new Date(date);
-      bar.title = dateObj.toLocaleDateString() + ': ' + formattedValue;
+      bar.title = dateObj.toLocaleDateString() + ': ' + valueWithHelp;
     }
 
     const barVal = container.querySelector('.hc-barval');
@@ -3127,9 +7489,12 @@ function updateMainChart(metric, container) {
   const wrap = firstBar && firstBar.closest ? firstBar.closest('.hc-wrap') : null;
   const yvals = wrap ? wrap.querySelectorAll('.hc-yaxis .hc-yval') : [];
   if (yvals.length === 3) {
-    yvals[0].textContent = formatValue(maxValue, metric);
-    yvals[1].textContent = formatValue(maxValue / 2, metric);
-    yvals[2].textContent = formatValue(0, metric);
+    const hasPricedCost = metric !== 'cost' || Array.from(chartBars).some(function(bar) {
+      return bar.dataset.pricedTokens !== '0';
+    });
+    yvals[0].textContent = hasPricedCost ? formatValue(maxValue, metric) : '—';
+    yvals[1].textContent = hasPricedCost ? formatValue(maxValue / 2, metric) : '—';
+    yvals[2].textContent = hasPricedCost ? formatValue(0, metric) : '—';
   }
 }
 
@@ -3181,6 +7546,52 @@ function formatValue(value, metric) {
   }
 }
 
+// Cache hit rate for a drill-down row: cacheRead / (input + cacheWrite + cacheRead).
+function cacheHitPct(d) {
+  var den = d.totalInputTokens + d.totalCacheCreationTokens + d.totalCacheReadTokens;
+  return den > 0 ? (d.totalCacheReadTokens / den * 100).toFixed(0) + '%' : '-';
+}
+
+// Client-side stacked token-composition chart (mirrors the server-rendered
+// renderCompositionChart, same CSS classes). Used when a month is expanded to
+// show its per-day composition. items: [{ label, data }].
+function compositionHtml(items) {
+  if (!items || !items.length) { return ''; }
+  var maxH = 120;
+  var totals = items.map(function(it) {
+    var d = it.data;
+    return d.totalInputTokens + d.totalOutputTokens + d.totalCacheCreationTokens + d.totalCacheReadTokens;
+  });
+  var maxTotal = Math.max.apply(null, totals.concat([1]));
+  var fmt = function(n) { return n.toLocaleString(__locale); };
+  var bars = items.map(function(it, idx) {
+    var d = it.data, total = totals[idx], barH = (total / maxTotal) * maxH;
+    var seg = function(v, cls, label) {
+      var h = total > 0 ? (v / total) * barH : 0;
+      return '<div class="stack-seg ' + cls + '" style="height:' + h + 'px;" title="' + label + ': ' + fmt(v) + '"></div>';
+    };
+    return '<div class="hc-col"><div class="stack-bar" title="' + it.label + ': ' + fmt(total) + '">'
+      + seg(d.totalInputTokens, 'seg-input', '${I18n.t.popup.inputTokens}')
+      + seg(d.totalCacheReadTokens, 'seg-cache-read', '${I18n.t.popup.cacheRead}')
+      + seg(d.totalCacheCreationTokens, 'seg-cache-creation', '${I18n.t.popup.cacheCreation}')
+      + seg(d.totalOutputTokens, 'seg-output', '${I18n.t.popup.outputTokens}')
+      + '</div></div>';
+  }).join('');
+  var xlabels = items.map(function(it) { return '<div class="hc-xlabel">' + it.label + '</div>'; }).join('');
+  var dot = function(cls, label) { return '<span class="legend-item"><span class="legend-dot ' + cls + '"></span>' + label + '</span>'; };
+  return '<div class="composition-chart"><h4>${I18n.t.popup.tokenComposition}</h4>'
+    + '<div class="stack-legend">'
+    + dot('seg-input', '${I18n.t.popup.inputTokens}') + dot('seg-cache-read', '${I18n.t.popup.cacheRead}')
+    + dot('seg-cache-creation', '${I18n.t.popup.cacheCreation}') + dot('seg-output', '${I18n.t.popup.outputTokens}')
+    + '</div>'
+    + '<div class="hc-wrap"><div class="hc-yaxis">'
+    + '<span class="hc-yval">' + fmt(maxTotal) + '</span><span class="hc-yval">' + fmt(Math.round(maxTotal / 2)) + '</span><span class="hc-yval">0</span>'
+    + '</div><div class="hc-main"><div class="hc-scroll" tabindex="0"><div class="hc-plot">'
+    + '<div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>'
+    + '<div class="hc-bars">' + bars + '</div></div>'
+    + '<div class="hc-xlabels">' + xlabels + '</div></div></div></div></div>';
+}
+
 function renderHourlyData(hourlyData, date) {
   if (!hourlyData || hourlyData.length === 0) {
     return '<div class="no-data">${I18n.t.popup.noDataMessage}</div>';
@@ -3204,13 +7615,14 @@ function renderHourlyData(hourlyData, date) {
   html += renderHourlyChart(hourlyData, 'cost');
   html += '</div>';
 
-  html += '<div class="daily-table-container"><table class="daily-table"><thead><tr>';
+  html += '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>';
   html += '<th>${I18n.t.popup.hour}</th>';
   html += '<th>${I18n.t.popup.cost}</th>';
   html += '<th>${I18n.t.popup.inputTokens}</th>';
   html += '<th>${I18n.t.popup.outputTokens}</th>';
   html += '<th>${I18n.t.popup.cacheCreation}</th>';
   html += '<th>${I18n.t.popup.cacheRead}</th>';
+  html += '<th>${I18n.t.popup.cacheHitRate}</th>';
   html += '<th>${I18n.t.popup.messages}</th>';
   html += '</tr></thead><tbody>';
 
@@ -3222,6 +7634,7 @@ function renderHourlyData(hourlyData, date) {
     html += '<td class="number-cell">' + item.data.totalOutputTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + item.data.totalCacheCreationTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + item.data.totalCacheReadTokens.toLocaleString(__locale) + '</td>';
+    html += '<td class="number-cell">' + cacheHitPct(item.data) + '</td>';
     html += '<td class="number-cell">' + item.data.messageCount.toLocaleString(__locale) + '</td>';
     html += '</tr>';
   });
@@ -3254,13 +7667,23 @@ function renderDailyData(dailyData, monthDate) {
   html += renderDailyChart(dailyData, 'cost');
   html += '</div>';
 
-  html += '<div class="daily-table-container"><table class="daily-table"><thead><tr>';
+  // Per-day token composition for this month (the drill-down of the all-time
+  // monthly composition the user clicked).
+  html += compositionHtml(dailyData.map(function(item) {
+    return {
+      label: new Date(item.date).toLocaleDateString(__locale, __dateOpts({ month: 'numeric', day: 'numeric' })),
+      data: item.data
+    };
+  }));
+
+  html += '<div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>';
   html += '<th>${I18n.t.popup.date}</th>';
   html += '<th>${I18n.t.popup.cost}</th>';
   html += '<th>${I18n.t.popup.inputTokens}</th>';
   html += '<th>${I18n.t.popup.outputTokens}</th>';
   html += '<th>${I18n.t.popup.cacheCreation}</th>';
   html += '<th>${I18n.t.popup.cacheRead}</th>';
+  html += '<th>${I18n.t.popup.cacheHitRate}</th>';
   html += '<th>${I18n.t.popup.messages}</th>';
   html += '</tr></thead><tbody>';
 
@@ -3275,6 +7698,7 @@ function renderDailyData(dailyData, monthDate) {
     html += '<td class="number-cell">' + item.data.totalOutputTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + item.data.totalCacheCreationTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + item.data.totalCacheReadTokens.toLocaleString(__locale) + '</td>';
+    html += '<td class="number-cell">' + cacheHitPct(item.data) + '</td>';
     html += '<td class="number-cell">' + item.data.messageCount.toLocaleString(__locale) + '</td>';
     html += '</tr>';
   });
@@ -3352,7 +7776,7 @@ function griddedChart(items, metric, opts) {
     '<span class="hc-yval">' + formatValue(maxValue / 2, metric) + '</span>' +
     '<span class="hc-yval">' + formatValue(0, metric) + '</span>' +
     '</div>' +
-    '<div class="hc-main"><div class="hc-scroll">' +
+    '<div class="hc-main"><div class="hc-scroll" tabindex="0">' +
     '<div class="hc-plot"><div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>' +
     '<div class="hc-bars">' + bars + '</div></div>' +
     '<div class="hc-xlabels">' + xlabels + '</div>' +
@@ -3386,16 +7810,7 @@ function renderHourlyChart(hourlyData, metric) {
   });
 }
 
-// Initialize chart tab events for existing elements
-setTimeout(function() {
-  console.log("[DEBUG] Initializing chart tab events for existing elements");
-  const existingChartContainers = document.querySelectorAll('.daily-breakdown');
-  existingChartContainers.forEach(function(container) {
-    bindChartTabEvents(container);
-  });
-}, 1000);
-
-console.log("[DEBUG] All functions defined and ready");`;
+`;
   }
 
   dispose(): void {

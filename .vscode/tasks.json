@@ -2,8 +2,15 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "type": "npm",
-      "script": "compile",
+      // Run tsc directly via node — NOT `npm run compile`. On Windows the npm
+      // task type shells out through powershell.exe and tries to run npm.ps1,
+      // which the default execution policy blocks ("running scripts is
+      // disabled"), so F5 failed with exit code 1 every time. `type: process`
+      // runs the executable with no shell, so no policy applies.
+      "label": "compile",
+      "type": "process",
+      "command": "node",
+      "args": ["./node_modules/typescript/bin/tsc", "-p", "./"],
       "group": "build",
       "presentation": {
         "panel": "shared"

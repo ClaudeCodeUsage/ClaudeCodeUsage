@@ -1,0 +1,66 @@
+# Auto first-pass review on every NEW pull request — a CONTROLLED single model
+# call (not an autonomous agent). Uses pull_request_target for the token but
+# NEVER runs the PR's code: it checks out the BASE repo, fetches the diff via the
+# API, asks the model, and posts one comment. Public text remains untrusted; the
+# fixed runner has no tools, reads only validated base-repo text, and model
+# output can still be wrong.
+#
+# INERT until AUTOMATION_ENABLED = 'true' + the ANTHROPIC_API_KEY secret.
+# Optional repo vars: ANTHROPIC_BASE_URL, CCU_BOT_MODEL / CCU_BOT_MODEL_PRO and
+# matching CCU_BOT_GENERATOR / CCU_BOT_GENERATOR_PRO. Generator values are
+# optional for recognized model IDs; explicit values are deepseek or claude.
+name: PR first-pass (auto)
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-first-pass-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    # Skip PRs from maintainers (OWNER / MEMBER / COLLABORATOR): their PRs are
+    # usually finished work that doesn't need an auto first-pass — the review is
+    # for external contributors. Also skip bot-authored PRs.
+    if: >-
+      vars.AUTOMATION_ENABLED == 'true'
+      && github.event.pull_request.user.type != 'Bot'
+      && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      # Base repo only — never checks out or runs the PR head with the token.
+      - name: Checkout base repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch PR diff (via API, no code run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr diff ${{ github.event.pull_request.number }} --repo ${{ github.repository }} > /tmp/pr.diff
+          test -s /tmp/pr.diff
+
+      - name: First-pass review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_KIND: pr
+          ITEM_NUMBER: ${{ github.event.pull_request.number }}
+          ITEM_TITLE: ${{ github.event.pull_request.title }}
+          ITEM_BODY: ${{ github.event.pull_request.body }}
+          DIFF_FILE: /tmp/pr.diff
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+          CCU_BOT_MODEL: ${{ vars.CCU_BOT_MODEL }}
+          CCU_BOT_MODEL_PRO: ${{ vars.CCU_BOT_MODEL_PRO }}
+          CCU_BOT_GENERATOR: ${{ vars.CCU_BOT_GENERATOR }}
+          CCU_BOT_GENERATOR_PRO: ${{ vars.CCU_BOT_GENERATOR_PRO }}
+        run: node .github/scripts/first-pass.mjs

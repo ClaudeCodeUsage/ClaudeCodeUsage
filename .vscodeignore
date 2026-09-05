@@ -1,12 +1,25 @@
 .vscode/**
 .vscode-test/**
 .claude/**
+.agents/**
+.codex/**
+.worktrees/**
+.superpowers/**
 .github/**
 src/**
+out/test/**
+tests/**
+playwright.config.mjs
+test-results/**
+playwright-report/**
+AGENTS.md
+AGENTS.zh-CN.md
 CLAUDE.md
 CLAUDE.local.md
 CONTRIBUTING.md
 probe-*.mjs
+issue87-*.cjs
+out/claudeIncrementalPrototype.js
 docs/**
 
 .gitignore
@@ -25,3 +38,10 @@ tsconfig.json
 tslint.json
 **/*.ts.map
 **/*.js.map
+**/.env
+**/.env.*
+**/secrets.json
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx

@@ -321,13 +321,120 @@ Warum: Gibt Claude eine Entscheidungsgrenze, nicht ein Dutzend.
   Sonnet 4.6 bei ausreichender Qualität.
 `;
 
+const PT_BR = `## Resumo
+
+Nos últimos 30 dias, **as respostas do assistente e os resultados de ferramentas dominam
+seus gastos** (≈68% combinados), enquanto seus próprios prompts representam apenas ≈11%.
+O padrão: prompts curtos e exploratórios como *"dá uma olhada em..."* disparam várias
+chamadas Read/Grep que inflam os tokens de saída.
+
+A principal alavanca é a **precisão dos prompts**, não "usar um modelo menor".
+
+## Reescritas concretas
+
+### 1. Enquadramento "explore primeiro"
+
+**Antes:** *"Dá uma olhada no módulo de autenticação e me diz o que está acontecendo."*
+
+**Depois:** *"Em \`src/auth/session.ts\`, \`refreshToken()\` está retornando 401
+intermitentemente em produção. Leia este arquivo e seus chamadores diretos, depois
+proponha uma correção. Não resuma o módulo inteiro."*
+
+Por quê: indica o *sintoma*, nomeia o *escopo* e suprime o resumo desnecessário.
+
+### 2. Desvio de escopo durante a tarefa
+
+**Antes:** *"Ah, pode também confirmar que os testes ainda passam? E adicionar um teste
+para o caso extremo que discutimos?"*
+
+**Depois:** *"Adicione **um** teste para o caso de array vazio em \`parseConfig\`.
+Execute apenas \`npm test -- parseConfig.test.ts\`. Não adicione outros testes."*
+
+Por quê: limita a mudança, o comando de teste e a área de impacto.
+
+### 3. "Use seu julgamento"
+
+**Antes:** *"Refatore isso da forma que achar mais limpa."*
+
+**Depois:** *"Extraia a lógica de retry de \`processBatch\` para um helper
+\`retryWithBackoff\`. Mantenha todo o resto igual. Não renomeie variáveis."*
+
+Por quê: dá ao Claude uma única decisão a tomar, não uma dúzia.
+
+## Economias menores
+
+- **Taxa de acerto do cache: 41%** — bom. Não quebre o cache editando CLAUDE.md
+  no meio da session; edite entre sessions.
+- **Context window médio ao final da session: 89k tokens.** Sessions acima de ~140k ficam
+  exponencialmente mais caras por turno — inicie novas sessions mais cedo.
+- **Haiku 4.5 aparece em 0% das suas sessions.** Para reformatar, comentar ou "explica
+  essa linha", ele custa ~1/15 de Sonnet 4.6 com qualidade suficiente.
+`;
+
+const ID = `## Ringkasan
+
+Dalam 30 hari terakhir, **hasil asisten dan hasil tool mendominasi
+pengeluaran Anda** (≈68% gabungan), sementara prompt Anda sendiri hanya
+menyumbang ≈11%. Polanya: prompt pendek dan eksploratif seperti *"coba lihat
+dulu..."* memicu banyak panggilan Read/Grep yang menggelembungkan token
+keluaran.
+
+Tuas utamanya adalah **presisi prompt**, bukan "pakai model yang lebih kecil".
+
+## Penulisan ulang konkret
+
+### 1. Kerangka "eksplorasi dulu"
+
+**Sebelum:** *"Coba lihat modul auth dan kasih tahu apa yang terjadi."*
+
+**Sesudah:** *"Di \`src/auth/session.ts\`, \`refreshToken()\` mengembalikan 401
+sesekali di production. Baca file ini beserta pemanggil langsungnya, lalu
+usulkan perbaikan. Jangan rangkum seluruh modul."*
+
+Kenapa: menyatakan *gejala*, menyebutkan *cakupan*, menekan output ringkasan
+yang tidak diinginkan.
+
+### 2. Pergeseran cakupan di tengah tugas
+
+**Sebelum:** *"Terus bisa pastikan testnya masih lolos? Tambahkan test untuk
+kasus edge yang kita bahas?"*
+
+**Sesudah:** *"Tambahkan **satu** test untuk kasus array kosong di
+\`parseConfig\`. Jalankan hanya \`npm test -- parseConfig.test.ts\`. Jangan
+tambahkan test yang tidak terkait."*
+
+Kenapa: membatasi perubahan, perintah test, dan area yang tersentuh.
+
+### 3. "Pakai penilaianmu sendiri"
+
+**Sebelum:** *"Refactor ini terserah menurutmu yang paling rapi."*
+
+**Sesudah:** *"Ekstrak logika retry dari \`processBatch\` ke helper
+\`retryWithBackoff\`. Biarkan sisanya tidak berubah. Jangan ganti nama
+variabel."*
+
+Kenapa: memberi Claude satu batas keputusan, bukan selusin.
+
+## Penghematan lebih kecil
+
+- **Proporsi cache hit 41%** — bagus. Jangan rusak dengan mengedit CLAUDE.md
+  di tengah sesi; edit di antara sesi saja.
+- **Rata-rata konteks di akhir sesi: 89k token.** Sesi di atas ~140k jadi
+  jauh lebih mahal per giliran secara eksponensial — mulai sesi baru lebih awal.
+- **Haiku 4.5 muncul di 0% sesi Anda.** Untuk tugas reformat / komentar /
+  "jelaskan baris ini" yang sepele, biayanya ~1/15 dari Sonnet 4.6 dengan
+  kualitas yang tetap memadai.
+`;
+
 const BODIES: Record<SupportedLanguage, string> = {
   'en': EN,
   'zh-CN': ZH_CN,
   'zh-TW': ZH_TW,
   'ja': JA,
   'ko': KO,
-  'de-DE': DE
+  'de-DE': DE,
+  'pt-BR': PT_BR,
+  'id': ID
 };
 
 /** Demo body for the user's UI language; falls back to English. */

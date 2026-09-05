@@ -13,6 +13,45 @@ export interface TokenUsage {
   output_tokens: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
+  // Optional TTL split of cache_creation_input_tokens, as Claude Code writes
+  // it. When present, the 1-hour portion is billed at 2x base input and the
+  // 5-minute portion at 1.25x; when absent, the whole total uses the 5-minute
+  // rate (see cacheCreationCost).
+  cache_creation?: {
+    ephemeral_1h_input_tokens?: number;
+    ephemeral_5m_input_tokens?: number;
+  };
+}
+
+/**
+ * Cost of the cache-write (cache_creation) tokens, splitting the 1-hour and
+ * 5-minute TTL portions when the usage record carries them
+ * (usage.cache_creation.ephemeral_1h/5m). Claude bills a 1-hour write at 2x
+ * base input versus the 5-minute write's 1.25x, so lumping both at the 5-minute
+ * rate under-counts any 1-hour writes. Falls back to the 5-minute rate for the
+ * whole total when the split (or the 1-hour rate) is unavailable — matching
+ * Claude Code's default 5-minute writes and every older/proxy log.
+ */
+function cacheCreationCost(tokens: TokenUsage, pricing: ModelPricing): number {
+  const fiveMRate = pricing.cache_creation_input_token_cost;
+  if (fiveMRate == null) {
+    return 0;
+  }
+  const split = tokens.cache_creation;
+  const oneH = split?.ephemeral_1h_input_tokens || 0;
+  const fiveMExplicit = split?.ephemeral_5m_input_tokens;
+  // Total is the max of the flat field and the split's sum, so a record that
+  // carries only one of the two shapes is still priced fully.
+  const total = Math.max(
+    tokens.cache_creation_input_tokens || 0,
+    oneH + (fiveMExplicit || 0)
+  );
+  if (total <= 0) {
+    return 0;
+  }
+  const oneHRate = pricing.cache_creation_1h_input_token_cost ?? fiveMRate;
+  const fiveM = fiveMExplicit != null ? fiveMExplicit : Math.max(0, total - oneH);
+  return fiveM * fiveMRate + oneH * oneHRate;
 }
 
 const MILL = 1_000_000;
@@ -23,8 +62,13 @@ const MILL = 1_000_000;
 //
 // Cache pricing follows Anthropic's standard multipliers vs base input price:
 //   - 5-minute cache write : 1.25x base input  (what Claude Code writes by default)
+//   - 1-hour cache write   : 2.00x base input  (used when a 1h TTL is requested)
 //   - cache read (hit)     : 0.10x base input
-// `cache_creation_input_token_cost` below uses the 5-minute write rate.
+// `cache_creation_input_token_cost` below is the 5-minute write rate;
+// `cache_creation_1h_input_token_cost` is the 1-hour write rate. When a log
+// record carries the TTL split (usage.cache_creation.ephemeral_1h/5m), each
+// portion is billed at its own rate; otherwise the whole cache-write total
+// falls back to the 5-minute rate (what Claude Code writes by default).
 // =====================================================================
 
 // Fable 5 / Mythos 5 — frontier tier ($10 / $50), verified 2026-06-09
@@ -33,6 +77,7 @@ const FABLE_5: ModelPricing = {
   input_cost_per_token: 10 / MILL,
   output_cost_per_token: 50 / MILL,
   cache_creation_input_token_cost: 12.5 / MILL,
+  cache_creation_1h_input_token_cost: 20 / MILL,
   cache_read_input_token_cost: 1 / MILL,
 };
 
@@ -41,6 +86,7 @@ const OPUS_CURRENT: ModelPricing = {
   input_cost_per_token: 5 / MILL,
   output_cost_per_token: 25 / MILL,
   cache_creation_input_token_cost: 6.25 / MILL,
+  cache_creation_1h_input_token_cost: 10 / MILL,
   cache_read_input_token_cost: 0.5 / MILL,
 };
 
@@ -49,6 +95,7 @@ const OPUS_LEGACY: ModelPricing = {
   input_cost_per_token: 15 / MILL,
   output_cost_per_token: 75 / MILL,
   cache_creation_input_token_cost: 18.75 / MILL,
+  cache_creation_1h_input_token_cost: 30 / MILL,
   cache_read_input_token_cost: 1.5 / MILL,
 };
 
@@ -57,6 +104,7 @@ const SONNET: ModelPricing = {
   input_cost_per_token: 3 / MILL,
   output_cost_per_token: 15 / MILL,
   cache_creation_input_token_cost: 3.75 / MILL,
+  cache_creation_1h_input_token_cost: 6 / MILL,
   cache_read_input_token_cost: 0.3 / MILL,
 };
 
@@ -65,6 +113,7 @@ const HAIKU_45: ModelPricing = {
   input_cost_per_token: 1 / MILL,
   output_cost_per_token: 5 / MILL,
   cache_creation_input_token_cost: 1.25 / MILL,
+  cache_creation_1h_input_token_cost: 2 / MILL,
   cache_read_input_token_cost: 0.1 / MILL,
 };
 
@@ -73,6 +122,7 @@ const HAIKU_35: ModelPricing = {
   input_cost_per_token: 0.8 / MILL,
   output_cost_per_token: 4 / MILL,
   cache_creation_input_token_cost: 1.0 / MILL,
+  cache_creation_1h_input_token_cost: 1.6 / MILL,
   cache_read_input_token_cost: 0.08 / MILL,
 };
 
@@ -103,6 +153,12 @@ function priced(inputPerM: number, outputPerM: number, cachedInputPerM?: number)
 // =====================================================================
 const NON_CLAUDE_PRICING: Record<string, ModelPricing> = {
   // --- OpenAI --- https://openai.com/api/pricing/
+  // GPT-5.6 Codex tiers — verified 2026-08-22 against the official model
+  // catalog. These exact entries are also used by the weekly API-equivalent
+  // value audit; unknown Codex model labels are intentionally not inferred.
+  'gpt-5.6-sol': priced(5, 30, 0.5),
+  'gpt-5.6-terra': priced(2, 12, 0.2),
+  'gpt-5.6-luna': priced(0.2, 1.2, 0.02),
   'gpt-5.5': priced(5, 30, 0.5),
   'gpt-5.4': priced(2.5, 15, 0.25),
   'gpt-5': priced(1.25, 10, 0.125),
@@ -132,21 +188,45 @@ const NON_CLAUDE_PRICING: Record<string, ModelPricing> = {
   'deepseek-v4-flash': priced(0.14, 0.28, 0.0028),
 
   // --- Moonshot / Kimi --- prices published in USD by Moonshot
+  'kimi-k2.7-code': priced(0.95, 4.0, 0.19),
   'kimi-k2-6': priced(0.95, 4.0, 0.16),
   'kimi-k2-5': priced(0.6, 2.5),
   'kimi-k2': priced(0.6, 2.5),
   'moonshot-v1-128k': priced(0.6, 2.5),
 
-  // --- Zhipu GLM --- approximate, converted from published RMB pricing
+  // --- Zhipu GLM ---
+  // GLM-5.x models use official USD pricing from z.ai (the global API channel);
+  // older models are approximate, converted from published RMB pricing at ~7.2 RMB/USD.
+  // https://docs.z.ai/guides/overview/pricing
+  'glm-5.2': priced(1.40, 4.40, 0.26),
+  'glm-5.1': priced(1.40, 4.40, 0.26),
   'glm-4.6': priced(0.6, 2.2),
   'glm-4.5': priced(0.6, 2.2),
   'glm-4.5-air': priced(0.2, 1.1),
 
-  // --- Alibaba Qwen --- approximate, converted from RMB (DashScope, <=32K tier)
+  // --- MiniMax --- standard list price (launch promo was 50% off)
+  // https://platform.minimaxi.com/docs/guides/pricing-paygo
+  'minimax-m3': priced(0.60, 2.40, 0.12),
+
+  // --- Xiaomi MiMo --- post price-cut (May 2026) USD equivalent
+  'mimo-v2.5-pro': priced(0.435, 0.87, 0.0036),
+
+  // --- Alibaba Qwen ---
+  // Qwen 3.5 models use international region USD pricing;
+  // older models are approximate, converted from RMB (DashScope, <=32K tier).
+  'qwen3.5-flash': priced(0.10, 0.40),
+  'qwen3.5-plus': priced(0.40, 2.40),
   'qwen-max': priced(0.35, 1.39),
   'qwen-plus': priced(0.11, 0.67),
   'qwen-turbo': priced(0.042, 0.083),
   'qwen-long': priced(0.069, 0.278),
+
+  // --- Tencent Hy3 --- via OpenRouter (global API channel)
+  'hy3-preview': priced(0.063, 0.21, 0.029),
+
+  // --- StepFun / 阶跃星辰 --- global USD pricing via OpenRouter
+  'step-3.7-flash': priced(0.20, 1.15, 0.04),
+  'step-3.5-flash': priced(0.10, 0.30, 0.02),
 };
 
 // Exact model-id -> pricing map. Both dated snapshots and short aliases are listed
@@ -156,6 +236,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // Claude Fable 5 / Mythos 5 (2026-06) — frontier tier
   'claude-fable-5': FABLE_5,
   'claude-mythos-5': FABLE_5,
+
+  // Claude Opus 5 — same current-Opus tier rate, verified 2026-07-28.
+  'claude-opus-5': OPUS_CURRENT,
 
   // Claude Opus 4.8 / 4.7 / 4.6 — current Opus tier rate, verified 2026-06-09
   // against the official pricing page ($5 / $25 / $6.25 / $0.5 per MTok).
@@ -173,6 +256,10 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
 
   // Claude Opus 4 (2025-05-14)
   'claude-opus-4-20250514': OPUS_LEGACY,
+
+  // Claude Sonnet 5 (same $3 / $15 Sonnet tier). Family inference already maps
+  // any "sonnet" model to SONNET, so this is an explicit anchor for clarity.
+  'claude-sonnet-5': SONNET,
 
   // Claude Sonnet 4.6
   'claude-sonnet-4-6': SONNET,
@@ -245,6 +332,12 @@ function inferPricingByFamily(modelName: string): { pricing: ModelPricing; famil
   if (name.includes('deepseek')) {
     return { pricing: NON_CLAUDE_PRICING['deepseek-chat'], family: 'DeepSeek' };
   }
+  if (name.includes('minimax')) {
+    return { pricing: NON_CLAUDE_PRICING['minimax-m3'], family: 'MiniMax' };
+  }
+  if (name.includes('mimo')) {
+    return { pricing: NON_CLAUDE_PRICING['mimo-v2.5-pro'], family: 'Xiaomi MiMo' };
+  }
   if (name.includes('kimi') || name.includes('moonshot')) {
     return { pricing: NON_CLAUDE_PRICING['kimi-k2-6'], family: 'Moonshot Kimi' };
   }
@@ -253,6 +346,12 @@ function inferPricingByFamily(modelName: string): { pricing: ModelPricing; famil
   }
   if (name.includes('qwen') || name.includes('tongyi')) {
     return { pricing: NON_CLAUDE_PRICING['qwen-plus'], family: 'Alibaba Qwen' };
+  }
+  if (name.includes('hy3')) {
+    return { pricing: NON_CLAUDE_PRICING['hy3-preview'], family: 'Tencent Hy3' };
+  }
+  if (name.startsWith('step-') || name.includes('/step-')) {
+    return { pricing: NON_CLAUDE_PRICING['step-3.7-flash'], family: 'StepFun' };
   }
 
   return null;
@@ -304,6 +403,35 @@ export function getModelPricing(modelName: string | undefined): ModelPricing | n
 }
 
 /**
+ * Resolve only a model id explicitly present in the built-in table.
+ *
+ * The regular dashboard deliberately has family fallbacks for newly released
+ * models. An allowance-value audit cannot use those fallbacks: silently pricing
+ * an unknown Codex label as a different GPT model would create a plausible but
+ * unauditable dollar figure. Runtime LiteLLM overrides are also excluded so a
+ * historical trend is recalculated against one reviewable built-in rate table.
+ */
+export function getExactModelPricing(modelName: string | undefined): ModelPricing | null {
+  if (!modelName) {
+    return null;
+  }
+  const base = modelName.replace(/\[[^\]]*\]\s*$/, '');
+  const variations = [
+    base,
+    `anthropic/${base}`,
+    `claude-3-5-${base}`,
+    `claude-3-${base}`,
+    `claude-${base}`,
+  ];
+  for (const variation of variations) {
+    if (MODEL_PRICING[variation]) {
+      return MODEL_PRICING[variation];
+    }
+  }
+  return null;
+}
+
+/**
  * Calculate cost from given token usage and pricing
  * @param tokens Token usage
  * @param pricing Pricing information
@@ -322,10 +450,8 @@ export function calculateCostFromPricing(tokens: TokenUsage, pricing: ModelPrici
     cost += tokens.output_tokens * pricing.output_cost_per_token;
   }
 
-  // Cache creation tokens cost
-  if (tokens.cache_creation_input_tokens != null && pricing.cache_creation_input_token_cost != null) {
-    cost += tokens.cache_creation_input_tokens * pricing.cache_creation_input_token_cost;
-  }
+  // Cache creation tokens cost (splits 1-hour vs 5-minute writes when known)
+  cost += cacheCreationCost(tokens, pricing);
 
   // Cache read tokens cost
   if (tokens.cache_read_input_tokens != null && pricing.cache_read_input_token_cost != null) {
@@ -366,7 +492,7 @@ export function calculateCostBreakdown(
   return {
     input: tokens.input_tokens * (pricing.input_cost_per_token || 0),
     output: tokens.output_tokens * (pricing.output_cost_per_token || 0),
-    cacheWrite: (tokens.cache_creation_input_tokens || 0) * (pricing.cache_creation_input_token_cost || 0),
+    cacheWrite: cacheCreationCost(tokens, pricing),
     cacheRead: (tokens.cache_read_input_tokens || 0) * (pricing.cache_read_input_token_cost || 0),
   };
 }

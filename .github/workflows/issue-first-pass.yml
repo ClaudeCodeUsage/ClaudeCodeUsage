@@ -1,0 +1,52 @@
+# Auto first-pass reply on every NEW issue — a controlled, comment-only model
+# workflow. Public text remains untrusted; the fixed runner has no tools or
+# credentials beyond its model/comment calls, reads only validated base-repo
+# text, and model output can still be wrong.
+#
+# INERT until the owner sets:
+#   AUTOMATION_ENABLED = 'true'   (repo variable, kill switch)
+#   ANTHROPIC_API_KEY             (repo secret — official or third-party key)
+# Optional repo variables: ANTHROPIC_BASE_URL (third-party Anthropic-format
+# endpoint), CCU_BOT_MODEL / CCU_BOT_MODEL_PRO and matching
+# CCU_BOT_GENERATOR / CCU_BOT_GENERATOR_PRO. Generator values are optional for
+# recognized model IDs; explicit values are deepseek or claude.
+name: Issue first-pass (auto)
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read # read the repo docs the reply is grounded in
+  issues: write # post the comment
+
+concurrency:
+  group: issue-first-pass-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  reply:
+    if: vars.AUTOMATION_ENABLED == 'true' && github.event.issue.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 1
+
+      - name: First-pass reply
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_KIND: issue
+          ITEM_NUMBER: ${{ github.event.issue.number }}
+          ITEM_TITLE: ${{ github.event.issue.title }}
+          ITEM_BODY: ${{ github.event.issue.body }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+          CCU_BOT_MODEL: ${{ vars.CCU_BOT_MODEL }}
+          CCU_BOT_MODEL_PRO: ${{ vars.CCU_BOT_MODEL_PRO }}
+          CCU_BOT_GENERATOR: ${{ vars.CCU_BOT_GENERATOR }}
+          CCU_BOT_GENERATOR_PRO: ${{ vars.CCU_BOT_GENERATOR_PRO }}
+        run: node .github/scripts/first-pass.mjs

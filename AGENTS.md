@@ -1,84 +1,218 @@
-# CLAUDE.md
+# AGENTS.md
 
-Guidance for Claude Code (and human contributors) working in this repository.
+Repository guidance for OpenAI Codex and other agentic contributors. A faithful
+Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
 
-## Project Overview
+## Product identity and scope
 
-"Claude Code Usage" is a VS Code extension that monitors Claude Code token
-usage and cost estimates in the status bar, with a detailed dashboard webview.
-It reads Claude Code's local `.jsonl` conversation logs and an OAuth-backed
-real `/usage` quota.
+- Claude Code Usage is a VS Code extension that reads local Claude Code and
+  Codex usage logs. Claude keeps its exact token totals, cost estimates, and
+  OAuth quota; Codex Beta in v2.3.0 has provider-specific local usage and
+  optimization views plus clearly labelled API-equivalent cost estimates,
+  without pretending those estimates are a bill or subscription charge.
+- Preserve the established product identity and Claude workflows while adding
+  provider-neutral contracts. Claude and Codex dashboard presentation must use
+  the same provider-aware render functions and the same CSS contract.
+- Prefer token-attribution accuracy over billing precision. Keep exact totals,
+  labelled estimates, and point-in-time quota observations as separate concepts.
+- Keep the extension local-first, lightweight, and read-mostly. Never modify
+  Claude or Codex conversation JSONL files. Treat credential handling as security-sensitive
+  and preserve the existing reviewed behavior.
+- Add no new runtime dependencies in v2.3.0.
 
-**Positioning (keep this in mind for every change):** Claude-only, lightweight,
-**token-precision over cost-precision**. Cost figures are estimates derived from
-public per-million-token rates — the product value is helping users *see where
-tokens go* and *use Claude Code better* (incl. the AI advice feature). Not a
-billing tool, not a multi-provider monitor.
+## Architecture boundaries
 
-## Architecture (`src/`)
+- `src/extension.ts`: activation, commands, refresh orchestration, watcher,
+  coalescing, settings changes, and diagnostic output.
+- `src/dataLoader.ts`: Claude JSONL parsing primitives, validation, attribution,
+  and content-analysis reducers retained for exact compatibility.
+- `src/claudeIncrementalIndex.ts`: the production in-memory per-file Claude
+  usage index, append-tail parser, exact global deduplication, and materialized
+  dashboard aggregates. Runtime refreshes must not fall back to a full-corpus
+  body read or full-record aggregation.
+- `src/providers/providerTypes.ts` and provider adapters: provider-neutral token,
+  coverage, confidence, and limit contracts. Do not erase provider semantics.
+- `src/providers/codex/`: allowed-root discovery, schema guards, exact-request
+  parsing with cumulative high-water fallback, per-file aggregate index, worker
+  protocol, bounded multi-worker cold backfill, and Codex facade.
+- `src/codexView.ts` / `src/codexViewComponents.ts`: Codex copy and default-provider
+  contracts only; they do not own HTML, client code, or styles.
+- `src/settings.ts`: the `SETTINGS` catalog and `SettingsStore`; do not scatter
+  direct configuration reads.
+- `src/statusBar.ts`: status-bar token/cost/quota/context presentation.
+- `src/webview.ts`: the single provider-aware Claude/Codex dashboard HTML and
+  client behavior. Compare never sums cost or quota across providers.
+- `src/i18n.ts`: all user-facing copy for all eight UI locales.
+- `src/types.ts`: shared contracts.
+- Read `ARCHITECTURE.md` before changing module ownership or the data flow. If
+  that change is submitted for maintainer review, also provide a faithful
+  Simplified-Chinese review companion.
 
-- **`extension.ts`** — main class, activation, refresh orchestration. Owns the
-  adaptive refresh cadence (activity-aware: ~15 s while logs are being written,
-  the user's interval when idle), the re-entrancy guard + coalescing, the
-  `fs.watch` recursive file watcher, and the diagnostic `OutputChannel`.
-- **`dataLoader.ts`** — finds + parses `.jsonl` records; dedup (keeps the
-  higher-token record on a hash collision); aggregation (today / month / all
-  time / sessions / projects / branches); content analysis; diagnostic stats.
-- **`statusBar.ts`** — the two status-bar items (cost + quota). Quota tooltip is
-  an HTML progress bar; `liveWindows()` drops windows whose reset time has
-  passed so a stale value never lingers.
-- **`webview.ts`** — the dashboard (tabs, charts, tables). Large single file:
-  server-rendered HTML + an inlined client script. Cost charts render as
-  gridded stacked compositions.
-- **`pricing.ts`** — pricing table (Anthropic + reference rates for OpenAI /
-  Gemini / DeepSeek / Kimi / GLM / Qwen), family-aware fallback, LiteLLM
-  runtime refresh.
-- **`claudeApiClient.ts`** — OAuth credential read + token refresh + `/usage`
-  fetch. Routes through the system `curl` binary because Anthropic's edge
-  rejects Node's TLS fingerprint.
-- **`advisor.ts`** + **`adviceDemoSample.ts`** — the opt-in AI advice feature
-  and its localised static demo.
-- **`i18n.ts`** — translations for en / de-DE / zh-TW / zh-CN / ja / ko.
-- **`types.ts`** — shared interfaces.
+## Safety and privacy invariants
 
-## Build & Release
+- Never upload prompt text, response text, raw JSONL lines, absolute paths, raw
+  session IDs, credentials, or local usernames. New v2.3.0 performance
+  diagnostics must not log them either; do not broaden older diagnostic output
+  without an explicit privacy review.
+- Codex discovery is allowlisted to `$CODEX_HOME/sessions/**/*.jsonl` and
+  `$CODEX_HOME/archived_sessions/**/*.jsonl` (default `~/.codex`). Never read
+  `auth.json`, SQLite databases, config secrets, keychains, browser state, or
+  unknown files for Codex usage.
+- Additionally, `$CODEX_HOME/session_index.jsonl` may be streamed solely to
+  recover the `id` → `thread_name` mapping used for real thread titles. Absolute
+  paths inside titles are masked, titles stay in memory and are never persisted,
+  symlinks and non-regular files are rejected, and no other field of that file
+  is read.
+- Raw Codex paths/session/parent IDs may exist only in short-lived local worker
+  memory. Persist machine-salted pseudonymous keys and numeric aggregates only.
+- Advice and optimizer network calls remain explicit user actions and may send
+  only the documented digest or text the user pasted.
+- New settings default to documented, non-surprising behavior. A beta provider
+  may default enabled only when its allowed local directory exists and absence
+  is a no-op; other experimental/approximate features default off unless an
+  approved spec explicitly says otherwise.
+- Do not read secret or credential files merely to diagnose a feature. Use
+  redacted metadata and fixtures.
+- Do not hand-edit generated files in `out/`; edit `src/` and compile.
 
-This repo is built with a **portable Node** (no global install assumed) and
-`@vscode/vsce`. Common commands:
+## Codex Beta data and performance invariants
+
+- Codex processed tokens are `input + output`. Fresh input + output is
+  `max(0, input - cached input) + output`; it is a behavior aid, not a cost or
+  quota equivalent. Cached input is a subset of input and reasoning is a subset
+  of output, so never add either twice.
+- Attribute valid request components from `last_token_usage`; its `total_tokens`
+  field is active-context size, not request usage. Suppress replay only when the
+  full numeric total-plus-last signature matches the same machine-salted
+  rate-limit source or the immediately preceding record. If last usage is
+  absent, fall back to cumulative `total_token_usage` with per-lineage
+  high-water baselines. Counter regressions, unknown parents, and schema drift
+  produce explicit quality flags instead of invented precision.
+- A persisted parser-semantics change must force one bounded automatic rescan.
+  Exclude old aggregates while rebuilding and keep the indexed subtotal and
+  progress visible rather than mixing incompatible totals.
+- Codex rate limits recovered from local logs are `last-observed` only. Drop
+  them after their reset time; do not access credentials or call a network API
+  merely to make them current.
+- 2.4-GB-class history must be indexed in a background worker with a persistent
+  per-file aggregate index. Unchanged warm refresh reads no JSONL body; append
+  refresh reads only the tail. Support progress, cancellation, resume, and
+  single-flight refresh. A one-time incomplete backfill may use an adaptive,
+  bounded local worker pool and coarser durable checkpoints; steady-state work
+  returns to the low-power incremental path.
+- Claude runtime refreshes use the in-memory per-file index in
+  `claudeIncrementalIndex.ts`. An unchanged refresh reads zero JSONL bodies;
+  append/truncate/replace/move/delete work is limited to affected files and
+  affected aggregate groups while preserving the established response-identity
+  and content-analysis semantics. A new Extension Host may still perform one
+  cold in-memory build; this is distinct from rereading the corpus after every
+  watcher event.
+- Codex optimization advice uses structural numeric signals only. Never inspect
+  or persist prompt/response/command bodies or tool arguments.
+
+## Development and tests
 
 ```bash
-npm run compile        # tsc -> out/
-npm run watch          # tsc --watch
-npx @vscode/vsce package   # build a .vsix
+npm ci
+npm run compile
+npm test
+npx @vscode/vsce package
 ```
 
-- **F5** launches the Extension Development Host for manual testing.
-- **Releases are automated.** Pushing a `v*` tag to the upstream repo triggers
-  `.github/workflows/publish.yml`, which compiles, packages, publishes to the
-  VS Code Marketplace + Open VSX, and attaches the `.vsix` to a GitHub Release.
-  The workflow verifies the tag matches `package.json`'s `version`. So to
-  release: bump `version`, update `CHANGELOG.md`, merge to `main`, then
-  `git tag vX.Y.Z && git push <upstream> vX.Y.Z`.
-- Versioning follows semver: bug-only → patch (`2.0.x`); new user-facing
-  feature → minor (`2.x.0`); breaking UX → major.
+- Product TypeScript tests use `node:test` and live in `src/test/*.test.ts`.
+  GitHub automation uses focused ESM tests in `.github/scripts/*.test.mjs`.
+- Use red-green TDD for every behavior change: add a focused failing test, run
+  it, implement the smallest change, then run the focused and full suites.
+- Keep behavior tests focused and use `camelCase.test.ts` names. A repository
+  policy test may group closely related repository/package invariants.
+- User-facing changes require a `CHANGELOG.md` entry and matching documentation.
+- UI changes also require an F5 Extension Development Host smoke test; release
+  candidates require an installed-VSIX smoke test on macOS and Linux when available.
 
-## Conventions
+### UI rendering-environment fidelity
 
-- **Commit hygiene:** one meaningful commit per logical change; avoid a stream
-  of "fix the previous fix" commits. RC branches squash-merge to `main`.
-- **Tests:** pure-logic modules (pricing, aggregation, quota-window handling,
-  i18n) are the high-value test targets. A `node:test` suite is planned
-  (see issue #25).
-- **Data is read-only:** the extension never writes to `~/.claude/`.
+For any UI change, first prove that the rendering environment is equivalent to
+a real VS Code webview: every referenced `--vscode-*` variable in the production
+stylesheet must have a real value in the test harness, with a guard test enforcing
+that invariant. Visual snapshots produced before this is true are not acceptance
+evidence.
+Variable values must come from the registered values of VS Code's built-in themes;
+do not mix in another color system.
 
-## Documentation Maintenance
+### Interaction-state acceptance
 
-When changing user-facing behaviour, update `README.md` (the canonical, fullest
-doc) and keep the language editions reasonably in sync:
-`README-en.md` (concise), `README-zh-CN.md` (full translation — highest-traffic
-locale), `README-zh-TW.md` / `README-ja.md` / `README-ko.md` (concise).
-`CHANGELOG.md` is the authoritative change record.
+Webview refresh is a full-page replacement. Every new user-interactive state
+(expand/collapse, sorting, filtering, or selection) must use the existing
+persistence mechanism and include an operation → reload → state-remains test.
+A static assertion of the first render is not acceptance evidence.
 
+## Localization and review documents
+
+- Every user-facing string goes through `I18n` with all eight UI locales:
+  `en`, `de-DE`, `zh-TW`, `zh-CN`, `ja`, `ko`, `pt-BR`, and `id`.
+- Update all seven README files together: `README.md`, `README-en.md`,
+  `README-zh-CN.md`, `README-zh-TW.md`, `README-ja.md`, `README-ko.md`, and
+  `README-id.md`.
+- For every artifact submitted for maintainer review—including a spec,
+  implementation plan, design, release checklist, policy, or substantial
+  contributor-document change—provide a faithful Chinese sibling or review
+  companion and present the Chinese link before the English link.
+- Do not force-add ignored private documents unless the maintainer explicitly
+  requested that exact review artifact.
+
+## Git and release discipline
+
+- Preserve unrelated work in a dirty tree. Use a clean `codex/` branch or an
+  isolated worktree for implementation.
+- Tracked files default to mode `100644` and LF endings. Use `100755` only for a
+  real directly executed program, register it in the repository policy test,
+  and verify modes with `git ls-files --stage` before committing.
+- Keep commits focused. The repository squash-merges reviewed PRs to `main`.
+- Never copy changes from a contributor pull request into a maintainer PR and
+  close the contributor PR as superseded. To preserve attribution, merge the
+  contributor's original pull request, or—with explicit authorization—update that
+  original PR branch and then merge it. Put extra tests, refactors, or hardening
+  in a follow-up PR that builds on the merged contribution.
+- If a contribution needs revision but has meaningful value, review it
+  constructively and prefer an author update. With explicit authorization,
+  adjust the original PR branch and then merge it instead of replacing it.
+- Close a contributor PR without merging only in the exceptional case where no
+  meaningful contribution can be salvaged, such as an empty PR, spam, or an
+  irrelevant change. Explain the reason publicly and respectfully.
+- Do not push, open a pull request, merge, or publish a release without explicit
+  maintainer approval.
+- Do not bump `package.json` or create release tags manually. Release Drafter
+  prepares a draft; publishing that reviewed draft creates the tag, and the
+  publish workflow stamps the package version from it.
+
+## GitHub text attribution
+
+Maintainer-reviewed text generated with Codex ends with exactly:
+
+```md
+---
+🤖 Generated with [OpenAI Codex](https://developers.openai.com/codex/)
+```
+
+An unreviewed automated Codex first pass uses exactly:
+
+```md
+---
+🤖 Generated by [OpenAI Codex](https://developers.openai.com/codex/) as an automated first pass — not a maintainer decision.
+```
+
+- Attribution must name the actual generator. The current first-pass runner
+  defaults to DeepSeek and must not be relabelled Codex.
+- The wrapper, not model output, owns the trusted footer and emits exactly one.
+- Credit Claude Code and OpenAI Codex as development tools in all seven README
+  files. Do not put tools in Release Drafter's human contributor list. A commit
+  mainly written by OpenAI Codex must include this exact trailer:
+
+```text
+Co-authored-by: OpenAI Codex <215057067+openai-codex[bot]@users.noreply.github.com>
+```
+- Keep controlled comment-only first-pass automation separate from the
+  privileged maintainer-only mention workflow.
 
 ## Codex 工具適配
 瀏覽器操作使用當前 Codex browser／computer-use 工具；原文的 Claude MCP 工具名稱只描述操作意圖，不能直接呼叫。提問依目前模式使用可用工具；Git 操作仍需當次明確授權。
