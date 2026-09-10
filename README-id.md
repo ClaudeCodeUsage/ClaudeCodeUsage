@@ -26,7 +26,7 @@ Arahkan kursor ke indikator kuota untuk melihat rinciannya:
 
 ![Dashboard](images/v2-dashboard-en.png)
 
-### Codex dan Perbandingan v2.3.1
+### Codex dan Perbandingan v2.3
 
 ![Claude hari ini, Tionghoa Sederhana, tema gelap](images/v2.3.1/claude-today-zh-CN-dark.png)
 
@@ -36,7 +36,7 @@ Arahkan kursor ke indikator kuota untuk melihat rinciannya:
 
 ![Heatmap gabungan Claude dan Codex, Inggris, tema terang](images/v2.3.1/compare-heatmap-en-light.png)
 
-Empat gambar v2.3.1 ini menggunakan renderer produksi, data sintetis, dan variabel tema VS Code Light+/Dark+, bukan bukti penggunaan pribadi atau tagihan. Instalasi VSIX native diverifikasi secara terpisah.
+Empat gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel tema VS Code Light+/Dark+, bukan bukti penggunaan pribadi atau tagihan. Instalasi VSIX native diverifikasi secara terpisah.
 
 - Codex menampilkan **token terpakai hari ini** dan **sisa kuota** secara terpisah: penggunaan mingguan 36% berarti `wk 64%`. Tooltip tetap menampilkan bilah penggunaan, waktu reset, dan catatan berbaris. Kuota berasal dari pengamatan lokal terakhir, bukan saldo langsung.
 - Detail periode tertutup secara default; pengaturan berbagi berada di bawah pratinjau. Berbagi aktif secara default dan dapat dimatikan, dengan intensitas kuantil, logaritmik, atau linear.
@@ -53,52 +53,13 @@ Empat gambar v2.3.1 ini menggunakan renderer produksi, data sintetis, dan variab
 - **Harga multi-vendor** — Opus 4.x / Sonnet 4.x / Haiku 4.5 diverifikasi terhadap harga publik Anthropic; tarif referensi untuk OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen dengan fallback berbasis family model. `Refresh Token Pricing` menarik data LiteLLM langsung.
 - **Personalisasi** — bahasa, zona waktu, angka desimal, angka ringkas, pengelompokan proyek, toggle penyegaran otomatis dashboard.
 
-## Yang baru di v2.3.2
+## Yang baru di v2.3
 
-- Settings kini memakai satu dropdown mata uang dengan USD sebagai default.
-  Tiga belas mata uang tampilan lain memakai snapshot tetap kurs referensi ECB
-  tanggal 2026-09-09. Kurs tidak dapat diedit atau diambil secara online, dan
-  estimasi dasar tetap disimpan dalam USD.
-- Claude dan Codex mendukung drill-down Sepanjang Waktu bulan → hari serta 30
-  Hari Terakhir hari → jam jika agregatnya tersedia. Mouse, keyboard, fokus,
-  penutupan bertingkat, dan pemulihan setelah reload konsisten tanpa membaca JSONL saat diklik.
-- Refresh langsung biasa mempertahankan tab, rantai ekspansi, metrik/jam terpilih,
-  draf Optimizer, fokus keyboard, dan posisi gulir terdekat.
-- Setiap grafik memiliki nama aksesibel lokal yang menyertakan provider. Jam
-  kosong tetap memiliki sumbu, tabel, tooltip, dan nilai 0 yang dapat dipilih,
-  tetapi tidak lagi menampilkan 0 di atas setiap batang kosong. Aktivitas yang
-  benar-benar belum memiliki harga tetap menampilkan `—`.
-- Watcher provider pulih dengan backoff terbatas, sedangkan indeks judul thread
-  Codex yang tidak berubah memakai cache memori tervalidasi untuk mengurangi kerja latar.
-
-Draft Release yang ditinjau adalah `v2.3.2`; alur publikasi manual menetapkan versi paket dari tag tersebut.
-
-## Yang baru di v2.3.1
-
-- Metadata harga dan konteks yang tepat kini mencakup **GPT-6 Astra**
-  (`gpt-6-astra`, konteks 1,05 juta token) serta **Claude Fable 5.1 / Mythos
-  5.1** (`claude-fable-5-1` / `claude-mythos-5-1`, konteks 1 juta token).
-  Fable 5.1 memakai tarif baca cache khusus `$0.25 / juta token` tanpa mengubah
-  riwayat Fable 5. Nilai ekuivalen API GPT-6 memakai tarif Standard resmi untuk
-  konteks pendek. Biaya tambahan untuk seluruh permintaan di atas 272K input
-  tidak disertakan karena log agregat lokal tidak dapat memastikan ambang per
-  permintaan tersebut.
-- Estimasi Claude dapat memakai tarif langsung Anthropic atau tarif on-demand
-  AWS Bedrock in-region untuk keluarga Opus, Sonnet, dan Haiku saat ini.
-  Mengganti backend langsung menghitung ulang log yang tidak berubah; Sonnet 5
-  memakai tarif standar setelah promosi peluncurannya berakhir 31 Agustus 2026.
-- 30 hari terakhir berarti hari ini dan 29 tanggal sebelumnya dalam zona waktu konfigurasi. Total dapat direkonsiliasi, refresh berulang stabil, dan bulan tampil dari lama ke baru. Ringkasan Workflows Claude memakai rentang bergulir yang sama dan memasukkan setiap eksekusi berdasarkan tanggal mulai di zona waktu konfigurasi. Saat metrik grafik diganti atau label drill-down dirender, kunci penggunaan harian/bulanan tidak lagi mundur sehari atau sebulan akibat zona waktu host. Tanggal berakhirnya penundaan Saran AI dan Usage Optimizer juga memakai zona waktu konfigurasi dan bahasa UI.
-- Reasoning effort terstruktur tidak ditebak dari nama model. `unknown` bukan nol dijelaskan; nilai nol disembunyikan.
-- Pengamatan kuota anonim yang terbatas mempertahankan reset tidak teratur dan pada hari yang sama. Fraksi valid dalam satu jendela menghasilkan estimasi total dan sisa daya tahan langganan, termasuk periode berjalan. Bukti perkiraan atau tanpa atribusi diberi keyakinan rendah. Jika series kuota Codex lokal tumpang tindih, periode berjalan memakai pengamatan nyata terbaru untuk estimasi gabungan berkeyakinan rendah; periode selesai yang atribusinya ambigu tetap hanya menampilkan nilai terpakai.
-- Perbandingan menampilkan heatmap aktivitas gabungan Claude + Codex dari agregat harian yang sudah ada dan tetap berfungsi dengan satu penyedia.
-- Studio berbagi yang mengutamakan pratinjau mencakup SVG lokal deterministik, kartu, Markdown, judul/rentang, pratinjau privasi, dan warna yang dapat disesuaikan. Academic Violet menjadi default; pemetaan intensitas dapat memakai kuantil (default), logaritmik, atau linear. Publikasi GitHub publik mengonfirmasi tujuan tepat secara terpisah.
-- Komposisi Token Codex sekarang menampilkan **penggunaan tanpa cache** (input tanpa cache + output) di atas stack input tanpa cache / input cache / output yang tidak tumpang tindih; reasoning tetap merupakan bagian dari output.
-- Codex tetap dapat digulir dengan mulus saat pengindeksan: status gulir disimpan sekali setelah gerakan selesai dan progres indeks langsung hanya memperbarui teks tanpa membangun ulang halaman. Ringkasan hijau per model kini mengikuti makna Claude, yaitu harga ekuivalen API untuk model yang cocok tepat beserta cakupan harga. Model tak dikenal menampilkan `—`, sedangkan effort tetap memakai nilai Token tanpa cache berwarna netral.
-- Permintaan Optimizer yang kompatibel dengan OpenAI kini hanya mengirim `reasoning_effort` tanpa parameter tingkat atas `thinking` yang tidak didukung, menyelesaikan [#94](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/94).
-- Claude/Codex berbagi token desain untuk kepadatan, hierarki, fokus, ARIA, lebar sempit, serta tema terang/gelap tanpa menyamakan arti metrik.
-
-## Codex Beta di v2.3
-
+- **Penyempurnaan di seluruh seri v2.3** — metadata model GPT-6 Astra dan
+  Fable 5.1, harga AWS Bedrock opsional, pilihan mata uang tampilan dengan kurs
+  referensi tetap, drill-down bulan/hari/jam lengkap, refresh yang mempertahankan
+  state, grafik aksesibel, serta beban watcher dan indeks judul yang lebih rendah.
+  Detail per patch hanya disimpan di CHANGELOG dan GitHub Releases.
 - Catatan penggunaan Codex hanya ditemukan dari `sessions/**/*.jsonl` dan `archived_sessions/**/*.jsonl`; file kredensial, database, dan file tak dikenal tetap dikecualikan. Secara terpisah, ekstensi hanya melakukan streaming terhadap `$CODEX_HOME/session_index.jsonl` untuk memetakan `id` ke `thread_name` bagi judul thread yang sebenarnya. Jalur absolut dalam judul disamarkan dan judul hanya disimpan di memori. Setiap baris JSONL penggunaan di-stream dan diparse sementara hanya untuk mengambil metadata penggunaan dan struktur dalam daftar izin; field prompt, respons, perintah, dan argumen alat tidak diperiksa atau dipakai untuk analisis, serta tidak pernah disimpan atau dipersistenkan.
 - **Diproses** = input + output, **Penggunaan tanpa cache** = Input tanpa cache + output, **cached input** tetap bagian dari input, dan reasoning bagian dari output. Ringkasan juga menampilkan tingkat hit cache input sebagai cached input / input. Biaya tagihan Codex tidak ditampilkan. Kartu ringkasan pertama menampilkan estimasi biaya ekuivalen API untuk cakupan terpilih dengan label yang jelas, sedangkan tampilan Sepanjang Waktu menunjukkan tren mingguan dengan dasar harga yang sama. Claude / Codex / Compare tetap memisahkan makna tiap penyedia.
 - **Hari Ini** pada Codex berarti hari kalender saat ini dalam zona waktu yang dikonfigurasi. Tampilan ini menambahkan biaya ekuivalen API per jam yang tepat di samping tampilan komposisi Token yang terpisah. Grafik utama harian dan bulanan juga memakai biaya ekuivalen API sebagai default, sementara komposisi Token tetap tersedia secara terpisah. Hanya harga model yang dikenal dan cocok tepat yang dihitung; model tak dikenal tetap tanpa harga dan cakupan harga selalu terlihat. Sidecar per jam yang bersifat tambahan dan kompatibel dengan schema 3 menyimpan bucket tanggal / jam yang jarang untuk 30 hari bergulir, mendukung checkpoint dan resume, membuang hari ke-31, dan membuka tanggal tanpa membaca JSONL. Grafik dan tabel bulanan Codex menampilkan bulan dari yang paling lama ke yang terbaru.

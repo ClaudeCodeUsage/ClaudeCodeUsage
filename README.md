@@ -43,9 +43,9 @@ the same data.
 
 ## Screenshots
 
-### v2.3.1 Claude, Codex and Compare
+### v2.3 Claude, Codex and Compare
 
-The four v2.3.1 images below are reproducible captures of the production dashboard
+The four v2.3 images below are reproducible captures of the production dashboard
 renderer with synthetic fixtures and VS Code Light+/Dark+ theme variables, not
 personal usage or billing evidence. Native VSIX installation is verified separately.
 
@@ -113,7 +113,7 @@ for optimising your usage. Scoped to the last 30 days
 
 ### AI advice — evidence first, sending optional
 
-v2.3.1 keeps one readable path from a local observation to its
+v2.3 keeps one readable path from a local observation to its
 evidence, recommendation, action, feedback, and guarded result. It is off by
 default. Local evidence appears before any model is involved; **Helpful**, **Not
 helpful**, and **Applied** stay on this device. Once enough reliable, similar
@@ -154,113 +154,13 @@ same full-request preview and separate explicit Send action as AI advice.
 
 ---
 
-## What's new in v2.3.2
-
-- **One currency control** — Settings now offers one curated currency dropdown,
-  defaulting to USD. Thirteen additional display currencies use a bundled,
-  fixed 2026-09-09 ECB-derived snapshot; there is no editable multiplier or
-  exchange-rate network request. Source estimates remain USD and converted
-  values are visibly approximate.
-- **Complete time drill-down** — Claude and Codex All time month bars expand to
-  days, and populated Last 30 days bars expand to materialized hours. Mouse and
-  keyboard paths share disclosure state, focus, nested collapse, and reload
-  restoration, with no JSONL read on click.
-- **Refresh without losing your place** — normal live updates preserve the
-  active tab, expansion chain, selected metric/hour, draft Optimizer text,
-  keyboard focus, and nearby scroll anchor.
-- **Clearer, accessible charts** — every chart has a provider-qualified,
-  localized accessible name. Empty hours keep their axis, table, tooltip, and
-  selectable zero value without repeating `0` above every bar; genuinely
-  unpriced activity still shows `—`.
-- **Lower background overhead** — provider watchers recover with bounded
-  backoff, while unchanged Codex thread-title indexes are reused from a
-  validated in-memory cache.
-
-The reviewed draft is `v2.3.2`; the human-controlled publish workflow stamps
-package metadata from that release tag.
-
-## What's new in v2.3.1
-
-- **GPT-6 Astra and Fable 5.1 support** — exact pricing and context metadata now
-  cover `gpt-6-astra` (1.05M context) and `claude-fable-5-1` /
-  `claude-mythos-5-1` (1M context). Fable 5.1 uses its model-specific
-  `$0.25 / MTok` cache-read rate without changing historical Fable 5 data.
-  GPT-6 API-equivalent values use official Standard short-context rates; the
-  request-wide surcharge above 272K input is excluded because aggregate local
-  logs cannot establish that per-request threshold.
-- **Optional AWS Bedrock pricing** — Claude estimates can use direct Anthropic
-  or AWS Bedrock in-region on-demand rates for current Opus, Sonnet, and Haiku
-  families. Switching the backend reprices unchanged logs immediately; Sonnet
-  5 uses the standard rate after its launch promotion ended on 31 August 2026.
-- **Correct, stable date ranges** — Last 30 days means today plus the preceding
-  29 calendar dates in the configured timezone. Today ≤ Last 30 days ≤ All time,
-  provider totals reconcile, repeated refresh/reindex is idempotent, and Codex
-  monthly charts/tables run oldest-first. Claude's Workflows summary uses that
-  same rolling range and assigns each run by its configured-zone start date.
-  Chart metric switches and drill-down labels render daily/monthly usage keys
-  without host-timezone rollback; Advice and Optimizer snooze dates also use
-  the configured timezone and UI locale.
-- **Truthful effort attribution** — legacy and current structured effort fields
-  normalize without guessing from model names. A non-zero `unknown` bucket is
-  explained; a zero bucket is not rendered.
-- **Reset-aware weekly estimates** — bounded, atomically written quota
-  observations preserve reset-time/window changes and significant usage drops,
-  including consecutive and same-day resets. Every valid same-window used
-  fraction contributes an observed full-allowance estimate. Coherent current and
-  completed windows show total and unused durability estimates; approximate or
-  unattributed evidence is labelled low confidence. If local Codex series
-  overlap, the current window uses the latest real observation for a labelled
-  low-confidence blended estimate; ambiguous completed windows remain
-  usage-only. Unused value never goes negative.
-- **Combined heatmap in Compare** — Claude and Codex daily processed volume is
-  merged with provider components visible in every tooltip. It works with both
-  providers or either provider alone and reuses existing aggregates instead of
-  scanning logs again.
-- **Private share loop** — use the preview-first studio to customize title,
-  30/90-day or yearly range, and heatmap colors. Academic Violet is the default;
-  choose quantile (default), logarithmic, or linear intensity mapping to suit
-  the activity distribution. Inspect the privacy preview, export deterministic
-  SVG, and copy a Markdown snippet. Optional public-GitHub publication is a
-  separate exact-destination confirmation; local export needs no account
-  permission.
-- **Explicit Codex uncached composition** — Token composition shows uncached
-  usage (uncached input + output) above the non-overlapping uncached-input /
-  cached-input / output stack; reasoning remains a subset of output.
-- **Smooth live Codex dashboard** — scroll state is saved once after a gesture,
-  and active index progress updates its text in place instead of rebuilding the
-  page. Per-model disclosure headlines now use Claude's green-money convention:
-  exact-model API-equivalent price with coverage help; unknown models show `—`,
-  while effort headlines keep neutral uncached-token values.
-- **OpenAI reasoning compatibility** — OpenAI-compatible optimizer requests
-  send `reasoning_effort` without the unsupported top-level `thinking`
-  parameter, resolving [#94](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/94).
-- **Aligned dashboard interaction** — shared density, headings, disclosures,
-  charts, empty states, keyboard focus, ARIA behavior, narrow layout, and
-  light/dark design tokens keep Claude and Codex consistent without claiming
-  their metrics are semantically equivalent.
-- **One advice loop** — local evidence, explainable recommendations, optional
-  exact BYOK preview/send, device-local feedback, and versioned comparable-task
-  results share one boundary. Get AI Advice opens this surface; the Optimizer
-  reuses its preview/send/cancel/strict-parse behavior instead of forming a
-  third network path.
-- **No automatic AI traffic** — the feature is off by default, aggregate consent
-  and prompt-personalisation consent are separate, and a request crosses the
-  network only after the user previews it and clicks Send.
-  Withdrawing advice consent immediately invalidates previews and cancels active
-  advice requests; it cannot recall bytes already transmitted.
-- **Resumable first-use work** — Codex history and the rolling 30-day hour
-  migration show why they are running, persist progress/failure/backoff state,
-  and do not restart equivalent work after completion or on every refresh.
-- **Thirty-day hour drill-down** — any populated Codex day in the last 30 days
-  expands from the existing index with zero JSONL reads on click. Claude and
-  Codex use the configured timezone and the same `HH:00` labels.
-- **Safe rolling totals and resumable indexing** — recent 7/30-day views reject
-  stale/inflated period projections and use verified daily aggregates until the
-  zone projection catches up. First-use work persists bounded progress and does
-  not hot-loop or repeat after completion.
-
 ## What's new in 2.3
 
+- **Refined throughout the v2.3 line** — GPT-6 Astra and Fable 5.1 model
+  metadata, optional AWS Bedrock pricing, a fixed-reference display-currency
+  selector, complete month/day/hour drill-downs, state-preserving refresh,
+  accessible charts, and lower watcher/title-index overhead. Patch-level
+  details stay in the changelog and GitHub Releases.
 - **Codex Beta, enabled by default** — usage records are discovered only from
   `sessions/**/*.jsonl` and `archived_sessions/**/*.jsonl`; credential,
   database, and unknown files stay excluded. Separately, the extension streams
@@ -448,7 +348,7 @@ package metadata from that release tag.
   original model-specific contribution in PR #38 by
   [@wheelbarrel00](https://github.com/wheelbarrel00).
 - **AI advice 2.0** — bring your own key for Anthropic or an OpenAI-compatible
-  endpoint (`advice.apiFormat`). v2.3.1 places local evidence and an exact full-
+  endpoint (`advice.apiFormat`). The v2.3 line places local evidence and an exact full-
   request preview before the separate Send action. Aggregate-only is the
   default; prompt samples and `advice.userContext` require independent prompt-
   personalisation consent and appear verbatim in the preview. The keyless

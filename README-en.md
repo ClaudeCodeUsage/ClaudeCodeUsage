@@ -26,7 +26,7 @@ Hover the quota indicator for a breakdown:
 
 ![Dashboard](images/v2-dashboard-en.png)
 
-### v2.3.1 Codex and Compare
+### v2.3 Codex and Compare
 
 ![Claude Today, Simplified Chinese, dark theme](images/v2.3.1/claude-today-zh-CN-dark.png)
 
@@ -36,7 +36,7 @@ Hover the quota indicator for a breakdown:
 
 ![Combined Claude and Codex heatmap, English, light theme](images/v2.3.1/compare-heatmap-en-light.png)
 
-These four v2.3.1 captures use the production renderer, synthetic fixtures, and VS Code Light+/Dark+ theme variables—not personal usage or billing evidence. Native VSIX installation is checked separately.
+These four v2.3 captures use the production renderer, synthetic fixtures, and VS Code Light+/Dark+ theme variables—not personal usage or billing evidence. Native VSIX installation is checked separately.
 
 - Codex shows **Today token usage** and separate **remaining quota**: 36% used means `wk 64%`. Hover shows utilisation bars, resets, and wrapped notes. Quota is last-observed local evidence, not a live balance.
 - Period details start collapsed; sharing settings sit below the preview. Sharing is on by default with an off switch and quantile, logarithmic, or linear intensity.
@@ -53,50 +53,13 @@ These four v2.3.1 captures use the production renderer, synthetic fixtures, and 
 - **Multi-vendor pricing** — Opus 4.x / Sonnet 4.x / Haiku 4.5 verified against Anthropic's public pricing; reference rates for OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen with family-aware fallback. `Refresh Token Pricing` pulls live LiteLLM data.
 - **Personalisation** — language, timezone, decimal places, compact numbers, project grouping, dashboard auto-refresh toggle.
 
-## What's new in v2.3.2
+## What's new in v2.3
 
-- Settings now uses one curated currency dropdown, defaulting to USD. Thirteen
-  additional display currencies use a bundled, fixed 2026-09-09 ECB-derived
-  snapshot; rates are not editable or fetched, and source estimates remain USD.
-- Claude and Codex now share complete All time month → day and Last 30 days day
-  → hour drill-down wherever materialized aggregates exist, with matching mouse,
-  keyboard, focus, nested-collapse, and reload behavior and no JSONL read on click.
-- Normal live refresh preserves the active tab, expansion chain, selected
-  metric/hour, Optimizer draft, keyboard focus, and nearby scroll anchor.
-- Every chart exposes a localized provider-qualified accessible name. Empty
-  hours keep their axis, table, tooltip, and selectable zero value without
-  repeating `0` above every bar; genuinely unpriced activity still shows `—`.
-- Provider watchers recover with bounded backoff, and unchanged Codex
-  thread-title indexes use a validated memory cache to reduce background work.
-
-The reviewed draft is `v2.3.2`; the human-controlled publish workflow stamps package metadata from that release tag.
-
-## What's new in v2.3.1
-
-- Exact pricing and context metadata now cover **GPT-6 Astra**
-  (`gpt-6-astra`, 1.05M context) and **Claude Fable 5.1 / Mythos 5.1**
-  (`claude-fable-5-1` / `claude-mythos-5-1`, 1M context). Fable 5.1 uses its
-  model-specific `$0.25 / MTok` cache-read rate without changing historical
-  Fable 5 data. GPT-6 API-equivalent values use the official Standard
-  short-context rates; the request-wide surcharge above 272K input is excluded
-  because aggregate local logs cannot establish that per-request threshold.
-- Claude estimates can optionally use direct Anthropic or AWS Bedrock in-region
-  on-demand rates for current Opus, Sonnet, and Haiku families. Switching the
-  backend reprices unchanged logs immediately; Sonnet 5 uses the standard rate
-  after its launch promotion ended on 31 August 2026.
-- Last 30 days is the configured-timezone current date plus the preceding 29 dates. Today ≤ Last 30 days ≤ All time, repeated refresh/reindex is stable, all breakdowns reconcile, and months run oldest-first. Claude's Workflows summary uses the same rolling range and assigns each run by its configured-zone start date. Chart metric switches and drill-down labels render daily/monthly usage keys without host-timezone rollback; Advice and Optimizer snooze dates also use the configured timezone and UI locale.
-- Structured reasoning-effort variants normalize without model-name guessing. Non-zero unknown is explained; zero unknown is hidden.
-- Bounded anonymous quota observations preserve irregular and same-day resets. Every valid same-window used fraction contributes to labelled total and unused subscription-durability estimates, including the current window. Approximate or unattributed evidence is low confidence. If local Codex quota series overlap, the current window uses the latest real observation for a low-confidence blended estimate; ambiguous completed windows remain used-only. Unused value never becomes negative.
-- Compare now leads with a combined Claude + Codex activity heatmap that reuses daily aggregates, works with either provider alone, and keeps both components in every tooltip.
-- The preview-first share studio supports deterministic local SVG, a combined card, copyable Markdown, title/range controls, a privacy preview, and curated/custom colors. It is on by default and can be hidden with one Settings switch. Academic Violet is the default; intensity can use quantile (default), logarithmic, or linear mapping. Optional public-GitHub publication is separately confirmed at the exact destination.
-- Codex Token composition now shows **uncached usage** (uncached input + output) above the non-overlapping uncached-input / cached-input / output stack; reasoning remains a subset of output.
-- Codex scrolling stays smooth while indexing: scroll state is saved once after a gesture and live index progress patches text without rebuilding the page. Per-model green headlines now show exact-model API-equivalent price with coverage help; unknown models show `—`, while effort headlines retain neutral uncached-token values.
-- OpenAI-compatible optimizer requests now send `reasoning_effort` without the unsupported top-level `thinking` parameter, resolving [#94](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/94).
-- Claude and Codex now share dashboard density, hierarchy, disclosure, focus, ARIA, narrow-width, and light/dark design tokens while retaining provider-specific metric meanings.
-- Get AI Advice and Usage Optimizer share one exact-preview and explicit-send boundary. There is no default or background AI request, and local evidence/feedback remains bounded.
-
-## Codex Beta in v2.3
-
+- **Refined throughout the v2.3 line** — GPT-6 Astra and Fable 5.1 model
+  metadata, optional AWS Bedrock pricing, a fixed-reference display-currency
+  selector, complete month/day/hour drill-downs, state-preserving refresh,
+  accessible charts, and lower watcher/title-index overhead. Patch-level
+  details stay in the changelog and GitHub Releases.
 - Codex usage records are discovered only from `sessions/**/*.jsonl` and `archived_sessions/**/*.jsonl`; credential, database, and unknown files remain excluded. Separately, the extension streams exactly `$CODEX_HOME/session_index.jsonl` to map `id` to `thread_name` for truthful thread titles. Absolute paths are redacted and titles remain memory-only. Usage-record JSONL lines are streamed and temporarily parsed only to extract allowlisted usage and structural metadata; prompt, response, command, and tool-argument fields are not inspected or used for analysis, and are never retained or persisted.
 - **Processed** means input + output, **uncached usage** means uncached input + output, **cached input** remains a subset of input, and reasoning remains a subset of output. The overview also shows input cache hit rate as cached input / input. Codex billing cost is not shown. Its first summary card is a clearly labelled API-equivalent cost estimate for the selected scope, and the All-time view shows the weekly trend on the same pricing basis; Claude / Codex / Compare keep each provider's accounting separate.
 - Codex **Today** means the current calendar day in the configured timezone. It adds exact hourly API-equivalent cost beside a separate token-composition view; daily and monthly primary charts also default to API-equivalent cost while token composition stays separately visible. Only exact known-model prices contribute, so unknown models remain unpriced and pricing coverage stays visible. The additive, schema-3-compatible hourly sidecar keeps sparse buckets for the rolling last 30 days, is checkpointed and resumable, evicts day 31, and serves date expansion without reading JSONL on click. Codex monthly charts and tables list months oldest-first.
