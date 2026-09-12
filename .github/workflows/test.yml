@@ -77,6 +77,6 @@ jobs:
       - name: Compile
         run: npm run compile
       - name: Package smoke VSIX
-        run: npx -y @vscode/vsce@3.9.1 package --out /tmp/claude-code-usage-ci.vsix
+        run: npx -y @vscode/vsce@3.9.2 package --out /tmp/claude-code-usage-ci.vsix
       - name: Verify smoke VSIX
         run: node .github/scripts/verify-vsix.mjs /tmp/claude-code-usage-ci.vsix

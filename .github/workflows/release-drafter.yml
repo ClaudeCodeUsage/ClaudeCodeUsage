@@ -2,7 +2,9 @@
 #
 # On every push to main, release-drafter (re)builds a single DRAFT Release with
 # categorised notes and the next semver version inferred from the merged PRs'
-# labels (config in .github/release-drafter.yml). Nothing is published here — the
+# labels (config in .github/release-drafter.yml). A second pass after a PR is
+# fully merged closes the small event-ordering window where the push can arrive
+# before GitHub exposes that PR as merged. Nothing is published here — the
 # maintainer reviews the draft and clicks "Publish release" when ready, which
 # creates the tag and triggers publish.yml.
 #
@@ -23,13 +25,17 @@ on:
   # token has write access even for fork PRs; the autolabeler only reads the PR
   # title/branch and applies labels — it never checks out or runs the PR's code.
   pull_request_target:
-    types: [opened, reopened, synchronize]
+    types: [opened, reopened, synchronize, closed]
 
 permissions:
   contents: read
 
 jobs:
   update_release_draft:
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      github.event.action != 'closed' ||
+      github.event.pull_request.merged == true
     permissions:
       contents: write        # create / update the draft release
       pull-requests: write   # autolabeler applies labels to PRs

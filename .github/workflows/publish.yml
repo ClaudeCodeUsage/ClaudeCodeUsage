@@ -10,12 +10,15 @@
 #        - stamps package.json's version from the release tag (so nobody
 #          hand-bumps it — the tag is the source of truth),
 #        - compiles + packages a .vsix,
-#        - publishes to the VS Code Marketplace (VSCE_PAT) and Open VSX (OVSX_PAT),
-#        - attaches the .vsix to the Release.
+#        - attaches the verified .vsix to the Release,
+#        - publishes independently to the VS Code Marketplace (VSCE_PAT) and
+#          Open VSX (OVSX_PAT), with bounded duplicate-safe retries.
 #
 # Trigger manually from Actions → Publish Extension → Run workflow to retry a
 # failed registry. Supply the existing release tag and select only the registry
-# that needs a retry; the workflow checks out and stamps that exact tag.
+# that needs a retry; the workflow reuses its attached VSIX or rebuilds the
+# missing asset from that exact tag, then requires it to pass the current
+# package-safety policy before any delivery resumes.
 
 name: Publish Extension
 
@@ -25,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to retry (for example, v2.2.1)
+        description: Existing release tag to retry; it must pass the current package policy
         required: true
         type: string
       publish_vscode:
@@ -56,6 +59,11 @@ jobs:
 
       - name: Verify release tag checkout
         run: |
+          TAG="$RELEASE_TAG"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $TAG" >&2
+            exit 1
+          fi
           HEAD_COMMIT="$(git rev-parse HEAD)"
           TAG_COMMIT="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
           test "$HEAD_COMMIT" = "$TAG_COMMIT"
@@ -63,54 +71,139 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          # ovsx 1.2.0 declares Node >=22. Keep the publishing runtime inside
+          # the supported engine contract instead of relying on accidental
+          # compatibility from a shorter-lived CLI code path.
+          node-version: '22'
+
+      # A targeted manual retry should deliver the exact package that was
+      # already reviewed and attached. Build only when the release has no asset
+      # yet, which also repairs releases created by the former fail-fast flow.
+      - name: Restore verified .vsix for a manual retry
+        id: restore_package
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          ASSET_NAME="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[] | select(.name == "claude-code-usage.vsix") | .name')"
+          if [[ "$ASSET_NAME" == "claude-code-usage.vsix" ]]; then
+            gh release download "$RELEASE_TAG" --pattern claude-code-usage.vsix --clobber
+            echo "restored=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "restored=false" >> "$GITHUB_OUTPUT"
+            echo "No release asset found; rebuilding it from $RELEASE_TAG"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies
+        if: github.event_name == 'release' || steps.restore_package.outputs.restored != 'true'
         run: npm ci
 
       # The release tag is the single source of truth for the version. Stamp it
       # into package.json so vsce packages the right number — no human bump, no
       # tag-vs-package.json mismatch possible. Build-time only (not committed).
       - name: Set version from release tag
+        if: github.event_name == 'release' || steps.restore_package.outputs.restored != 'true'
         run: |
           TAG="$RELEASE_TAG"
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid release tag: $TAG" >&2
-            exit 1
-          fi
           VER="${TAG#v}"
           npm version "$VER" --no-git-tag-version --allow-same-version
           echo "package.json version set to $VER (from release $TAG)"
 
       - name: Compile
+        if: github.event_name == 'release' || steps.restore_package.outputs.restored != 'true'
         run: npm run compile
 
       - name: Package .vsix
-        run: npx -y @vscode/vsce@3.9.1 package --out claude-code-usage.vsix
+        if: github.event_name == 'release' || steps.restore_package.outputs.restored != 'true'
+        run: npx -y @vscode/vsce@3.9.2 package --out claude-code-usage.vsix
+
+      # Some historical release tags predate the package verifier. Load the
+      # current workflow's policy only after packaging so policy files can
+      # neither be missing on the tag nor leak into the VSIX being checked.
+      # A package that no longer meets current safety policy fails closed.
+      - name: Checkout current release verification policy
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-policy
+          sparse-checkout: .github/scripts
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Verify .vsix
-        run: node .github/scripts/verify-vsix.mjs claude-code-usage.vsix
+        run: node .release-policy/.github/scripts/verify-vsix.mjs claude-code-usage.vsix "${RELEASE_TAG#v}"
+
+      # Attach first so a transient registry outage cannot leave the GitHub
+      # Release without its verified package. Manual retries overwrite the same
+      # deterministic asset instead of creating duplicates.
+      - name: Attach .vsix to the GitHub Release
+        id: attach_release
+        continue-on-error: true
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: claude-code-usage.vsix
+          tag_name: ${{ env.RELEASE_TAG }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish to VS Code Marketplace
+        id: publish_vscode
         if: github.event_name == 'release' || inputs.publish_vscode
-        run: npx -y @vscode/vsce@3.9.1 publish --packagePath claude-code-usage.vsix --pat "$VSCE_PAT"
+        continue-on-error: true
+        timeout-minutes: 12
+        run: |
+          for attempt in 1 2 3; do
+            if npx -y @vscode/vsce@3.9.2 publish --packagePath claude-code-usage.vsix --skip-duplicate --pat "$VSCE_PAT"; then
+              exit 0
+            fi
+            if [[ "$attempt" == "3" ]]; then
+              exit 1
+            fi
+            sleep "$((attempt * 15))"
+          done
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX Registry
+        id: publish_open_vsx
         if: github.event_name == 'release' || inputs.publish_open_vsx
-        run: npx -y ovsx publish claude-code-usage.vsix --pat "$OVSX_PAT"
+        continue-on-error: true
+        timeout-minutes: 12
+        run: |
+          for attempt in 1 2 3; do
+            if npx -y ovsx@1.2.0 publish claude-code-usage.vsix --skip-duplicate --pat "$OVSX_PAT"; then
+              exit 0
+            fi
+            if [[ "$attempt" == "3" ]]; then
+              exit 1
+            fi
+            sleep "$((attempt * 15))"
+          done
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
-      # The Release already exists (the maintainer just published it) and already
-      # has release-drafter's notes — so we only upload the asset, never
-      # regenerate the body.
-      - name: Attach .vsix to the GitHub Release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: claude-code-usage.vsix
-          tag_name: ${{ github.event.release.tag_name }}
+      - name: Verify release delivery outcomes
+        if: always()
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ATTACH_OUTCOME: ${{ steps.attach_release.outcome }}
+          PUBLISH_VSCODE: ${{ github.event_name == 'release' || inputs.publish_vscode }}
+          VSCODE_OUTCOME: ${{ steps.publish_vscode.outcome }}
+          PUBLISH_OPEN_VSX: ${{ github.event_name == 'release' || inputs.publish_open_vsx }}
+          OPEN_VSX_OUTCOME: ${{ steps.publish_open_vsx.outcome }}
+        run: |
+          failed=0
+          if [[ "$ATTACH_OUTCOME" != "success" ]]; then
+            echo "GitHub Release asset upload failed" >&2
+            failed=1
+          fi
+          if [[ "$PUBLISH_VSCODE" == "true" && "$VSCODE_OUTCOME" != "success" ]]; then
+            echo "VS Code Marketplace publish failed" >&2
+            failed=1
+          fi
+          if [[ "$PUBLISH_OPEN_VSX" == "true" && "$OPEN_VSX_OUTCOME" != "success" ]]; then
+            echo "Open VSX publish failed" >&2
+            failed=1
+          fi
+          exit "$failed"

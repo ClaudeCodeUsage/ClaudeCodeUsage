@@ -103,8 +103,12 @@ tags:
    then adds your change to a continuously-updated **draft GitHub Release** and
    recomputes the next version.
 3. **To ship, a maintainer reviews that draft and clicks Publish.** That creates
-   the tag and triggers `publish.yml`, which packages and pushes to the VS Code
-   Marketplace + Open VSX and attaches the `.vsix`.
+   the tag and triggers `publish.yml`, which packages and verifies the `.vsix`,
+   attaches it to the GitHub Release, then publishes independently to the VS
+   Code Marketplace and Open VSX. Registry uploads use bounded duplicate-safe
+   retries; a targeted manual retry reuses that attached, verified package and
+   can recover either registry without changing the release tag. Older releases
+   that have no asset yet are rebuilt once from their exact tag and repaired.
 
 Because changes ship by **merging** your PR — not by re-applying it — your commit
 authorship and the PR's *merged* status are preserved.

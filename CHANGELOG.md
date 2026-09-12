@@ -4,7 +4,22 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
-## [2.3.2] — Unreleased
+## [2.3.3] — Unreleased
+
+### Fixed
+- **Resilient release delivery** — the verified VSIX is attached to the GitHub
+  Release before either registry publish begins, and VS Code Marketplace and
+  Open VSX are attempted independently. Both registry uploads use pinned,
+  Node-engine-compatible CLIs, bounded retries, and duplicate-safe publishing,
+  so a transient timeout cannot silently block the other registry or leave the
+  release without its downloadable package. Targeted retries reuse that exact
+  attached VSIX; a missing legacy asset is rebuilt once from its release tag.
+  A failed asset download is never mistaken for a missing asset or silently
+  replaced by a rebuild.
+  Release Drafter also performs a merge-complete reconciliation pass so the PR
+  that triggered the main-branch push cannot be omitted by event-ordering races.
+
+## [2.3.2] — 2026-09-12
 
 ### Added
 - **Project activity matrix (brought forward from the planned v2.3.3)** — the
@@ -58,7 +73,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   endpoints and reset boundaries, and dynamic sharing failures render as text
   instead of interpreted HTML.
 
-## [2.3.1] — Unreleased
+## [2.3.1] — 2026-09-08
 
 ### Added
 - **GPT-6 Astra and Claude Fable 5.1 pricing** — exact model IDs now use their
@@ -275,7 +290,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   explicitly excluded from the VSIX. The human-controlled publish workflow
   stamps package metadata from the reviewed `v2.3.1` release tag.
 
-## [2.3.0] — Unreleased
+## [2.3.0] — 2026-08-28
 
 ### Fixed
 - **Codex Today is now the configured calendar day** — the first Codex tab now
