@@ -1,0 +1,145 @@
+# The VS Code Marketplace Gallery API can remain unavailable for several hours.
+# Keep the release workflow honest (it still fails when delivery fails), then
+# reconcile the newest stable GitHub Release in the background. The canonical
+# Release VSIX is reused and verified; no package is rebuilt here.
+
+name: Recover VS Code Marketplace delivery
+
+on:
+  schedule:
+    # Avoid the top of the hour, when scheduled Actions and public services are
+    # commonly busiest. A successful no-op probe is cheap and idempotent.
+    - cron: '37 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-registry-delivery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current release policy
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Resolve newest stable GitHub Release
+        id: release
+        run: |
+          TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unexpected latest stable release tag: $TAG" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download canonical Release VSIX
+        run: |
+          gh release download "${{ steps.release.outputs.tag }}" \
+            --pattern claude-code-usage.vsix \
+            --clobber
+          test -s claude-code-usage.vsix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify canonical Release VSIX
+        run: >-
+          node .github/scripts/verify-vsix.mjs
+          claude-code-usage.vsix
+          "${{ steps.release.outputs.version }}"
+
+      - name: Probe Marketplace delivery
+        id: probe
+        run: |
+          set +e
+          npx -y @vscode/vsce@4.0.0 show GrowthJack.claude-code-usage --json \
+            > marketplace-extension.json 2> marketplace-probe.err
+          probe_status=$?
+          set -e
+
+          if [[ "$probe_status" != "0" ]]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Marketplace probe is unavailable; recovery will retry next hour."
+            cat marketplace-probe.err >&2
+            exit 0
+          fi
+
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          version='${{ steps.release.outputs.version }}'
+          if ! jq -e --arg version "$version" \
+            '[.versions[]? | select(.version == $version)] | length > 0' \
+            marketplace-extension.json >/dev/null; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          published_sha="$(jq -r --arg version "$version" '
+            [.versions[]? | select(.version == $version) | .properties[]? |
+             select(.key == "Microsoft.VisualStudio.Services.VsixSha256") | .value][0] // empty
+          ' marketplace-extension.json)"
+          local_sha="$(sha256sum claude-code-usage.vsix | cut -d' ' -f1)"
+          if [[ -z "$published_sha" ]]; then
+            echo "Marketplace version $version has no VSIX SHA-256 property" >&2
+            exit 1
+          fi
+          if [[ "${published_sha,,}" != "${local_sha,,}" ]]; then
+            echo "Marketplace VSIX SHA-256 mismatch for $version" >&2
+            echo "release:     $local_sha" >&2
+            echo "marketplace: $published_sha" >&2
+            exit 1
+          fi
+
+          echo "needed=false" >> "$GITHUB_OUTPUT"
+          echo "Marketplace already contains the canonical $version VSIX."
+
+      - name: Recover missing Marketplace version
+        id: publish
+        if: steps.probe.outputs.available == 'true' && steps.probe.outputs.needed == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: >-
+          npx -y @vscode/vsce@4.0.0 publish
+          --packagePath claude-code-usage.vsix
+          --skip-duplicate
+          --pat "$VSCE_PAT"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Record recovery result
+        if: always()
+        run: |
+          if [[ "$PROBE_OUTCOME" != "success" ]]; then
+            echo "### Marketplace recovery preflight failed" >> "$GITHUB_STEP_SUMMARY"
+            echo "The canonical asset or integrity check failed; no publish was attempted." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$PROBE_AVAILABLE" != "true" ]]; then
+            echo "### Marketplace recovery deferred" >> "$GITHUB_STEP_SUMMARY"
+            echo "The Gallery API probe was unavailable. The next hourly run will retry." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$PUBLISH_NEEDED" != "true" ]]; then
+            echo "### Marketplace delivery is current" >> "$GITHUB_STEP_SUMMARY"
+            echo "The latest stable GitHub Release is already published with the expected SHA-256." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$PUBLISH_OUTCOME" == "success" ]]; then
+            echo "### Marketplace delivery recovered" >> "$GITHUB_STEP_SUMMARY"
+            echo "Published $RELEASE_TAG from its canonical GitHub Release VSIX." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Marketplace recovery will retry" >> "$GITHUB_STEP_SUMMARY"
+            echo "The publish attempt failed. The next hourly run will reuse the same verified VSIX." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Marketplace publish failed; scheduled recovery will retry next hour."
+          fi
+        env:
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          PROBE_AVAILABLE: ${{ steps.probe.outputs.available }}
+          PUBLISH_NEEDED: ${{ steps.probe.outputs.needed }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}

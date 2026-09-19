@@ -70,13 +70,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          # @vscode/vsce 4 requires Node >=22.
+          node-version: '22'
           cache: 'npm'
       - name: Install dependencies
         run: npm ci
       - name: Compile
         run: npm run compile
       - name: Package smoke VSIX
-        run: npx -y @vscode/vsce@3.9.2 package --out /tmp/claude-code-usage-ci.vsix
+        run: npx -y @vscode/vsce@4.0.0 package --out /tmp/claude-code-usage-ci.vsix
       - name: Verify smoke VSIX
         run: node .github/scripts/verify-vsix.mjs /tmp/claude-code-usage-ci.vsix
