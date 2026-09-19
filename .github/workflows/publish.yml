@@ -45,6 +45,10 @@ on:
 permissions:
   contents: write   # needed by softprops/action-gh-release to attach the .vsix asset
 
+concurrency:
+  group: extension-registry-delivery
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -115,7 +119,7 @@ jobs:
 
       - name: Package .vsix
         if: github.event_name == 'release' || steps.restore_package.outputs.restored != 'true'
-        run: npx -y @vscode/vsce@3.9.2 package --out claude-code-usage.vsix
+        run: npx -y @vscode/vsce@4.0.0 package --out claude-code-usage.vsix
 
       # Some historical release tags predate the package verifier. Load the
       # current workflow's policy only after packaging so policy files can
@@ -155,7 +159,7 @@ jobs:
         timeout-minutes: 12
         run: |
           for attempt in 1 2 3; do
-            if npx -y @vscode/vsce@3.9.2 publish --packagePath claude-code-usage.vsix --skip-duplicate --pat "$VSCE_PAT"; then
+            if npx -y @vscode/vsce@4.0.0 publish --packagePath claude-code-usage.vsix --skip-duplicate --pat "$VSCE_PAT"; then
               exit 0
             fi
             if [[ "$attempt" == "3" ]]; then
