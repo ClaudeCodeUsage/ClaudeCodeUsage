@@ -7,6 +7,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.3.3] — Unreleased
 
 ### Fixed
+- **Full re-read when several sessions append at once (#99)** — the content
+  analysis fast path required exactly one changed file, so a machine running
+  more than one agent never took it: every refresh rebuilt all contributions
+  from every file. Any number of pure tail appends now stays incremental.
+  Appends are parsed in full-scan order and new-UUID ownership is attributed to
+  the owning file, so results match the full loader. Measured on 15 real
+  transcripts (34 MB) with three files appended: 15 body reads and 8.7 s became
+  3 body reads and 0.6 s.
 - **Startup with legacy workspace advice keys (#105)** — a workspace-scoped
   plaintext BYOK key or unavailable SecretStorage no longer prevents the usage
   status bar, commands, and dashboard from activating. The old key remains

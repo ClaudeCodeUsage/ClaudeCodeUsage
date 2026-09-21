@@ -445,6 +445,52 @@ test('calibration follows missing request IDs, a cross-file winner, and cutoff e
   }
 });
 
+test('concurrent appends to several files stay incremental instead of forcing a full rebuild', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-multi-append-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-multi-append');
+  await mkdir(project, { recursive: true });
+  const files: string[] = [];
+  try {
+    for (let index = 0; index < 64; index += 1) {
+      const file = path.join(project, `session-${String(index).padStart(3, '0')}.jsonl`);
+      files.push(file);
+      await writeFile(file, `${usageLine(`multi-append-${index}`, index + 1, 1, {
+        timestamp: new Date(Date.parse('2026-09-09T00:00:00.000Z') + index * 1_000).toISOString(),
+      })}
+`, 'utf8');
+    }
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root);
+    assert.equal(cold.diagnostics.bodyReads, 64);
+
+    // Three sessions writing at once is the ordinary case for a machine running
+    // several agents, not an edge case.
+    const appended = [files[10], files[30], files[63]];
+    let offset = 0;
+    let appendedBytes = 0;
+    for (const file of appended) {
+      offset += 1;
+      const tail = `${usageLine(`multi-append-tail-${offset}`, 9, 3, {
+        timestamp: new Date(Date.parse('2026-09-09T00:10:00.000Z') + offset * 1_000).toISOString(),
+      })}
+`;
+      appendedBytes += Buffer.byteLength(tail);
+      await appendFile(file, tail, 'utf8');
+    }
+
+    const warm = await updateClaudeUsageIndex(cold.index, root);
+    const full = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
+
+    assert.equal(warm.diagnostics.bodyReads, appended.length);
+    assert.equal(warm.diagnostics.bytesRead, appendedBytes);
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('default content analysis does not revisit historical file contributions after a small append', async () => {
   const previousNow = Date.now;
   Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
