@@ -2593,9 +2593,16 @@ export async function updateClaudeUsageIndex(
     // limited to a single changed file, such a machine never took it and every
     // refresh re-read the whole history. Any number of pure tail appends is
     // safe here; the per-file UUID ownership check below still guards order.
+    // A file that simply appeared is as safe as a tail append: its own body is
+    // read in full, and the established contributions are untouched. Every new
+    // session starts a new transcript, so treating this as an unsafe mutation
+    // cost a full rebuild many times a day.
+    const isTailAppend = (plan: FilePlan): boolean =>
+      plan.kind === 'append' && Boolean(plan.prior) && (plan.prior?.firstTimestampMs ?? 0) > 0;
+    const isNewFile = (plan: FilePlan): boolean =>
+      plan.kind === 'rebuild' && !plan.prior && !plan.replacedFileId;
     const appendOnlyPlans = plans.length > 0 && sourcePlans.length === plans.length &&
-      plans.every((plan) => plan.kind === 'append' && plan.prior &&
-        plan.prior.firstTimestampMs > 0);
+      plans.every((plan) => isTailAppend(plan) || isNewFile(plan));
     const safeTailAppend = Boolean(
       appendOnlyPlans &&
       previousAnalysisRuntime && !timeZoneChanged &&
@@ -2664,7 +2671,9 @@ export async function updateClaudeUsageIndex(
     analyzeContent && previousAnalysisRuntime && previous.contentAnalysis &&
     !forcedFullAnalysisRebuild && calibrationCutoffIsStable &&
     analysisPayloadRebases.size === 0 && deletions.length === 0 && moves.length === 0 &&
-    plans.every((plan) => plan.kind === 'append' && Boolean(plan.prior)),
+    plans.every((plan) =>
+      (plan.kind === 'append' && Boolean(plan.prior)) ||
+      (plan.kind === 'rebuild' && !plan.prior && !plan.replacedFileId)),
   );
 
   await options.beforeBodyReads?.();
@@ -2744,11 +2753,21 @@ export async function updateClaudeUsageIndex(
     // collision changes the full loader's first owner, so retry the analysis as
     // one globally ordered rebuild. The first tail read remains bounded and is
     // the evidence used to choose the safe path.
-    if (fastAppendAnalysis && previousAnalysisRuntime && parsedPlans.length > 0 &&
-      parsedPlans.every((plan) => plan.kind === 'append')) {
+    if (fastAppendAnalysis && previousAnalysisRuntime && parsedPlans.length > 0) {
       let laterOwnerCollision = false;
       for (const appended of parsedPlans) {
         if (laterOwnerCollision) break;
+        if (appended.kind === 'rebuild') {
+          // A brand-new file owns only UUIDs nobody else has: anything else can
+          // move ownership, which the full loader resolves by scan order.
+          for (const uuid of appended.analysisTouchedUuids) {
+            if (previousAnalysisRuntime.firstUuidFileByUuid.has(uuid)) {
+              laterOwnerCollision = true;
+              break;
+            }
+          }
+          continue;
+        }
         const filePosition = previousAnalysisRuntime.filePositionById.get(appended.fileId) ?? -1;
         if (filePosition < 0) {
           laterOwnerCollision = true;
@@ -2902,18 +2921,43 @@ export async function updateClaudeUsageIndex(
     // calibration identities, and the already-bounded prompt/skill samples.
     const merged = cloneAnalysisAcc(previousAnalysisRuntime.merged);
     const appended = new Map<string, AnalysisAcc>();
+    const addedFileIds: string[] = [];
     for (const plan of parsedPlans) {
-      if (!plan.prior?.analysis || !plan.contribution.analysis) continue;
-      addAppendAnalysisDelta(merged, plan.prior.analysis, plan.contribution.analysis);
+      if (!plan.contribution.analysis) continue;
+      if (plan.prior?.analysis) {
+        addAppendAnalysisDelta(merged, plan.prior.analysis, plan.contribution.analysis);
+      } else {
+        // A file that just appeared has no prior contribution: its whole
+        // analysis is the delta.
+        addAppendAnalysisDelta(
+          merged,
+          newAnalysisAcc(analysisCutoffMs),
+          plan.contribution.analysis,
+        );
+        addedFileIds.push(plan.fileId);
+      }
       appended.set(plan.fileId, plan.contribution.analysis);
     }
-    const promptTail = refreshedPromptTail(previousAnalysisRuntime, appended);
+    // Ordering state is reused as is for pure appends — recomputing it would
+    // touch every historical file. New files have to take their place in the
+    // order, and that is metadata-only work: no body is re-read.
+    const orderedState: AnalysisRuntimeState = addedFileIds.length === 0
+      ? previousAnalysisRuntime
+      : (() => {
+        const orderedFileIds = analysisFilesInOrder(next).map((file) => file.fileId);
+        return {
+          ...previousAnalysisRuntime,
+          orderedFileIds,
+          filePositionById: new Map(orderedFileIds.map((fileId, at) => [fileId, at])),
+        };
+      })();
+    const promptTail = refreshedPromptTail(orderedState, appended);
     const touchedToolIds = new Set<string>();
     for (const plan of parsedPlans) {
       for (const toolId of plan.analysisTouchedToolIds) touchedToolIds.add(toolId);
     }
     const structural = refreshedStructuralRuntime(
-      previousAnalysisRuntime,
+      orderedState,
       merged,
       appended,
       touchedToolIds,
@@ -2935,8 +2979,8 @@ export async function updateClaudeUsageIndex(
       // comes first in the established order — not to whichever plan happened
       // to be parsed first.
       const appendedByOrder = [...parsedPlans].sort((left, right) =>
-        (previousAnalysisRuntime.filePositionById.get(left.fileId) ?? 0) -
-        (previousAnalysisRuntime.filePositionById.get(right.fileId) ?? 0));
+        (orderedState.filePositionById.get(left.fileId) ?? 0) -
+        (orderedState.filePositionById.get(right.fileId) ?? 0));
       const unassigned = new Set(analysisUuidAdditions);
       for (const plan of appendedByOrder) {
         if (unassigned.size === 0) break;
@@ -2962,8 +3006,8 @@ export async function updateClaudeUsageIndex(
     const runtime: AnalysisRuntimeState = {
       asOfDay: analysisAsOfDay,
       cutoffMs: analysisCutoffMs,
-      orderedFileIds: previousAnalysisRuntime.orderedFileIds,
-      filePositionById: previousAnalysisRuntime.filePositionById,
+      orderedFileIds: orderedState.orderedFileIds,
+      filePositionById: orderedState.filePositionById,
       merged,
       promptTail,
       skillHead,
