@@ -108,3 +108,44 @@ test('timezone resolution returns a usable canonical zone', () => {
   assert.notEqual(resolveTimeZone(''), '');
   assert.equal(resolveTimeZone('Not/AZone'), resolveTimeZone(''));
 });
+
+test('repeated bucketing reuses one formatter per zone instead of building one per record', () => {
+  // Chatham is not used by the other cases here, so this zone starts cold.
+  const zone = 'Pacific/Chatham';
+  const sample = new Date('2026-07-20T18:20:00.000Z');
+  const realDateTimeFormat = Intl.DateTimeFormat;
+  const intl = Intl as unknown as { DateTimeFormat: typeof Intl.DateTimeFormat };
+  let constructed = 0;
+  intl.DateTimeFormat = new Proxy(realDateTimeFormat, {
+    construct(target, args: unknown[]): object {
+      constructed += 1;
+      return Reflect.construct(target, args);
+    },
+  }) as typeof Intl.DateTimeFormat;
+
+  try {
+    dayKeyInZone(sample, zone);
+    hourKeyInZone(sample, zone);
+    const afterWarmUp = constructed;
+    assert.ok(afterWarmUp > 0, 'the first call in a zone still has to build its formatters');
+
+    for (let i = 0; i < 500; i++) {
+      dayKeyInZone(new Date(sample.getTime() + i * 3_600_000), zone);
+      monthKeyInZone(new Date(sample.getTime() + i * 3_600_000), zone);
+      hourKeyInZone(new Date(sample.getTime() + i * 3_600_000), zone);
+    }
+
+    assert.equal(constructed, afterWarmUp);
+  } finally {
+    intl.DateTimeFormat = realDateTimeFormat;
+  }
+});
+
+test('memoised zones keep their own calendars apart', () => {
+  const d = new Date('2026-06-30T20:00:00Z');
+  assert.equal(dayKeyInZone(d, 'Asia/Hong_Kong'), '2026-07-01');
+  assert.equal(dayKeyInZone(d, 'UTC'), '2026-06-30');
+  assert.equal(dayKeyInZone(d, 'Asia/Hong_Kong'), '2026-07-01');
+  assert.equal(hourKeyInZone(d, 'UTC'), '20');
+  assert.equal(hourKeyInZone(d, 'Asia/Hong_Kong'), '04');
+});

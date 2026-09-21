@@ -7,6 +7,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [2.3.3] — Unreleased
 
 ### Fixed
+- **High CPU during indexing (#99)** — day, month and hour bucketing no longer
+  constructs a fresh `Intl.DateTimeFormat` for every ingested record. The
+  resolved zone and both formatters are memoised per zone, so a large local
+  history is indexed without pinning a core. On a 1.4 GB history the key
+  derivation went from ~1.1k to ~168k records/second (158x) with identical
+  keys; invalid and empty zones still fall back exactly as before.
 - **Startup with legacy workspace advice keys (#105)** — a workspace-scoped
   plaintext BYOK key or unavailable SecretStorage no longer prevents the usage
   status bar, commands, and dashboard from activating. The old key remains
