@@ -21,6 +21,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   when Custom is selected.
 
 ### Fixed
+- **PR first-pass review that only posted boilerplate (#108–#112)** — a failed
+  model request or empty answer now fails the PR workflow with a safe tier/status
+  diagnostic and posts no comment; issue triage retains its explicit fallback.
+  DeepSeek's cheap tier disables default thinking to preserve reply tokens, the
+  escalation tier has an output cap above its thinking budget, and the default
+  flash identifier tracks the current supported model. A cheap reply marked
+  as needing source is never posted when escalation fails. Existing bot
+  comments are not edited retroactively.
 - **Full rebuild whenever a new transcript appeared (#99)** — a file that had
   just been created was treated as an unsafe mutation, so every new session
   rebuilt every contribution in the corpus. A new file is now read in full on

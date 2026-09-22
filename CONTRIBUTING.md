@@ -127,6 +127,18 @@ The runner checks out only the base repository, never executes contributor code,
 reads at most six allowlisted text files within byte budgets, and can only post
 one comment. Public input remains untrusted and model output may be wrong. A
 missing or empty PR diff stops the workflow without posting a review.
+When both model tiers fail or return no usable PR analysis, the workflow fails
+with a status-only diagnostic and **does not post a generic review**. Inspect
+the Actions log before retrying; API response bodies, credentials, PR text,
+and model replies are not included in this diagnostic. Issues retain a clearly
+labelled, provider-neutral triage fallback. Historical fallback comments are
+not automatically replaced. The bot only runs on `opened`, so a later retry
+requires an explicitly arranged workflow run, not a fresh push to the PR.
+
+中文说明：外部 PR 的自动初审若两层模型都失败，会在 Actions 中显示安全的
+状态分类并停止，不再发布泛泛的模板评论；日志不会包含密钥、接口原文或 PR
+内容。Issue 的分流兜底保持不变。旧评论不会自动改写，给 PR 推新提交也不会
+触发本工作流再次运行，是否重试由维护者决定。
 
 Codex automatic attribution is not enabled in v2.2.1. It requires a separately
 implemented and trusted OpenAI/Codex transport; a model name or repository
