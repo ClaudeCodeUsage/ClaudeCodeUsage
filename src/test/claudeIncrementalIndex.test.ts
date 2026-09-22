@@ -235,53 +235,59 @@ test('cold production index preserves the established full-loader record semanti
 });
 
 test('content analysis is materialized from per-file contributions without a second body scan', async () => {
-  const { root, first } = await fixture();
-  await appendFile(first, [
-    JSON.stringify({
-      type: 'assistant',
-      uuid: 'tool-use-line',
-      timestamp: '2026-08-21T08:02:00.000Z',
-      message: {
-        role: 'assistant',
-        content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: '/tmp/a' } }],
-      },
-    }),
-    JSON.stringify({
-      type: 'user',
-      uuid: 'tool-result-line',
-      timestamp: '2026-08-21T08:03:00.000Z',
-      message: {
-        role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'fixture result' }],
-      },
-    }),
-    '',
-  ].join('\n'), 'utf8');
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first } = await fixture();
+    await appendFile(first, [
+      JSON.stringify({
+        type: 'assistant',
+        uuid: 'tool-use-line',
+        timestamp: '2026-08-21T08:02:00.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 'tool-1', name: 'Read', input: { file_path: '/tmp/a' } }],
+        },
+      }),
+      JSON.stringify({
+        type: 'user',
+        uuid: 'tool-result-line',
+        timestamp: '2026-08-21T08:03:00.000Z',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 'tool-1', content: 'fixture result' }],
+        },
+      }),
+      '',
+    ].join('\n'), 'utf8');
 
-  const incremental = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
-    analyzeContent: true,
-    windowDays: 30,
-  });
-  const full = await ClaudeDataLoader.loadUsageRecords(root, {
-    analyzeContent: true,
-    windowDays: 30,
-  });
+    const incremental = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
 
-  assert.equal(incremental.diagnostics.bodyReads, 2);
-  assert.deepEqual(incremental.contentAnalysis, full.contentAnalysis);
+    assert.equal(incremental.diagnostics.bodyReads, 2);
+    assert.deepEqual(incremental.contentAnalysis, full.contentAnalysis);
 
-  const tail = `${promptLine('content tail', '2026-08-21T10:00:00.000Z')}\n`;
-  await appendFile(first, tail, 'utf8');
-  const warm = await updateClaudeUsageIndex(incremental.index, root, {
-    analyzeContent: true,
-    windowDays: 30,
-  });
-  const warmFull = await ClaudeDataLoader.loadUsageRecords(root, {
-    analyzeContent: true,
-    windowDays: 30,
-  });
-  assert.equal(warm.diagnostics.bodyReads, 1);
-  assert.deepEqual(warm.contentAnalysis, warmFull.contentAnalysis);
+    const tail = `${promptLine('content tail', '2026-08-21T10:00:00.000Z')}\n`;
+    await appendFile(first, tail, 'utf8');
+    const warm = await updateClaudeUsageIndex(incremental.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    const warmFull = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.equal(warm.diagnostics.bodyReads, 1);
+    assert.deepEqual(warm.contentAnalysis, warmFull.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
 });
 
 test('cross-file tool results retain global tool and Skill preamble attribution', async () => {

@@ -82,7 +82,7 @@ function assertExactVscePin(commands: readonly WorkflowStepValue[]): void {
   );
   assert.ok(tokens.length > 0, 'workflow must invoke VSCE');
   for (const token of tokens) {
-    assert.equal(token, '@vscode/vsce@3.9.2', `unexpected VSCE invocation ${token}`);
+    assert.equal(token, '@vscode/vsce@4.0.0', `unexpected VSCE invocation ${token}`);
   }
 }
 
@@ -1687,7 +1687,7 @@ test('CI has separate Node, browser, and package release gates', () => {
   assert.match(workflow, /PLAYWRIGHT_BROWSERS_PATH:\s*\/ms-playwright/);
   assert.match(workflow, /needs:\s*\[test, ui\]/);
   assert.ok(runValues.includes('npm run test:ui'));
-  const packageAt = runValues.indexOf('npx -y @vscode/vsce@3.9.2 package --out /tmp/claude-code-usage-ci.vsix');
+  const packageAt = runValues.indexOf('npx -y @vscode/vsce@4.0.0 package --out /tmp/claude-code-usage-ci.vsix');
   const verifyAt = runValues.indexOf('node .github/scripts/verify-vsix.mjs /tmp/claude-code-usage-ci.vsix');
   assert.ok(packageAt >= 0 && verifyAt > packageAt, 'smoke VSIX verification must follow packaging');
   assertExactVscePin(runs);
@@ -1713,10 +1713,10 @@ test('publish pins compatible registry CLIs and isolates all three delivery sink
   const releaseNodeMatch = workflow.match(/node-version:\s*'(\d+)'/);
   assert.ok(releaseNodeMatch, 'publish workflow must pin a Node major');
   const releaseNodeMajor = Number(releaseNodeMatch[1]);
-  const packageStep = findRun('npx -y @vscode/vsce@3.9.2 package --out claude-code-usage.vsix');
+  const packageStep = findRun('npx -y @vscode/vsce@4.0.0 package --out claude-code-usage.vsix');
   const verifyStep = findRun('node .release-policy/.github/scripts/verify-vsix.mjs claude-code-usage.vsix "${RELEASE_TAG#v}"');
   const restoreStep = runs.find(({ value }) => value.includes('gh release download "$RELEASE_TAG"'));
-  const publishStep = runs.find(({ value }) => value.includes('@vscode/vsce@3.9.2 publish'));
+  const publishStep = runs.find(({ value }) => value.includes('@vscode/vsce@4.0.0 publish'));
   const openVsxStep = runs.find(({ value }) => value.includes('ovsx@1.2.0 publish'));
   const resultStep = runs.find(({ value }) => value.includes('VSCODE_OUTCOME'));
   const attachStep = uses.find(({ value }) =>
