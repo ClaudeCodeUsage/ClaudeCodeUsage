@@ -35,6 +35,11 @@ import { renderConversationViewer } from './conversationViewerHtml';
 import { formatUsageDate, shortUsageDate } from './usageDateLabels';
 import { normalizeQuotaWindows } from './quotaWindows';
 import {
+  CUSTOM_QUOTA_STATUS_TEMPLATE,
+  FIVE_HOUR_QUOTA_STATUS_TEMPLATE,
+  WEEKLY_QUOTA_STATUS_TEMPLATE,
+} from './quotaFormat';
+import {
   buildWeeklyValueTimeline,
   claudeWeeklyEquivalentUsage,
   EquivalentCostBreakdown,
@@ -3383,7 +3388,44 @@ export class UsageWebviewProvider {
   /** One row in the settings panel: label + help + the right input control. The
    * label / help follow the plugin language (I18n.settingText), falling back to
    * the catalog English for the English UI. */
+  private renderQuotaFormatSettingRow(it: SettingView): string {
+    const esc = (value: string): string => this.escapeHtml(value);
+    const copy = I18n.t.popup;
+    const tr = I18n.settingText(it.key);
+    const label = tr.label ?? it.label;
+    const detailedHelp = tr.help ?? it.help ?? '';
+    const id = 'set_statusBarQuotaFormat';
+    const presetId = `${id}_preset`;
+    const raw = String(it.value);
+    const selected = raw === '' || raw === FIVE_HOUR_QUOTA_STATUS_TEMPLATE ||
+      raw === WEEKLY_QUOTA_STATUS_TEMPLATE ? raw : 'custom';
+    const option = (value: string, text: string): string =>
+      '<option value="' + esc(value) + '"' + (selected === value ? ' selected' : '') +
+      '>' + esc(text) + '</option>';
+    const options = option('', copy.quotaFormatBuiltIn) +
+      option(FIVE_HOUR_QUOTA_STATUS_TEMPLATE, copy.quotaFormatFiveHour) +
+      option(WEEKLY_QUOTA_STATUS_TEMPLATE, copy.quotaFormatWeekly) +
+      option('custom', copy.quotaFormatCustom);
+    const custom = selected === 'custom';
+    return '<div class="set-row"><div class="set-label"><label for="' + presetId + '">' +
+      esc(label) + '</label><div class="set-help">' + esc(copy.quotaFormatShortHelp) + '</div></div>' +
+      '<div class="set-control quota-format-control"><select id="' + presetId + '"' +
+      ' data-default-template="' + esc(CUSTOM_QUOTA_STATUS_TEMPLATE) + '"' +
+      ' onchange="setQuotaFormatPreset(this)">' + options + '</select>' +
+      '<div id="' + id + '_custom" class="quota-format-custom"' + (custom ? '' : ' hidden') + '>' +
+      '<input type="text" id="' + id + '" value="' + esc(custom ? raw : '') + '"' +
+      ' maxlength="' + (it.maxLength ?? 120) + '"' +
+      ' aria-label="' + esc(label + ' — ' + copy.quotaFormatCustom) + '"' +
+      ' aria-describedby="' + id + '_help"' +
+      ' onchange="setQuotaFormatCustom(this)">' +
+      '<div id="' + id + '_help" class="set-help">' + esc(detailedHelp) + '</div>' +
+      '</div></div></div>';
+  }
+
   private renderSettingRow(it: SettingView): string {
+    if (it.key === 'statusBarQuotaFormat') {
+      return this.renderQuotaFormatSettingRow(it);
+    }
     const esc = (s: string): string => this.escapeHtml(s);
     const tr = I18n.settingText(it.key);
     const label = tr.label ?? it.label;
@@ -8366,6 +8408,9 @@ export class UsageWebviewProvider {
       }
       .set-control input[type="number"] { min-width: 96px; width: 96px; }
       .set-control textarea { resize: vertical; min-width: 260px; }
+      .quota-format-control { flex-direction: column; align-items: stretch; gap: 6px; }
+      .quota-format-custom[hidden] { display: none; }
+      .quota-format-custom input { width: 100%; box-sizing: border-box; }
       .set-switch { position: relative; display: inline-block; width: 40px; height: 22px; }
       .set-switch input { opacity: 0; width: 0; height: 0; }
       .set-slider {
@@ -11467,6 +11512,30 @@ function setSetting(key, value, type) {
     value = n;
   }
   vscode.postMessage({ command: 'updateSetting', key: key, value: value });
+}
+
+function setQuotaFormatPreset(select) {
+  var input = document.getElementById('set_statusBarQuotaFormat');
+  var custom = document.getElementById('set_statusBarQuotaFormat_custom');
+  if (!input || !custom) { return; }
+  var isCustom = select.value === 'custom';
+  custom.hidden = !isCustom;
+  if (isCustom) {
+    if (!input.value) { input.value = select.dataset.defaultTemplate || ''; }
+    setSetting('statusBarQuotaFormat', input.value, 'string');
+    input.focus();
+  } else {
+    setSetting('statusBarQuotaFormat', select.value, 'string');
+  }
+}
+
+function setQuotaFormatCustom(input) {
+  var preset = document.getElementById('set_statusBarQuotaFormat_preset');
+  // Leaving the input can fire its change event after a preset was selected.
+  // Do not let a stale custom draft overwrite that deliberate choice.
+  if (preset && preset.value === 'custom') {
+    setSetting('statusBarQuotaFormat', input.value, 'string');
+  }
 }
 
 function resetAllSettings(keys) {

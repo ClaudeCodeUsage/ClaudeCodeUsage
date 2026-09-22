@@ -17,6 +17,7 @@ export interface QuotaStatusOptions {
   fiveHourOnly: boolean; // quotaFiveHourOnly (default false)
   showScopedWeekly: boolean; // opt-in model-scoped weekly caps (default false)
   resetFormat?: ResetCountdownFormat; // resetCountdownFormat (default 'decimal')
+  template?: string; // statusBarQuotaFormat (default ''); grammar below
   now?: number; // for the countdown; defaults to Date.now()
 }
 
@@ -209,12 +210,225 @@ function shownWindows(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): 
   });
 }
 
+// --- Status-bar format template (statusBarQuotaFormat) ---------------------
+//
+// The escape hatch for a different set of windows, order or separators. Empty
+// by default, so the clean built-in layout above is still what ships.
+//
+// Grammar:
+//   {5h.FIELD}             the 5-hour session window
+//   {wk.FIELD} {7d.FIELD}  the all-models week (aliases)
+//   {model:NAME.FIELD}     a per-model weekly cap, matched on the API's own
+//                          scope label, case-insensitively
+//   FIELD is pct | reset | label
+//   reset follows resetCountdownFormat unless it names a style of its own:
+//   {5h.reset:decimal} "4.8h", :units "4h 48m", :clock "18:20" / "2026-07-22",
+//   :at "16:59" / "Thu 16:59" (the tooltip's wall clock)
+//   {{ and }} are literal braces
+//
+// Separators (| · / , -) cut the template into segments. A segment whose
+// tokens all name windows the account does not report is dropped together with
+// its separator, literal text included, so "{5h.pct} · fable {model:Fable.pct}"
+// keeps working on a plan with no per-model cap. An unrecognised token is left
+// verbatim rather than silently dropped, so a typo shows up in the bar instead
+// of quietly producing a shorter line.
+
+const TEMPLATE_TOKEN = /\{\{|\}\}|\{([^{}]+)\}/g;
+
+// Short choices for the dashboard control. The free-form grammar remains
+// available only when someone explicitly selects Custom.
+export const FIVE_HOUR_QUOTA_STATUS_TEMPLATE = '{5h.label} {5h.pct}';
+export const WEEKLY_QUOTA_STATUS_TEMPLATE = '{wk.label} {wk.pct}';
+export const CUSTOM_QUOTA_STATUS_TEMPLATE =
+  `${FIVE_HOUR_QUOTA_STATUS_TEMPLATE} · ${WEEKLY_QUOTA_STATUS_TEMPLATE}`;
+
+/** A separator run, captured with its own spacing so the bar shows it exactly
+ *  as it was typed. */
+const SEPARATOR = /(\s*[|·/,-]+\s*)/;
+
+type TemplateField = 'pct' | 'reset' | 'label';
+
+/** 'at' is the wall clock; the rest are the resetCountdownFormat values. */
+type ResetStyle = ResetCountdownFormat | 'at';
+
+interface TemplateToken {
+  name: string;
+  field: TemplateField;
+  style?: ResetStyle; // reset only; absent means "follow the global format"
+}
+
+type TemplatePart =
+  | { kind: 'text'; text: string }
+  | { kind: 'unknown'; text: string }
+  | ({ kind: 'token' } & TemplateToken);
+
+/** Stands in for a token whose window the account does not report, so the
+ *  spacing that surrounded it can close up without a trace. */
+const GAP = '\u0000';
+const GAP_RUN = /(\s*)\u0000(\s*)/g;
+
+/** Splits "model:Fable 5.1.pct" into its window name and field. Uses the LAST
+ *  dot, because a model name can contain one. Returns null when the token is
+ *  not a window.field pair this formatter knows. */
+function parseToken(body: string): TemplateToken | null {
+  const dot = body.lastIndexOf('.');
+  if (dot <= 0) {
+    return null;
+  }
+  const name = body.slice(0, dot).trim().toLowerCase();
+  const [field, style, ...rest] = body
+    .slice(dot + 1)
+    .split(':')
+    .map((p) => p.trim().toLowerCase());
+  const known = name === '5h' || name === 'wk' || name === '7d' || /^model:./.test(name);
+  if (!known || rest.length > 0 || (field !== 'pct' && field !== 'reset' && field !== 'label')) {
+    return null;
+  }
+  if (style === undefined) {
+    return { name, field };
+  }
+  const styled = style === 'decimal' || style === 'units' || style === 'clock' || style === 'at';
+  return field === 'reset' && styled ? { name, field, style } : null;
+}
+
+function parseTemplate(template: string): TemplatePart[] {
+  const parts: TemplatePart[] = [];
+  let last = 0;
+  for (const m of template.matchAll(TEMPLATE_TOKEN)) {
+    const start = m.index ?? 0;
+    if (start > last) {
+      parts.push({ kind: 'text', text: template.slice(last, start) });
+    }
+    last = start + m[0].length;
+    if (m[1] === undefined) {
+      parts.push({ kind: 'text', text: m[0][0] }); // {{ or }}
+      continue;
+    }
+    const token = parseToken(m[1]);
+    parts.push(token ? { kind: 'token', ...token } : { kind: 'unknown', text: m[0] });
+  }
+  if (last < template.length) {
+    parts.push({ kind: 'text', text: template.slice(last) });
+  }
+  return parts;
+}
+
+/** The window a parsed token refers to, or undefined when the account does not
+ *  report it. */
+function tokenWindow(windows: QuotaWindow[], name: string): QuotaWindow | undefined {
+  if (name === '5h') {
+    return windows.find((w) => w.kind === 'session');
+  }
+  if (name === 'wk' || name === '7d') {
+    return windows.find((w) => w.kind === 'weekly_all');
+  }
+  const model = name.slice('model:'.length).trim();
+  return windows.find(
+    (w) => w.kind === 'weekly_scoped' && (w.scopeLabel ?? '').trim().toLowerCase() === model
+  );
+}
+
+/** The windows a template actually names, in order, skipping any the account
+ *  does not report. Unlike shownWindows this ignores the 5h-only and
+ *  scoped-weekly toggles: those answer "which windows do you want", and an
+ *  explicit template has already answered it. */
+function templateWindows(windows: QuotaWindow[], template: string): QuotaWindow[] {
+  const found: QuotaWindow[] = [];
+  for (const part of parseTemplate(template)) {
+    if (part.kind !== 'token') {
+      continue;
+    }
+    const w = tokenWindow(windows, part.name);
+    if (w && !found.includes(w)) {
+      found.push(w);
+    }
+  }
+  return found;
+}
+
+function templateReset(resetsAt: string, now: number, style?: ResetStyle): string {
+  if (style !== 'at') {
+    return compactReset(resetsAt, now, style);
+  }
+  const t = Date.parse(resetsAt);
+  return isNaN(t) ? '' : wallClockReset(new Date(t), now);
+}
+
+/** Renders a template against the live windows. '' when nothing survives, which
+ *  is what hides the status-bar item. */
+function formatQuotaTemplate(
+  windows: QuotaWindow[],
+  template: string,
+  now: number,
+  resetFormat?: ResetCountdownFormat
+): string {
+  let out = '';
+  let sep = ''; // the separator in front of the segment being built
+  let segment = '';
+  let named = 0; // window tokens in this segment...
+  let reported = 0; // ...and how many of them the account reports
+  let unknown = false; // ...and whether one of them was a typo
+  const endSegment = (nextSep: string): void => {
+    const text = segment
+      .replace(GAP_RUN, (_m, before: string, after: string) => (before || after ? ' ' : ''))
+      .trim();
+    // Nothing named, or something named and present: print it. A segment that
+    // named only windows the account lacks goes, unless it also carries a typo,
+    // which has to stay visible.
+    if (text && (named === 0 || reported > 0 || unknown)) {
+      out = out ? out + sep + text : text;
+    }
+    sep = nextSep;
+    segment = '';
+    named = 0;
+    reported = 0;
+    unknown = false;
+  };
+
+  for (const part of parseTemplate(template)) {
+    if (part.kind === 'text') {
+      // split() with a capture group alternates text and separator.
+      part.text.split(SEPARATOR).forEach((piece, i) => {
+        if (i % 2 === 1) {
+          endSegment(piece);
+        } else {
+          segment += piece;
+        }
+      });
+      continue;
+    }
+    if (part.kind === 'unknown') {
+      segment += part.text;
+      unknown = true;
+      continue;
+    }
+    named++;
+    const w = tokenWindow(windows, part.name);
+    if (!w) {
+      segment += GAP;
+      continue;
+    }
+    reported++;
+    if (part.field === 'pct') {
+      segment += `${Math.round(w.utilization)}%`;
+    } else if (part.field === 'label') {
+      segment += segmentLabel(w);
+    } else {
+      // A reset the API left blank closes up the same way a missing window does.
+      segment += templateReset(w.resetsAt, now, part.style ?? resetFormat) || GAP;
+    }
+  }
+  endSegment('');
+  return out;
+}
+
 /**
  * The inner status-bar quota text (no icon prefix). Examples:
  *   default          → "5h 6% · wk 1%"
  *   showReset        → "5h 6% ↻4.8h | wk 1% ↻1.6d"
  *   fiveHourOnly     → "5h 6%"
  *   showScopedWeekly → "5h 6% · wk 1% (fable 12%)"
+ * A non-empty opts.template replaces all four and is handled above.
  * Returns '' when there's nothing to show.
  *
  * Per-model caps that reset alongside the all-models week are nested into its
@@ -223,6 +437,10 @@ function shownWindows(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): 
  */
 export function formatQuotaStatusText(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): string {
   const now = opts.now ?? Date.now();
+  const template = (opts.template ?? '').trim();
+  if (template) {
+    return formatQuotaTemplate(windows ?? [], template, now, opts.resetFormat);
+  }
   const share = (w: QuotaWindow): string => `${segmentLabel(w)} ${Math.round(w.utilization)}%`;
   const parts = groupQuotaRows(shownWindows(windows, opts)).map((row) => {
     let s = share(row.window);
@@ -250,7 +468,11 @@ export function formatQuotaStatusText(windows: QuotaWindow[] | null, opts: Quota
  * excluded on purpose: a red bar with no visible cause reads as a bug. The
  * tooltip lists every window unconditionally, so the figure stays reachable. */
 export function worstShownUtilisation(windows: QuotaWindow[] | null, opts: QuotaStatusOptions): number {
-  return shownWindows(windows, opts).reduce((worst, w) => Math.max(worst, w.utilization), 0);
+  const template = (opts.template ?? '').trim();
+  const shown = template
+    ? templateWindows(windows ?? [], template)
+    : shownWindows(windows, opts);
+  return shown.reduce((worst, w) => Math.max(worst, w.utilization), 0);
 }
 
 /** How full a bar is, in the three steps the UI paints. */

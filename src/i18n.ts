@@ -138,6 +138,11 @@ export interface Translations {
     settingsGroupProviders: string;
     settingsGroupFeatures: string;
     settingsGroupStatusBar: string;
+    quotaFormatBuiltIn: string;
+    quotaFormatFiveHour: string;
+    quotaFormatWeekly: string;
+    quotaFormatCustom: string;
+    quotaFormatShortHelp: string;
     settingsGroupData: string;
     settingsGroupAdvice: string;
     adviceEffectiveness: AdviceEffectivenessTranslations;
@@ -1215,6 +1220,11 @@ const translations: Record<SupportedLanguage, Translations> = {
       settingsGroupProviders: 'Providers',
       settingsGroupFeatures: 'Optional features',
       settingsGroupStatusBar: 'Status bar',
+      quotaFormatBuiltIn: 'Built-in',
+      quotaFormatFiveHour: '5-hour only',
+      quotaFormatWeekly: 'Weekly only',
+      quotaFormatCustom: 'Custom…',
+      quotaFormatShortHelp: 'Choose a compact layout. Built-in keeps the quota options above.',
       settingsGroupData: 'Data & refresh',
       settingsGroupAdvice: 'AI advice & Optimizer',
       adviceEffectiveness: {
@@ -1516,6 +1526,11 @@ const translations: Record<SupportedLanguage, Translations> = {
       settingsGroupProviders: "Anbieter",
       settingsGroupFeatures: "Optionale Funktionen",
       settingsGroupStatusBar: "Statusleiste",
+      quotaFormatBuiltIn: 'Standard',
+      quotaFormatFiveHour: 'Nur 5 Stunden',
+      quotaFormatWeekly: 'Nur Woche',
+      quotaFormatCustom: 'Benutzerdefiniert…',
+      quotaFormatShortHelp: 'Kompaktes Layout wählen. „Standard“ übernimmt die obigen Kontingentoptionen.',
       settingsGroupData: "Daten & Aktualisierung",
       settingsGroupAdvice: "KI-Beratung & Optimizer",
       adviceEffectiveness: {
@@ -1820,6 +1835,11 @@ const translations: Record<SupportedLanguage, Translations> = {
       settingsGroupProviders: '供應商',
       settingsGroupFeatures: '選用功能',
       settingsGroupStatusBar: '狀態列',
+      quotaFormatBuiltIn: '內建',
+      quotaFormatFiveHour: '僅 5 小時',
+      quotaFormatWeekly: '僅每週',
+      quotaFormatCustom: '自訂…',
+      quotaFormatShortHelp: '選擇精簡版面；「內建」沿用上方配額選項。',
       settingsGroupData: '資料與重新整理',
       settingsGroupAdvice: 'AI 建議與最佳化工具',
       adviceEffectiveness: {
@@ -2117,6 +2137,11 @@ const translations: Record<SupportedLanguage, Translations> = {
       settingsGroupProviders: '供应商',
       settingsGroupFeatures: '可选功能',
       settingsGroupStatusBar: '状态栏',
+      quotaFormatBuiltIn: '默认',
+      quotaFormatFiveHour: '仅 5 小时',
+      quotaFormatWeekly: '仅每周',
+      quotaFormatCustom: '自定义…',
+      quotaFormatShortHelp: '选择简洁布局；“默认”沿用上方额度选项。',
       settingsGroupData: '数据与刷新',
       settingsGroupAdvice: 'AI 建议与优化器',
       adviceEffectiveness: {
@@ -2414,6 +2439,11 @@ const translations: Record<SupportedLanguage, Translations> = {
       settingsGroupProviders: 'プロバイダー',
       settingsGroupFeatures: 'オプション機能',
       settingsGroupStatusBar: 'ステータスバー',
+      quotaFormatBuiltIn: '標準',
+      quotaFormatFiveHour: '5時間のみ',
+      quotaFormatWeekly: '週のみ',
+      quotaFormatCustom: 'カスタム…',
+      quotaFormatShortHelp: '簡潔な表示を選択します。「標準」は上の利用枠設定を使います。',
       settingsGroupData: 'データと更新',
       settingsGroupAdvice: 'AI アドバイス & オプティマイザー',
       adviceEffectiveness: {
@@ -2716,6 +2746,11 @@ const translations: Record<SupportedLanguage, Translations> = {
       settingsGroupProviders: '공급자',
       settingsGroupFeatures: '선택 기능',
       settingsGroupStatusBar: '상태 표시줄',
+      quotaFormatBuiltIn: '기본',
+      quotaFormatFiveHour: '5시간만',
+      quotaFormatWeekly: '주간만',
+      quotaFormatCustom: '사용자 지정…',
+      quotaFormatShortHelp: '간결한 표시를 선택하세요. 기본은 위의 한도 옵션을 따릅니다.',
       settingsGroupData: '데이터 및 새로고침',
       settingsGroupAdvice: 'AI 조언 & 옵티마이저',
       adviceEffectiveness: {
@@ -3018,6 +3053,11 @@ const translations: Record<SupportedLanguage, Translations> = {
       settingsGroupProviders: 'Provedores',
       settingsGroupFeatures: 'Recursos opcionais',
       settingsGroupStatusBar: 'Barra de status',
+      quotaFormatBuiltIn: 'Padrão',
+      quotaFormatFiveHour: 'Só 5 horas',
+      quotaFormatWeekly: 'Só semanal',
+      quotaFormatCustom: 'Personalizado…',
+      quotaFormatShortHelp: 'Escolha um layout compacto. Padrão mantém as opções de limite acima.',
       settingsGroupData: 'Dados e atualização',
       settingsGroupAdvice: 'Conselho de IA e Optimizer',
       adviceEffectiveness: {
@@ -3319,6 +3359,11 @@ const translations: Record<SupportedLanguage, Translations> = {
       settingsGroupProviders: 'Penyedia',
       settingsGroupFeatures: 'Fitur opsional',
       settingsGroupStatusBar: 'Status bar',
+      quotaFormatBuiltIn: 'Bawaan',
+      quotaFormatFiveHour: 'Hanya 5 jam',
+      quotaFormatWeekly: 'Hanya mingguan',
+      quotaFormatCustom: 'Kustom…',
+      quotaFormatShortHelp: 'Pilih tampilan ringkas. Bawaan mengikuti opsi kuota di atas.',
       settingsGroupData: 'Data & penyegaran',
       settingsGroupAdvice: 'Saran AI & Optimizer',
       adviceEffectiveness: {
@@ -3623,6 +3668,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'quotaFiveHourOnly': { label: 'Kontingent: nur 5-Stunden-Fenster', help: 'Nur das 5-Stunden-Kontingent in der Statusleiste zeigen, den Wochenwert ausblenden (Reset-Details bleiben im Tooltip).' },
     'showResetInStatusBar': { label: 'Kontingent: Reset-Countdown zeigen', help: 'Kompakten Reset-Countdown in der Statusleiste anhängen (5h 6% ↻4.8h). Aus hält es sauber (5h 6% · wk 1%); der Tooltip zeigt immer volle Reset-Zeiten.' },
     'resetCountdownFormat': { label: 'Kontingent: Format des Reset-Countdowns', help: 'Gilt nur, wenn „Kontingent: Reset-Countdown zeigen“ aktiv ist. Dezimal (4.8h / 1.6d), ganze Einheiten (4h 48m / 1d 14h) oder die lokale Uhrzeit/Datum deines Rechners (18:20 / 2026-07-22).' },
+    'statusBarQuotaFormat': { label: 'Kontingent: Statusleisten-Format', help: 'Leer behält das eingebaute Layout (5h 6% · wk 1%). Sonst: {5h.pct}, {wk.pct} (oder {7d.pct}) und {model:Fable.pct}, jeweils auch mit .reset und .label — z. B. "{5h.pct} | {7d.pct} · {model:Fable.pct}". Ein Fenster, das dein Tarif nicht meldet, bleibt leer. .reset kann einen eigenen Stil tragen: {5h.reset:units}, :decimal, :clock oder :at (Uhrzeit).' },
     'workflowQuotaWarnPercent': { label: 'Warnung bei Workflow-Kontingent %', help: 'Warnt vor einem Lauf, wenn das verbleibende 5h-Kontingent darunter liegt. 0 = aus.' },
     'dataDirectory': { label: 'Benutzerdefiniertes Datenverzeichnis', help: 'Claude-Datenverzeichnis; leer = automatisch erkennen.' },
     'refreshInterval': { label: 'Aktualisierungsintervall (s)', help: '' },
@@ -3674,6 +3720,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'quotaFiveHourOnly': { label: '配額：僅 5 小時視窗', help: '狀態列只顯示 5 小時配額，隱藏每週數字（重置詳情仍在 tooltip）。' },
     'showResetInStatusBar': { label: '配額：顯示重置倒數', help: '在狀態列附加精簡的重置倒數（5h 6% ↻4.8h）。關閉則保持清爽（5h 6% · wk 1%）；tooltip 一律顯示完整重置時間。' },
     'resetCountdownFormat': { label: '配額：重置倒數格式', help: '僅在「配額：顯示重置倒數」開啟時生效。小數（4.8h / 1.6d）、整數單位（4h 48m / 1d 14h），或你電腦的本地時間／日期（18:20 / 2026-07-22）。' },
+    'statusBarQuotaFormat': { label: '配額：狀態列格式', help: '留空維持內建版面（5h 6% · wk 1%）。否則：{5h.pct}、{wk.pct}（或 {7d.pct}）與 {model:Fable.pct}，每個也可加 .reset 與 .label — 例如「{5h.pct} | {7d.pct} · {model:Fable.pct}」。方案未回報的視窗會顯示為空。.reset 可自帶樣式：{5h.reset:units}、:decimal、:clock 或 :at（時刻）。' },
     'workflowQuotaWarnPercent': { label: '工作流程配額警告 %', help: '當剩餘 5 小時配額低於此值時，在執行前發出警告。0 = 關閉。' },
     'dataDirectory': { label: '自訂資料目錄', help: 'Claude 資料目錄；空白 = 自動偵測。' },
     'refreshInterval': { label: '重新整理間隔 (秒)', help: '' },
@@ -3725,6 +3772,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'quotaFiveHourOnly': { label: '配额：仅 5 小时窗口', help: '状态栏只显示 5 小时配额，隐藏每周数字（重置详情仍在 tooltip）。' },
     'showResetInStatusBar': { label: '配额：显示重置倒计时', help: '在状态栏附加精简的重置倒计时（5h 6% ↻4.8h）。关闭则保持清爽（5h 6% · wk 1%）；tooltip 一律显示完整重置时间。' },
     'resetCountdownFormat': { label: '配额：重置倒计时格式', help: '仅在“配额：显示重置倒计时”开启时生效。小数（4.8h / 1.6d）、整数单位（4h 48m / 1d 14h），或你电脑的本地时间／日期（18:20 / 2026-07-22）。' },
+    'statusBarQuotaFormat': { label: '配额：状态栏格式', help: '留空保持内置布局（5h 6% · wk 1%）。否则：{5h.pct}、{wk.pct}（或 {7d.pct}）和 {model:Fable.pct}，每个也可加 .reset 与 .label — 例如“{5h.pct} | {7d.pct} · {model:Fable.pct}”。方案未报告的窗口会显示为空。.reset 可自带样式：{5h.reset:units}、:decimal、:clock 或 :at（时刻）。' },
     'workflowQuotaWarnPercent': { label: '工作流配额警告 %', help: '当剩余 5 小时配额低于此值时，运行前发出警告。0 = 关闭。' },
     'dataDirectory': { label: '自定义数据目录', help: 'Claude 数据目录；空 = 自动检测。' },
     'refreshInterval': { label: '刷新间隔 (秒)', help: '' },
@@ -3776,6 +3824,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'quotaFiveHourOnly': { label: 'クォータ：5時間ウィンドウのみ', help: 'ステータスバーに 5 時間クォータのみ表示し、週間の数値を隠します（リセット詳細は tooltip に残ります）。' },
     'showResetInStatusBar': { label: 'クォータ：リセットのカウントダウンを表示', help: 'ステータスバーに簡潔なリセットのカウントダウンを追加（5h 6% ↻4.8h）。オフだとすっきり（5h 6% · wk 1%）。tooltip には常に完全なリセット時刻を表示します。' },
     'resetCountdownFormat': { label: 'クォータ：リセットのカウントダウン形式', help: '「クォータ：リセットのカウントダウンを表示」がオンのときのみ適用されます。10進数（4.8h / 1.6d）、単位表示（4h 48m / 1d 14h）、またはお使いのコンピュータのローカル時刻／日付（18:20 / 2026-07-22）。' },
+    'statusBarQuotaFormat': { label: 'クォータ：ステータスバーの書式', help: '空なら組み込みのレイアウト（5h 6% · wk 1%）。指定する場合は {5h.pct}、{wk.pct}（または {7d.pct}）、{model:Fable.pct}。いずれも .reset と .label を取れます — 例「{5h.pct} | {7d.pct} · {model:Fable.pct}」。プランが報告しないウィンドウは空になります。.reset には個別の形式を指定できます：{5h.reset:units}、:decimal、:clock、:at（時刻）。' },
     'workflowQuotaWarnPercent': { label: 'ワークフロークォータ警告 %', help: '残りの 5 時間クォータがこれを下回る場合、実行前に警告します。0 = オフ。' },
     'dataDirectory': { label: 'カスタムデータディレクトリ', help: 'Claude データディレクトリ。空 = 自動検出。' },
     'refreshInterval': { label: '更新間隔 (秒)', help: '' },
@@ -3827,6 +3876,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'quotaFiveHourOnly': { label: '할당량: 5시간 창만', help: '상태 표시줄에 5시간 할당량만 표시하고 주간 수치는 숨깁니다(초기화 세부정보는 tooltip에 유지).' },
     'showResetInStatusBar': { label: '할당량: 초기화 카운트다운 표시', help: '상태 표시줄에 간결한 초기화 카운트다운을 추가합니다(5h 6% ↻4.8h). 끄면 깔끔하게 유지(5h 6% · wk 1%); tooltip에는 항상 전체 초기화 시각이 표시됩니다.' },
     'resetCountdownFormat': { label: '할당량: 초기화 카운트다운 형식', help: '"할당량: 초기화 카운트다운 표시"가 켜져 있을 때만 적용됩니다. 소수(4.8h / 1.6d), 단위(4h 48m / 1d 14h), 또는 사용자 컴퓨터의 현지 시각/날짜(18:20 / 2026-07-22) 중 선택합니다.' },
+    'statusBarQuotaFormat': { label: '할당량: 상태 표시줄 형식', help: '비워 두면 기본 레이아웃(5h 6% · wk 1%)을 사용합니다. 그 외에는 {5h.pct}, {wk.pct}(또는 {7d.pct}), {model:Fable.pct}. 각각 .reset과 .label도 쓸 수 있습니다 — 예: "{5h.pct} | {7d.pct} · {model:Fable.pct}". 요금제가 보고하지 않는 창은 비어 있게 표시됩니다. .reset에는 개별 형식을 지정할 수 있습니다: {5h.reset:units}, :decimal, :clock 또는 :at(시각).' },
     'workflowQuotaWarnPercent': { label: '워크플로우 할당량 경고 %', help: '남은 5시간 할당량이 이보다 낮을 때 실행 전에 경고합니다. 0 = 끄기.' },
     'dataDirectory': { label: '사용자 지정 데이터 디렉터리', help: 'Claude 데이터 디렉터리; 비워두면 자동 감지.' },
     'refreshInterval': { label: '새로 고침 간격 (초)', help: '' },
@@ -3878,6 +3928,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'quotaFiveHourOnly': { label: 'Cota: apenas a janela de 5 horas', help: 'Mostra apenas a cota de 5 horas na barra de status, ocultando os valores semanais (os detalhes de reinício ficam na dica de contexto).' },
     'showResetInStatusBar': { label: 'Cota: mostrar contagem regressiva de reinício', help: 'Acrescenta uma contagem regressiva compacta na barra de status (5h 6% ↻4.8h). Desligado mantém tudo limpo (5h 6% · wk 1%); a dica de contexto sempre mostra os horários completos de reinício.' },
     'resetCountdownFormat': { label: 'Cota: formato da contagem regressiva de reset', help: 'Só se aplica quando "Cota: mostrar contagem regressiva de reset" está ativado. Decimal (4.8h / 1.6d), unidades inteiras (4h 48m / 1d 14h), ou o horário/data local do seu computador (18:20 / 2026-07-22).' },
+    'statusBarQuotaFormat': { label: 'Cota: formato da barra de status', help: 'Vazio mantém o layout embutido (5h 6% · wk 1%). Caso contrário: {5h.pct}, {wk.pct} (ou {7d.pct}) e {model:Fable.pct}, cada uma aceitando também .reset e .label — ex.: "{5h.pct} | {7d.pct} · {model:Fable.pct}". Uma janela que seu plano não reporta fica vazia. .reset pode ter estilo próprio: {5h.reset:units}, :decimal, :clock ou :at (hora).' },
     'workflowQuotaWarnPercent': { label: 'Aviso de cota de workflow %', help: 'Avisa antes de uma execução quando a cota de 5h restante estiver abaixo disto. 0 = desligado.' },
     'dataDirectory': { label: 'Diretório de dados personalizado', help: 'Diretório de dados do Claude; vazio = detectar automaticamente.' },
     'refreshInterval': { label: 'Intervalo de atualização (s)', help: '' },
@@ -3930,6 +3981,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'quotaFiveHourOnly': { label: 'Kuota: hanya periode 5 jam', help: 'Hanya tampilkan kuota 5 jam di status bar, sembunyikan angka mingguan (detail reset tetap di tooltip).' },
     'showResetInStatusBar': { label: 'Kuota: tampilkan hitung mundur reset', help: 'Tambahkan hitung mundur reset ringkas di status bar (5h 6% ↻4.8h). Nonaktif membuatnya bersih (5h 6% · wk 1%); tooltip selalu menampilkan waktu reset lengkap.' },
     'resetCountdownFormat': { label: 'Kuota: format hitungan mundur reset', help: 'Hanya berlaku saat "Kuota: tampilkan hitungan mundur reset" aktif. Desimal (4.8h / 1.6d), satuan bulat (4h 48m / 1d 14h), atau waktu / tanggal jam lokal komputer Anda (18:20 / 2026-07-22).' },
+    'statusBarQuotaFormat': { label: 'Kuota: format bilah status', help: 'Kosong mempertahankan tata letak bawaan (5h 6% · wk 1%). Jika tidak: {5h.pct}, {wk.pct} (atau {7d.pct}) dan {model:Fable.pct}, masing-masing juga menerima .reset dan .label — mis. "{5h.pct} | {7d.pct} · {model:Fable.pct}". Jendela yang tidak dilaporkan paket Anda akan kosong. .reset dapat memakai gaya sendiri: {5h.reset:units}, :decimal, :clock atau :at (jam).' },
     'workflowQuotaWarnPercent': { label: 'Peringatan kuota workflow %', help: 'Beri peringatan sebelum proses berjalan jika sisa kuota 5 jam di bawah ini. 0 = nonaktif.' },
     'dataDirectory': { label: 'Direktori data kustom', help: 'Direktori data Claude; kosong = deteksi otomatis.' },
     'refreshInterval': { label: 'Interval penyegaran (dtk)', help: '' },

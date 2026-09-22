@@ -337,6 +337,8 @@ export interface ExtensionConfig {
   quotaFiveHourOnly: boolean;
   // Format of the reset countdown appended to the quota item (issue #74).
   resetCountdownFormat: 'decimal' | 'units' | 'clock';
+  // Explicit status-bar layout that replaces the built-in one. '' = built-in.
+  statusBarQuotaFormat: string;
   // Fetch real 5-hour / weekly limit utilisation via Claude Code's OAuth session.
   usageLimitTracking: boolean;
   // LLM "usage advice" feature (OpenAI-compatible endpoint, e.g. DeepSeek).

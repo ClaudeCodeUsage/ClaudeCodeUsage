@@ -1549,18 +1549,24 @@ test('changelog records the V2.2.2 energy patch after the released V2.2.1 baseli
   assert.doesNotMatch(changelog, /^## \[2\.2\.[01]\] — Unreleased$/m);
 });
 
-test('changelog preserves v2.3 release order and keeps named candidate fixes out of v2.3.2', () => {
+test('changelog separates unreleased changes from published v2.3.3 and v2.3.2 fixes', () => {
   const changelog = repoFile('CHANGELOG.md');
-  assert.match(changelog, /^## \[2\.3\.3\] — Unreleased$/m);
+  assert.match(changelog, /^## \[Unreleased\]$/m);
+  assert.match(changelog, /^## \[2\.3\.3\] — 2026-09-16$/m);
   assert.match(changelog, /^## \[2\.3\.2\] — 2026-09-12$/m);
   assert.match(changelog, /^## \[2\.3\.1\] — 2026-09-08$/m);
   assert.match(changelog, /^## \[2\.3\.0\] — 2026-08-28$/m);
 
-  const candidateStart = changelog.indexOf('## [2.3.3]');
+  const unreleasedStart = changelog.indexOf('## [Unreleased]');
+  const publishedStart = changelog.indexOf('## [2.3.3]');
   const releasedStart = changelog.indexOf('## [2.3.2]');
   const previousReleaseStart = changelog.indexOf('## [2.3.1]');
-  const candidateSection = changelog.slice(candidateStart, releasedStart);
+  const unreleasedSection = changelog.slice(unreleasedStart, publishedStart);
+  const publishedSection = changelog.slice(publishedStart, releasedStart);
   const releasedSection = changelog.slice(releasedStart, previousReleaseStart);
+  assert.match(unreleasedSection, /statusBarQuotaFormat/);
+  assert.match(unreleasedSection, /High CPU during indexing \(#99\)/);
+  assert.doesNotMatch(publishedSection, /statusBarQuotaFormat/);
   for (const candidateFix of [
     'Smoother live Webview refreshes',
     'Stable unchanged Compare refreshes',
@@ -1571,7 +1577,7 @@ test('changelog preserves v2.3 release order and keeps named candidate fixes out
     'Bounded credentials-watcher recovery',
     'Exact bounded Claude content analysis',
   ]) {
-    assert.match(candidateSection, new RegExp(candidateFix));
+    assert.match(publishedSection, new RegExp(candidateFix));
     assert.doesNotMatch(releasedSection, new RegExp(candidateFix));
   }
 });

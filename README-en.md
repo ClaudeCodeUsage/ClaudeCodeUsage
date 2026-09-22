@@ -48,6 +48,7 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 ## Features
 
 - **Status bar** — today's cost, current-session cost, and real 5-hour / weekly quota (`5h:N% wk:N%`) read from Claude Code's own OAuth session. Zero configuration.
+- **Quota format** — choose Built-in (default), 5-hour only, or Weekly only in ⚙ Settings; Custom reveals the optional template field.
 - **Dashboard tabs** — Today / Last 30 Days / All Time, plus **Sessions / Projects / Content / Branches**, all sortable.
 - **Stacked cost-composition charts** with a Y-axis and reference lines — see at a glance how much of each day / month went to input, output, cache-write and cache-read.
 - **Content tab** — estimates which content consumes your tokens (your prompts vs. tool results vs. assistant output / thinking).

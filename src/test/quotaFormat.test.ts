@@ -6,7 +6,10 @@ import * as assert from 'node:assert/strict';
 
 import {
   CONTEXT_FILL_THRESHOLDS,
+  CUSTOM_QUOTA_STATUS_TEMPLATE,
+  FIVE_HOUR_QUOTA_STATUS_TEMPLATE,
   QUOTA_FILL_THRESHOLDS,
+  WEEKLY_QUOTA_STATUS_TEMPLATE,
   compactReset,
   fillLevel,
   formatMonthlyReset,
@@ -346,4 +349,214 @@ test('out-of-range fills clamp to the nearest level', () => {
   // Callers clamp before drawing, but a level must never come back undefined.
   assert.equal(fillLevel(-5, QUOTA_FILL_THRESHOLDS), 'normal');
   assert.equal(fillLevel(140, QUOTA_FILL_THRESHOLDS), 'error');
+});
+
+
+// ---------------------------------------------------------------------------
+// Status-bar format template (statusBarQuotaFormat).
+//
+// The built-in layout stays the default: the template is empty out of the box
+// and everything above keeps passing unchanged. When set, it names the windows
+// explicitly, which is why it ignores the 5h-only and scoped-weekly toggles —
+// those answer "which windows do you want", and the template already said.
+// ---------------------------------------------------------------------------
+
+const base = { showReset: false, fiveHourOnly: false, showScopedWeekly: false, now: NOW };
+
+test('an empty template keeps the built-in layout', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '' }), '5h 6% · wk 1%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '   ' }), '5h 6% · wk 1%');
+});
+
+test('dashboard presets render short, named quota windows', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: FIVE_HOUR_QUOTA_STATUS_TEMPLATE }), '5h 6%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: WEEKLY_QUOTA_STATUS_TEMPLATE }), 'wk 1%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: CUSTOM_QUOTA_STATUS_TEMPLATE }), '5h 6% · wk 1%');
+});
+
+test('a template renders the windows it names', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pct} | {wk.pct}' }), '6% | 1%');
+});
+
+test('model tokens match the API scope label, case-insensitively', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{model:Fable.pct}' }), '12%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{model:fable.pct}' }), '12%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{model:FABLE.pct}' }), '12%');
+});
+
+test('a model name containing a dot still parses', () => {
+  // "Fable 5.1" is a label the API really sends, so the field has to be split
+  // off at the last dot rather than the first.
+  const dotted: QuotaWindow[] = [
+    { kind: 'weekly_scoped', scopeLabel: 'Fable 5.1', utilization: 7, decimals: 0, resetsAt: at(38.4 * H), isActive: true },
+  ];
+  assert.equal(formatQuotaStatusText(dotted, { ...base, template: '{model:Fable 5.1.pct}' }), '7%');
+  assert.equal(formatQuotaStatusText(dotted, { ...base, template: '{model:Fable 5.1.label}' }), 'fable 5.1');
+});
+
+test('7d is an alias for the all-models week', () => {
+  const a = formatQuotaStatusText(live, { ...base, template: '{7d.pct}' });
+  const b = formatQuotaStatusText(live, { ...base, template: '{wk.pct}' });
+  assert.equal(a, '1%');
+  assert.equal(a, b);
+});
+
+test('reset tokens follow the reset countdown format', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.reset}' }), '4.8h');
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{5h.reset}', resetFormat: 'units' }),
+    '4h 48m'
+  );
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{wk.reset}' }), '1.6d');
+});
+
+test('a clock reset keeps its date intact', () => {
+  // '-' is a separator, but only in the template's own text: the hyphens of a
+  // rendered "2023-11-16" must not be taken for one. NOW is local noon, so the
+  // +38.4h weekly reset lands on the 16th in every timezone.
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{wk.reset}', resetFormat: 'clock' }),
+    '2023-11-16'
+  );
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{5h.pct} | {wk.reset}', resetFormat: 'clock' }),
+    '6% | 2023-11-16'
+  );
+});
+
+test('a reset token can name its own style, whatever the global one is', () => {
+  // The global format is one setting for the whole bar; a style on the token is
+  // what lets a countdown for the 5h window sit beside a wall clock for the week.
+  const t = '{5h.reset:units} | {wk.reset:decimal} | {5h.reset:clock} | {5h.reset}';
+  assert.equal(formatQuotaStatusText(live, { ...base, template: t }), '4h 48m | 1.6d | 16:48 | 4.8h');
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: t, resetFormat: 'clock' }),
+    '4h 48m | 1.6d | 16:48 | 16:48'
+  );
+});
+
+test('reset:at is the wall clock, with a weekday once it is not today', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.reset:at}' }), '16:48');
+  assert.match(formatQuotaStatusText(live, { ...base, template: '{wk.reset:at}' }), /^.+ 02:24$/);
+  assert.match(
+    formatQuotaStatusText(live, { ...base, template: '{model:Fable 5.1.reset:at}' }),
+    /^$/ // no such cap on this account: the dotted name still parses, and drops
+  );
+});
+
+test('an unknown reset style, or a style on another field, is a visible typo', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.reset:hours}' }), '{5h.reset:hours}');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pct:units}' }), '{5h.pct:units}');
+});
+
+test('a reset the API left blank closes up like a missing window', () => {
+  const fresh: QuotaWindow[] = [{ kind: 'session', utilization: 0, decimals: 0, resetsAt: '', isActive: false }];
+  assert.equal(formatQuotaStatusText(fresh, { ...base, template: '{5h.pct} {5h.reset} left' }), '0% left');
+});
+
+test('label tokens give the same short names the built-in layout uses', () => {
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{5h.label} {5h.pct} · {wk.label} {wk.pct}' }),
+    '5h 6% · wk 1%'
+  );
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{model:Fable.label}' }), 'fable');
+});
+
+test('a window the account does not report renders empty, and takes its dangling separator with it', () => {
+  // The case that matters: a plan with no per-model cap, or a signed-out weekly.
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pct} · {model:Opus.pct}' }), '6%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{model:Opus.pct} · {5h.pct}' }), '6%');
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{5h.pct} | {model:Opus.pct} | {wk.pct}' }),
+    '6% | 1%'
+  );
+});
+
+test('separators come out exactly as typed', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pct}/{wk.pct}' }), '6%/1%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pct}, {wk.pct}' }), '6%, 1%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pct} - {model:Opus.pct}' }), '6%');
+});
+
+test('literal text goes with the window it describes', () => {
+  // Without this a plan with no Opus cap would be left showing a bare "opus".
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pct} · opus {model:Opus.pct}' }), '6%');
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: 'F {model:Fable.pct} · O {model:Opus.pct}' }),
+    'F 12%'
+  );
+  // Text with no token of its own is never dropped.
+  assert.equal(formatQuotaStatusText(live, { ...base, template: 'Claude | {5h.pct}' }), 'Claude | 6%');
+});
+
+test('braces are escaped by doubling', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{{5h.pct}} {5h.pct}' }), '{5h.pct} 6%');
+});
+
+test('an unrecognised token is left verbatim so a typo stays visible', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pcnt}' }), '{5h.pcnt}');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{nope.pct}' }), '{nope.pct}');
+});
+
+test('literal spacing is kept as typed', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: 'A   B {5h.pct}' }), 'A   B 6%');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{5h.pct}   {wk.pct}' }), '6%   1%');
+});
+
+test('a vanished token closes its own gap without disturbing the rest', () => {
+  // The space either side of the missing cap collapses to one, so the line does
+  // not show where something used to be.
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{5h.pct} {model:Opus.pct} {wk.pct}' }),
+    '6% 1%'
+  );
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{5h.pct}{model:Opus.pct}{wk.pct}' }),
+    '6%1%'
+  );
+});
+
+test('an unrecognised token survives even beside a window the account lacks', () => {
+  // Dropping the segment would take the typo with it, and a silently shorter
+  // line is exactly what the verbatim rule exists to prevent.
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{nope.pct} {model:Opus.pct}' }),
+    '{nope.pct}'
+  );
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, template: '{5h.pct} | {nope.pct} {model:Opus.pct}' }),
+    '6% | {nope.pct}'
+  );
+});
+
+test('a template that renders to nothing returns empty so the item hides', () => {
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{model:Opus.pct}' }), '');
+  assert.equal(formatQuotaStatusText(live, { ...base, template: '{model:Opus.pct} | ' }), '');
+});
+
+test('the template selects windows itself, ignoring the 5h-only and scoped-weekly toggles', () => {
+  // fiveHourOnly would hide the week, and showScopedWeekly gates the model cap;
+  // naming them in the template is the more specific instruction.
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, fiveHourOnly: true, template: '{wk.pct}' }),
+    '1%'
+  );
+  assert.equal(
+    formatQuotaStatusText(live, { ...base, showScopedWeekly: false, template: '{model:Fable.pct}' }),
+    '12%'
+  );
+});
+
+test('the warning colour follows the windows the template actually shows', () => {
+  // Same reasoning as the built-in layout: a red bar with no visible cause
+  // reads as a bug. A template showing only the quiet 5h window must not turn
+  // red because of a loud weekly cap it never prints.
+  const loud: QuotaWindow[] = [
+    { kind: 'session', utilization: 6, decimals: 0, resetsAt: at(4.8 * H), isActive: false },
+    { kind: 'weekly_all', utilization: 95, decimals: 0, resetsAt: at(38.4 * H), isActive: true },
+  ];
+  assert.equal(worstShownUtilisation(loud, { ...base, template: '{5h.pct}' }), 6);
+  assert.equal(worstShownUtilisation(loud, { ...base, template: '{5h.pct} | {wk.pct}' }), 95);
+  // No template: unchanged, both windows are shown.
+  assert.equal(worstShownUtilisation(loud, base), 95);
 });

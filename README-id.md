@@ -48,6 +48,7 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 ## Fitur
 
 - **Status bar** — biaya hari ini, biaya sesi saat ini, dan kuota 5-jam / mingguan yang sebenarnya (`5h:N% wk:N%`) dibaca dari sesi OAuth Claude Code sendiri. Tanpa konfigurasi.
+- **Format kuota** — pilih Bawaan (default), hanya 5 jam, atau hanya Mingguan di ⚙ Pengaturan; pilihan Kustom baru menampilkan kolom templat.
 - **Tab dashboard** — Hari Ini / 30 Hari Terakhir / Sepanjang Waktu, plus **Sesi / Proyek / Konten / Branch**, semuanya bisa diurutkan.
 - **Grafik komposisi biaya bertumpuk** dengan sumbu Y dan garis referensi — lihat sekilas berapa banyak dari tiap hari / bulan yang terpakai untuk masukan, keluaran, cache-write, dan cache-read.
 - **Tab Konten** — memperkirakan konten mana yang menghabiskan token Anda (prompt Anda vs. hasil tool vs. output / pemikiran asisten).

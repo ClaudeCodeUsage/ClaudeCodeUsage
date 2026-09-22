@@ -100,6 +100,8 @@ Hover the quota indicator for a breakdown:
 *Real `/usage` data: utilisation percent, plus time left and the wall-clock reset for every window.*
 *Every weekly cap your plan meters gets its own row, per-model ones included (Anthropic supplies the name, so the row follows whichever model is capped), plus usage credits when you have them enabled.*
 
+⚙ Settings offers a compact quota-format dropdown: Built-in (default), 5-hour only, Weekly only, or Custom. Only Custom reveals the template field.
+
 ### Dashboard
 
 ![Dashboard — summary and charts](images/v2-dashboard-en.png)
@@ -448,6 +450,13 @@ Everything else — refresh interval, status-bar items, number/date formatting,
 project grouping, content analysis, and all the AI advice / Optimizer options —
 is in the dashboard's ⚙ Settings tab. Upgrading keeps your existing values: a
 one-time migration copies them out of `settings.json` on first launch.
+
+For a custom quota status-bar layout, choose **Custom** in ⚙ Settings. The
+template accepts `{5h.pct}`, `{wk.pct}` (or `{7d.pct}`), and
+`{model:Fable.pct}`; each window also supports `.label` and `.reset`.
+Reset styles include `:decimal`, `:units`, `:clock`, and `:at`, for example
+`{5h.pct} | {wk.reset:at}`. Missing windows and their separators are omitted.
+The built-in choice leaves the existing quota options unchanged.
 
 ---
 

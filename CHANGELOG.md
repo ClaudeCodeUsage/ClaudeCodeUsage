@@ -4,7 +4,21 @@ All notable changes to this fork compared to upstream
 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) (last
 upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangelog.com).
 
-## [2.3.3] — Unreleased
+## [Unreleased]
+
+### Added
+- **`statusBarQuotaFormat`** (default empty) — name the quota windows in the
+  status bar yourself when you want a different set, order or separators than
+  the built-in `5h 6% · wk 1%`: `{5h.pct}`, `{wk.pct}` (or `{7d.pct}`) and
+  `{model:Fable.pct}`, each also taking `.reset` and `.label`. `.reset` follows
+  `resetCountdownFormat` unless it names its own style, so one bar can mix them:
+  `{5h.reset:units}`, `:decimal`, `:clock` or `:at` (wall clock, `Thu 16:59`).
+  Empty keeps the built-in layout, and a template supersedes
+  `quotaFiveHourOnly` and `showScopedWeekly` since it names its windows itself.
+  A segment whose window your account does not report is dropped along with its
+  separator. The dashboard keeps this optional feature compact: a Built-in,
+  5-hour-only, Weekly-only, or Custom dropdown reveals the template field only
+  when Custom is selected.
 
 ### Fixed
 - **Full rebuild whenever a new transcript appeared (#99)** — a file that had
@@ -29,6 +43,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   history is indexed without pinning a core. On a 1.4 GB history the key
   derivation went from ~1.1k to ~168k records/second (158x) with identical
   keys; invalid and empty zones still fall back exactly as before.
+
+## [2.3.3] — 2026-09-16
+
+### Fixed
+
 - **Startup with legacy workspace advice keys (#105)** — a workspace-scoped
   plaintext BYOK key or unavailable SecretStorage no longer prevents the usage
   status bar, commands, and dashboard from activating. The old key remains
