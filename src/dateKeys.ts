@@ -7,21 +7,64 @@
 // inside the new month's view. Deriving both the day and the month key from the
 // same zone here removes that split.
 
+// Constructing an Intl.DateTimeFormat is expensive, and these helpers run once
+// per ingested record: a single index pass over a large local history calls them
+// millions of times. Both the zone resolution and the formatters are therefore
+// memoised per zone. Every distinct key is a configured zone, so the maps stay
+// at a handful of entries for the life of the process.
+const resolvedZones = new Map<string, string>();
+const dayFormatters = new Map<string, Intl.DateTimeFormat>();
+const hourFormatters = new Map<string, Intl.DateTimeFormat>();
+
 /** Returns a usable IANA zone, falling back to the system zone when necessary. */
 export function resolveTimeZone(timeZone: string): string {
+  const cached = resolvedZones.get(timeZone);
+  if (cached !== undefined) {
+    return cached;
+  }
+  let resolved: string;
   try {
-    return new Intl.DateTimeFormat('en-CA', timeZone ? { timeZone } : undefined)
+    resolved = new Intl.DateTimeFormat('en-CA', timeZone ? { timeZone } : undefined)
       .resolvedOptions()
       .timeZone || 'UTC';
   } catch {
-    return new Intl.DateTimeFormat('en-CA').resolvedOptions().timeZone || 'UTC';
+    resolved = new Intl.DateTimeFormat('en-CA').resolvedOptions().timeZone || 'UTC';
   }
+  resolvedZones.set(timeZone, resolved);
+  return resolved;
+}
+
+function dayFormatter(zone: string): Intl.DateTimeFormat {
+  const cached = dayFormatters.get(zone);
+  if (cached) {
+    return cached;
+  }
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: zone,
+  });
+  dayFormatters.set(zone, formatter);
+  return formatter;
+}
+
+function hourFormatter(zone: string): Intl.DateTimeFormat {
+  const cached = hourFormatters.get(zone);
+  if (cached) {
+    return cached;
+  }
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    hourCycle: 'h23',
+    timeZone: zone,
+  });
+  hourFormatters.set(zone, formatter);
+  return formatter;
 }
 
 function partsInZone(date: Date, timeZone: string): { y: string; m: string; d: string } {
-  const base: Intl.DateTimeFormatOptions = { year: 'numeric', month: '2-digit', day: '2-digit' };
-  const fmt = new Intl.DateTimeFormat('en-CA', { ...base, timeZone: resolveTimeZone(timeZone) });
-  const parts = fmt.formatToParts(date);
+  const parts = dayFormatter(resolveTimeZone(timeZone)).formatToParts(date);
   const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? '';
   return { y: get('year'), m: get('month'), d: get('day') };
 }
@@ -46,13 +89,8 @@ export function hourKeyInZone(date: Date, timeZone: string): string {
   if (isNaN(date.getTime())) {
     return '';
   }
-  const formatter = new Intl.DateTimeFormat('en-GB', {
-    hour: '2-digit',
-    hourCycle: 'h23',
-    timeZone: resolveTimeZone(timeZone),
-  });
-  return formatter.formatToParts(date).find((part) => part.type === 'hour')
-    ?.value ?? '';
+  return hourFormatter(resolveTimeZone(timeZone)).formatToParts(date)
+    .find((part) => part.type === 'hour')?.value ?? '';
 }
 
 /** Provider-neutral display label for a validated "00" through "23" hour key. */

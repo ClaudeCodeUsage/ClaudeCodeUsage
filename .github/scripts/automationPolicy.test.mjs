@@ -127,11 +127,33 @@ test('release delivery retries safely and does not let one registry block the ot
   assert.doesNotMatch(workflow, /if gh release download/);
   assert.equal((workflow.match(/steps\.restore_package\.outputs\.restored != 'true'/g) ?? []).length, 4);
   assert.match(workflow, /tag_name: \$\{\{ env\.RELEASE_TAG \}\}/);
-  assert.match(workflow, /@vscode\/vsce@3\.9\.2 publish[\s\S]*?--skip-duplicate/);
+  assert.match(workflow, /@vscode\/vsce@4\.0\.0 publish[\s\S]*?--skip-duplicate/);
   assert.match(workflow, /ovsx@1\.2\.0 publish[\s\S]*?--skip-duplicate/);
   assert.equal((workflow.match(/continue-on-error: true/g) ?? []).length, 3);
   assert.equal((workflow.match(/for attempt in 1 2 3/g) ?? []).length, 2);
   assert.equal((workflow.match(/timeout-minutes: 12/g) ?? []).length, 2);
+});
+
+test('Marketplace recovery reconciles the newest stable release without rebuilding it', () => {
+  const publish = read('.github/workflows/publish.yml');
+  const recovery = read('.github/workflows/marketplace-recovery.yml');
+
+  assert.match(publish, /concurrency:\s*\n\s+group: extension-registry-delivery/);
+  assert.match(recovery, /schedule:[\s\S]*?- cron: '37 \* \* \* \*'/);
+  assert.match(recovery, /workflow_dispatch:/);
+  assert.match(recovery, /permissions:\s*\n\s+contents: read/);
+  assert.match(recovery, /concurrency:\s*\n\s+group: extension-registry-delivery/);
+  assert.match(recovery, /releases\/latest/);
+  assert.match(recovery, /gh release download[\s\S]*?claude-code-usage\.vsix/);
+  assert.match(recovery, /verify-vsix\.mjs[\s\S]*?steps\.release\.outputs\.version/);
+  assert.doesNotMatch(recovery, /npm ci|npm run compile|vsce@4\.0\.0 package/);
+  assert.match(recovery, /vsce@4\.0\.0 show GrowthJack\.claude-code-usage --json/);
+  assert.match(recovery, /Microsoft\.VisualStudio\.Services\.VsixSha256/);
+  assert.match(recovery, /sha256sum claude-code-usage\.vsix/);
+  assert.match(recovery, /steps\.probe\.outputs\.needed == 'true'/);
+  assert.match(recovery, /vsce@4\.0\.0 publish[\s\S]*?--skip-duplicate/);
+  assert.match(recovery, /continue-on-error: true/);
+  assert.match(recovery, /recovery will retry next hour/i);
 });
 
 test('release draft gets a post-merge reconciliation pass', () => {
