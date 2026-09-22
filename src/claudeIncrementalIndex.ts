@@ -2601,12 +2601,24 @@ export async function updateClaudeUsageIndex(
       plan.kind === 'append' && Boolean(plan.prior) && (plan.prior?.firstTimestampMs ?? 0) > 0;
     const isNewFile = (plan: FilePlan): boolean =>
       plan.kind === 'rebuild' && !plan.prior && !plan.replacedFileId;
-    const appendOnlyPlans = plans.length > 0 && sourcePlans.length === plans.length &&
-      plans.every((plan) => isTailAppend(plan) || isNewFile(plan));
+    // The window keeps drifting, so on a long history almost every refresh also
+    // carries a file whose oldest event has just fallen out of it. Such a file
+    // is re-read only to recompute its aggregate under the new cutoff — its
+    // body on disk is unchanged ('cutoff' is assigned only when bodyUnchanged),
+    // so it owns exactly the UUIDs it owned before and cannot preempt anyone.
+    // A rebase is the same story without the read: it only narrows a stored
+    // aggregate, and the UUIDs it drops are handed to the ownership pass below.
+    //
+    // Requiring "appends and nothing else" therefore rejected the fast path on
+    // ordinary drift: measured on a 650-file history, 136 of 140 refreshes
+    // re-read every body — 1.4 GB, ~60 s — to serve one appended file.
+    const isWindowRebuild = (plan: FilePlan): boolean => plan.analysisReason === 'cutoff';
+    const appendOnlyPlans = plans.length > 0 &&
+      plans.every((plan) => isTailAppend(plan) || isNewFile(plan) || isWindowRebuild(plan));
     const safeTailAppend = Boolean(
       appendOnlyPlans &&
       previousAnalysisRuntime && !timeZoneChanged &&
-      previous.windowDays === windowDays && analysisPayloadRebases.size === 0,
+      previous.windowDays === windowDays,
     );
     const priorAnalysisCutoffMs = previousAnalysisRuntime?.cutoffMs ??
       (previous.analyzeContent ? previous.analysisCutoffMs : undefined);
