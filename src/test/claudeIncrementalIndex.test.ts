@@ -571,6 +571,62 @@ test('the window drifting past an old event keeps the refresh incremental', asyn
   }
 });
 
+test('a file that is appended to while losing an event to the window stays incremental', async (t) => {
+  const previousNow = Date.now;
+  let now = Date.parse('2026-09-10T12:00:00.000Z');
+  Date.now = () => now;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-window-append-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-window-append');
+  await mkdir(project, { recursive: true });
+  const files: string[] = [];
+  try {
+    for (let index = 0; index < 8; index += 1) {
+      const file = path.join(project, `session-${String(index).padStart(3, '0')}.jsonl`);
+      files.push(file);
+      await writeFile(file, `${analysisTextLine(
+        `window-append-seed-${index}`,
+        `seed ${index}`,
+        new Date(Date.parse('2026-09-10T00:00:00.000Z') + index * 1_000).toISOString(),
+      )}
+`, 'utf8');
+    }
+    // This file alone holds an event old enough to leave the window below.
+    await appendFile(files[2], `${analysisTextLine(
+      'window-append-expiring', 'about to expire', '2026-09-09T13:00:00.000Z',
+    )}
+`, 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { windowDays: 1 });
+    assert.equal(cold.diagnostics.bodyReads, 8);
+
+    // The same file is appended to in the refresh where its oldest event leaves
+    // the window. Its stored aggregate still counts the expired event, so the
+    // tail cannot simply be added to it and the file is re-read in full — but
+    // the body only grew, and re-reading one file is no reason to re-read 32.
+    now = Date.parse('2026-09-10T14:00:00.000Z');
+    await appendFile(files[2], `${analysisTextLine(
+      'window-append-tail', 'tail', '2026-09-10T13:55:00.000Z',
+    )}
+`, 'utf8');
+
+    const warm = await updateClaudeUsageIndex(cold.index, root, { windowDays: 1 });
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 1,
+    });
+
+    assert.ok(
+      warm.diagnostics.bodyReads < 8,
+      `an appended file losing an event re-read the whole corpus: ${warm.diagnostics.bodyReads} bodies, ` +
+      `changed=${JSON.stringify(warm.diagnostics.changed)}`,
+    );
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('a new file carrying an already-owned UUID falls back to the full rebuild', async () => {
   const previousNow = Date.now;
   Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
