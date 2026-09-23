@@ -43,6 +43,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   history is indexed without pinning a core. On a 1.4 GB history the key
   derivation went from ~1.1k to ~168k records/second (158x) with identical
   keys; invalid and empty zones still fall back exactly as before.
+- **Dashboard date labels rebuilt a formatter for every row (#99)** — the same
+  per-call `Intl.DateTimeFormat` construction, in the table and chart labels:
+  `toLocaleDateString` built a fresh formatter for every date it rendered. The
+  formatter is now memoised per locale and options, with output identical to
+  `toLocaleDateString` for every UI locale; one label went from ~31 µs to ~1 µs.
 
 ## [2.3.3] — 2026-09-16
 
