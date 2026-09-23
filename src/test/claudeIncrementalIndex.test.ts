@@ -507,6 +507,70 @@ test('a newly started session file does not rebuild the established corpus', asy
   }
 });
 
+test('the window drifting past an old event keeps the refresh incremental', async (t) => {
+  const previousNow = Date.now;
+  let now = Date.parse('2026-09-10T12:00:00.000Z');
+  Date.now = () => now;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-window-drift-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-window-drift');
+  await mkdir(project, { recursive: true });
+  const files: string[] = [];
+  try {
+    // One file holds an event that is about to fall out of the window, the rest
+    // are an established corpus that nothing touches.
+    for (let index = 0; index < 32; index += 1) {
+      const file = path.join(project, `session-${String(index).padStart(3, '0')}.jsonl`);
+      files.push(file);
+      await writeFile(file, `${analysisTextLine(
+        `drift-seed-${index}`,
+        `seed ${index}`,
+        new Date(Date.parse('2026-09-10T00:00:00.000Z') + index * 1_000).toISOString(),
+      )}
+`, 'utf8');
+    }
+    // Only this file holds an event old enough to leave the window when the
+    // clock moves below; every other file stays entirely inside it.
+    await appendFile(files[3], `${analysisTextLine(
+      'drift-expiring', 'about to expire', '2026-09-09T13:00:00.000Z',
+    )}
+`, 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { windowDays: 1 });
+    assert.equal(cold.diagnostics.bodyReads, 32);
+
+    // The clock moves past the oldest event of files[3]: it now needs a body
+    // read to recompute its aggregate ('cutoff'), while another session simply
+    // appends. Before this path existed, that pair forced every body to be
+    // re-read — the ordinary case on a long history, where the window is always
+    // drifting past something.
+    now = Date.parse('2026-09-10T14:00:00.000Z');
+    await appendFile(files[20], `${analysisTextLine(
+      'drift-tail', 'tail', '2026-09-10T13:55:00.000Z',
+    )}
+`, 'utf8');
+
+    const warm = await updateClaudeUsageIndex(cold.index, root, { windowDays: 1 });
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 1,
+    });
+
+    if (warm.diagnostics.changed.move > 0) {
+      t.skip('the filesystem reused a file identity, so this refresh is a move, not an addition');
+      return;
+    }
+
+    assert.ok(
+      warm.diagnostics.bodyReads < 32,
+      `window drift re-read the whole corpus: ${warm.diagnostics.bodyReads} bodies`,
+    );
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('a new file carrying an already-owned UUID falls back to the full rebuild', async () => {
   const previousNow = Date.now;
   Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
