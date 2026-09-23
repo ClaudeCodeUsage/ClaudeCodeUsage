@@ -302,7 +302,7 @@ export interface ClaudeUsageDashboardSnapshot extends ClaudeUsageAggregateSnapsh
 
 interface FilePlan {
   kind: 'append' | 'rebuild';
-  analysisReason?: 'source' | 'cutoff' | 'ownership' | 'full';
+  analysisReason?: 'source' | 'cutoff' | 'window' | 'ownership' | 'full';
   entry: UsageFileFingerprint;
   fileId: string;
   orderTimestampMs?: number;
@@ -2495,12 +2495,23 @@ export async function updateClaudeUsageIndex(
         continue;
       }
       if (needsAnalysisBody) {
+        // A file that only grew still has to be re-read in full when the window
+        // moved past one of its events: the stored aggregate counts that event,
+        // and a tail read cannot subtract it. The body is still an append, so
+        // the file keeps the UUIDs it owned and gains only new ones — the same
+        // shape as a plain append, and 'window' records that. Calling it
+        // 'source', as a mid-file edit, is what made this refresh re-read the
+        // whole corpus on ordinary window drift.
+        const grewOnly = !bodyUnchanged &&
+          entry.size > sameIdentity.fingerprint.size &&
+          await appendPrefixStillMatches(sameIdentity, entry) &&
+          await appendBoundaryStillMatches(sameIdentity, entry);
         analysisRebases.delete(fileId);
         analysisPayloadRebases.delete(fileId);
         plans.push({
           kind: 'rebuild',
-          analysisReason: bodyUnchanged && !timeZoneChanged && Boolean(sameIdentity.analysis)
-            ? 'cutoff'
+          analysisReason: !timeZoneChanged && Boolean(sameIdentity.analysis)
+            ? (bodyUnchanged ? 'cutoff' : (grewOnly ? 'window' : 'source'))
             : 'source',
           entry,
           fileId,
@@ -2518,9 +2529,14 @@ export async function updateClaudeUsageIndex(
       const plannedKind: FilePlan['kind'] = append && !rebaseChangedPayload
         ? 'append'
         : 'rebuild';
+      // An append whose file also lost an event to the window cannot be served
+      // from the stored aggregate — that aggregate still counts the expired
+      // event — so it has to be re-read in full. The body still only grew:
+      // 'window' records that, keeping it apart from a genuine mid-file edit.
+      const windowForcedRebuild = append && rebaseChangedPayload;
       plans.push({
         kind: plannedKind,
-        analysisReason: 'source',
+        analysisReason: windowForcedRebuild ? 'window' : 'source',
         entry,
         fileId,
         prior: append && rebasedAnalysis && !rebaseChangedPayload ? rebasedAnalysis : sameIdentity,
@@ -2612,7 +2628,11 @@ export async function updateClaudeUsageIndex(
     // Requiring "appends and nothing else" therefore rejected the fast path on
     // ordinary drift: measured on a 650-file history, 136 of 140 refreshes
     // re-read every body — 1.4 GB, ~60 s — to serve one appended file.
-    const isWindowRebuild = (plan: FilePlan): boolean => plan.analysisReason === 'cutoff';
+    // 'cutoff' — тело не менялось; 'window' — файл дописан и потерял событие
+    // за окном. Второй случай может нести новые UUID, поэтому его пропускает
+    // проверка владения после разбора, ниже.
+    const isWindowRebuild = (plan: FilePlan): boolean =>
+      plan.analysisReason === 'cutoff' || plan.analysisReason === 'window';
     const appendOnlyPlans = plans.length > 0 &&
       plans.every((plan) => isTailAppend(plan) || isNewFile(plan) || isWindowRebuild(plan));
     const safeTailAppend = Boolean(
@@ -2732,11 +2752,10 @@ export async function updateClaudeUsageIndex(
         }
         // The first file to carry a UUID owns it, so parsing has to follow the
         // same order the full loader uses. With one plan the order is moot, but
-        // several appends must be parsed in full-scan order — otherwise
-        // ownership falls to whichever file happened to be discovered first.
+        // several changed files must be parsed in full-scan order — otherwise
+        // an expiring-window rebuild can claim a UUID before an earlier append.
         if (plans.length > 1) {
           plans.sort((left, right) => {
-            if (left.kind !== right.kind) return left.kind === 'rebuild' ? -1 : 1;
             return (left.orderTimestampMs ?? 0) - (right.orderTimestampMs ?? 0) ||
               left.entry.discoveryIndex - right.entry.discoveryIndex;
           });
@@ -2765,11 +2784,21 @@ export async function updateClaudeUsageIndex(
     // collision changes the full loader's first owner, so retry the analysis as
     // one globally ordered rebuild. The first tail read remains bounded and is
     // the evidence used to choose the safe path.
-    if (fastAppendAnalysis && previousAnalysisRuntime && parsedPlans.length > 0) {
+    //
+    // A 'window' plan is an append too — the file only grew, it is re-read in
+    // full solely because its stored aggregate still counts an event that has
+    // since left the window. Its appended lines can carry UUIDs owned by a
+    // later file exactly like a plain append, so it is probed here as well;
+    // that probe is what allows it to skip the full rebuild in the first place.
+    const windowRebasedAppends = parsedPlans.some(
+      (plan) => plan.analysisReason === 'window',
+    );
+    if ((fastAppendAnalysis || windowRebasedAppends) &&
+      previousAnalysisRuntime && parsedPlans.length > 0) {
       let laterOwnerCollision = false;
       for (const appended of parsedPlans) {
         if (laterOwnerCollision) break;
-        if (appended.kind === 'rebuild') {
+        if (appended.kind === 'rebuild' && !appended.prior) {
           // A brand-new file owns only UUIDs nobody else has: anything else can
           // move ownership, which the full loader resolves by scan order.
           for (const uuid of appended.analysisTouchedUuids) {
