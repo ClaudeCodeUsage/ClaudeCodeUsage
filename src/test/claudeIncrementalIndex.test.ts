@@ -627,6 +627,45 @@ test('a file that is appended to while losing an event to the window stays incre
   }
 });
 
+test('mixed window rebuild and append give a new UUID to the earliest file', async () => {
+  const previousNow = Date.now;
+  let now = Date.parse('2026-09-10T12:00:00.000Z');
+  Date.now = () => now;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-mixed-window-owner-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-mixed-window-owner');
+  await mkdir(project, { recursive: true });
+  try {
+    const earlier = path.join(project, 'earlier.jsonl');
+    const later = path.join(project, 'later.jsonl');
+    await writeFile(earlier, `${analysisTextLine(
+      'mixed-earlier-seed', 'early seed', '2026-09-10T00:00:00.000Z',
+    )}\n`, 'utf8');
+    await writeFile(later, [
+      analysisTextLine('mixed-later-seed', 'later seed', '2026-09-10T00:01:00.000Z'),
+      analysisTextLine('mixed-expiring', 'expires', '2026-09-09T13:00:00.000Z'),
+    ].join('\n') + '\n', 'utf8');
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { windowDays: 1 });
+
+    now = Date.parse('2026-09-10T14:00:00.000Z');
+    await appendFile(earlier, `${analysisTextLine(
+      'mixed-shared-uuid', 'earlier owner', '2026-09-10T13:55:00.000Z',
+    )}\n`, 'utf8');
+    await appendFile(later, `${analysisTextLine(
+      'mixed-shared-uuid', 'later should not own', '2026-09-10T13:56:00.000Z',
+    )}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, { windowDays: 1 });
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 1,
+    });
+    assert.equal(warm.diagnostics.bodyReads, 2);
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('a new file carrying an already-owned UUID falls back to the full rebuild', async () => {
   const previousNow = Date.now;
   Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');

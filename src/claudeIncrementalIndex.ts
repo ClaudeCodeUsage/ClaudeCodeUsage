@@ -2752,11 +2752,10 @@ export async function updateClaudeUsageIndex(
         }
         // The first file to carry a UUID owns it, so parsing has to follow the
         // same order the full loader uses. With one plan the order is moot, but
-        // several appends must be parsed in full-scan order — otherwise
-        // ownership falls to whichever file happened to be discovered first.
+        // several changed files must be parsed in full-scan order — otherwise
+        // an expiring-window rebuild can claim a UUID before an earlier append.
         if (plans.length > 1) {
           plans.sort((left, right) => {
-            if (left.kind !== right.kind) return left.kind === 'rebuild' ? -1 : 1;
             return (left.orderTimestampMs ?? 0) - (right.orderTimestampMs ?? 0) ||
               left.entry.discoveryIndex - right.entry.discoveryIndex;
           });
