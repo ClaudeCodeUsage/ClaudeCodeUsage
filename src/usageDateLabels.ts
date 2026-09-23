@@ -20,5 +20,34 @@ export function formatUsageDate(
   const options: Intl.DateTimeFormatOptions = monthly
     ? { year: 'numeric', month: 'long' }
     : dailyOptions;
-  return date.toLocaleDateString(locale, { ...options, timeZone: 'UTC' });
+  return usageDateFormatter(locale, { ...options, timeZone: 'UTC' }).format(date);
+}
+
+// The dashboard formats one label per table row and chart point, and
+// toLocaleDateString constructs a fresh Intl.DateTimeFormat on every call (the
+// same cost #99 removed from dateKeys). Formatters are memoised per locale and
+// options; the dashboard only ever asks for a handful of combinations.
+const usageDateFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function usageDateFormatter(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`;
+  const cached = usageDateFormatters.get(key);
+  if (cached) {
+    return cached;
+  }
+  // toLocaleDateString always renders a date: with no date field requested it
+  // defaults to numeric year, month and day. Intl.DateTimeFormat only does so
+  // when no time field is requested either, so apply the default explicitly.
+  const hasDateField = options.weekday !== undefined || options.year !== undefined ||
+    options.month !== undefined || options.day !== undefined ||
+    options.dateStyle !== undefined;
+  const formatter = new Intl.DateTimeFormat(
+    locale,
+    hasDateField ? options : { ...options, year: 'numeric', month: 'numeric', day: 'numeric' },
+  );
+  usageDateFormatters.set(key, formatter);
+  return formatter;
 }
