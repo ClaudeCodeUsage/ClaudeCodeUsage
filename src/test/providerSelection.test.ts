@@ -112,7 +112,7 @@ test('Codex dashboard HTML uses only classes already rendered by the Claude dash
     provider.hourlyDataForRolling30DaysByDay = {
       '2026-07-20': [{ hour: '12:00', data: usage }],
     };
-    provider.dailyDataForAllTime = [{ date: '2026-07', data: usage }];
+    provider.dailyDataForAllTime = [{ date: '2026-07-01', data: usage }];
     provider.sessionBreakdown = [session];
     provider.projectBreakdown = [project];
     provider.claudeProjectUsageMatrix = buildProjectUsageMatrixSnapshot(
@@ -484,7 +484,7 @@ test('Codex settings and charts use the shared dashboard renderers', () => {
   assert.match(webview, /private renderCompositionChart\([\s\S]*provider: SettingProvider/);
   assert.match(
     webview,
-    /snap\.filter\(\(setting\)\s*=>\s*settingAppliesToProvider\(setting, provider\)\)/,
+    /snap\.filter\(\(setting\)\s*=>\s*setting\.visible\s*!==\s*false\s*&&\s*settingAppliesToProvider\(setting, provider\),?\s*\)/,
   );
   assert.match(
     settings,
@@ -648,8 +648,8 @@ test('provider and Codex view copy is complete in every UI locale', () => {
       .join('\n');
     assert.doesNotMatch(englishVisibleCopy, /\b(?:fresh|new)\b/i);
     const settingsSource = readFileSync(path.resolve(__dirname, '..', '..', 'src', 'settings.ts'), 'utf8');
-    assert.match(settingsSource, /key: 'codex\.statusMetric'[\s\S]*?enumValues: \['fresh', 'processed', 'output'\][\s\S]*?enumLabels: \['Uncached', 'Processed', 'Output'\]/);
-    assert.match(settingsSource, /help: "Today's uncached usage, processed tokens, or output tokens\."/);
+    assert.match(settingsSource, /key: 'codex\.statusMetric'[\s\S]*?enumValues: \['processed', 'fresh', 'output'\][\s\S]*?enumLabels: \['Processed', 'Uncached', 'Output'\]/);
+    assert.match(settingsSource, /help: "Today's processed tokens \(default\), uncached usage, or output tokens\."/);
     const extensionSource = readFileSync(path.resolve(__dirname, '..', '..', 'src', 'extension.ts'), 'utf8');
     assert.match(
       extensionSource,

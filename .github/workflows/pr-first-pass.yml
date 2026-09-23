@@ -1,9 +1,9 @@
-# Auto first-pass review on every NEW pull request — a CONTROLLED single model
-# call (not an autonomous agent). Uses pull_request_target for the token but
+# Auto first-pass review on every NEW external pull request — a CONTROLLED
+# cheap/pro model sequence (not an autonomous agent). Uses pull_request_target for the token but
 # NEVER runs the PR's code: it checks out the BASE repo, fetches the diff via the
 # API, asks the model, and posts one comment. Public text remains untrusted; the
 # fixed runner has no tools, reads only validated base-repo text, and model
-# output can still be wrong.
+# output can still be wrong. Failed analysis leaves no generic PR comment.
 #
 # INERT until AUTOMATION_ENABLED = 'true' + the ANTHROPIC_API_KEY secret.
 # Optional repo vars: ANTHROPIC_BASE_URL, CCU_BOT_MODEL / CCU_BOT_MODEL_PRO and

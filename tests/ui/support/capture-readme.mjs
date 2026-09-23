@@ -80,7 +80,7 @@ try {
     } else if (view === 'weekly') {
       await page.locator('#tab-all').click();
       const panel = page.locator('#all .daily-breakdown').filter({
-        hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex Beta',
+        hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex',
       });
       await expect(panel.locator('.weekly-value-details')).not.toHaveAttribute('open', '');
       await expect(panel.locator('.seg-cache-read')).not.toHaveCount(0);

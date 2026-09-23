@@ -387,11 +387,17 @@ export function hasTrustedFirstPass(comments, kind) {
   );
 }
 
-export async function resolveFirstPassCandidates({ cheap, pro }) {
+export async function resolveFirstPassCandidates({ cheap, pro, onFailure = () => {} }) {
   let cheapCandidate;
   try {
     cheapCandidate = await cheap();
-  } catch {
+    if (!String(cheapCandidate?.reply || '').trim()) {
+      onFailure({ tier: 'cheap', reason: 'empty-reply' });
+    } else if (cheapCandidate.answerable === false) {
+      onFailure({ tier: 'cheap', reason: 'needs-source' });
+    }
+  } catch (error) {
+    onFailure({ tier: 'cheap', reason: safeFailureReason(error) });
     cheapCandidate = null;
   }
 
@@ -399,7 +405,11 @@ export async function resolveFirstPassCandidates({ cheap, pro }) {
   if (!cheapCandidate || needsProFirstPass(cheapCandidate)) {
     try {
       proCandidate = await pro(cheapCandidate);
-    } catch {
+      if (!String(proCandidate?.reply || '').trim()) {
+        onFailure({ tier: 'pro', reason: 'empty-reply' });
+      }
+    } catch (error) {
+      onFailure({ tier: 'pro', reason: safeFailureReason(error) });
       proCandidate = null;
     }
   }
@@ -411,11 +421,18 @@ export async function resolveFirstPassCandidates({ cheap, pro }) {
   }
 }
 
+function safeFailureReason(error) {
+  const status = error?.status;
+  return Number.isInteger(status) && status >= 400 && status <= 599
+    ? `http-${status}`
+    : 'request-error';
+}
+
 export function chooseFinalReply(cheap, pro) {
   if (pro && typeof pro.reply === 'string' && pro.reply.trim() !== '') {
     return { reply: pro.reply.trim(), generator: pro.generator };
   }
-  if (cheap && typeof cheap.reply === 'string' && cheap.reply.trim() !== '') {
+  if (cheap?.answerable !== false && typeof cheap?.reply === 'string' && cheap.reply.trim() !== '') {
     return { reply: cheap.reply.trim(), generator: cheap.generator };
   }
   throw new Error('No non-empty model reply');

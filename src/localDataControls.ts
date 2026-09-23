@@ -1,5 +1,6 @@
 import type { QuotaObservationStoreV2 } from './quotaObservationStore';
 import type { UsageProvider } from './providers/providerTypes';
+import { GITHUB_HEATMAP_DESTINATION_KEY } from './githubHeatmapPublish';
 
 /**
  * Public, value-free description of one class of local data. Inventory rows
@@ -71,6 +72,12 @@ export type LocalDataClientAction =
   | 'reset-sharing-preferences'
   | 'clear-all-client-state';
 
+export interface LocalDataClientResetTombstone {
+  schemaVersion: 1;
+  revision: number;
+  action: LocalDataClientAction;
+}
+
 export interface LocalDataActionResult {
   ok: boolean;
   cancelled?: boolean;
@@ -106,6 +113,7 @@ export const LOCAL_DATA_GLOBAL_STATE_KEYS = [
   'ccu.codex.machineSalt',
   'ccu.heatmapPath',
   'ccu.heatmapRepo',
+  GITHUB_HEATMAP_DESTINATION_KEY,
   'ccu.lastSeenVersion',
   LOCAL_DATA_PENDING_CLIENT_RESET_KEY,
   'ccu.migrated.dashboardAutoRefresh',
@@ -141,9 +149,10 @@ export const LOCAL_DATA_ACTION_TARGETS: Record<LocalDataAction, readonly string[
     'P10 Webview state and allowlisted UI localStorage keys',
   ],
   'reset-sharing-preferences': [
-    'ccu.setting.showHeatmap and ccu.setting.enableShareCard',
-    'ccu.combinedHeatmap.title, .range, and .privacyPreview Webview keys',
-    'ccu.heatmapRepo and ccu.heatmapPath destination strings',
+    'active ccu.setting.enableShareCard and retired compatibility ccu.setting.showHeatmap',
+    'ccu.sharing.template presentation selection',
+    'ccu.combinedHeatmap.title, .range, .privacyPreview, .intensityMode, .palette, and .customAccent Webview keys',
+    'ccu.heatmapDestination.v1 plus legacy ccu.heatmapRepo and ccu.heatmapPath destination strings',
     'in-memory share-card SVG/configuration preview',
   ],
   'clear-byok-secret': [
@@ -159,7 +168,7 @@ export const LOCAL_DATA_ACTION_TARGETS: Record<LocalDataAction, readonly string[
     'P8 SecretStorage claudeCodeUsage.secret.advice.apiKey and exact plaintext migration locations',
     'P9 ccu.adviceEffectiveness.localState and claudeCodeUsage.adviceEffectiveness.feedback.v1',
     'P10 four allowlisted UI localStorage keys plus Webview state',
-    'P11 two sharing settings, three sharing localStorage keys, two destination keys, and in-memory preview',
+    'P11 one active plus one retired sharing setting, seven sharing localStorage keys, two destination keys, and in-memory preview',
   ],
 };
 

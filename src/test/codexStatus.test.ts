@@ -59,7 +59,7 @@ function limit(
   };
 }
 
-test('Codex status defaults to fresh and shows remaining weekly quota', () => {
+test('the explicit uncached Codex metric preserves its value and shows remaining weekly quota', () => {
   const formatted = formatCodexStatus(scope, 'fresh', limit(NOW + 60_000, [
     {
       label: 'primary',

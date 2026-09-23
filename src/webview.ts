@@ -30,6 +30,10 @@ import {
 } from './combinedHeatmapSvg';
 import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename } from './shareCard';
 import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
+import {
+  SharingCommandIntentLedger,
+  SharingTemplate,
+} from './sharingCommandIntent';
 import { parseConversation } from './conversationLog';
 import { renderConversationViewer } from './conversationViewerHtml';
 import { formatUsageDate, shortUsageDate } from './usageDateLabels';
@@ -76,7 +80,6 @@ import {
 } from './projectUsageMatrix';
 import * as os from 'os';
 import * as path from 'path';
-import * as https from 'https';
 import { createHash, randomBytes } from 'crypto';
 import {
   AdviceEffectivenessProvider,
@@ -362,6 +365,8 @@ function localDataUiCopy(locale: string): LocalDataUiCopy {
     sourceExclusions: 'Always excluded:',
   };
 }
+
+export type { SharingTemplate } from './sharingCommandIntent';
 
 interface CombinedHeatmapUiCopy {
   eyebrow: string;
@@ -939,6 +944,7 @@ export class UsageWebviewProvider {
   private allTimeData: UsageData | null = null;
   private dailyDataForRolling30Days: { date: string; data: UsageData }[] = [];
   private dailyDataForAllTime: { date: string; data: UsageData }[] = [];
+  private dailyDataForEveryDay: { date: string; data: UsageData }[] = [];
   private hourlyDataForToday: { hour: string; data: UsageData }[] = [];
   private hourlyDataForRolling30DaysByDay: Record<
     string,
@@ -949,6 +955,9 @@ export class UsageWebviewProvider {
   private dataDirectory: string | null = null;
   private currentTab: string = 'today';
   private currentProvider: 'claude' | 'codex' | 'compare' = 'claude';
+  private sharingTemplate: SharingTemplate = 'combinedHeatmap';
+  private sharingWorkspaceRequested = false;
+  private readonly sharingCommandIntents = new SharingCommandIntentLedger();
   private codexView: CodexUsageView | null = null;
   private codexInsights: CodexScopedInsights = emptyCodexScopedInsights();
   private providerAvailability = { claude: false, codex: false, codexData: false };
@@ -967,7 +976,6 @@ export class UsageWebviewProvider {
   private branchBreakdown: BranchUsage[] = [];
   private workflowBreakdown: WorkflowUsage[] = [];
   private costliestMessages: CostlyMessage[] = [];
-  private githubIdentity?: { avatar?: string; name?: string }; // fetched on demand
   // Cache the (slow-moving) cache analyses so they recompute at most weekly, not
   // every render — Carl: a weekly refresh is plenty for these estimates.
   private analysisCache?: {
@@ -983,16 +991,27 @@ export class UsageWebviewProvider {
   // One reusable conversation-viewer panel: each "view" click re-reads the file
   // and refreshes this panel rather than piling up new tabs.
   private conversationPanel?: vscode.WebviewPanel;
-  // Last generated share card + its config, kept so an auto-refresh re-render
-  // doesn't wipe the user's picks or preview (share card / heatmap / optimizer
-  // output should survive data refreshes — only usage numbers update).
-  private lastShareCardSvg?: string;
+  // Reuse expensive local previews only while their data and display context
+  // remain unchanged. Config is retained independently from a generated SVG.
+  private shareCardPreviewCache?: {
+    records: any[]; day: string; timeZone: string; locale: string; themeKind?: number; svg: string;
+  };
+  private claudeHeatmapPreviewCache?: {
+    dailyRows: { date: string; data: UsageData }[];
+    day: string;
+    timeZone: string;
+    locale: string;
+    svg: string;
+  };
+  private claudeDailyUsageCache?: {
+    dailyRows: { date: string; data: UsageData }[];
+    timeZone: string;
+    daily: ReturnType<typeof ClaudeDataLoader.getDailyUsageMap>;
+  };
   private lastShareCardConfig?: {
     range: string;
     scope: string;
     sections: Record<string, boolean>;
-    avatar: boolean;
-    username: boolean;
     fullNumbers: boolean;
     theme: string;
   };
@@ -1040,7 +1059,8 @@ export class UsageWebviewProvider {
     action: LocalDataAction,
     quotaScopeToken?: string,
   ) => Promise<LocalDataActionResult>;
-  public onResetSharingPreferences?: () => Promise<void>;
+  public onExportClaudeHeatmap?: () => void | Promise<void>;
+  public onPublishClaudeHeatmap?: () => void | Promise<void>;
   public onLocalDataClientReady?: () => void;
   // Shared settings store + a callback to let extension.ts re-apply config when
   // the user edits a setting in the dashboard's ⚙ Settings tab. Both are set by
@@ -1628,14 +1648,26 @@ export class UsageWebviewProvider {
   }
 
   public clearSharingRuntimeState(): void {
-    this.lastShareCardSvg = undefined;
+    this.invalidateSharingCaches();
     this.lastShareCardConfig = undefined;
+    this.sharingTemplate = 'combinedHeatmap';
+    this.sharingWorkspaceRequested = false;
+    // Reset clears any live command without rewinding its sequence. A later
+    // command therefore cannot collide with a command already seen by this
+    // provider's Webview.
+    this.sharingCommandIntents.clearPending();
   }
 
-  /** A display-format change invalidates rendered money but not the user's
+  /** Pricing or display changes invalidate derived previews but not the user's
    * chosen share-card range, scope, sections, or theme. */
   public invalidateShareCardPreview(): void {
-    this.lastShareCardSvg = undefined;
+    this.invalidateSharingCaches();
+  }
+
+  private invalidateSharingCaches(): void {
+    this.shareCardPreviewCache = undefined;
+    this.claudeHeatmapPreviewCache = undefined;
+    this.claudeDailyUsageCache = undefined;
   }
 
   private async handleClearAdviceLocalDataMessage(): Promise<void> {
@@ -2060,6 +2092,12 @@ export class UsageWebviewProvider {
           }
           break;
         }
+        case 'sharingTemplateCommandAck': {
+          if (Number.isSafeInteger(message.revision)) {
+            this.sharingCommandIntents.acknowledge(message.revision);
+          }
+          break;
+        }
         case 'requestLocalDataInventory': {
           const summary = message.clientSummary as Partial<LocalDataClientSummary> | undefined;
           const clientSummary: LocalDataClientSummary = {
@@ -2126,10 +2164,22 @@ export class UsageWebviewProvider {
           break;
         }
         case 'exportHeatmap':
-          vscode.commands.executeCommand('claudeCodeUsage.exportHeatmap');
+          await this.onExportClaudeHeatmap?.();
           break;
         case 'publishHeatmap':
-          vscode.commands.executeCommand('claudeCodeUsage.publishHeatmapToGitHub');
+          await this.onPublishClaudeHeatmap?.();
+          break;
+        case 'sharingTemplateChanged':
+          if (
+            message.template === 'combinedHeatmap' ||
+            message.template === 'claudeShareCard' ||
+            message.template === 'claudeHeatmap'
+          ) {
+            if (this.sharingTemplate !== message.template) {
+              this.sharingTemplate = message.template;
+              this.updateWebview();
+            }
+          }
           break;
         case 'previewCombinedHeatmap': {
           if (!this.panel) {
@@ -2213,51 +2263,31 @@ export class UsageWebviewProvider {
           }
           break;
         }
-        case 'resetCombinedHeatmapPreferences': {
-          try {
-            if (this.onResetSharingPreferences) {
-              await this.onResetSharingPreferences();
-            } else {
-              await this.context.globalState.update('ccu.heatmapRepo', undefined);
-              await this.context.globalState.update('ccu.heatmapPath', undefined);
-              this.clearSharingRuntimeState();
-            }
-            this.panel?.webview.postMessage({
-              command: 'combinedHeatmapPreferencesReset',
-              ok: true,
-            });
-          } catch {
-            this.panel?.webview.postMessage({
-              command: 'combinedHeatmapPreferencesReset',
-              ok: false,
-            });
-          }
-          break;
-        }
         case 'buildShareCard': {
-          // On-demand preview: build the SVG from the panel's config and send
-          // it back for injection (no full re-render).
+          // Preview is a pure local render using only the indexed usage data.
           if (this.panel && this.allRecords && this.allRecords.length > 0) {
             try {
-              const id = message.avatar || message.username ? await this.getGithubIdentity() : {};
               const range = String(message.range || 'last30');
               const scope = String(message.scope || 'all');
               const sections = (message.sections || {}) as Record<string, boolean>;
               const theme = (message.theme as ShareCardTheme) || 'claudeClassic';
               const svg = this.buildShareCardSvgFor(range, scope, sections as Partial<ShareSections>, {
-                avatarDataUri: message.avatar ? id.avatar : undefined,
-                username: message.username ? id.name : undefined,
                 fullNumbers: !!message.fullNumbers,
                 theme,
               });
               // Remember it so a re-render restores the preview + picks.
-              this.lastShareCardSvg = svg;
+              this.shareCardPreviewCache = {
+                records: this.allRecords,
+                day: dayKeyInZone(new Date(), I18n.getTimezone()),
+                timeZone: I18n.getTimezone(),
+                locale: I18n.getLocale(),
+                themeKind: vscode.window.activeColorTheme?.kind,
+                svg,
+              };
               this.lastShareCardConfig = {
                 range,
                 scope,
                 sections,
-                avatar: !!message.avatar,
-                username: !!message.username,
                 fullNumbers: !!message.fullNumbers,
                 theme,
               };
@@ -2269,16 +2299,13 @@ export class UsageWebviewProvider {
           break;
         }
         case 'exportShareCard': {
-          // Export using the panel's config (range / scope / sections).
+          // Local export uses only already-indexed usage and the chosen config.
           if (!this.allRecords || this.allRecords.length === 0) {
             vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
             break;
           }
           const range = String(message.range || 'last30');
-          const id = message.avatar || message.username ? await this.getGithubIdentity() : {};
           const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>, {
-            avatarDataUri: message.avatar ? id.avatar : undefined,
-            username: message.username ? id.name : undefined,
             fullNumbers: !!message.fullNumbers,
             theme: (message.theme as ShareCardTheme) || 'claudeClassic',
           });
@@ -2413,6 +2440,12 @@ export class UsageWebviewProvider {
         case 'updateSetting':
           if (this.settings && typeof message.key === 'string') {
             await this.settings.set(message.key, message.value);
+            if (
+              message.key === 'enableShareCard' &&
+              this.settings.get<boolean>('enableShareCard') === false
+            ) {
+              this.sharingWorkspaceRequested = false;
+            }
             // Re-apply config. Pass the key so status-bar-only toggles skip the
             // dashboard reload (which flickers); globalState changes don't fire
             // onDidChangeConfiguration, so this callback is the only signal.
@@ -2480,7 +2513,13 @@ export class UsageWebviewProvider {
           const requestedProvider = message.provider === 'codex' || message.provider === 'claude'
             ? message.provider
             : '';
-          if (!/^\d{4}-\d{2}$/.test(monthString) || !this.panel || requestedProvider !== this.currentProvider) {
+          // Claude's materialized all-time month rows use YYYY-MM-01, while
+          // Codex rows use YYYY-MM. Keep the response key unchanged so the
+          // matching detail row can consume it after the host round-trip.
+          const validMonth = requestedProvider === 'claude'
+            ? /^\d{4}-\d{2}(?:-01)?$/.test(monthString)
+            : /^\d{4}-\d{2}$/.test(monthString);
+          if (!validMonth || !this.panel || requestedProvider !== this.currentProvider) {
             break;
           }
           if (requestedProvider === 'codex') {
@@ -2495,8 +2534,10 @@ export class UsageWebviewProvider {
             });
             break;
           }
-          const { ClaudeDataLoader } = await import('./dataLoader');
-          const dailyData = ClaudeDataLoader.getDailyDataForSpecificMonth(this.allRecords, monthString);
+          const monthKey = monthString.slice(0, 7);
+          const dailyData = this.dailyDataForEveryDay
+            .filter((row) => row.date.startsWith(`${monthKey}-`))
+            .sort((left, right) => left.date.localeCompare(right.date));
           await this.panel.webview.postMessage({
             command: 'dailyDataResponse',
             provider: 'claude',
@@ -2509,6 +2550,23 @@ export class UsageWebviewProvider {
     });
 
     this.updateWebview();
+  }
+
+  /** Compatibility commands enter the same preview-first workspace instead of
+   * bypassing it with an immediate picker or network flow. */
+  public showSharingWorkspace(template: SharingTemplate): void {
+    if (!this.allRecords || this.allRecords.length === 0) {
+      void vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
+      return;
+    }
+    this.sharingTemplate = template;
+    this.sharingWorkspaceRequested = true;
+    this.sharingCommandIntents.issue(template);
+    this.currentTab = 'all';
+    this.currentProvider = this.providerAvailability.claude && this.providerAvailability.codexData
+      ? 'compare'
+      : 'claude';
+    this.show();
   }
 
   updateData(
@@ -2533,6 +2591,7 @@ export class UsageWebviewProvider {
       { hour: string; data: UsageData }[]
     > = {},
     projectUsageMatrix: ProjectUsageMatrixSnapshot | null = null,
+    dailyDataForEveryDay: { date: string; data: UsageData }[] = [],
   ): void {
     this.currentSessionData = sessionData;
     this.todayData = todayData;
@@ -2540,12 +2599,19 @@ export class UsageWebviewProvider {
     this.allTimeData = allTimeData;
     this.dailyDataForRolling30Days = dailyDataForRolling30Days;
     this.dailyDataForAllTime = dailyDataForAllTime;
+    if (this.dailyDataForEveryDay !== dailyDataForEveryDay) {
+      this.invalidateSharingCaches();
+    }
+    this.dailyDataForEveryDay = dailyDataForEveryDay;
     this.hourlyDataForToday = hourlyDataForToday;
     this.hourlyDataForRolling30DaysByDay = hourlyDataForRolling30DaysByDay;
     this.error = error || null;
     this.dataDirectory = dataDirectory || null;
     this.isLoading = false;
     if (allRecords) {
+      if (this.allRecords !== allRecords) {
+        this.invalidateSharingCaches();
+      }
       this.allRecords = allRecords;
     }
     this.sessionBreakdown = sessionBreakdown;
@@ -2977,7 +3043,7 @@ export class UsageWebviewProvider {
     if (!endDateISO) {
       throw new Error('Could not resolve the configured timezone date.');
     }
-    const claudeDaily = ClaudeDataLoader.getDailyUsageMap(this.allRecords ?? [], timeZone);
+    const claudeDaily = this.getClaudeDailyUsageMap(timeZone);
     const daily = mergeCombinedDailyUsage(
       claudeDailyPointsFromUsage(claudeDaily),
       codexDailyPointsFromUsage(this.codexView?.daily ?? []),
@@ -2994,6 +3060,7 @@ export class UsageWebviewProvider {
         range,
         endDateISO,
         title,
+        locale: I18n.getLocale(),
         palette,
         customAccent,
         intensityMode,
@@ -3007,12 +3074,25 @@ export class UsageWebviewProvider {
     };
   }
 
-  private renderCombinedHeatmapPanel(): string {
+  private renderSharingWorkspace(): string {
     const copy = combinedHeatmapUiCopy(I18n.getLocale());
-    const artifact = this.buildCombinedHeatmapArtifact('year', copy.defaultTitle);
-    const preview = artifact.hasData
-      ? artifact.svg
-      : '<p class="table-hint">' + this.escapeHtml(copy.noData) + '</p>';
+    const workspaceCopy = I18n.sharingWorkspace;
+    const combinedAvailable = this.providerAvailability.claude && this.providerAvailability.codexData;
+    const selected: SharingTemplate = this.sharingTemplate === 'combinedHeatmap' && !combinedAvailable
+      ? 'claudeShareCard'
+      : this.sharingTemplate;
+    this.sharingTemplate = selected;
+    const selectedOption = (template: SharingTemplate): string => template === selected ? ' selected' : '';
+    const presentationState = (template: SharingTemplate): string =>
+      ' data-sharing-presentation="' + template + '"' + (template === selected ? '' : ' hidden');
+    const artifact = selected === 'combinedHeatmap'
+      ? this.buildCombinedHeatmapArtifact('year', copy.defaultTitle)
+      : undefined;
+    const preview = artifact
+      ? (artifact.hasData
+          ? artifact.svg
+          : '<p class="table-hint">' + this.escapeHtml(copy.noData) + '</p>')
+      : '';
     const paletteChoice = (
       value: string,
       label: string,
@@ -3030,12 +3110,12 @@ export class UsageWebviewProvider {
       paletteChoice('codexBlue', copy.codexBlue, ['#eff6ff', '#93c5fd', '#3b82f6', '#1d4ed8']) +
       paletteChoice('githubGreen', copy.githubGreen, ['#dafbe1', '#6fdd8b', '#2da44e', '#116329']) +
       paletteChoice('custom', copy.customPalette, ['#eee8f8', '#bca5e6', '#8668c7', '#4f2f87']);
-    return '<section class="heatmap-panel combined-heatmap-panel" aria-labelledby="combinedHeatmapHeading">' +
-      '<header class="combined-share-header"><div>' +
-      '<span class="combined-share-eyebrow">' + this.escapeHtml(copy.eyebrow) + '</span>' +
-      '<h2 id="combinedHeatmapHeading">' + this.escapeHtml(copy.panelTitle) + '</h2>' +
-      '<p>' + this.escapeHtml(copy.description) + '</p></div>' +
-      '<span class="combined-private-badge">◆ ' + this.escapeHtml(copy.privateBadge) + '</span></header>' +
+    const combinedPresentation = artifact ? '<section class="sharing-presentation combined-sharing-presentation"' +
+      presentationState('combinedHeatmap') + ' aria-labelledby="combinedPresentationHeading">' +
+      '<h3 id="combinedPresentationHeading" class="sharing-presentation-title">' +
+      this.escapeHtml(workspaceCopy.combinedPresentation) + '</h3>' +
+      '<p class="sharing-presentation-description">' +
+      this.escapeHtml(workspaceCopy.combinedPresentationDescription) + '</p>' +
       '<div class="combined-share-layout">' +
       '<div class="combined-preview-column">' +
       '<div class="combined-preview-toolbar"><strong>' + this.escapeHtml(copy.previewLabel) + '</strong>' +
@@ -3043,8 +3123,8 @@ export class UsageWebviewProvider {
       '<div id="combinedHeatmapPreview" class="heatmap-svg combined-heatmap-preview" role="region" tabindex="0" aria-label="' + this.escapeHtml(copy.previewLabel) + '">' + preview + '</div>' +
       '<p class="combined-activity-disclaimer">' + this.escapeHtml(copy.activityDisclaimer) + '</p>' +
       '</div>' +
-      '<aside class="combined-config-card" aria-label="' + this.escapeHtml(copy.settingsLabel) + '">' +
-      '<h3>' + this.escapeHtml(copy.settingsLabel) + '</h3>' +
+      '<div class="combined-config-card sharing-controls-panel" aria-label="' + this.escapeHtml(copy.settingsLabel) + '">' +
+      '<h4>' + this.escapeHtml(copy.settingsLabel) + '</h4>' +
       '<div class="combined-heatmap-controls">' +
       '<label class="sc-field" for="combinedHeatmapTitle"><span>' + this.escapeHtml(copy.titleLabel) + '</span>' +
       '<input type="text" id="combinedHeatmapTitle" maxlength="80" value="' + this.escapeHtml(artifact.title) + '" data-default-value="' + this.escapeHtml(artifact.title) + '"></label>' +
@@ -3074,10 +3154,63 @@ export class UsageWebviewProvider {
       '<button class="btn-secondary btn-small" onclick="exportCombinedHeatmap()">' + this.escapeHtml(copy.exportSvg) + '</button>' +
       '<button class="btn-secondary btn-small" onclick="copyCombinedHeatmapMarkdown()">' + this.escapeHtml(copy.copyMarkdown) + '</button>' +
       '<button class="btn-secondary btn-small" onclick="resetCombinedHeatmapPreferences()">' + this.escapeHtml(copy.resetSharing) + '</button></div>' +
-      '</aside></div>' +
+      '</div></div>' +
       '<details class="combined-output-panel"><summary>' + this.escapeHtml(copy.markdownLabel) + '</summary>' +
       '<textarea id="combinedHeatmapMarkdown" class="combined-markdown" rows="2" readonly aria-label="' + this.escapeHtml(copy.markdownLabel) + '">' + this.escapeHtml(artifact.markdown) + '</textarea>' +
-      '</details></section>';
+      '</details></section>' : this.renderSharingPresentationPlaceholder(
+        'combinedHeatmap',
+        workspaceCopy.combinedPresentation,
+        workspaceCopy.combinedPresentationDescription,
+      );
+
+    const combinedOption = '<option value="combinedHeatmap"' +
+      selectedOption('combinedHeatmap') + (combinedAvailable ? '' : ' disabled') + '>' +
+      this.escapeHtml(workspaceCopy.combinedPresentation +
+        (combinedAvailable ? '' : ' — ' + workspaceCopy.combinedUnavailable)) + '</option>';
+
+    return '<section class="heatmap-panel combined-heatmap-panel sharing-workspace" aria-labelledby="sharingWorkspaceHeading">' +
+      '<header class="combined-share-header"><div>' +
+      '<span class="combined-share-eyebrow">' + this.escapeHtml(workspaceCopy.eyebrow) + '</span>' +
+      '<h2 id="sharingWorkspaceHeading">' + this.escapeHtml(workspaceCopy.panelTitle) + '</h2>' +
+      '<p>' + this.escapeHtml(workspaceCopy.description) + '</p></div>' +
+      '<span class="combined-private-badge">◆ ' + this.escapeHtml(workspaceCopy.privacyBadge) + '</span></header>' +
+      '<label class="sc-field sharing-template-field" for="sharingTemplate"><span>' +
+      this.escapeHtml(workspaceCopy.presentationLabel) + '</span>' +
+      '<select id="sharingTemplate" onchange="selectSharingTemplate(this.value, true)">' +
+      combinedOption +
+      '<option value="claudeShareCard"' + selectedOption('claudeShareCard') + '>' +
+      this.escapeHtml(workspaceCopy.claudeCardPresentation) + '</option>' +
+      '<option value="claudeHeatmap"' + selectedOption('claudeHeatmap') + '>' +
+      this.escapeHtml(workspaceCopy.claudeHeatmapPresentation) + '</option></select></label>' +
+      '<div class="sharing-preview-stage">' + combinedPresentation +
+      (selected === 'claudeShareCard'
+        ? this.renderShareCardPanel(selected)
+        : this.renderSharingPresentationPlaceholder(
+            'claudeShareCard',
+            workspaceCopy.claudeCardPresentation,
+            workspaceCopy.claudeCardPresentationDescription,
+          )) +
+      (selected === 'claudeHeatmap'
+        ? this.renderClaudeHeatmapPresentation(selected)
+        : this.renderSharingPresentationPlaceholder(
+            'claudeHeatmap',
+            workspaceCopy.claudeHeatmapPresentation,
+            workspaceCopy.claudeHeatmapPresentationDescription,
+          )) + '</div>' +
+      '</section>';
+  }
+
+  private renderSharingPresentationPlaceholder(
+    template: SharingTemplate,
+    title: string,
+    description: string,
+  ): string {
+    return '<section class="sharing-presentation sharing-presentation-placeholder"' +
+      ' data-sharing-presentation="' + template + '" hidden>' +
+      '<h3 class="sharing-presentation-title">' + this.escapeHtml(title) + '</h3>' +
+      '<p class="sharing-presentation-description">' + this.escapeHtml(description) + '</p>' +
+      '<p class="table-hint" role="status">' + this.escapeHtml(I18n.t.statusBar.loading) + '</p>' +
+      '</section>';
   }
 
   private renderCodexCompare(): string {
@@ -3107,8 +3240,8 @@ export class UsageWebviewProvider {
       '<span><span class="model-stat-label">' + this.escapeHtml(copy.cachedInput) + '</span><strong>' + I18n.formatNumber(cache) + '</strong></span>' +
       '<span><span class="model-stat-label">' + this.escapeHtml(copy.output) + '</span><strong>' + I18n.formatNumber(output) + '</strong></span>' +
       '</div></article>';
-    const sharingWorkspace = this.setting<boolean>('enableShareCard', true)
-      ? this.renderCombinedHeatmapPanel()
+    const sharingWorkspace = (this.setting<boolean>('enableShareCard', true) || this.sharingWorkspaceRequested)
+      ? this.renderSharingWorkspace()
       : '';
     const summaryGrid = '<div class="summary-grid">' +
       card(
@@ -3317,7 +3450,9 @@ export class UsageWebviewProvider {
   private renderSettingsPanel(provider: SettingProvider): string {
     const t = I18n.t.popup;
     const snap: SettingView[] = this.settings ? this.settings.snapshot() : [];
-    const visible = snap.filter((setting) => settingAppliesToProvider(setting, provider));
+    const visible = snap.filter((setting) =>
+      setting.visible !== false && settingAppliesToProvider(setting, provider),
+    );
     const groups: { key: string; label: string }[] = [
       { key: 'general', label: t.settingsGroupGeneral },
       { key: 'providers', label: t.settingsGroupProviders },
@@ -4557,21 +4692,13 @@ export class UsageWebviewProvider {
 
     const allTimeSummary = this.renderUsageData(this.allTimeData, provider);
 
-    // Optional GitHub-style token heatmap (off by default; mainly a shareable
-    // view). Inline SVG renders with working hover tooltips inside the webview.
-    let heatmapPanel = '';
-    if (this.setting<boolean>('showHeatmap', false) && this.allRecords && this.allRecords.length > 0) {
-      const daily = ClaudeDataLoader.getDailyUsageMap(this.allRecords, I18n.getTimezone());
-      heatmapPanel =
-        '<div class="heatmap-panel"><h3>Token heatmap</h3>' +
-        '<div class="heatmap-svg">' + renderHeatmapSvg(daily, {
-          endDateISO: dayKeyInZone(new Date(), I18n.getTimezone()),
-        }) + '</div>' +
-        '<div class="share-actions">' +
-        '<button class="btn-secondary btn-small" onclick="exportHeatmap()">Export as SVG…</button>' +
-        '<button class="btn-secondary btn-small" onclick="publishHeatmap()">Publish to GitHub…</button>' +
-        '</div></div>';
-    }
+    // With both providers available, sharing has one home in Compare. A
+    // Claude-only installation receives the exact same workspace here.
+    const sharingWorkspace =
+      !this.providerAvailability.codexData &&
+      (this.setting<boolean>('enableShareCard', true) || this.sharingWorkspaceRequested)
+        ? this.renderSharingWorkspace()
+        : '';
 
     const dailyBreakdown =
       this.dailyDataForAllTime.length > 0
@@ -4656,9 +4783,8 @@ export class UsageWebviewProvider {
     `
         : '';
 
-    // Heatmap sits right above the "monthly usage" breakdown, below the totals.
     return allTimeSummary + this.renderWeeklyValuePanel(provider) +
-      this.renderShareCardPanel() + heatmapPanel + dailyBreakdown;
+      sharingWorkspace + dailyBreakdown;
   }
 
   private weeklyValuePoints(provider: SettingProvider): WeeklyValuePoint[] {
@@ -4834,18 +4960,12 @@ export class UsageWebviewProvider {
       tableRows + '</tbody></table></div></details></div>';
   }
 
-  /** The "Share card" panel (All tab). On by default (`enableShareCard`); when
-   * enabled, a config form — range / scope / which metrics — with a Generate button.
-   * The preview is built on demand (no per-keystroke re-render), and export uses
-   * the same config. Privacy-safe: built from buildShareCardData, aggregate only. */
-  private renderShareCardPanel(): string {
+  /** Claude's legacy Share Card remains a provider-truthful presentation inside
+   * the one sharing workspace. Its complete preview precedes every control. */
+  private renderShareCardPanel(selected: SharingTemplate): string {
     const esc = (s: string): string => this.escapeHtml(s);
-    if (!this.setting<boolean>('enableShareCard', true)) {
-      return '';
-    }
-    if (!this.allRecords || this.allRecords.length === 0) {
-      return '';
-    }
+    const copy = I18n.sharingWorkspace;
+    const combinedCopy = combinedHeatmapUiCopy(I18n.getLocale());
 
     // Range: grouped like the scope dropdown — rolling presets vs. a specific
     // calendar month (last 12), so the two kinds are visually distinct.
@@ -4854,8 +4974,8 @@ export class UsageWebviewProvider {
     for (let i = 1; i <= 12; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-      monthOpts.push(`<option value="month:${key}">${esc(label)}${i === 1 ? ' (last month)' : ''}</option>`);
+      const label = d.toLocaleDateString(I18n.getLocale(), { month: 'long', year: 'numeric' });
+      monthOpts.push(`<option value="month:${key}">${esc(label)}${i === 1 ? ' (' + esc(copy.lastMonthSuffix) + ')' : ''}</option>`);
     }
     // Rehydrate the last config so an auto-refresh re-render doesn't wipe the
     // user's picks or their generated preview (Carl: refresh shouldn't blow away
@@ -4868,14 +4988,14 @@ export class UsageWebviewProvider {
 
     const rangeSelect =
       '<select id="scRange">' +
-      '<optgroup label="Rolling">' +
-      '<option value="last30"' + sel('last30', curRange) + '>Last 30 days</option>' +
-      '<option value="week"' + sel('week', curRange) + '>Last 7 days</option>' +
-      '<option value="month"' + sel('month', curRange) + '>This month</option>' +
-      '<option value="year"' + sel('year', curRange) + '>Last 12 months</option>' +
-      '<option value="today"' + sel('today', curRange) + '>Today (hourly)</option>' +
+      '<optgroup label="' + esc(copy.rangeRollingGroup) + '">' +
+      '<option value="last30"' + sel('last30', curRange) + '>' + esc(combinedCopy.last30) + '</option>' +
+      '<option value="week"' + sel('week', curRange) + '>' + esc(copy.last7) + '</option>' +
+      '<option value="month"' + sel('month', curRange) + '>' + esc(copy.thisMonth) + '</option>' +
+      '<option value="year"' + sel('year', curRange) + '>' + esc(copy.last12Months) + '</option>' +
+      '<option value="today"' + sel('today', curRange) + '>' + esc(copy.todayHourly) + '</option>' +
       '</optgroup>' +
-      '<optgroup label="Specific month">' +
+      '<optgroup label="' + esc(copy.rangeSpecificMonthGroup) + '">' +
       monthOpts.map((o) => o.replace('>', sel(o.match(/value="([^"]+)"/)?.[1] || '', curRange) + '>')).join('') +
       '</optgroup>' +
       '</select>';
@@ -4892,9 +5012,9 @@ export class UsageWebviewProvider {
       .join('');
     const scopeSelect =
       '<select id="scScope">' +
-      '<optgroup label="All"><option value="all"' + sel('all', curScope) + '>Overall</option></optgroup>' +
-      (projectOpts ? '<optgroup label="By project">' + projectOpts + '</optgroup>' : '') +
-      (sessionOpts ? '<optgroup label="By session">' + sessionOpts + '</optgroup>' : '') +
+      '<optgroup label="' + esc(copy.scopeAllGroup) + '"><option value="all"' + sel('all', curScope) + '>' + esc(copy.overall) + '</option></optgroup>' +
+      (projectOpts ? '<optgroup label="' + esc(copy.byProject) + '">' + projectOpts + '</optgroup>' : '') +
+      (sessionOpts ? '<optgroup label="' + esc(copy.bySession) + '">' + sessionOpts + '</optgroup>' : '') +
       '</select>';
 
     // Section toggles. Default ON: cost, cache-hit, model (+ the token hero,
@@ -4903,57 +5023,156 @@ export class UsageWebviewProvider {
       '<label class="sc-check"><input type="checkbox" class="sc-sec" data-sec="' + key + '"' +
       (secOn(key, dflt) ? ' checked' : '') + '> ' + esc(label) + '</label>';
     const toggles =
-      check('totalTokens', 'Total tokens', true) +
-      check('estimatedCost', 'Est. cost', true) +
-      check('cacheEfficiency', 'Cache-hit rate', true) +
-      check('topModel', 'Top model', true) +
-      check('sessions', 'Session count', true) +
-      check('tokenComposition', 'Token mix', true) +
-      check('rhythm', 'Daily pulse', true) +
-      check('badge', 'Badge', true) +
-      check('messages', 'Message count', false) +
-      check('projectName', 'Project name', false);
-    const avatarChecked = cfg?.avatar ? ' checked' : '';
-    const nameChecked = cfg?.username ? ' checked' : '';
+      check('totalTokens', copy.totalTokens, true) +
+      check('estimatedCost', copy.estimatedCost, true) +
+      check('cacheEfficiency', copy.cacheHitRate, true) +
+      check('topModel', copy.topModel, true) +
+      check('sessions', copy.sessionCount, true) +
+      check('tokenComposition', copy.tokenMix, true) +
+      check('rhythm', copy.dailyPulse, true) +
+      check('badge', copy.badge, true) +
+      check('messages', copy.messageCount, false) +
+      check('projectName', copy.projectName, false);
     const fullChecked = cfg?.fullNumbers ? ' checked' : '';
     const curTheme = cfg?.theme || 'claudeClassic';
     const themeSelect =
       '<select id="scTheme">' +
-      '<option value="claudeClassic"' + sel('claudeClassic', curTheme) + '>Claude Classic (orange)</option>' +
-      '<option value="claudeCream"' + sel('claudeCream', curTheme) + '>Claude Cream</option>' +
-      '<option value="auroraDark"' + sel('auroraDark', curTheme) + '>Aurora Dark</option>' +
-      '<option value="auto"' + sel('auto', curTheme) + '>Auto (follow VS Code)</option>' +
+      '<option value="claudeClassic"' + sel('claudeClassic', curTheme) + '>' + esc(copy.claudeClassic) + '</option>' +
+      '<option value="claudeCream"' + sel('claudeCream', curTheme) + '>' + esc(copy.claudeCream) + '</option>' +
+      '<option value="auroraDark"' + sel('auroraDark', curTheme) + '>' + esc(copy.auroraDark) + '</option>' +
+      '<option value="auto"' + sel('auto', curTheme) + '>' + esc(copy.autoTheme) + '</option>' +
       '</select>';
 
-    const preview = this.lastShareCardSvg
-      ? this.lastShareCardSvg
-      : '<p class="table-hint">Preview appears here after you click Generate.</p>';
+    const sections: Record<string, boolean> = {
+      totalTokens: secOn('totalTokens', true),
+      estimatedCost: secOn('estimatedCost', true),
+      cacheEfficiency: secOn('cacheEfficiency', true),
+      topModel: secOn('topModel', true),
+      sessions: secOn('sessions', true),
+      tokenComposition: secOn('tokenComposition', true),
+      rhythm: secOn('rhythm', true),
+      badge: secOn('badge', true),
+      messages: secOn('messages', false),
+      projectName: secOn('projectName', false),
+    };
+    const day = dayKeyInZone(now, I18n.getTimezone());
+    const cachedPreview = this.shareCardPreviewCache;
+    let preview = cachedPreview?.records === this.allRecords &&
+      cachedPreview.day === day && cachedPreview.timeZone === I18n.getTimezone() &&
+      cachedPreview.locale === I18n.getLocale() &&
+      cachedPreview.themeKind === vscode.window.activeColorTheme?.kind
+      ? cachedPreview.svg : undefined;
+    if (!preview) {
+      try {
+        preview = this.buildShareCardSvgFor(curRange, curScope, sections, {
+          fullNumbers: cfg?.fullNumbers,
+          theme: curTheme as ShareCardTheme,
+        });
+        this.shareCardPreviewCache = {
+          records: this.allRecords,
+          day,
+          timeZone: I18n.getTimezone(),
+          locale: I18n.getLocale(),
+          themeKind: vscode.window.activeColorTheme?.kind,
+          svg: preview,
+        };
+      } catch {
+        preview = '<p class="table-hint">' + esc(copy.previewPending) + '</p>';
+      }
+    }
 
     return (
-      '<div class="share-panel"><h3>Share card</h3>' +
-      '<p class="table-hint">Pick a range, scope and metrics, then Generate. Only aggregate numbers are drawn — no prompts, paths, or session ids.</p>' +
-      '<div class="sc-config">' +
+      '<section class="sharing-presentation claude-share-card-presentation" data-sharing-presentation="claudeShareCard"' +
+      (selected === 'claudeShareCard' ? '' : ' hidden') + ' aria-labelledby="claudeShareCardHeading">' +
+      '<h3 id="claudeShareCardHeading" class="sharing-presentation-title">' + esc(copy.claudeCardPresentation) + '</h3>' +
+      '<p class="sharing-presentation-description">' + esc(copy.claudeCardPresentationDescription) + '</p>' +
+      '<div class="combined-preview-toolbar"><strong>' + esc(combinedCopy.previewLabel) + '</strong></div>' +
+      '<div class="share-preview sharing-artifact-preview" id="scPreview" role="region" tabindex="0" aria-label="' +
+      esc(copy.claudeCardPresentation + ' · ' + combinedCopy.previewLabel) + '">' + preview + '</div>' +
+      '<div class="sc-config sharing-controls-panel" aria-label="' + esc(combinedCopy.settingsLabel) + '">' +
+      '<h4>' + esc(combinedCopy.settingsLabel) + '</h4>' +
       '<div class="sc-grid">' +
-      '<label class="sc-field"><span>Range</span>' + rangeSelect + '</label>' +
-      '<label class="sc-field"><span>Scope</span>' + scopeSelect + '</label>' +
-      '<label class="sc-field"><span>Theme</span>' + themeSelect + '</label>' +
+      '<label class="sc-field"><span>' + esc(combinedCopy.rangeLabel) + '</span>' + rangeSelect + '</label>' +
+      '<label class="sc-field"><span>' + esc(copy.scopeLabel) + '</span>' + scopeSelect + '</label>' +
+      '<label class="sc-field"><span>' + esc(copy.themeLabel) + '</span>' + themeSelect + '</label>' +
       '</div>' +
-      '<div class="sc-checks">' + toggles +
-      '<label class="sc-check" title="Show the exact token count instead of 1.2M"><input type="checkbox" id="scFull"' + fullChecked + '> Full numbers</label>' +
-      '<label class="sc-check" title="Fetches your GitHub avatar (asks to sign in once)"><input type="checkbox" id="scAvatar"' + avatarChecked + '> GitHub avatar</label>' +
-      '<label class="sc-check" title="Shows your GitHub name next to the badge"><input type="checkbox" id="scName"' + nameChecked + '> GitHub name</label>' +
-      '</div>' +
+      '<fieldset class="sc-checks"><legend class="sr-only">' + esc(copy.cardContentsLabel) + '</legend>' + toggles +
+      '<label class="sc-check" title="' + esc(copy.fullNumbersHelp) + '"><input type="checkbox" id="scFull"' + fullChecked + '> ' + esc(copy.fullNumbers) + '</label>' +
+      '</fieldset>' +
       '<div class="share-actions">' +
-      '<button class="btn-secondary btn-small" onclick="generateShareCard()">Generate preview</button>' +
-      '<button class="btn-secondary btn-small" onclick="exportShareCardConfigured()">Export as SVG…</button>' +
-      '</div></div>' +
-      '<div class="share-preview" id="scPreview">' + preview + '</div>' +
-      '</div>'
+      '<button class="btn-primary btn-small" onclick="generateShareCard()">' + esc(combinedCopy.updatePreview) + '</button>' +
+      '<button class="btn-secondary btn-small" onclick="exportShareCardConfigured()">' + esc(combinedCopy.exportSvg) + '</button>' +
+      '</div></div></section>'
     );
   }
 
-  /** Build the share-card SVG for a webview request ({range, scope, sections,
-   * size, avatar}). Shared by the preview (postMessage back) and export paths. */
+  private renderClaudeHeatmapPresentation(selected: SharingTemplate): string {
+    const copy = I18n.sharingWorkspace;
+    const combinedCopy = combinedHeatmapUiCopy(I18n.getLocale());
+    const day = dayKeyInZone(new Date(), I18n.getTimezone());
+    const cachedPreview = this.claudeHeatmapPreviewCache;
+    let svg = cachedPreview?.dailyRows === this.dailyDataForEveryDay &&
+      cachedPreview.day === day && cachedPreview.timeZone === I18n.getTimezone() &&
+      cachedPreview.locale === I18n.getLocale()
+      ? cachedPreview.svg : undefined;
+    if (!svg) {
+      const daily = this.getClaudeDailyUsageMap(I18n.getTimezone());
+      svg = renderHeatmapSvg(daily, {
+        endDateISO: dayKeyInZone(new Date(), I18n.getTimezone()),
+        locale: I18n.getLocale(),
+      });
+      this.claudeHeatmapPreviewCache = {
+        dailyRows: this.dailyDataForEveryDay,
+        day,
+        timeZone: I18n.getTimezone(),
+        locale: I18n.getLocale(),
+        svg,
+      };
+    }
+    return '<section class="sharing-presentation claude-heatmap-presentation" data-sharing-presentation="claudeHeatmap"' +
+      (selected === 'claudeHeatmap' ? '' : ' hidden') + ' aria-labelledby="claudeHeatmapHeading">' +
+      '<h3 id="claudeHeatmapHeading" class="sharing-presentation-title">' + this.escapeHtml(copy.claudeHeatmapPresentation) + '</h3>' +
+      '<p class="sharing-presentation-description">' + this.escapeHtml(copy.claudeHeatmapPresentationDescription) + '</p>' +
+      '<div class="combined-preview-toolbar"><strong>' + this.escapeHtml(combinedCopy.previewLabel) + '</strong></div>' +
+      '<div id="claudeHeatmapPreview" class="heatmap-svg combined-heatmap-preview sharing-artifact-preview" role="region" tabindex="0" aria-label="' +
+      this.escapeHtml(copy.claudeHeatmapPresentation + ' · ' + combinedCopy.previewLabel) + '">' + svg + '</div>' +
+      '<p class="combined-activity-disclaimer">' + this.escapeHtml(copy.claudeHeatmapDisclaimer) + '</p>' +
+      '<div class="sharing-controls-panel claude-heatmap-actions" aria-label="' + this.escapeHtml(combinedCopy.settingsLabel) + '">' +
+      '<div class="share-actions">' +
+      '<button class="btn-secondary btn-small" onclick="exportHeatmap()">' + this.escapeHtml(combinedCopy.exportSvg) + '</button>' +
+      '<button class="btn-secondary btn-small" onclick="publishHeatmap()">' + this.escapeHtml(copy.publishGitHub) + '</button>' +
+      '</div></div></section>';
+  }
+
+  /** The Compare and Claude heatmaps consume the same per-day projection.
+   * Share it across Webview renders; a changed record array is invalidated by
+   * updateData, and the timezone remains part of the cache identity. */
+  private getClaudeDailyUsageMap(timeZone: string): ReturnType<typeof ClaudeDataLoader.getDailyUsageMap> {
+    const cached = this.claudeDailyUsageCache;
+    if (cached?.dailyRows === this.dailyDataForEveryDay && cached.timeZone === timeZone) {
+      return cached.daily;
+    }
+    const daily = Object.fromEntries(this.dailyDataForEveryDay.map(({ date, data }) => [
+      date,
+      {
+        tokens: data.totalInputTokens + data.totalOutputTokens +
+          data.totalCacheCreationTokens + data.totalCacheReadTokens,
+        cost: data.totalCost,
+        // The unified sharing surfaces currently render token activity only.
+        // Do not invent a distinct-session count from message aggregates.
+        sessions: 0,
+      },
+    ]));
+    this.claudeDailyUsageCache = {
+      dailyRows: this.dailyDataForEveryDay,
+      timeZone,
+      daily,
+    };
+    return daily;
+  }
+
+  /** Build the share-card SVG from already-indexed local usage. Shared by the
+   * preview (postMessage back) and local export paths. */
   private buildShareCardSvgFor(
     range: string,
     scope: string,
@@ -4970,75 +5189,6 @@ export class UsageWebviewProvider {
       isDark,
       lang: I18n.getLocale(),
       formatCurrency: (amountUsd) => I18n.formatCurrency(amountUsd),
-    });
-  }
-
-  /** Fetch the signed-in GitHub user's avatar (data: URI) and display name,
-   * cached. Only called when the user ticks "GitHub avatar" / "GitHub name", so
-   * auth is on demand (just `read:user`). Missing parts come back undefined. */
-  private async getGithubIdentity(): Promise<{ avatar?: string; name?: string }> {
-    if (this.githubIdentity) {
-      return this.githubIdentity;
-    }
-    let session: vscode.AuthenticationSession | undefined;
-    try {
-      session = await vscode.authentication.getSession('github', ['read:user'], { createIfNone: true });
-    } catch {
-      return {};
-    }
-    if (!session) {
-      return {};
-    }
-    const out: { avatar?: string; name?: string } = {};
-    try {
-      const user = await this.httpsGet('https://api.github.com/user', session.accessToken);
-      const parsed = JSON.parse(user.body.toString('utf8')) as { avatar_url?: string; name?: string; login?: string };
-      out.name = (parsed.name && parsed.name.trim()) || parsed.login;
-      if (parsed.avatar_url) {
-        const url = parsed.avatar_url + (parsed.avatar_url.includes('?') ? '&' : '?') + 's=160';
-        const img = await this.httpsGet(url);
-        out.avatar = `data:${img.contentType || 'image/png'};base64,${img.body.toString('base64')}`;
-      }
-    } catch {
-      /* keep whatever we got */
-    }
-    this.githubIdentity = out;
-    return out;
-  }
-
-  /** Minimal GET over https returning the raw body + content-type. Follows
-   * redirects (GitHub avatar URLs 302 to avatars.githubusercontent.com — not
-   * following them was why the avatar came back empty / broken). */
-  private httpsGet(url: string, token?: string, hops = 0): Promise<{ body: Buffer; contentType: string }> {
-    return new Promise((resolve, reject) => {
-      const req = https.get(
-        url,
-        {
-          headers: {
-            'User-Agent': 'ClaudeCodeUsage-VSCode',
-            ...(token ? { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } : {}),
-          },
-          timeout: 15000,
-        },
-        (res) => {
-          const status = res.statusCode || 0;
-          const loc = res.headers.location;
-          if (status >= 300 && status < 400 && loc && hops < 4) {
-            res.resume(); // drain
-            // Don't forward the auth token to a redirected (CDN) host.
-            const next = new URL(loc, url).toString();
-            this.httpsGet(next, undefined, hops + 1).then(resolve, reject);
-            return;
-          }
-          const chunks: Buffer[] = [];
-          res.on('data', (c) => chunks.push(c as Buffer));
-          res.on('end', () =>
-            resolve({ body: Buffer.concat(chunks), contentType: String(res.headers['content-type'] || '') })
-          );
-        }
-      );
-      req.on('error', reject);
-      req.on('timeout', () => req.destroy(new Error('timeout')));
     });
   }
 
@@ -9665,6 +9815,12 @@ export class UsageWebviewProvider {
         gap: 8px 10px;
         margin-bottom: 14px;
         padding-top: 12px;
+        padding-right: 0;
+        padding-bottom: 0;
+        padding-left: 0;
+        border-right: 0;
+        border-bottom: 0;
+        border-left: 0;
         border-top: 1px solid var(--vscode-panel-border);
       }
       .sc-check {
@@ -9688,20 +9844,17 @@ export class UsageWebviewProvider {
         border: 1px solid var(--vscode-panel-border);
         border-radius: 10px;
         overflow: auto;
+        overscroll-behavior-inline: contain;
+        -webkit-overflow-scrolling: touch;
         max-height: 640px;
-        background:
-          linear-gradient(45deg, #f3f3f3 25%, transparent 25%, transparent 75%, #f3f3f3 75%),
-          linear-gradient(45deg, #f3f3f3 25%, #fff 25%, #fff 75%, #f3f3f3 75%);
-        background-size: 20px 20px;
-        background-position: 0 0, 10px 10px;
+        background: var(--vscode-editor-background);
       }
       .share-preview svg {
         display: block;
         width: 100%;
         height: auto;
-        max-width: 560px;
+        max-width: none;
         margin: 0 auto;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.18);
         border-radius: 8px;
       }
       .share-preview p {
@@ -9724,7 +9877,7 @@ export class UsageWebviewProvider {
         border: 1px solid var(--vscode-panel-border);
         border-radius: 6px;
         padding: 6px;
-        background: #ffffff;
+        background: var(--vscode-editor-background);
       }
       .heatmap-svg svg {
         display: block;
@@ -9734,7 +9887,7 @@ export class UsageWebviewProvider {
         overflow: hidden;
         padding: var(--ccu-space-5);
         border: 1px solid var(--ccu-border);
-        border-left: 4px solid var(--vscode-charts-purple, #4f2f87);
+        border-left: 4px solid var(--vscode-charts-purple);
         border-radius: var(--ccu-radius-lg);
         background: var(--ccu-surface-raised);
       }
@@ -9755,7 +9908,7 @@ export class UsageWebviewProvider {
         line-height: 1.5;
       }
       .combined-share-eyebrow {
-        color: var(--vscode-charts-purple, #8668c7);
+        color: var(--vscode-charts-purple);
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.12em;
@@ -9776,6 +9929,39 @@ export class UsageWebviewProvider {
         grid-template-columns: minmax(0, 1fr);
         gap: var(--ccu-space-4);
         align-items: start;
+      }
+      .sharing-template-field {
+        max-width: 520px;
+        margin: 0 0 var(--ccu-space-5);
+      }
+      .sharing-template-field select {
+        min-height: 34px;
+        font-family: var(--vscode-font-family);
+      }
+      .sharing-preview-stage,
+      .sharing-presentation {
+        min-width: 0;
+      }
+      .sharing-presentation[hidden] {
+        display: none;
+      }
+      .sharing-presentation-title {
+        margin: 0 0 var(--ccu-space-1);
+        font-size: 15px;
+      }
+      .sharing-presentation-description {
+        margin: 0 0 var(--ccu-space-3);
+        color: var(--vscode-descriptionForeground);
+        line-height: 1.45;
+      }
+      .sharing-controls-panel {
+        box-sizing: border-box;
+        width: 100%;
+        margin-top: var(--ccu-space-4);
+      }
+      .sharing-artifact-preview {
+        box-sizing: border-box;
+        width: 100%;
       }
       .combined-preview-column,
       .combined-config-card {
@@ -9800,11 +9986,12 @@ export class UsageWebviewProvider {
         border-radius: var(--ccu-radius-panel);
         background: var(--ccu-surface-subtle);
       }
-      .combined-config-card h3 {
+      .combined-config-card h4,
+      .sc-config h4 {
         margin: 0 0 var(--ccu-space-3);
         font-size: 13px;
       }
-      .combined-config-card .sc-field > span {
+      .sharing-controls-panel .sc-field > span {
         color: var(--vscode-foreground);
       }
       .combined-heatmap-controls {
@@ -9906,7 +10093,7 @@ export class UsageWebviewProvider {
       }
       .combined-privacy-preview {
         padding: var(--ccu-space-2) var(--ccu-space-3);
-        border-left: 3px solid var(--vscode-testing-iconPassed, #2ea043);
+        border-left: 3px solid var(--vscode-testing-iconPassed);
         border-radius: var(--ccu-radius-control);
         background: var(--ccu-surface-muted);
         color: var(--vscode-foreground);
@@ -9963,7 +10150,10 @@ export class UsageWebviewProvider {
         max-width: none;
         height: auto;
         border-radius: 12px;
-        box-shadow: 0 8px 26px rgba(24, 16, 36, 0.18);
+      }
+      .claude-heatmap-actions {
+        padding-top: var(--ccu-space-3);
+        border-top: 1px solid var(--ccu-border);
       }
 
       /* Clickable month bars in the all-time composition chart (drill to daily). */
@@ -10792,6 +10982,10 @@ export class UsageWebviewProvider {
           width: auto;
           max-width: none;
         }
+        .claude-share-card-presentation .share-preview svg {
+          width: 1200px;
+          min-width: 1200px;
+        }
         .action-card-head {
           align-items: flex-start;
           flex-wrap: wrap;
@@ -11158,8 +11352,20 @@ document.addEventListener('toggle', function(e){
 }, true);
 
 // Restore the active tab from localStorage before first paint, so a reload can't change it.
+function ccuSharingCommandPending() {
+  return !!__sharingTemplateCommand;
+}
 function restoreActiveTab() {
   try {
+    if (
+      ccuSharingCommandPending() &&
+      document.getElementById('tab-all') &&
+      document.getElementById('all')
+    ) {
+      showTab('all', true);
+      try { localStorage.setItem('ccu.activeTab', 'all'); } catch (e) {}
+      return;
+    }
     var t = localStorage.getItem('ccu.activeTab');
     if (t && document.getElementById('tab-' + t) && document.getElementById(t)) {
       showTab(t, true);
@@ -11181,7 +11387,9 @@ function restoreUi() {
   initializeHourlyOverviewSelections();
   restoreHourlyOverviewSelections();
   initializeStatusRegions();
+  restoreSharingTemplate();
   restoreCombinedHeatmapConfig();
+  restoreShareCardDraft();
   restoreProjectMatrixState();
   requestLocalDataInventoryForVisibleSettings();
   restoreScrollPosition();
@@ -11256,6 +11464,8 @@ const __currencyDisplay = ${JSON.stringify({
   decimalPlaces: I18n.getDecimalPlaces(),
 })};
 const __combinedHeatmapCopy = ${JSON.stringify(combinedHeatmapUiCopy(I18n.getLocale()))};
+const __sharingWorkspaceCopy = ${JSON.stringify(I18n.sharingWorkspace)};
+const __sharingTemplateCommand = ${JSON.stringify(this.sharingCommandIntents.pending() ?? null)};
 const __localDataCopy = ${JSON.stringify(localDataUiCopy(I18n.getLocale()))};
 const __dateOpts = (extra) => {
   const opts = Object.assign({}, extra || {});
@@ -11323,6 +11533,56 @@ function showProvider(provider, tab) {
 
 ${getProviderNavClientScript()}
 
+function selectSharingTemplate(template, save) {
+  if (['combinedHeatmap', 'claudeShareCard', 'claudeHeatmap'].indexOf(template) < 0) { return; }
+  var selector = document.getElementById('sharingTemplate');
+  var option = selector ? selector.querySelector('option[value="' + template + '"]') : null;
+  if (!selector || !option || option.disabled) { return; }
+  selector.value = template;
+  document.querySelectorAll('[data-sharing-presentation]').forEach(function(presentation) {
+    presentation.hidden = presentation.getAttribute('data-sharing-presentation') !== template;
+  });
+  if (save) {
+    try { localStorage.setItem('ccu.sharing.template', template); } catch (e) {}
+    vscode.postMessage({ command: 'sharingTemplateChanged', template: template });
+  }
+}
+function restoreSharingTemplate() {
+  var selector = document.getElementById('sharingTemplate');
+  if (!selector) { return; }
+  var stored = '';
+  var commandPending = ccuSharingCommandPending();
+  try {
+    if (commandPending) {
+      stored = __sharingTemplateCommand.template;
+      localStorage.setItem('ccu.sharing.template', stored);
+    } else {
+      stored = localStorage.getItem('ccu.sharing.template') || '';
+    }
+  } catch (e) {
+    if (commandPending) { stored = __sharingTemplateCommand.template; }
+  }
+  var option = stored ? selector.querySelector('option[value="' + stored + '"]') : null;
+  var initial = selector.value;
+  var resolved = option && !option.disabled ? stored : selector.value;
+  selectSharingTemplate(resolved, false);
+  if (!commandPending && resolved !== initial) {
+    vscode.postMessage({ command: 'sharingTemplateChanged', template: resolved });
+  }
+  if (commandPending) {
+    vscode.postMessage({
+      command: 'sharingTemplateCommandAck',
+      revision: __sharingTemplateCommand.revision
+    });
+  }
+}
+function selectDefaultSharingTemplate() {
+  var selector = document.getElementById('sharingTemplate');
+  if (!selector) { return; }
+  var combined = selector.querySelector('option[value="combinedHeatmap"]');
+  selectSharingTemplate(combined && !combined.disabled ? 'combinedHeatmap' : 'claudeShareCard', false);
+}
+
 function scReadConfig() {
   var rangeEl = document.getElementById('scRange');
   var scopeEl = document.getElementById('scScope');
@@ -11331,29 +11591,98 @@ function scReadConfig() {
   for (var i = 0; i < boxes.length; i++) {
     sections[boxes[i].getAttribute('data-sec')] = boxes[i].checked;
   }
-  var avatarEl = document.getElementById('scAvatar');
-  var nameEl = document.getElementById('scName');
   var fullEl = document.getElementById('scFull');
   var themeEl = document.getElementById('scTheme');
   return {
     range: rangeEl ? rangeEl.value : 'last30',
     scope: scopeEl ? scopeEl.value : 'all',
     theme: themeEl ? themeEl.value : 'claudeCream',
-    avatar: avatarEl ? avatarEl.checked : false,
-    username: nameEl ? nameEl.checked : false,
     fullNumbers: fullEl ? fullEl.checked : false,
     sections: sections
   };
 }
+// Project paths and session IDs are valid in-memory selector values, but they
+// must not become durable UI preferences. Keep the full draft only for the
+// lifetime of this Webview and persist the non-identifying controls.
+var __ccuShareCardDraft = null;
+function scPersistentDraftConfig(cfg) {
+  return {
+    range: cfg && cfg.range,
+    scope: 'all',
+    theme: cfg && cfg.theme,
+    fullNumbers: !!(cfg && cfg.fullNumbers),
+    sections: cfg && cfg.sections
+  };
+}
+function scWritePersistentDraft(cfg) {
+  try {
+    localStorage.setItem(
+      'ccu.sharing.shareCardDraft',
+      JSON.stringify(scPersistentDraftConfig(cfg))
+    );
+  } catch (e) {}
+}
+function scSaveDraft() {
+  __ccuShareCardDraft = scReadConfig();
+  scWritePersistentDraft(__ccuShareCardDraft);
+}
+function scSetSelectValue(id, value) {
+  var select = document.getElementById(id);
+  if (!select || typeof value !== 'string') { return; }
+  for (var i = 0; i < select.options.length; i++) {
+    if (select.options[i].value === value) { select.value = value; return; }
+  }
+}
+function restoreShareCardDraft() {
+  var controls = document.querySelector('.claude-share-card-presentation .sc-config');
+  if (!controls) { return; }
+  controls.addEventListener('change', scSaveDraft);
+  try {
+    var cfg = __ccuShareCardDraft;
+    if (!cfg) {
+      var raw = localStorage.getItem('ccu.sharing.shareCardDraft');
+      if (!raw || raw.length > 4096) { return; }
+      cfg = JSON.parse(raw);
+      // Migrate older drafts that persisted a raw project path or session ID.
+      __ccuShareCardDraft = cfg;
+      scWritePersistentDraft(cfg);
+    }
+    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) { return; }
+    scSetSelectValue('scRange', cfg.range);
+    scSetSelectValue('scScope', cfg.scope);
+    scSetSelectValue('scTheme', cfg.theme);
+    var full = document.getElementById('scFull');
+    if (full && typeof cfg.fullNumbers === 'boolean') { full.checked = cfg.fullNumbers; }
+    if (cfg.sections && typeof cfg.sections === 'object' && !Array.isArray(cfg.sections)) {
+      controls.querySelectorAll('.sc-sec').forEach(function(box) {
+        var key = box.getAttribute('data-sec');
+        if (key && typeof cfg.sections[key] === 'boolean') { box.checked = cfg.sections[key]; }
+      });
+    }
+  } catch (e) {}
+}
+function scApplyDefaultControls() {
+  scSetSelectValue('scRange', 'last30');
+  scSetSelectValue('scScope', 'all');
+  scSetSelectValue('scTheme', 'claudeClassic');
+  var full = document.getElementById('scFull');
+  if (full) { full.checked = false; }
+  var optional = { messages: true, projectName: true };
+  document.querySelectorAll('.claude-share-card-presentation .sc-sec').forEach(function(box) {
+    box.checked = !optional[box.getAttribute('data-sec')];
+  });
+}
 function generateShareCard() {
   var cfg = scReadConfig();
+  scSaveDraft();
   var prev = document.getElementById('scPreview');
-  if (prev) { prev.innerHTML = '<p class="table-hint">Generating…</p>'; }
-  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+  if (prev) { prev.innerHTML = '<p class="table-hint">' + __sharingWorkspaceCopy.generating + '</p>'; }
+  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportShareCardConfigured() {
   var cfg = scReadConfig();
-  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, avatar: cfg.avatar, username: cfg.username, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+  scSaveDraft();
+  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportHeatmap() {
   vscode.postMessage({ command: 'exportHeatmap' });
@@ -11455,39 +11784,10 @@ function copyCombinedHeatmapMarkdown() {
   vscode.postMessage({ command: 'copyCombinedHeatmapMarkdown', title: config.title, range: config.range, intensityMode: config.intensityMode, palette: config.palette, customAccent: config.customAccent });
 }
 function resetCombinedHeatmapPreferences() {
-  var title = document.getElementById('combinedHeatmapTitle');
-  var range = document.getElementById('combinedHeatmapRange');
-  var intensityMode = document.getElementById('combinedHeatmapIntensityMode');
-  var privacy = document.getElementById('combinedHeatmapPrivacy');
-  var customAccent = document.getElementById('combinedHeatmapCustomAccent');
-  try {
-    localStorage.removeItem('ccu.combinedHeatmap.title');
-    localStorage.removeItem('ccu.combinedHeatmap.range');
-    localStorage.removeItem('ccu.combinedHeatmap.intensityMode');
-    localStorage.removeItem('ccu.combinedHeatmap.privacyPreview');
-    localStorage.removeItem('ccu.combinedHeatmap.palette');
-    localStorage.removeItem('ccu.combinedHeatmap.customAccent');
-  } catch (e) {}
-  if (title) { title.value = __combinedHeatmapCopy.defaultTitle; }
-  if (range) { range.value = 'year'; }
-  if (intensityMode) { intensityMode.value = 'quantile'; }
-  if (privacy) { privacy.checked = true; }
-  var defaultPalette = document.querySelector('input[name="combinedHeatmapPalette"][value="academicViolet"]');
-  if (defaultPalette) { defaultPalette.checked = true; }
-  if (customAccent) { customAccent.value = '#4f2f87'; }
-  toggleCombinedCustomAccent();
-  toggleCombinedHeatmapPrivacy(false);
+  __ccuDirectSharingResetPending = true;
   var status = document.getElementById('combinedHeatmapStatus');
   if (status) { status.textContent = __combinedHeatmapCopy.resetSharing + '…'; }
-  vscode.postMessage({
-    command: 'previewCombinedHeatmap',
-    title: __combinedHeatmapCopy.defaultTitle,
-    range: 'year',
-    intensityMode: 'quantile',
-    palette: 'academicViolet',
-    customAccent: '#4f2f87'
-  });
-  vscode.postMessage({ command: 'resetCombinedHeatmapPreferences' });
+  runLocalDataAction('reset-sharing-preferences');
 }
 function refresh() {
   vscode.postMessage({ command: 'refresh' });
@@ -11549,6 +11849,8 @@ var __ccuUiPreferenceKeys = [
   'ccu.sessionModel'
 ];
 var __ccuSharingPreferenceKeys = [
+  'ccu.sharing.template',
+  'ccu.sharing.shareCardDraft',
   'ccu.combinedHeatmap.title',
   'ccu.combinedHeatmap.range',
   'ccu.combinedHeatmap.intensityMode',
@@ -11556,15 +11858,18 @@ var __ccuSharingPreferenceKeys = [
   'ccu.combinedHeatmap.palette',
   'ccu.combinedHeatmap.customAccent'
 ];
-
-function ccuCountPresentLocalStorageKeys(keys) {
+function ccuCountPresentStorageKeys(storage, keys) {
   var count = 0;
   try {
     keys.forEach(function(key) {
-      if (localStorage.getItem(key) !== null) { count += 1; }
+      if (storage.getItem(key) !== null) { count += 1; }
     });
   } catch (e) {}
   return count;
+}
+
+function ccuCountPresentLocalStorageKeys(keys) {
+  try { return ccuCountPresentStorageKeys(localStorage, keys); } catch (e) { return 0; }
 }
 
 function ccuLocalDataClientSummary() {
@@ -11602,13 +11907,46 @@ function runLocalDataAction(action) {
   });
 }
 
-function ccuResetLocalStorageKeys(keys) {
+function ccuResetStorageKeys(storage, keys) {
   try {
-    keys.forEach(function(key) { localStorage.removeItem(key); });
-    return keys.every(function(key) { return localStorage.getItem(key) === null; });
+    keys.forEach(function(key) { storage.removeItem(key); });
+    return keys.every(function(key) { return storage.getItem(key) === null; });
   } catch (e) {
     return false;
   }
+}
+
+function ccuResetLocalStorageKeys(keys) {
+  try { return ccuResetStorageKeys(localStorage, keys); } catch (e) { return false; }
+}
+
+var __ccuDirectSharingResetPending = false;
+
+function ccuApplyDefaultSharingControls() {
+  var title = document.getElementById('combinedHeatmapTitle');
+  var range = document.getElementById('combinedHeatmapRange');
+  var intensityMode = document.getElementById('combinedHeatmapIntensityMode');
+  var privacy = document.getElementById('combinedHeatmapPrivacy');
+  var customAccent = document.getElementById('combinedHeatmapCustomAccent');
+  if (title) { title.value = __combinedHeatmapCopy.defaultTitle; }
+  if (range) { range.value = 'year'; }
+  if (intensityMode) { intensityMode.value = 'quantile'; }
+  if (privacy) { privacy.checked = true; }
+  var defaultPalette = document.querySelector('input[name="combinedHeatmapPalette"][value="academicViolet"]');
+  if (defaultPalette) { defaultPalette.checked = true; }
+  if (customAccent) { customAccent.value = '#4f2f87'; }
+  selectDefaultSharingTemplate();
+  scApplyDefaultControls();
+  toggleCombinedCustomAccent();
+  toggleCombinedHeatmapPrivacy(false);
+  vscode.postMessage({
+    command: 'previewCombinedHeatmap',
+    title: __combinedHeatmapCopy.defaultTitle,
+    range: 'year',
+    intensityMode: 'quantile',
+    palette: 'academicViolet',
+    customAccent: '#4f2f87'
+  });
 }
 
 function ccuApplyLocalDataClientAction(action) {
@@ -11624,8 +11962,17 @@ function ccuApplyLocalDataClientAction(action) {
     }
   }
   if (action === 'reset-sharing-preferences' || action === 'clear-all-client-state') {
-    ok = ccuResetLocalStorageKeys(__ccuSharingPreferenceKeys) && ok;
-    restoreCombinedHeatmapConfig();
+    var sharingStorageReset = ccuResetLocalStorageKeys(__ccuSharingPreferenceKeys);
+    ok = sharingStorageReset && ok;
+    if (sharingStorageReset) {
+      ccuApplyDefaultSharingControls();
+      var sharingMasterSwitch = document.getElementById('set_enableShareCard');
+      if (sharingMasterSwitch && sharingMasterSwitch.type === 'checkbox') {
+        // Host-side reset has already restored this sole visible switch to its
+        // catalog default. Reflect that immediately without posting a new write.
+        sharingMasterSwitch.checked = true;
+      }
+    }
   }
   return ok;
 }
@@ -12271,6 +12618,20 @@ function restoreClaudeDrilldownDetails() {
         toggleMonthlyDetail(date, true);
       }
     });
+    restoreClaudeAllTimeHourlyDetails(document);
+  } catch (e) {}
+}
+
+function restoreClaudeAllTimeHourlyDetails(root) {
+  try {
+    const scope = root || document;
+    const saved = ccuReadUiState().claudeDrilldownDetails || {};
+    scope.querySelectorAll('[data-claude-alltime-hourly-detail-row]').forEach(function(row) {
+      const date = row.getAttribute('data-date');
+      if (date && saved[claudeDrilldownStateKey(row, 'hourly')] === date) {
+        toggleClaudeAllTimeHourlyDetail(date, row, true);
+      }
+    });
   } catch (e) {}
 }
 
@@ -12346,6 +12707,63 @@ function toggleHourlyDetail(date, restoring) {
     }
   } catch (error) {
     console.error("Error in toggleHourlyDetail:", error);
+  }
+}
+
+function claudeAllTimeHourlyElements(date, source) {
+  const sourceScope = source && source.closest
+    ? source.closest('[data-claude-alltime-daily]')
+    : null;
+  const searchScope = sourceScope || document.querySelector('#all [data-claude-alltime-daily]');
+  if (!searchScope) { return {}; }
+  const detailRow = searchScope.querySelector(
+    '[data-claude-alltime-hourly-detail-row][data-date="' + date + '"]',
+  );
+  return {
+    detailRow: detailRow,
+    button: searchScope.querySelector(
+      '[data-claude-alltime-hourly-toggle][data-date="' + date + '"]',
+    ),
+    container: detailRow
+      ? detailRow.querySelector('.hourly-detail-container[id]')
+      : null,
+    chartBar: searchScope.querySelector(
+      '.hc-col[data-date="' + date + '"] .chart-bar.clickable',
+    ),
+  };
+}
+
+function toggleClaudeAllTimeHourlyDetail(date, source, restoring) {
+  try {
+    const elements = claudeAllTimeHourlyElements(date, source);
+    const detailRow = elements.detailRow;
+    const button = elements.button;
+    const container = elements.container;
+    const chartBar = elements.chartBar;
+    if (!detailRow || !button || !container) { return; }
+    const isExpanded = detailRow.style.display !== 'none' && detailRow.style.display !== '';
+    if (!isExpanded) {
+      closeAllHourlyDetails();
+      detailRow.style.display = 'table-row';
+      button.classList.add('expanded');
+      setChartDrilldownExpanded('claude-alltime-hourly-detail-' + date, true);
+      if (chartBar) { chartBar.classList.add('selected'); }
+      persistClaudeDrilldown(detailRow, 'hourly', date);
+      if (!container.dataset.loaded) {
+        installMaterializedClaudeHourlyDetail(container, date);
+      }
+      if (!restoring) {
+        try { detailRow.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+      }
+    } else {
+      detailRow.style.display = 'none';
+      button.classList.remove('expanded');
+      setChartDrilldownExpanded('claude-alltime-hourly-detail-' + date, false);
+      if (chartBar) { chartBar.classList.remove('selected'); }
+      persistClaudeDrilldown(detailRow, 'hourly', '');
+    }
+  } catch (error) {
+    console.error('Error in toggleClaudeAllTimeHourlyDetail:', error);
   }
 }
 
@@ -12476,6 +12894,9 @@ function closeAllHourlyDetails() {
     bar.classList.remove('selected');
   });
   document.querySelectorAll('[aria-controls^="hourly-detail-"]').forEach(function(control) {
+    control.setAttribute('aria-expanded', 'false');
+  });
+  document.querySelectorAll('[aria-controls^="claude-alltime-hourly-detail-"]').forEach(function(control) {
     control.setAttribute('aria-expanded', 'false');
   });
 
@@ -12749,7 +13170,7 @@ window.addEventListener('message', async function(event) {
   }
 
   if (message.command === 'dashboardDataPatch') {
-    ccuApplyDashboardDataPatch(message);
+    ccuQueueDashboardDataPatch(message);
     return;
   }
 
@@ -12811,6 +13232,17 @@ window.addEventListener('message', async function(event) {
       localDataStatus.textContent = typeof localDataResult.message === 'string'
         ? localDataResult.message
         : __localDataCopy.unavailable;
+    }
+    if (__ccuDirectSharingResetPending) {
+      var directSharingResetStatus = document.getElementById('combinedHeatmapStatus');
+      if (directSharingResetStatus) {
+        directSharingResetStatus.textContent = typeof localDataResult.message === 'string'
+          ? localDataResult.message
+          : (localDataResult.ok === true
+            ? __combinedHeatmapCopy.resetComplete
+            : __combinedHeatmapCopy.resetFailed);
+      }
+      __ccuDirectSharingResetPending = false;
     }
     requestLocalDataInventory();
   }
@@ -13019,7 +13451,7 @@ window.addEventListener('message', async function(event) {
       if (message.error) {
         var shareCardError = document.createElement('p');
         shareCardError.className = 'table-hint';
-        shareCardError.textContent = 'Could not build the card: ' + String(message.error);
+        shareCardError.textContent = __sharingWorkspaceCopy.cardBuildFailed + ' ' + String(message.error);
         prev.replaceChildren(shareCardError);
       } else {
         prev.innerHTML = message.svg || '';
@@ -13055,15 +13487,6 @@ window.addEventListener('message', async function(event) {
     }
   }
 
-  if (message.command === 'combinedHeatmapPreferencesReset') {
-    var resetStatus = document.getElementById('combinedHeatmapStatus');
-    if (resetStatus) {
-      resetStatus.textContent = message.ok
-        ? __combinedHeatmapCopy.resetComplete
-        : __combinedHeatmapCopy.resetFailed;
-    }
-  }
-
   if (message.command === 'dailyDataResponse') {
     const container = document.getElementById('monthly-detail-' + message.month);
     const responseProvider = message.provider === 'codex' ? 'codex' : 'claude';
@@ -13078,6 +13501,7 @@ window.addEventListener('message', async function(event) {
       restoreChartMetrics(container);
       initializeChartDrilldowns(container);
       restoreCodexHourlyDetails();
+      restoreClaudeAllTimeHourlyDetails(container);
       initializeStatusRegions(container);
     }
   }
@@ -13162,6 +13586,8 @@ function chartDrilldownInfo(element) {
   var containingTab = element && element.closest ? element.closest('.tab-content') : null;
   var kind = element.closest('[data-codex-alltime-daily]')
     ? 'codex-alltime-hourly'
+    : element.closest('[data-claude-alltime-daily]')
+      ? 'claude-alltime-hourly'
     : containingTab && containingTab.id === 'all'
       ? 'monthly'
       : element.closest('[data-codex-last30-daily]')
@@ -13169,6 +13595,8 @@ function chartDrilldownInfo(element) {
         : 'hourly';
   var prefix = kind === 'monthly'
     ? 'monthly-detail-'
+    : kind === 'claude-alltime-hourly'
+      ? 'claude-alltime-hourly-detail-'
     : kind === 'codex-alltime-hourly'
       ? 'codex-alltime-hourly-detail-'
       : kind === 'codex-hourly'
@@ -13185,6 +13613,9 @@ function activateChartDrilldown(element) {
   var info = chartDrilldownInfo(element);
   if (!info) { return; }
   if (info.kind === 'monthly') { toggleMonthlyDetail(info.date); }
+  else if (info.kind === 'claude-alltime-hourly') {
+    toggleClaudeAllTimeHourlyDetail(info.date, element);
+  }
   else if (info.kind === 'codex-hourly' || info.kind === 'codex-alltime-hourly') {
     toggleCodexHourlyDetail(info.date, element);
   }
@@ -13512,7 +13943,9 @@ function updateMainChart(metric, container) {
       // Hourly chart: tooltip shows the value only (the hour is on the x-axis).
       bar.title = valueWithHelp;
     } else if (date) {
-      bar.title = ccuFormatUsageDateKey(date) + ': ' + valueWithHelp;
+      // Claude's all-time month key includes its sentinel first day. The chart
+      // scope, not the presence of a day component, determines its label.
+      bar.title = ccuFormatUsageDateKey(date, null, !!bar.closest('#allTimeChart')) + ': ' + valueWithHelp;
     }
     // Drill-down bars keep their accessible name synchronized with the
     // currently selected metric; otherwise a keyboard user would continue to
@@ -13731,7 +14164,12 @@ function renderDailyData(dailyData, monthDate) {
     return '<div class="no-data">${I18n.t.popup.noDataMessage}</div>';
   }
 
-  let html = '<div class="daily-breakdown">';
+  const expandableDays = new Set(dailyData
+    .filter(function(item) {
+      return Object.prototype.hasOwnProperty.call(__claudeLast30HoursByDay, item.date);
+    })
+    .map(function(item) { return item.date; }));
+  let html = '<div class="daily-breakdown" data-claude-alltime-daily="true">';
   html += '<h4>' + ccuFormatUsageDateKey(monthDate, null, true) + ' ${I18n.t.popup.dailyBreakdown}</h4>';
 
   html += '<div class="chart-tabs">';
@@ -13745,7 +14183,7 @@ function renderDailyData(dailyData, monthDate) {
 
   // hc-wrap is self-contained (own Y-axis + scroll); no chart-container.
   html += '<div class="chart-content" id="daily-chart-' + monthDate + '">';
-  html += renderDailyChart(dailyData, 'cost');
+  html += renderDailyChart(dailyData, 'cost', expandableDays);
   html += '</div>';
 
   // Per-day token composition for this month (the drill-down of the all-time
@@ -13766,12 +14204,14 @@ function renderDailyData(dailyData, monthDate) {
   html += '<th>${I18n.t.popup.cacheRead}</th>';
   html += '<th>${I18n.t.popup.cacheHitRate}</th>';
   html += '<th>${I18n.t.popup.messages}</th>';
+  html += '<th></th>';
   html += '</tr></thead><tbody>';
 
   dailyData.forEach(function(item) {
     const formattedDate = ccuFormatUsageDateKey(item.date, { month: 'numeric', day: 'numeric' });
 
-    html += '<tr>';
+    const canExpand = expandableDays.has(item.date);
+    html += '<tr class="daily-row" data-date="' + item.date + '">';
     html += '<td class="date-cell">' + formattedDate + '</td>';
     html += '<td class="cost-cell">' + formatValue(item.data.totalCost, 'cost') + '</td>';
     html += '<td class="number-cell">' + item.data.totalInputTokens.toLocaleString(__locale) + '</td>';
@@ -13780,7 +14220,24 @@ function renderDailyData(dailyData, monthDate) {
     html += '<td class="number-cell">' + item.data.totalCacheReadTokens.toLocaleString(__locale) + '</td>';
     html += '<td class="number-cell">' + cacheHitPct(item.data) + '</td>';
     html += '<td class="number-cell">' + item.data.messageCount.toLocaleString(__locale) + '</td>';
+    html += '<td class="detail-cell">';
+    if (canExpand) {
+      html += '<button class="detail-button" data-claude-alltime-hourly-toggle data-date="' + item.date + '" ' +
+        'onclick="toggleClaudeAllTimeHourlyDetail(\\\'' + item.date + '\\\', this)" aria-expanded="false" ' +
+        'aria-controls="claude-alltime-hourly-detail-' + item.date + '" ' +
+        'title="${I18n.t.popup.hourlyBreakdown}">' +
+        '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">' +
+        '<path class="expand-icon" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>' +
+        '</svg></button>';
+    }
+    html += '</td>';
     html += '</tr>';
+    if (canExpand) {
+      html += '<tr class="hourly-detail-row" data-claude-alltime-hourly-detail-row data-date="' +
+        item.date + '" style="display: none;"><td colspan="9">' +
+        '<div class="hourly-detail-container" id="claude-alltime-hourly-detail-' + item.date + '">' +
+        '<div class="loading-indicator">${I18n.t.statusBar.loading}</div></div></td></tr>';
+    }
   });
 
   html += '</tbody></table></div>';
@@ -13834,7 +14291,10 @@ function griddedChart(items, metric, opts) {
       inner = seg(cb.input, 'seg-input') + seg(cb.cacheRead, 'seg-cache-read') +
               seg(cb.cacheWrite, 'seg-cache-creation') + seg(cb.output, 'seg-output');
     }
-    if (opts.clickable) { cls += ' clickable'; }
+    const clickable = typeof opts.clickable === 'function'
+      ? opts.clickable(it)
+      : opts.clickable;
+    if (clickable) { cls += ' clickable'; }
 
     const visibleValue = opts.hideZeroLabels && value === 0
       ? ''
@@ -13866,14 +14326,14 @@ function griddedChart(items, metric, opts) {
     '</div></div></div>';
 }
 
-function renderDailyChart(dailyData, metric) {
+function renderDailyChart(dailyData, metric, expandableDays) {
   // Parse 'YYYY-MM-DD' textually: new Date('YYYY-MM-DD') is interpreted as
   // UTC midnight, so getMonth()/getDate() shift back a day in negative-UTC
   // timezones. String parts are timezone-proof.
   function parts(dateStr) { return dateStr.split('-').map(Number); }
   return griddedChart(dailyData, metric, {
     keyName: 'date',
-    clickable: false,
+    clickable: function(it) { return !!(expandableDays && expandableDays.has(it.date)); },
     // Show month/day (not just the day number) so the axis isn't ambiguous.
     getLabel: function(it) { var p = parts(it.date); return p[1] + '/' + p[2]; },
     getTitle: function(it, v) {

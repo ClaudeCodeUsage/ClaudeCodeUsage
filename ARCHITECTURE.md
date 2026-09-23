@@ -17,10 +17,14 @@ The v2.3.1 candidate adds a default-off, local-first advice-effectiveness loop,
 a single explicit BYOK request boundary, durable historical-work state, a
 bounded local history of Codex weekly reset observations, and a rolling 30-day
 Codex date/hour projection without changing provider accounting.
+v2.4 phase 1 consolidates the existing sharing surfaces into one preview-first
+workspace. A presentation selector switches among the combined activity
+heatmap, the legacy Claude Share Card, and the Claude-only token heatmap; the
+full-width export preview always precedes its controls.
 
 - Claude: exact local token buckets, model pricing estimates, and Anthropic
   OAuth 5-hour/weekly quota.
-- Codex Beta: local processed/fresh/cache/output/reasoning metrics, model and
+- Codex: local processed/fresh/cache/output/reasoning metrics, model and
   effort breakdowns, thread structure, index coverage, quality flags, and
   structural optimization guidance. Known models also receive a clearly
   qualified API-equivalent cost estimate; it is never a bill or subscription
@@ -28,9 +32,12 @@ Codex date/hour projection without changing provider accounting.
 - Compare: side-by-side compatible metrics only. It never sums provider cost,
   quota, or tokens into a misleading combined total.
 
-Full invoice reconciliation, driving either coding agent, and background
-telemetry are out of scope. Opt-in GitHub authentication and cross-device
-aggregate sync are deferred to v2.4.x after a separate privacy review.
+Full invoice reconciliation, driving either coding agent, background telemetry,
+and cross-device aggregate sync are out of scope. Existing Claude heatmap
+publication remains an explicit, public-repository-only GitHub action with an
+exact-target confirmation. Opening, switching, previewing, and local SVG/
+Markdown export are strictly network-free and never request GitHub identity;
+only the separate publish action can perform that network operation.
 
 ## Module map (`src/`)
 
@@ -59,7 +66,7 @@ aggregate sync are deferred to v2.4.x after a separate privacy review.
 | `codexView.ts` / `codexViewComponents.ts` | Codex localized-copy and default-provider contracts; no HTML renderer, client script, or CSS ownership. |
 | `settings.ts` | Canonical `SETTINGS` catalog and `SettingsStore`; ordinary values use configuration/globalState, while BYOK credentials use SecretStorage and never enter Webview snapshots. Do not scatter direct reads. |
 | `statusBar.ts` / `codexStatus.ts` | Provider-specific status presentation and generic Claude quota formatting. |
-| `webview.ts` | Single provider-aware Claude/Codex dashboard shell, shared render functions, shared client behavior, provider tabs, and Compare presentation. |
+| `webview.ts` | Single provider-aware Claude/Codex dashboard shell, shared render functions, shared client behavior, provider tabs, Compare presentation, and the unified sharing workspace. |
 | `i18n.ts` | All user-facing copy for all eight UI locales. |
 | `types.ts` | Shared extension and Claude contracts. |
 
@@ -89,6 +96,12 @@ allowlisted Codex JSONL
 
 Claude aggregates + Codex scopes ──> one `webview.ts` dashboard render stack
 Claude aggregates + Codex scopes ──> side-by-side Compare (no cross-provider totals)
+
+materialized Claude + Codex daily aggregates
+  ──> unified sharing selector ──> combined activity preview ──> explicit local SVG/Markdown export
+materialized Claude aggregates
+  ──> unified sharing selector ──> legacy Share Card or Claude token heatmap preview
+  ──> explicit local export, or public-only exact-target GitHub publication for the Claude heatmap
 
 materialized provider snapshots
   ──> privacy-rebuilding advice adapters
@@ -129,6 +142,34 @@ privacy-safe structural keys held only for the in-flight patch; they are not
 written per frame to Webview state or sent to the Extension Host. Compare's
 displayed update time is tied to its stable rendered data snapshot, so an
 unchanged refresh remains byte-identical and does not replace the document.
+While the user is actively scrolling, the Webview coalesces provider-panel
+patches until a 120 ms quiet interval, with a 500 ms upper bound. The newest
+revision alone is applied and acknowledged; the live data queue stays in
+memory and never reads source logs or persists scroll state per frame.
+
+The sharing workspace is rendered once: in Compare when both providers have
+data, otherwise as a Claude All-time fallback. `enableShareCard` is the only
+visible sharing on/off control. The public command IDs `exportShareCard`,
+`exportHeatmap`, and `publishHeatmapToGitHub` remain registered for compatibility
+and open the matching presentation; they do not bypass preview. The retired
+`showHeatmap` setting remains catalogued and clearable for one release but is
+hidden and no longer creates a duplicate panel. The selected presentation is a
+local UI preference and does not alter provider accounting. An explicit
+compatibility command issues a provider-lifetime monotonically increasing
+revision as a separate live intent. The Webview applies it and acknowledges the
+exact revision; the host then removes the live intent without rewinding the
+revision history, so an acknowledged command cannot replay on a normal render,
+sharing reset, or dispose/reopen of the same provider. Reset Sharing
+Preferences uses the existing confirmed local-data action: the host sends a
+request-id client action, the Webview verifies deletion of the eight allowlisted
+localStorage keys, and the host reports failure (with its recovery tombstone)
+unless the matching ACK is true.
+
+At narrow Webview widths, the 1200×680 Claude Share Card retains its intrinsic
+width inside a keyboard-focusable local horizontal scroller instead of being
+scaled into illegibility. Renderer tests audit every normal-size SVG label at
+4.5:1 or better, while browser geometry tests keep labels inside each viewBox;
+the complete artifact remains inside the surrounding Axe scan.
 
 ## Token and limit semantics
 
@@ -204,6 +245,18 @@ which the operating system supplied no filename. `codex-index` diagnostics add
 the actual refresh trigger, watcher/debounce counts, historical-backfill mode,
 and foreground/background worker profile; generic failure paths use `unknown`
 rather than infer a mode that was not observed.
+
+Sharing previews are produced from already materialized aggregates. Combined
+activity adds Claude processed volume to Codex processed volume only for the
+explicit activity visualization; Codex cached input and reasoning subsets are
+not added twice, and no cost, quota, capability, or productivity equivalence is
+claimed. The Claude Share Card and Claude heatmap remain Claude-only. Local
+preview/export performs no network request and has no GitHub authentication,
+profile, avatar, or name lookup. Claude heatmap publication is a distinct
+explicit action and keeps the public-repository probe plus exact branch/path and
+create-or-overwrite confirmation described in the local data contract. A
+successful remote write is authoritative; its exact result is reported even if
+the single versioned destination-preference object cannot be persisted.
 
 ### Schema 3 index contract
 
@@ -416,7 +469,8 @@ use an explicit opt-in account mapping rather than attaching prices by guess.
 - Strict TypeScript, red-green TDD, full `node:test`, F5 smoke test, and installed
   VSIX smoke test are required in proportion to the change.
 - User-visible strings cover `en`, `de-DE`, `zh-TW`, `zh-CN`, `ja`, `ko`,
-  `pt-BR`, and `id`; all seven README editions move together.
+  `pt-BR`, and `id`; all nine README files (the main page plus eight locale
+  editions) move together.
 - Dormant preparation/experiment modules and review-only v2.3.1 documents stay
   unreachable from the production command graph and are excluded from VSIX.
 - `package.json` is not manually version-bumped. Publishing the reviewed Release

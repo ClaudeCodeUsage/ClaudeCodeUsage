@@ -52,6 +52,9 @@ export interface SettingDef {
   maxLength?: number;
   secret?: boolean; // mask the input (apiKey)
   multiline?: boolean; // render a textarea
+  // Compatibility-only settings remain readable/resettable but are omitted
+  // from the dashboard so a superseding control can be the single UI switch.
+  visible?: boolean;
   // Dashboard visibility. Omitted settings are Claude-only; explicitly list
   // both providers for truly shared controls.
   providers?: SettingProvider[];
@@ -305,7 +308,7 @@ export const SETTINGS: SettingDef[] = [
     default: true,
     storage: 'state',
     group: 'providers',
-    label: 'Enable Codex Beta',
+    label: 'Enable Codex',
     help: 'Read privacy-safe usage aggregates from local Codex session logs.',
     providers: ['claude', 'codex'],
   },
@@ -369,6 +372,7 @@ export const SETTINGS: SettingDef[] = [
     group: 'features',
     label: 'Show token heatmap (All-time tab)',
     help: 'Show a GitHub-style yearly token heatmap on the All tab. Off by default — mainly a shareable view of what you can already see elsewhere. Use "Export Token Heatmap" for a GitHub-profile SVG.',
+    visible: false,
   },
   {
     key: 'showEfficiency',
@@ -386,7 +390,7 @@ export const SETTINGS: SettingDef[] = [
     storage: 'state',
     group: 'features',
     label: 'Enable sharing workspace',
-    help: 'On by default. Show the Compare sharing workspace and provider share card. Turn it off to hide sharing UI; exporting still requires an explicit action.',
+    help: 'On by default. Show the single preview-first sharing workspace. Turn it off to hide sharing UI; the legacy export commands still open the matching preview explicitly.',
     providers: ['claude', 'codex'],
   },
   {
@@ -465,13 +469,13 @@ export const SETTINGS: SettingDef[] = [
   {
     key: 'codex.statusMetric',
     type: 'enum',
-    default: 'fresh',
+    default: 'processed',
     storage: 'state',
     group: 'statusBar',
     label: 'Codex status metric',
-    help: "Today's uncached usage, processed tokens, or output tokens.",
-    enumValues: ['fresh', 'processed', 'output'],
-    enumLabels: ['Uncached', 'Processed', 'Output'],
+    help: "Today's processed tokens (default), uncached usage, or output tokens.",
+    enumValues: ['processed', 'fresh', 'output'],
+    enumLabels: ['Processed', 'Uncached', 'Output'],
     providers: ['codex'],
   },
   {

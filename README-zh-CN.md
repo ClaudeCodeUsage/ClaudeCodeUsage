@@ -1,14 +1,14 @@
 # Claude Code 使用量监控
 
-🌐 **语言**: [🏠 Main](README.md) | [English](README-en.md) | [繁體中文](README-zh-TW.md) | **简体中文** | [日本語](README-ja.md) | [한국어](README-ko.md) | [Bahasa Indonesia](README-id.md)
+🌐 **语言**: [🏠 Main](README.md) | [English](README-en.md) | [Deutsch](README-de-DE.md) | [繁體中文](README-zh-TW.md) | **简体中文** | [日本語](README-ja.md) | [한국어](README-ko.md) | [Português (Brasil)](README-pt-BR.md) | [Bahasa Indonesia](README-id.md)
 
 ---
 
-**状态栏中的 Claude Code 与 Codex 本地用量教练。** 它不是账单工具。Claude 保留成本与配额视图；Codex Beta 按自己的 token 与行为语义提供分析，无需硬套 Claude 的结构。
+**状态栏中的 Claude Code 与 Codex 本地用量教练。** 它不是账单工具。Claude 保留成本与配额视图；Codex 按自己的 token 与行为语义提供分析，无需硬套 Claude 的结构。
 
-> **它是什么**：一个 VS Code 状态栏小工具，读取本地 Claude Code 对话日志，用 token 数量乘以公开单价来估算使用量和成本；并可提供 AI 建议，帮你优化提示、减少浪费。
+> **它是什么**：一个 VS Code 状态栏小工具，读取本地 Claude Code 与 Codex 用量日志，分别展示各自的 token、额度与估算值；还可提供可选建议，帮助减少不必要的消耗。
 >
-> **它不是什么**：账单工具。所有金额均为估算值（基于公开的每百万 token 单价），实际费用请以 Anthropic 官方账单为准。
+> **它不是什么**：账单工具。Claude 成本和 Codex API 等效成本都是估算值，不是订阅扣费或发票；实际账单请以对应供应商账号为准。Codex 额度仅是本地最后观测，不是实时余额。
 
 > 截图包含中英文界面；各图标明主题与范围。
 
@@ -77,6 +77,25 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 
 ---
 
+## 2.4 新功能
+
+- **Codex 状态栏与滚动**：默认简短指标显示今日已处理 Token，独立的每周额度显示
+  剩余比例。滚动期间面板刷新短暂延后，且有最长等待边界。
+- **统一、预览优先的分享工作台**：全宽导出预览位于视觉中心，控制项统一放在下方；
+  一个呈现方式选择器即可切换**综合活动热力图**、**Claude 分享卡**与 **Claude token
+  热力图**。综合呈现只在两个供应商都有真实数据时出现，后两种旧版呈现仍只使用 Claude 数据。
+- **兼容入口，不再重复面板**：`exportShareCard`、`exportHeatmap` 与
+  `publishHeatmapToGitHub` 继续保留，并打开对应预览。`enableShareCard` 仍是唯一可见的
+  分享开关且默认开启；退役的 `showHeatmap` 仅为一个版本的状态兼容与有界清除而保留。
+- **严格的本地产物与供应商边界**：切换、预览和本地 SVG/Markdown 导出只使用已物化聚合，
+  不发起网络请求，也不登录 GitHub 或获取 profile／头像／名称。只有 Claude 热力图中独立的
+  **发布到 GitHub** 动作可以联网；它仍仅支持公开仓库，并在写入前确认精确目标及创建／覆盖动作。
+  综合活动不代表账单、生产率、能力或跨供应商等价。
+
+![v2.4 统一分享工作台，浅色主题](images/v2.4.0/compare-sharing-en-light.png)
+
+此图来自生产渲染器、合成用量与 VS Code 主题变量；不是已安装 VSIX 或真实账号的截图。
+
 ## 2.3 新功能
 
 - **2.3 系列持续完善**——新增 GPT-6 Astra、Fable 5.1 模型元数据与可选
@@ -97,7 +116,7 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 
 ## 2.2 新功能
 
-- **用量分享卡**（可选，`enableShareCard`）：一张可配置的单页 SVG 用量卡——自选时间范围 × 范围（总体 / 工程 / 会话）× 展示哪些指标，以及主题（**Claude 经典橙** / **奶油** / **极光暗色** / **自动**），可选带上 GitHub 头像与名称。自包含、可复现；提示词、路径、ID 一律不出本机。中文语言下使用 万/亿 单位。
+- **用量分享卡**（可选，`enableShareCard`）：一张可配置的单页 SVG 用量卡——自选时间范围 × 范围（总体 / 工程 / 会话）× 展示哪些指标，以及主题（**Claude 经典橙** / **奶油** / **极光暗色** / **自动**）。预览和本地导出不会获取 GitHub 身份数据。自包含、可复现；提示词、路径、ID 一律不出本机。中文语言下使用 万/亿 单位。
 - **只读会话查看器**（会话标签，**默认开启**）：每行的「查看」按钮以只读方式重开某个历史会话的提示词与 Markdown 渲染的回答，帮你回忆内容，而**不必**像「恢复」那样把它重新塞回模型上下文。思考与工具调用收进折叠区，默认展示最近若干轮。
 - **Token 热力图**（可选，`showHeatmap`）：All 标签顶部的 GitHub 风格年度 token 热力图，并可**导出 / 发布到你的 GitHub 主页**（自包含 SVG，一键复制 Markdown 嵌入代码）。
 - **实验性洞察**（可选，`showInsights`，Content 标签）：基于本地日志的启发式估算（均标注为估算）——**缓存损耗账单**（模型切换 / 空闲导致重写缓存的花费）、**各模型缓存保温时长**、**大单轮**、**你的活跃时段**、以及**技能 ROI**（每美元产出的输出 token）。
@@ -118,7 +137,7 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 - **用量追踪面板**：对标官方 `/usage` 的"用量构成"视图，但支持全部模型 / 供应商和五档范围（日 / 周 / 月 / 会话 / 项目）：>150k 上下文占比、8 小时以上会话占比、子代理密集占比、工作流占比，以及 Skills／子代理／插件／模型四类细分。今日标签页有精简卡片。
 - **思考占比**：每会话的估算思考 token 占比（Sessions 列 + 今日卡片），过高时提示改用 `/effort`。
 - **工作流配额护栏**：当 5 小时窗口剩余不足以完成一次运行时，仪表板显示可关闭的警告横幅（`claudeCodeUsage.workflowQuotaWarnPercent`）。
-- **设置搬进仪表板**：新增 ⚙ 设置标签页，就地管理所有选项；VS Code 原生设置只保留三个适合同步的（`language`、`dataDirectory`、`advice.apiKey`）。右上角按钮精简为 ✨ AI 建议 和 ⚙ 设置（都跳到对应标签）；自动刷新开关挪进设置（暂停时右上角才出现手动 ↻）。如果你把成本、配额、上下文三项**全部隐藏**，状态栏会保留一个小图标作为回到仪表板的入口。
+- **设置搬进仪表板**：新增 ⚙ 设置标签页，就地管理大多数选项；VS Code 原生设置保留语言及 Claude/Codex 数据目录。自备 AI 密钥在仪表板填写、保存在 SecretStorage，不随 Settings Sync 同步。右上角按钮精简为 ✨ AI 建议 和 ⚙ 设置（都跳到对应标签）；自动刷新开关挪进设置（暂停时右上角才出现手动 ↻）。如果你把成本、配额、上下文三项**全部隐藏**，状态栏会保留一个小图标作为回到仪表板的入口。
 - **状态栏指标**（`statusBarMetric`）：默认显示今日成本，也可切换为今日**总 token** 消耗（紧凑 k/M）。
 - **模型专属每周上限**（`showScopedWeekly`，可选开启）：显示 Anthropic
   实际返回的受限模型名称，例如 `fable 17%`；由 PR #38
@@ -168,13 +187,13 @@ ext install GrowthJack.claude-code-usage
 
 **绝大多数设置现在都在仪表板里。** 打开仪表板（运行 **Show Usage Details**，或点右上角 ⚙），用 **⚙ 设置**标签页 —— 分为「常规 / 状态栏 / 数据与刷新 / AI 建议与优化器」。改动即时生效。
 
-为了让 VS Code 原生设置 UI 保持清爽，只保留三个设置在那里（以便随 Settings Sync 同步）。打开设置（`Ctrl+,`）搜索 **`Claude Code Usage`**：
+为了让 VS Code 原生设置 UI 保持清爽，只保留以下三个普通设置；自备 AI 密钥请在仪表板的 ⚙ 设置中填写，它只存入 SecretStorage，不随 Settings Sync 同步。打开 VS Code 设置（`Ctrl+,`）搜索 **`Claude Code Usage`**：
 
 | 设置 | 默认 | 作用 |
 |---|---|---|
 | `language` | `"auto"` | 界面语言：`auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR` / `id`。 |
 | `dataDirectory` | `""` | 自定义 Claude 数据目录；留空 = 自动检测。 |
-| `advice.apiKey` | `""` | AI 建议 + 用量优化器的自备 API key；留空时不能发送请求。 |
+| `codex.dataDirectory` | `""` | 自定义 Codex 数据目录；留空 = `CODEX_HOME` 或 `~/.codex`。 |
 
 其余全部 —— 刷新间隔、状态栏各项、数字 / 日期格式、项目分组、内容分析，以及所有 AI 建议 / 优化器选项 —— 都在仪表板的 ⚙ 设置标签页里。升级不丢配置：首次启动会做一次性迁移，把你 `settings.json` 里已有的值搬过来。
 
@@ -214,7 +233,7 @@ ext install GrowthJack.claude-code-usage
 | 建议状态/密钥 | 有界聚合证据；密钥仅在 SecretStorage | 另行点击发送后才传输精确预览过的请求 |
 
 - 所有 token / 成本 / session 分析都在**本地**进行，只读取你的 `~/.claude/projects/**/*.jsonl` 文件。
-- 配额指示器用 Claude Code 现有的 OAuth token 调用 **`api.anthropic.com/api/oauth/usage`**，不发送任何额外凭证。
+- 配额指示器用 Claude Code 现有的 OAuth token 调用 **`api.anthropic.com/api/oauth/usage`**。如 token 已过期，插件会将现有 refresh token 发送至 **`console.anthropic.com/v1/oauth/token`**，并把刷新后的凭证写回选中的 Claude 凭证文件或 macOS 钥匙串。详见[本地数据与隐私](LOCAL-DATA.zh-CN.md)。
 - **AI 建议**和**用量优化器**是仅有的会调用模型的功能，而且只在你查看完整请求后再次主动点击「发送」时调用。AI 建议默认只发送聚合证据；提示样本与用户上下文需要独立同意，并完整出现在预览中。优化器只包含你粘贴的文字。两者仅使用 `advice.apiUrl` 与自备 `advice.apiKey`；密钥只进入请求头，插件不使用订阅凭据，也没有后台请求。
 
 ### 已知限制

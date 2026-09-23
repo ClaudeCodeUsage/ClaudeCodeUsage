@@ -1,4 +1,11 @@
 export const GITHUB_PUBLIC_REPO_SCOPE = 'public_repo';
+export const GITHUB_HEATMAP_DESTINATION_KEY = 'ccu.heatmapDestination.v1';
+
+export interface GitHubHeatmapDestination {
+  schemaVersion: 1;
+  repository: string;
+  filePath: string;
+}
 
 export interface GitHubApiResponse {
   status: number;
@@ -35,6 +42,60 @@ export class GitHubPublishHttpError extends Error {
     super(`GitHub ${operation} failed (status ${status}).`);
     this.name = 'GitHubPublishHttpError';
   }
+}
+
+export function parseGitHubHeatmapDestination(
+  value: unknown,
+): GitHubHeatmapDestination | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (
+    Object.keys(candidate).sort().join(',') !== 'filePath,repository,schemaVersion' ||
+    candidate.schemaVersion !== 1 ||
+    typeof candidate.repository !== 'string' ||
+    typeof candidate.filePath !== 'string'
+  ) {
+    return undefined;
+  }
+  try {
+    const plan = createGitHubPublishPlan(candidate.repository, candidate.filePath);
+    return {
+      schemaVersion: 1,
+      repository: `${plan.owner}/${plan.repository}`,
+      filePath: plan.filePath,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function completeSuccessfulGitHubPublish(
+  preview: GitHubPublishPreview,
+  callbacks: {
+    persistDestination: (
+      key: typeof GITHUB_HEATMAP_DESTINATION_KEY,
+      destination: GitHubHeatmapDestination,
+    ) => Promise<void>;
+    showSuccess: () => Promise<boolean>;
+    showPersistenceWarning: () => Promise<void>;
+  },
+): Promise<{ openBrowser: boolean; preferenceSaved: boolean }> {
+  const destination: GitHubHeatmapDestination = {
+    schemaVersion: 1,
+    repository: `${preview.owner}/${preview.repository}`,
+    filePath: preview.filePath,
+  };
+  let preferenceSaved = true;
+  try {
+    await callbacks.persistDestination(GITHUB_HEATMAP_DESTINATION_KEY, destination);
+  } catch {
+    preferenceSaved = false;
+  }
+  const openBrowser = await callbacks.showSuccess();
+  if (!preferenceSaved) {
+    await callbacks.showPersistenceWarning();
+  }
+  return { openBrowser, preferenceSaved };
 }
 
 function encodedSegments(value: string): string {

@@ -394,6 +394,11 @@ test('source policy keeps controls out of Settings while preserving safe command
     [],
     'UI and sharing client allowlists must remain disjoint',
   );
+  assert.doesNotMatch(webviewSource, /__ccuSharingSessionKeys|ccu\.sharing\.commandRevision/);
+  assert.doesNotMatch(
+    LOCAL_DATA_ACTION_TARGETS['reset-sharing-preferences'].join('\n'),
+    /ccu\.sharing\.commandRevision/,
+  );
 
   const clearAll = sourceSlice(
     extensionSource,

@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
+  GITHUB_HEATMAP_DESTINATION_KEY,
   GITHUB_PUBLIC_REPO_SCOPE,
   GitHubApiRequest,
+  completeSuccessfulGitHubPublish,
   createGitHubPublishPlan,
   githubPublishConfirmationDetail,
+  parseGitHubHeatmapDestination,
   probePublicGitHubPublishTarget,
   publishPublicGitHubFile,
 } from '../githubHeatmapPublish';
@@ -44,22 +47,34 @@ test('mocked public create probe and write use the verified branch and no sha', 
   );
   assert.equal(preview.action, 'create');
   await publishPublicGitHubFile(preview, 'U0ZH', request);
-  assert.deepEqual(calls[2], {
-    method: 'PUT',
-    path: '/repos/owner/repo/contents/assets/activity.svg',
-    body: {
-      message: 'Update Claude Code usage heatmap',
-      content: 'U0ZH',
-      branch: 'main',
+  assert.deepEqual(calls, [
+    {
+      method: 'GET',
+      path: '/repos/owner/repo',
+      body: undefined,
     },
-  });
+    {
+      method: 'GET',
+      path: '/repos/owner/repo/contents/assets/activity.svg?ref=main',
+      body: undefined,
+    },
+    {
+      method: 'PUT',
+      path: '/repos/owner/repo/contents/assets/activity.svg',
+      body: {
+        message: 'Update Claude Code usage heatmap',
+        content: 'U0ZH',
+        branch: 'main',
+      },
+    },
+  ]);
 });
 
-test('mocked update carries only the exact probed sha', async () => {
+test('mocked update carries only the exact probed endpoint, branch, and sha', async () => {
   const sha = 'a'.repeat(40);
-  const calls: Array<{ method: string; body?: any }> = [];
-  const request: GitHubApiRequest = async (method, _path, body) => {
-    calls.push({ method, body });
+  const calls: Array<{ method: string; path: string; body?: any }> = [];
+  const request: GitHubApiRequest = async (method, path, body) => {
+    calls.push({ method, path, body });
     if (calls.length === 1) return { status: 200, body: JSON.stringify({ private: false, default_branch: 'release/v2' }) };
     if (calls.length === 2) return { status: 200, body: JSON.stringify({ sha }) };
     return { status: 200, body: '{}' };
@@ -70,8 +85,24 @@ test('mocked update carries only the exact probed sha', async () => {
   );
   assert.equal(preview.action, 'update');
   await publishPublicGitHubFile(preview, 'U0ZH', request);
-  assert.equal(calls[2].body.sha, sha);
-  assert.equal(calls[2].body.branch, 'release/v2');
+  assert.deepEqual(calls, [
+    { method: 'GET', path: '/repos/owner/repo', body: undefined },
+    {
+      method: 'GET',
+      path: '/repos/owner/repo/contents/activity.svg?ref=release%2Fv2',
+      body: undefined,
+    },
+    {
+      method: 'PUT',
+      path: '/repos/owner/repo/contents/activity.svg',
+      body: {
+        message: 'Update Claude Code usage heatmap',
+        content: 'U0ZH',
+        branch: 'release/v2',
+        sha,
+      },
+    },
+  ]);
 });
 
 test('private or unverifiable targets fail closed before any mock write', async () => {
@@ -110,4 +141,63 @@ test('mocked request failures expose status only, never response-body canaries',
     probePublicGitHubPublishTarget(createGitHubPublishPlan('owner/repo', 'activity.svg'), request),
     (error: Error) => /status 503/.test(error.message) && !/PRIVACY_CANARY/.test(error.message),
   );
+});
+
+test('successful publication is reported before an atomic destination-save warning', async () => {
+  const events: string[] = [];
+  const result = await completeSuccessfulGitHubPublish(
+    {
+      ...createGitHubPublishPlan('owner/repo', 'images/activity.svg'),
+      visibility: 'public',
+      branch: 'main',
+      action: 'create',
+      browserUrl: 'https://github.com/owner/repo/blob/main/images/activity.svg',
+    },
+    {
+      persistDestination: async (key, destination) => {
+        events.push(`persist:${key}:${JSON.stringify(destination)}`);
+        throw new Error('synthetic persistence failure');
+      },
+      showSuccess: async () => {
+        events.push('success');
+        return true;
+      },
+      showPersistenceWarning: async () => {
+        events.push('warning');
+      },
+    },
+  );
+
+  assert.deepEqual(result, { openBrowser: true, preferenceSaved: false });
+  assert.deepEqual(events, [
+    `persist:${GITHUB_HEATMAP_DESTINATION_KEY}:${JSON.stringify({
+      schemaVersion: 1,
+      repository: 'owner/repo',
+      filePath: 'images/activity.svg',
+    })}`,
+    'success',
+    'warning',
+  ]);
+});
+
+test('stored GitHub destination accepts only the exact atomic schema', () => {
+  assert.deepEqual(parseGitHubHeatmapDestination({
+    schemaVersion: 1,
+    repository: 'owner/repo',
+    filePath: 'images/activity.svg',
+  }), {
+    schemaVersion: 1,
+    repository: 'owner/repo',
+    filePath: 'images/activity.svg',
+  });
+  assert.equal(parseGitHubHeatmapDestination({
+    schemaVersion: 1,
+    repository: 'owner/repo',
+    filePath: 'images/activity.svg',
+    token: 'must-not-survive',
+  }), undefined);
+  assert.equal(parseGitHubHeatmapDestination({
+    schemaVersion: 1,
+    repository: 'owner/repo',
+  }), undefined);
 });

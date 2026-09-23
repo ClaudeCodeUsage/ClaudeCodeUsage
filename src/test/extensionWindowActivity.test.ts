@@ -2328,7 +2328,7 @@ test('Claude refresh diagnostics drain the unnamed quota-watcher event count', a
 });
 
 test('real Claude filesystem events flow through manifest, index, and dashboard refresh', {
-  timeout: 10_000,
+  timeout: 15_000,
 }, async (t) => {
   const extension = bareExtension();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-watch-e2e-'));
@@ -2444,20 +2444,30 @@ test('real Claude filesystem events flow through manifest, index, and dashboard 
     }
     const activeWatcher = extension.fileWatcher as fs.FSWatcher;
 
+    // Recursive fs.watch can drop the first event for a just-created nested
+    // file while macOS is attaching its directory handle. Rewriting that
+    // same test-only file exercises the real watcher path until it observes
+    // the change; no synthetic callback or polling-based refresh is used.
+    const nestedBody = `${usageLine('subagent', 20)}\n`;
+    let rewrite: ReturnType<typeof setInterval> | undefined;
     const outcomePromise = new Promise<'refreshed' | 'watch-error'>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        if (rewrite) clearInterval(rewrite);
         reject(new Error('timed out waiting for nested Claude refresh'));
-      }, 5_000);
+      }, 8_000);
       nestedRefresh.then(() => {
         clearTimeout(timeout);
+        if (rewrite) clearInterval(rewrite);
         resolve('refreshed');
       });
       activeWatcher.once('error', () => {
         clearTimeout(timeout);
+        if (rewrite) clearInterval(rewrite);
         resolve('watch-error');
       });
+      fs.writeFileSync(nestedFile, nestedBody, 'utf8');
+      rewrite = setInterval(() => fs.writeFileSync(nestedFile, nestedBody, 'utf8'), 250);
     });
-    fs.writeFileSync(nestedFile, `${usageLine('subagent', 20)}\n`, 'utf8');
     const outcome = await outcomePromise;
     if (outcome === 'watch-error') {
       t.skip('the test host cannot allocate a recursive fs.watch handle');

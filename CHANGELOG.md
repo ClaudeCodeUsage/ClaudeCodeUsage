@@ -7,6 +7,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added
+- **Documentation in every supported UI language** — German and Brazilian
+  Portuguese now have concise READMEs alongside the existing editions. The
+  Marketplace README links all eight language variants; English and Chinese
+  retain the fuller references. The extension description and tags identify
+  its Claude/Codex token and quota use cases without presenting estimates as
+  billing data.
 - **`statusBarQuotaFormat`** (default empty) — name the quota windows in the
   status bar yourself when you want a different set, order or separators than
   the built-in `5h 6% · wk 1%`: `{5h.pct}`, `{wk.pct}` (or `{7d.pct}`) and
@@ -20,7 +26,65 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   5-hour-only, Weekly-only, or Custom dropdown reveals the template field only
   when Custom is selected.
 
+### Changed
+- **Codex graduates from Beta** — after the shared interaction, accessibility,
+  performance, localization, package, and installed-extension gates passed,
+  current UI and documentation now present Codex as a first-class provider.
+  Historical v2.3 release notes retain their original Beta wording.
+- **One preview-first sharing workspace** — the full-width export preview is
+  now the visual focus, with controls below it and one presentation selector
+  for the combined Claude + Codex activity heatmap, the legacy Claude Share
+  Card, and the Claude-only token heatmap. Provider accounting and labels remain
+  distinct: the combined view is activity volume, while the two legacy views
+  continue to use Claude aggregates only.
+- **Command and setting compatibility** — `exportShareCard`, `exportHeatmap`,
+  and `publishHeatmapToGitHub` remain registered and open their matching preview
+  instead of bypassing the workspace. `enableShareCard` remains the one visible
+  on/off control and still defaults to `true`; retired `showHeatmap` state stays
+  catalogued and clearable for one release without creating a duplicate panel.
+- **Strict local-artifact boundary** — previews and local SVG/Markdown exports
+  use only materialized aggregates and cannot request GitHub authentication,
+  profile, avatar, or name data. Claude heatmap publication is the only sharing
+  network path; it remains a separate explicit public-repository action with
+  exact repository/branch/path and create-or-overwrite confirmation.
+- **Codex status bar** — newly defaulted metric is today's processed tokens;
+  explicit uncached/output choices remain available. The weekly indicator
+  continues to show remaining capacity, not used tokens.
+- **Smooth live scrolling** — during an active scroll burst, the newest
+  provider-panel refresh waits for a short quiet interval before replacing
+  its DOM. A 500 ms ceiling prevents continuous scrolling from starving live
+  updates; the existing scroll/focus preservation and single-flight index
+  boundaries remain in place.
+- **Bounded sharing refreshes** — only the selected presentation is rendered;
+  hidden Share Card and heatmap artifacts are not rebuilt on every refresh.
+  Materialized daily aggregates are reused while their input and pricing
+  identity is unchanged.
+
 ### Fixed
+- **Claude all-time drill-down cost on large histories** — month → day uses a
+  materialized configured-timezone daily aggregate built by the incremental
+  index, rather than rescanning retained records when a month is opened.
+  Eligible recent days can continue to the existing hour detail without any
+  source-log read.
+- **Raw Share Card scope persisted in browser storage** — project paths and
+  session identifiers now remain memory-only; only non-identifying display
+  controls survive a Webview reload.
+- **Large Claude transcript buffers retained in memory** — dedup now keeps
+  fixed-size UTF-16-accurate digests, bounded prompt/task excerpts are detached,
+  and usage-bearing assistant rows retain only the fields needed for usage
+  calculations after content analysis. An opt-in 2.4 GiB synthetic corpus with
+  content analysis enabled showed sampled peak RSS falling from about 3.04 GB
+  to 360 MB for long user prompts; a separate long assistant-body fixture also
+  stays below 350 MB. Unchanged files are not reread. This does not establish
+  Windows or real-history smoothness; #99 remains open.
+- **PR first-pass review that only posted boilerplate (#108–#112)** — a failed
+  model request or empty answer now fails the PR workflow with a safe tier/status
+  diagnostic and posts no comment; issue triage retains its explicit fallback.
+  DeepSeek's cheap tier disables default thinking to preserve reply tokens, the
+  escalation tier has an output cap above its thinking budget, and the default
+  flash identifier tracks the current supported model. A cheap reply marked
+  as needing source is never posted when escalation fails. Existing bot
+  comments are not edited retroactively.
 - **Full rebuild whenever a new transcript appeared (#99)** — a file that had
   just been created was treated as an unsafe mutation, so every new session
   rebuilt every contribution in the corpus. A new file is now read in full on
@@ -48,6 +112,19 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   `toLocaleDateString` built a fresh formatter for every date it rendered. The
   formatter is now memoised per locale and options, with output identical to
   `toLocaleDateString` for every UI locale; one label went from ~31 µs to ~1 µs.
+- **One-shot sharing command intent** — command-opened previews now override a
+  previously saved Claude tab and presentation exactly once. A provider-local
+  monotonic revision history is separate from the live intent; the Webview ACK
+  consumes that intent, so reset, normal rerender, and dispose/reopen cannot
+  replay an acknowledged command or reuse its revision.
+- **Verified sharing reset** — the in-workspace button now uses the same
+  confirmed host request → request-id client action → ACK protocol as Local Data
+  controls. Browser-storage deletion failure is reported, and successful reset
+  defaults survive a full reload.
+- **Readable and accessible SVG previews** — the 1200×680 Share Card keeps its
+  intrinsic width inside a local horizontal scroller at 360px. Deterministic
+  inner-SVG geometry and contrast tests cover every normal label at 4.5:1 or
+  better without excluding the artifact from the surrounding Axe scan.
 
 ## [2.3.3] — 2026-09-16
 

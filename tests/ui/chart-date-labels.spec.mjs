@@ -15,7 +15,7 @@ test('chart metric switches preserve daily and monthly key labels west of UTC', 
 
   await page.locator('#tab-all').click();
   const monthlyBar = page.locator(
-    '#all #allTimeChart .hc-col[data-date="2026-07"] .chart-bar',
+    '#all #allTimeChart .hc-col[data-date="2026-07-01"] .chart-bar',
   );
   await expect(monthlyBar).toHaveAttribute('title', /^July 2026:/);
   await page.locator('#all .chart-tab[data-metric="inputTokens"]').click();

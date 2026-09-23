@@ -4,8 +4,6 @@ import * as path from 'path';
 import * as os from 'os';
 import { createHash, randomBytes } from 'crypto';
 import { renderHeatmapSvg } from './heatmapSvg';
-import { DEFAULT_SECTIONS, ShareRange, buildShareCardData, shareCardFilename } from './shareCard';
-import { renderShareCardSvg } from './shareCardSvg';
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import {
@@ -19,9 +17,12 @@ import { UsageWebviewProvider } from './webview';
 import { I18n } from './i18n';
 import { dayKeyInZone, resolveTimeZone } from './dateKeys';
 import {
+  GITHUB_HEATMAP_DESTINATION_KEY,
   GITHUB_PUBLIC_REPO_SCOPE,
+  completeSuccessfulGitHubPublish,
   createGitHubPublishPlan,
   githubPublishConfirmationDetail,
+  parseGitHubHeatmapDestination,
   probePublicGitHubPublishTarget,
   publishPublicGitHubFile,
 } from './githubHeatmapPublish';
@@ -144,6 +145,7 @@ import {
   LocalDataAction,
   LocalDataActionResult,
   LocalDataClientAction,
+  LocalDataClientResetTombstone,
   LocalDataClientSummary,
   LocalDataInventory,
   LocalDataInventoryRow,
@@ -516,6 +518,7 @@ export class ClaudeCodeUsageExtension {
   private initializationWriteFailure: unknown = null;
   private localDataActionWrite: Promise<void> = Promise.resolve();
   private pendingClientResetReplay: Promise<void> = Promise.resolve();
+  private pendingClientResetRevision = 0;
   private clearingAllLocalData = false;
   private localDataClearedRequiresReload = false;
   private readonly localDataQuotaScopes = new Map<
@@ -694,8 +697,8 @@ export class ClaudeCodeUsageExtension {
       this.buildLocalDataInventory(client);
     this.webviewProvider.onRunLocalDataAction = (action, quotaScopeToken) =>
       this.runLocalDataActionInteractive(action, quotaScopeToken);
-    this.webviewProvider.onResetSharingPreferences = () =>
-      this.resetSharingPreferencesHost();
+    this.webviewProvider.onExportClaudeHeatmap = () => this.exportHeatmap();
+    this.webviewProvider.onPublishClaudeHeatmap = () => this.publishHeatmapToGitHub();
     this.webviewProvider.onLocalDataClientReady = () => {
       void this.replayPendingClientReset();
     };
@@ -820,13 +823,13 @@ export class ClaudeCodeUsageExtension {
         this.outputChannel.show();
       }),
       vscode.commands.registerCommand('claudeCodeUsage.exportHeatmap', () => {
-        this.exportHeatmap();
+        this.webviewProvider.showSharingWorkspace('claudeHeatmap');
       }),
       vscode.commands.registerCommand('claudeCodeUsage.publishHeatmapToGitHub', () => {
-        this.publishHeatmapToGitHub();
+        this.webviewProvider.showSharingWorkspace('claudeHeatmap');
       }),
       vscode.commands.registerCommand('claudeCodeUsage.exportShareCard', () => {
-        this.exportShareCard();
+        this.webviewProvider.showSharingWorkspace('claudeShareCard');
       }),
       vscode.commands.registerCommand('claudeCodeUsage.previewWhatsNew', () => {
         this.previewWhatsNew();
@@ -1088,6 +1091,7 @@ export class ClaudeCodeUsageExtension {
       key === QUOTA_FINGERPRINT_SALT_KEY || key === 'ccu.codex.machineSalt',
     );
     const sharingKeys = stateKeys.filter((key) =>
+      key === GITHUB_HEATMAP_DESTINATION_KEY ||
       key === 'ccu.heatmapRepo' ||
       key === 'ccu.heatmapPath' ||
       sharingSettingKeys.has(key),
@@ -1326,35 +1330,77 @@ export class ClaudeCodeUsageExtension {
 
   private async resetSharingPreferencesHost(): Promise<void> {
     await this.settings.resetSharingOwnedData();
+    await this.context.globalState.update(GITHUB_HEATMAP_DESTINATION_KEY, undefined);
     await this.context.globalState.update('ccu.heatmapRepo', undefined);
     await this.context.globalState.update('ccu.heatmapPath', undefined);
     this.webviewProvider.clearSharingRuntimeState();
   }
 
-  private pendingClientReset(): LocalDataClientAction | undefined {
+  private pendingClientReset(): LocalDataClientResetTombstone | undefined {
     const value = this.context.globalState.get<unknown>(
       LOCAL_DATA_PENDING_CLIENT_RESET_KEY,
     );
-    return value === 'reset-ui-state' ||
+    if (value === 'reset-ui-state' ||
       value === 'reset-sharing-preferences' ||
-      value === 'clear-all-client-state'
-      ? value
-      : undefined;
+      value === 'clear-all-client-state') {
+      return { schemaVersion: 1, revision: 0, action: value };
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const candidate = value as Partial<LocalDataClientResetTombstone>;
+    if (
+      candidate.schemaVersion !== 1 ||
+      !Number.isSafeInteger(candidate.revision) ||
+      Number(candidate.revision) < 1 ||
+      (candidate.action !== 'reset-ui-state' &&
+        candidate.action !== 'reset-sharing-preferences' &&
+        candidate.action !== 'clear-all-client-state')
+    ) {
+      return undefined;
+    }
+    this.pendingClientResetRevision = Math.max(
+      this.pendingClientResetRevision ?? 0,
+      Number(candidate.revision),
+    );
+    return candidate as LocalDataClientResetTombstone;
+  }
+
+  private nextPendingClientReset(action: LocalDataClientAction): LocalDataClientResetTombstone {
+    const current = this.pendingClientReset();
+    const revision = Math.max(
+      this.pendingClientResetRevision ?? 0,
+      current?.revision ?? 0,
+    ) + 1;
+    this.pendingClientResetRevision = revision;
+    return { schemaVersion: 1, revision, action };
+  }
+
+  private async clearPendingClientReset(
+    acknowledged: LocalDataClientResetTombstone,
+  ): Promise<void> {
+    const current = this.pendingClientReset();
+    if (
+      !current ||
+      current.revision !== acknowledged.revision ||
+      current.action !== acknowledged.action
+    ) {
+      return;
+    }
+    await this.context.globalState.update(
+      LOCAL_DATA_PENDING_CLIENT_RESET_KEY,
+      undefined,
+    );
   }
 
   private replayPendingClientReset(): Promise<void> {
     const run = this.pendingClientResetReplay
       .catch(() => undefined)
-      .then(async () => {
+      .then(() => this.serializeLocalDataAction(async () => {
         const pending = this.pendingClientReset();
         if (!pending) return;
-        if (await this.webviewProvider.requestClientLocalDataAction(pending)) {
-          await this.context.globalState.update(
-            LOCAL_DATA_PENDING_CLIENT_RESET_KEY,
-            undefined,
-          );
+        if (await this.webviewProvider.requestClientLocalDataAction(pending.action)) {
+          await this.clearPendingClientReset(pending);
         }
-      });
+      }));
     this.pendingClientResetReplay = run;
     return run;
   }
@@ -1489,11 +1535,12 @@ export class ClaudeCodeUsageExtension {
         }
       }
       if (result.clientAction) {
+        const tombstone = this.nextPendingClientReset(result.clientAction);
         let tombstoneStored = false;
         try {
           await this.context.globalState.update(
             LOCAL_DATA_PENDING_CLIENT_RESET_KEY,
-            result.clientAction,
+            tombstone,
           );
           tombstoneStored = true;
         } catch {
@@ -1505,10 +1552,7 @@ export class ClaudeCodeUsageExtension {
         );
         if (clientResetOk && tombstoneStored) {
           try {
-            await this.context.globalState.update(
-              LOCAL_DATA_PENDING_CLIENT_RESET_KEY,
-              undefined,
-            );
+            await this.clearPendingClientReset(tombstone);
           } catch {
             // A stale tombstone only replays the same exact idempotent reset.
           }
@@ -1719,6 +1763,7 @@ export class ClaudeCodeUsageExtension {
     try {
       const result = await fetchLatestPricing();
       this.invalidateClaudeUsagePricingCache();
+      this.webviewProvider.invalidateShareCardPreview();
       vscode.window.showInformationMessage(`${I18n.t.popup.pricingUpdated} (${result.updated})`);
       // Force a full recompute so the new prices take effect.
       void this.refreshData(true, 'pricing');
@@ -1741,6 +1786,7 @@ export class ClaudeCodeUsageExtension {
     const daily = ClaudeDataLoader.getDailyUsageMap(records, timeZone);
     const svg = renderHeatmapSvg(daily, {
       endDateISO: dayKeyInZone(new Date(), timeZone),
+      locale: I18n.getLocale(),
     });
     const uri = await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.file(path.join(os.homedir(), 'claude-code-heatmap.svg')),
@@ -1845,10 +1891,15 @@ export class ClaudeCodeUsageExtension {
     }
     const token = session.accessToken;
     const login = session.account.label.split(/\s/)[0];
+    const storedDestination = parseGitHubHeatmapDestination(
+      this.context.globalState.get<unknown>(GITHUB_HEATMAP_DESTINATION_KEY),
+    );
 
     const repo = await vscode.window.showInputBox({
       prompt: 'Public target repository (owner/name). Private repositories use local SVG export.',
-      value: this.context.globalState.get<string>('ccu.heatmapRepo') || `${login}/${login}`,
+      value: storedDestination?.repository ||
+        this.context.globalState.get<string>('ccu.heatmapRepo') ||
+        `${login}/${login}`,
       validateInput: (value) => {
         try {
           createGitHubPublishPlan(value, 'heatmap.svg');
@@ -1864,7 +1915,9 @@ export class ClaudeCodeUsageExtension {
     const filePath =
       (await vscode.window.showInputBox({
         prompt: 'File path in the repo',
-        value: this.context.globalState.get<string>('ccu.heatmapPath') || 'claude-code-heatmap.svg',
+        value: storedDestination?.filePath ||
+          this.context.globalState.get<string>('ccu.heatmapPath') ||
+          'claude-code-heatmap.svg',
       })) || '';
     if (!filePath) {
       return;
@@ -1879,7 +1932,7 @@ export class ClaudeCodeUsageExtension {
     const timeZone = I18n.getTimezone();
     const svg = renderHeatmapSvg(
       ClaudeDataLoader.getDailyUsageMap(records, timeZone),
-      { endDateISO: dayKeyInZone(new Date(), timeZone) },
+      { endDateISO: dayKeyInZone(new Date(), timeZone), locale: I18n.getLocale() },
     );
     const contentB64 = Buffer.from(svg, 'utf8').toString('base64');
     const request = (
@@ -1921,70 +1974,26 @@ export class ClaudeCodeUsageExtension {
       return;
     }
 
-    // Destination strings are convenience preferences, not credentials. Save
-    // them only after the exact, confirmed write succeeds.
-    await this.context.globalState.update('ccu.heatmapRepo', `${preview.owner}/${preview.repository}`);
-    await this.context.globalState.update('ccu.heatmapPath', preview.filePath);
-
     const view = 'View on GitHub';
-    const pick = await vscode.window.showInformationMessage(
-      `Heatmap published to ${preview.owner}/${preview.repository}.`,
-      view
-    );
-    if (pick === view) {
+    const completion = await completeSuccessfulGitHubPublish(preview, {
+      persistDestination: async (key, destination) => {
+        await this.context.globalState.update(key, destination);
+      },
+      showSuccess: async () => {
+        const pick = await vscode.window.showInformationMessage(
+          `Heatmap published to ${preview.owner}/${preview.repository} on ${preview.branch} at ${preview.filePath}.`,
+          view,
+        );
+        return pick === view;
+      },
+      showPersistenceWarning: async () => {
+        await vscode.window.showWarningMessage(
+          I18n.sharingWorkspace.publishPreferenceSaveWarning,
+        );
+      },
+    });
+    if (completion.openBrowser) {
       void vscode.env.openExternal(vscode.Uri.parse(preview.browserUrl));
-    }
-  }
-
-  /** Export a one-page usage share card as a self-contained SVG. Only aggregate,
-   * non-identifying metrics are drawn (privacy is enforced by ShareCardData's
-   * shape). The user picks the range; the card opens for review after saving. */
-  private async exportShareCard(): Promise<void> {
-    const records = this.cache.records;
-    if (!records || records.length === 0) {
-      vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
-      return;
-    }
-    const ranges: (vscode.QuickPickItem & { range: ShareRange })[] = [
-      { label: 'This month', range: 'month' },
-      { label: 'Last 7 days', range: 'week' },
-      { label: 'Today', range: 'today' },
-    ];
-    const picked = await vscode.window.showQuickPick(ranges, {
-      placeHolder: 'Share card range',
-    });
-    if (!picked) {
-      return;
-    }
-    const input = ClaudeDataLoader.buildShareInput(records, picked.range);
-    const data = buildShareCardData(input, DEFAULT_SECTIONS);
-    const kind = vscode.window.activeColorTheme?.kind;
-    const isDark = kind === vscode.ColorThemeKind.Dark || kind === vscode.ColorThemeKind.HighContrast;
-    const svg = renderShareCardSvg(data, {
-      theme: 'claudeClassic',
-      isDark,
-      lang: I18n.getLocale(),
-      formatCurrency: (amountUsd) => I18n.formatCurrency(amountUsd),
-    });
-    const defaultName = shareCardFilename(picked.range).replace(/\.png$/, '.svg');
-    const uri = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
-      filters: { 'SVG image': ['svg'] },
-      saveLabel: 'Export share card',
-    });
-    if (!uri) {
-      return;
-    }
-    try {
-      await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
-    } catch (e) {
-      vscode.window.showErrorMessage(`Share card export failed: ${(e as Error).message}`);
-      return;
-    }
-    const open = 'Open';
-    const pick = await vscode.window.showInformationMessage('Usage share card exported.', open);
-    if (pick === open) {
-      await vscode.commands.executeCommand('vscode.open', uri);
     }
   }
 
@@ -2115,7 +2124,7 @@ export class ClaudeCodeUsageExtension {
   }
 
   private applyFormattingConfiguration(config: ExtensionConfig): void {
-    I18n.setLanguage(config.language as any);
+    I18n.setLanguage(config.language as any, vscode.env.language);
     I18n.setDecimalPlaces(config.decimalPlaces);
     I18n.setCurrencyDisplay(config.displayCurrency);
     I18n.setTokenDecimalPlaces(config.tokenDecimalPlaces);
@@ -3277,6 +3286,7 @@ export class ClaudeCodeUsageExtension {
     setPricingBackend(config.pricingBackend);
     if (pricingBackendChanged) {
       this.invalidateClaudeUsagePricingCache();
+      this.webviewProvider.invalidateShareCardPreview();
     }
     this.applyFormattingConfiguration(config);
     this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat, config.statusBarQuotaFormat);
@@ -4422,6 +4432,7 @@ export class ClaudeCodeUsageExtension {
               materialized.costliestMessages,
               materialized.hourlyForLast30DaysByDay,
               materialized.projectUsageMatrix,
+              materialized.dailyForAllTime,
             );
           }
           this.cache.lastUpdate = new Date(snapshotNow.getTime());
@@ -4533,7 +4544,7 @@ export class ClaudeCodeUsageExtension {
         this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined, calendarMonthData);
         this.statusBar.updateContext(materialized.context);
         if (updateWebview) {
-          this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix);
+          this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime);
         }
       }
 
@@ -4660,7 +4671,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   console.log('Claude Code Usage extension is now active');
 
   const settings = new SettingsStore(context);
-  I18n.setLanguage(settings.get<string>('language') as any);
+  I18n.setLanguage(settings.get<string>('language') as any, vscode.env.language);
   const secretMigrationFailure = await settings.initializeSecretsForActivation();
   if (secretMigrationFailure) {
     const needsManualWorkspaceMigration =

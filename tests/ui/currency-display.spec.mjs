@@ -25,7 +25,7 @@ test('currency preset reaches Codex summaries, charts, weekly values, and settin
 
   await page.locator('#tab-all').click();
   const weekly = page.locator('#all .daily-breakdown').filter({
-    hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex Beta',
+    hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex',
   });
   await expect(weekly.locator('.hc-yaxis .hc-yval').first()).toHaveText(/^≈EUR \d/);
   await weekly.locator('.weekly-value-details summary').click();

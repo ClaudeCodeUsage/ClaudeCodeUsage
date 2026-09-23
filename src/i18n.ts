@@ -13,6 +13,60 @@ export interface ProviderTranslations {
   codex: CodexViewCopy;
 }
 
+/** Complete copy contract for the preview-first sharing workspace. Keeping the
+ * contract here makes every presentation follow the same eight-locale guard. */
+export interface SharingWorkspaceTranslations {
+  eyebrow: string;
+  panelTitle: string;
+  description: string;
+  privacyBadge: string;
+  presentationLabel: string;
+  combinedPresentation: string;
+  combinedPresentationDescription: string;
+  claudeCardPresentation: string;
+  claudeCardPresentationDescription: string;
+  claudeHeatmapPresentation: string;
+  claudeHeatmapPresentationDescription: string;
+  combinedUnavailable: string;
+  rangeRollingGroup: string;
+  rangeSpecificMonthGroup: string;
+  last7: string;
+  thisMonth: string;
+  last12Months: string;
+  todayHourly: string;
+  lastMonthSuffix: string;
+  scopeLabel: string;
+  scopeAllGroup: string;
+  overall: string;
+  byProject: string;
+  bySession: string;
+  themeLabel: string;
+  claudeClassic: string;
+  claudeCream: string;
+  auroraDark: string;
+  autoTheme: string;
+  cardContentsLabel: string;
+  totalTokens: string;
+  estimatedCost: string;
+  cacheHitRate: string;
+  topModel: string;
+  sessionCount: string;
+  tokenMix: string;
+  dailyPulse: string;
+  badge: string;
+  messageCount: string;
+  projectName: string;
+  fullNumbers: string;
+  fullNumbersHelp: string;
+  previewPending: string;
+  generating: string;
+  cardBuildFailed: string;
+  publishGitHub: string;
+  publishPreferenceSaveWarning: string;
+  claudeHeatmapDisclaimer: string;
+  noClaudeData: string;
+}
+
 export interface WeeklyValueCopy {
   title: string;
   description: string;
@@ -941,16 +995,16 @@ function providerTranslations(
 
 const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
   en: providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex Beta', compare: 'Compare' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: 'Compare' },
     {},
   ),
   'de-DE': providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex Beta', compare: 'Vergleichen' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: 'Vergleichen' },
     {
       ...TASK8_CODEX_COPY['de-DE'],
       accountSnapshotLastObserved:
         'Nutzung fasst Anmeldungen in diesem Codex home zusammen · Limits werden zuletzt beobachtet, nicht kombiniert',
-      title: 'Codex-Nutzung', beta: 'Beta', overview: 'Übersicht', usageTrend: 'Nutzungstrend', daily: 'Täglich', date: 'Datum', role: 'Rolle', scope: 'Bereich', threadLabel: 'Thread', rootRole: 'Hauptaufgabe', childRole: 'Subagent', approvalReviewerRole: 'Freigabe-Prüfer', unknownRole: 'Unbekannt', noDailyData: 'Noch keine tägliche Codex-Nutzung indexiert.', noThreadData: 'Noch keine Codex-Threads indexiert.', lastTask: 'Letzte Aufgabe', last7Days: 'Letzte 7 Tage', last30Days: 'Letzte 30 Tage', projects: 'Projekte', projectLabel: 'Projekt',
+      title: 'Codex-Nutzung', overview: 'Übersicht', usageTrend: 'Nutzungstrend', daily: 'Täglich', date: 'Datum', role: 'Rolle', scope: 'Bereich', threadLabel: 'Thread', rootRole: 'Hauptaufgabe', childRole: 'Subagent', approvalReviewerRole: 'Freigabe-Prüfer', unknownRole: 'Unbekannt', noDailyData: 'Noch keine tägliche Codex-Nutzung indexiert.', noThreadData: 'Noch keine Codex-Threads indexiert.', lastTask: 'Letzte Aufgabe', last7Days: 'Letzte 7 Tage', last30Days: 'Letzte 30 Tage', projects: 'Projekte', projectLabel: 'Projekt',
       unnamedSession: 'Unbenannte Sitzung', unidentifiedProject: 'Nicht identifiziertes Projekt', parentThread: 'Übergeordnet', parentTask: 'Übergeordnete Aufgabe', searchThreads: 'Sitzungen suchen', sessions: 'Sitzungen', modelsEffort: 'Modelle & Aufwand', clearFilters: 'Filter löschen', activeFilters: 'Aktive Filter', all: 'Alle', localDirectory: 'Lokaler Ordner', lastActive: 'Zuletzt aktiv', expand: 'Erweitern', viewAllSessions: 'Alle Sitzungen anzeigen', sortBy: 'Sortieren nach', usageLimits: 'Nutzungslimits', resets: 'Zurücksetzung', credits: 'Guthaben', unlimited: 'Unbegrenzt',
       allTime: 'Gesamter Zeitraum', behavior: 'Verhalten', settings: 'Einstellungen', monthly: 'Monatlich', tokenComposition: 'Token-Zusammensetzung', freshInput: 'Eingabe ohne Cache', reasoningSubset: 'In Ausgabe enthalten', threadRoleComposition: 'Thread-Rollenverteilung', childThreadsPerRootTask: 'Unter-Threads / Hauptaufgabe', childFreshShare: 'Anteil der Nutzung ohne Cache durch Unter-Threads', approvalFreshShare: 'Anteil der Nutzung ohne Cache durch Freigabeprüfung', highEffortFreshShare: 'Anteil der Nutzung ohne Cache bei hohem Aufwand', processedToFreshRatio: 'Verarbeitet / Nutzung ohne Cache', reasoningOutputShare: 'Reasoning-Anteil der Ausgabe', postPatchToolCallsPerPatchCall: 'Tool-Call-Proxy nach Patch / Patch-Aufruf', patchCalls: 'Patch-Aufrufe', compactions: 'Kontextkomprimierungen',
       processed: 'Verarbeitet', apiEquivalentCost: 'API-äquivalente Kosten', apiEquivalentCostHelp: 'Aus derzeit indexierten Token mit aktuellen offiziellen API-Preisen geschätzt; keine Rechnung oder Abonnementbelastung. Preisabdeckung: {coverage}.', fresh: 'Nutzung ohne Cache', input: 'Eingabe', cachedInput: 'Gecachte Eingabe', output: 'Ausgabe', reasoning: 'Reasoning',
@@ -961,12 +1015,12 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY['de-DE'],
   ),
   'zh-TW': providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex Beta', compare: '比較' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: '比較' },
     {
       ...TASK8_CODEX_COPY['zh-TW'],
       accountSnapshotLastObserved:
         '用量會合併此 Codex home 中的多個登入 · 額度只顯示最後觀測，不合併',
-      title: 'Codex 用量', beta: 'Beta', overview: '總覽', usageTrend: '用量趨勢', daily: '按日', date: '日期', role: '角色', scope: '範圍', threadLabel: '執行緒', rootRole: '根任務', childRole: 'Subagent', approvalReviewerRole: '權限審批', unknownRole: '未知', noDailyData: '尚未索引到 Codex 每日用量。', noThreadData: '尚未索引到 Codex 執行緒。', lastTask: '最近任務', last7Days: '最近 7 天', last30Days: '最近 30 天', projects: '專案', projectLabel: '專案',
+      title: 'Codex 用量', overview: '總覽', usageTrend: '用量趨勢', daily: '按日', date: '日期', role: '角色', scope: '範圍', threadLabel: '執行緒', rootRole: '根任務', childRole: 'Subagent', approvalReviewerRole: '權限審批', unknownRole: '未知', noDailyData: '尚未索引到 Codex 每日用量。', noThreadData: '尚未索引到 Codex 執行緒。', lastTask: '最近任務', last7Days: '最近 7 天', last30Days: '最近 30 天', projects: '專案', projectLabel: '專案',
       unnamedSession: '未命名工作階段', unidentifiedProject: '未識別專案', parentThread: '父執行緒', parentTask: '父任務', searchThreads: '搜尋工作階段', sessions: '工作階段', modelsEffort: '模型與推理強度', clearFilters: '清除篩選條件', activeFilters: '作用中的篩選條件', all: '全部', localDirectory: '本機資料夾', lastActive: '最後活動', expand: '展開', viewAllSessions: '檢視所有工作階段', sortBy: '排序依據', usageLimits: '用量限制', resets: '重設時間', credits: '點數', unlimited: '無上限',
       allTime: '全部時間', behavior: '行為', settings: '設定', monthly: '按月', tokenComposition: 'Token 構成', freshInput: '未快取輸入', reasoningSubset: '已包含在輸出中', threadRoleComposition: '執行緒角色構成', childThreadsPerRootTask: '每個根任務的子執行緒數', childFreshShare: '子執行緒未快取用量占比', approvalFreshShare: '審批未快取用量占比', highEffortFreshShare: '高推理強度未快取用量占比', processedToFreshRatio: '已處理 / 未快取用量', reasoningOutputShare: '推理占輸出比例', postPatchToolCallsPerPatchCall: '每次修補呼叫的修補後工具呼叫代理量', patchCalls: '修補呼叫次數', compactions: '上下文壓縮次數',
       processed: '已處理', apiEquivalentCost: 'API 等效成本', apiEquivalentCostHelp: '依目前已建立索引的 Token 與現行官方 API 單價估算；不是帳單或訂閱扣款。已定價模型涵蓋率：{coverage}。', fresh: '未快取用量', input: '輸入', cachedInput: '快取輸入', output: '輸出', reasoning: '推理',
@@ -977,12 +1031,12 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY['zh-TW'],
   ),
   'zh-CN': providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex Beta', compare: '对比' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: '对比' },
     {
       ...TASK8_CODEX_COPY['zh-CN'],
       accountSnapshotLastObserved:
         '用量会合并此 Codex home 中的多个登录 · 额度只显示最后观测，不合并',
-      title: 'Codex 用量', beta: 'Beta', overview: '概览', usageTrend: '用量趋势', daily: '按日', date: '日期', role: '角色', scope: '范围', threadLabel: '线程', rootRole: '根任务', childRole: 'Subagent', approvalReviewerRole: '权限审批', unknownRole: '未知', noDailyData: '尚未索引到 Codex 每日用量。', noThreadData: '尚未索引到 Codex 线程。', lastTask: '最近任务', last7Days: '最近 7 天', last30Days: '最近 30 天', projects: '项目', projectLabel: '项目',
+      title: 'Codex 用量', overview: '概览', usageTrend: '用量趋势', daily: '按日', date: '日期', role: '角色', scope: '范围', threadLabel: '线程', rootRole: '根任务', childRole: 'Subagent', approvalReviewerRole: '权限审批', unknownRole: '未知', noDailyData: '尚未索引到 Codex 每日用量。', noThreadData: '尚未索引到 Codex 线程。', lastTask: '最近任务', last7Days: '最近 7 天', last30Days: '最近 30 天', projects: '项目', projectLabel: '项目',
       unnamedSession: '未命名会话', unidentifiedProject: '未识别项目', parentThread: '父线程', parentTask: '父任务', searchThreads: '搜索会话', sessions: '会话', modelsEffort: '模型与推理强度', clearFilters: '清除筛选条件', activeFilters: '生效的筛选条件', all: '全部', localDirectory: '本地文件夹', lastActive: '最后活动', expand: '展开', viewAllSessions: '查看所有会话', sortBy: '排序依据', usageLimits: '用量限制', resets: '重置时间', credits: '点数', unlimited: '无限制',
       allTime: '全部时间', behavior: '行为', settings: '设置', monthly: '按月', tokenComposition: 'Token 构成', freshInput: '未缓存输入', reasoningSubset: '已包含在输出中', threadRoleComposition: '线程角色构成', childThreadsPerRootTask: '每个根任务的子线程数', childFreshShare: '子线程未缓存用量占比', approvalFreshShare: '审批未缓存用量占比', highEffortFreshShare: '高推理强度未缓存用量占比', processedToFreshRatio: '已处理 / 未缓存用量', reasoningOutputShare: '推理占输出比例', postPatchToolCallsPerPatchCall: '每次补丁调用的补丁后工具调用代理量', patchCalls: '补丁调用次数', compactions: '上下文压缩次数',
       processed: '已处理', apiEquivalentCost: 'API 等效成本', apiEquivalentCostHelp: '按当前已索引 Token 和现行官方 API 单价估算；不是账单或订阅扣费。已定价模型覆盖率：{coverage}。', fresh: '未缓存用量', input: '输入', cachedInput: '缓存输入', output: '输出', reasoning: '推理',
@@ -993,12 +1047,12 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY['zh-CN'],
   ),
   ja: providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex Beta', compare: '比較' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: '比較' },
     {
       ...TASK8_CODEX_COPY.ja,
       accountSnapshotLastObserved:
         'この Codex home の複数ログインの使用量を合算 · 上限は最終観測のみで、合算しません',
-      title: 'Codex 使用量', beta: 'ベータ', overview: '概要', usageTrend: '使用量の推移', daily: '日別', date: '日付', role: '役割', scope: '範囲', threadLabel: 'スレッド', rootRole: 'ルート', childRole: 'サブエージェント', approvalReviewerRole: '承認レビュアー', unknownRole: '不明', noDailyData: '日別の Codex 使用量はまだ索引化されていません。', noThreadData: 'Codex スレッドはまだ索引化されていません。', lastTask: '最近のタスク', last7Days: '過去 7 日', last30Days: '過去 30 日', projects: 'プロジェクト', projectLabel: 'プロジェクト',
+      title: 'Codex 使用量', overview: '概要', usageTrend: '使用量の推移', daily: '日別', date: '日付', role: '役割', scope: '範囲', threadLabel: 'スレッド', rootRole: 'ルート', childRole: 'サブエージェント', approvalReviewerRole: '承認レビュアー', unknownRole: '不明', noDailyData: '日別の Codex 使用量はまだ索引化されていません。', noThreadData: 'Codex スレッドはまだ索引化されていません。', lastTask: '最近のタスク', last7Days: '過去 7 日', last30Days: '過去 30 日', projects: 'プロジェクト', projectLabel: 'プロジェクト',
       unnamedSession: '名前のないセッション', unidentifiedProject: '未識別のプロジェクト', parentThread: '親スレッド', parentTask: '親タスク', searchThreads: 'セッションを検索', sessions: 'セッション', modelsEffort: 'モデルと推論強度', clearFilters: 'フィルターをクリア', activeFilters: '適用中のフィルター', all: 'すべて', localDirectory: 'ローカルフォルダー', lastActive: '最終アクティブ', expand: '展開', viewAllSessions: 'すべてのセッションを表示', sortBy: '並べ替え', usageLimits: '使用量上限', resets: 'リセット', credits: 'クレジット', unlimited: '無制限',
       allTime: '全期間', behavior: '行動', settings: '設定', monthly: '月別', tokenComposition: 'トークン構成', freshInput: '非キャッシュ入力', reasoningSubset: '出力に含まれます', threadRoleComposition: 'スレッド役割構成', childThreadsPerRootTask: 'ルートタスクあたりの子スレッド', childFreshShare: '子スレッドの非キャッシュ使用量比率', approvalFreshShare: '承認の非キャッシュ使用量比率', highEffortFreshShare: '高推論強度の非キャッシュ使用量比率', processedToFreshRatio: '処理済み / 非キャッシュ使用量', reasoningOutputShare: '出力に占める推論', postPatchToolCallsPerPatchCall: 'パッチ呼び出しあたりのパッチ後ツール呼び出しプロキシ', patchCalls: 'パッチ呼び出し', compactions: 'コンテキスト圧縮',
       processed: '処理済み', apiEquivalentCost: 'API 等価コスト', apiEquivalentCostHelp: '現在索引済みの Token を現行の公式 API 単価で見積もった値です。請求額やサブスクリプション料金ではありません。価格適用率: {coverage}。', fresh: '非キャッシュ使用量', input: '入力', cachedInput: 'キャッシュ入力', output: '出力', reasoning: '推論',
@@ -1009,12 +1063,12 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY.ja,
   ),
   ko: providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex Beta', compare: '비교' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: '비교' },
     {
       ...TASK8_CODEX_COPY.ko,
       accountSnapshotLastObserved:
         '이 Codex home의 여러 로그인 사용량을 합산 · 한도는 마지막 관측만 표시하며 합산하지 않음',
-      title: 'Codex 사용량', beta: '베타', overview: '개요', usageTrend: '사용량 추이', daily: '일별', date: '날짜', role: '역할', scope: '범위', threadLabel: '스레드', rootRole: '루트', childRole: '하위 에이전트', approvalReviewerRole: '승인 검토자', unknownRole: '알 수 없음', noDailyData: '아직 일별 Codex 사용량이 인덱싱되지 않았습니다.', noThreadData: '아직 Codex 스레드가 인덱싱되지 않았습니다.', lastTask: '최근 작업', last7Days: '최근 7일', last30Days: '최근 30일', projects: '프로젝트', projectLabel: '프로젝트',
+      title: 'Codex 사용량', overview: '개요', usageTrend: '사용량 추이', daily: '일별', date: '날짜', role: '역할', scope: '범위', threadLabel: '스레드', rootRole: '루트', childRole: '하위 에이전트', approvalReviewerRole: '승인 검토자', unknownRole: '알 수 없음', noDailyData: '아직 일별 Codex 사용량이 인덱싱되지 않았습니다.', noThreadData: '아직 Codex 스레드가 인덱싱되지 않았습니다.', lastTask: '최근 작업', last7Days: '최근 7일', last30Days: '최근 30일', projects: '프로젝트', projectLabel: '프로젝트',
       unnamedSession: '이름 없는 세션', unidentifiedProject: '식별되지 않은 프로젝트', parentThread: '상위 스레드', parentTask: '상위 작업', searchThreads: '세션 검색', sessions: '세션', modelsEffort: '모델 및 추론 강도', clearFilters: '필터 지우기', activeFilters: '활성 필터', all: '전체', localDirectory: '로컬 폴더', lastActive: '마지막 활동', expand: '펼치기', viewAllSessions: '모든 세션 보기', sortBy: '정렬 기준', usageLimits: '사용량 한도', resets: '재설정', credits: '크레딧', unlimited: '무제한',
       allTime: '전체 기간', behavior: '행동', settings: '설정', monthly: '월별', tokenComposition: '토큰 구성', freshInput: '캐시되지 않은 입력', reasoningSubset: '출력에 포함됨', threadRoleComposition: '스레드 역할 구성', childThreadsPerRootTask: '루트 작업당 하위 스레드', childFreshShare: '하위 스레드 캐시되지 않은 사용량 비율', approvalFreshShare: '승인 캐시되지 않은 사용량 비율', highEffortFreshShare: '고강도 캐시되지 않은 사용량 비율', processedToFreshRatio: '처리됨 / 캐시되지 않은 사용량', reasoningOutputShare: '출력 중 추론 비율', postPatchToolCallsPerPatchCall: '패치 호출당 패치 후 도구 호출 프록시', patchCalls: '패치 호출', compactions: '컨텍스트 압축',
       processed: '처리됨', apiEquivalentCost: 'API 등가 비용', apiEquivalentCostHelp: '현재 인덱싱된 Token에 현행 공식 API 단가를 적용한 추정치입니다. 청구액이나 구독 결제액이 아닙니다. 가격 적용률: {coverage}.', fresh: '캐시되지 않은 사용량', input: '입력', cachedInput: '캐시 입력', output: '출력', reasoning: '추론',
@@ -1025,12 +1079,12 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY.ko,
   ),
   'pt-BR': providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex Beta', compare: 'Comparar' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: 'Comparar' },
     {
       ...TASK8_CODEX_COPY['pt-BR'],
       accountSnapshotLastObserved:
         'O uso combina logins neste Codex home · limites são a última observação, não somados',
-      title: 'Uso do Codex', beta: 'Beta', overview: 'Visão geral', usageTrend: 'Tendência de uso', daily: 'Diário', date: 'Data', role: 'Função', scope: 'Escopo', threadLabel: 'Thread', rootRole: 'Raiz', childRole: 'Subagente', approvalReviewerRole: 'Revisor de aprovação', unknownRole: 'Desconhecido', noDailyData: 'Nenhum uso diário do Codex foi indexado.', noThreadData: 'Nenhuma thread do Codex foi indexada.', lastTask: 'Tarefa recente', last7Days: 'Últimos 7 dias', last30Days: 'Últimos 30 dias', projects: 'Projetos', projectLabel: 'Projeto',
+      title: 'Uso do Codex', overview: 'Visão geral', usageTrend: 'Tendência de uso', daily: 'Diário', date: 'Data', role: 'Função', scope: 'Escopo', threadLabel: 'Thread', rootRole: 'Raiz', childRole: 'Subagente', approvalReviewerRole: 'Revisor de aprovação', unknownRole: 'Desconhecido', noDailyData: 'Nenhum uso diário do Codex foi indexado.', noThreadData: 'Nenhuma thread do Codex foi indexada.', lastTask: 'Tarefa recente', last7Days: 'Últimos 7 dias', last30Days: 'Últimos 30 dias', projects: 'Projetos', projectLabel: 'Projeto',
       unnamedSession: 'Sessão sem nome', unidentifiedProject: 'Projeto não identificado', parentThread: 'Thread pai', parentTask: 'Tarefa pai', searchThreads: 'Pesquisar sessões', sessions: 'Sessões', modelsEffort: 'Modelos e esforço', clearFilters: 'Limpar filtros', activeFilters: 'Filtros ativos', all: 'Tudo', localDirectory: 'Pasta local', lastActive: 'Última atividade', expand: 'Expandir', viewAllSessions: 'Ver todas as sessões', sortBy: 'Ordenar por', usageLimits: 'Limites de uso', resets: 'Redefinição', credits: 'Créditos', unlimited: 'Ilimitado',
       allTime: 'Todo o período', behavior: 'Comportamento', settings: 'Configurações', monthly: 'Mensal', tokenComposition: 'Composição de tokens', freshInput: 'Entrada sem cache', reasoningSubset: 'Incluído na saída', threadRoleComposition: 'Composição por função da thread', childThreadsPerRootTask: 'Threads filhas / tarefa raiz', childFreshShare: 'Participação do uso sem cache das threads filhas', approvalFreshShare: 'Participação do uso sem cache de aprovação', highEffortFreshShare: 'Participação do uso sem cache de alto esforço', processedToFreshRatio: 'Processado / uso sem cache', reasoningOutputShare: 'Participação do raciocínio na saída', postPatchToolCallsPerPatchCall: 'Proxy de chamadas de ferramenta pós-patch / chamada de patch', patchCalls: 'Chamadas de patch', compactions: 'Compactações',
       processed: 'Processado', apiEquivalentCost: 'Custo equivalente de API', apiEquivalentCostHelp: 'Estimado a partir dos Tokens indexados no momento com os preços oficiais atuais da API; não é uma fatura nem uma cobrança de assinatura. Cobertura de preços: {coverage}.', fresh: 'Uso sem cache', input: 'Entrada', cachedInput: 'Entrada em cache', output: 'Saída', reasoning: 'Raciocínio',
@@ -1041,12 +1095,12 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY['pt-BR'],
   ),
   id: providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex Beta', compare: 'Bandingkan' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: 'Bandingkan' },
     {
       ...TASK8_CODEX_COPY.id,
       accountSnapshotLastObserved:
         'Penggunaan menggabungkan login di Codex home ini · batas adalah pengamatan terakhir, tidak dijumlahkan',
-      title: 'Penggunaan Codex', beta: 'Beta', overview: 'Ringkasan', usageTrend: 'Tren penggunaan', daily: 'Harian', date: 'Tanggal', role: 'Peran', scope: 'Cakupan', threadLabel: 'Thread', rootRole: 'Utama', childRole: 'Subagen', approvalReviewerRole: 'Peninjau persetujuan', unknownRole: 'Tidak diketahui', noDailyData: 'Belum ada penggunaan harian Codex yang diindeks.', noThreadData: 'Belum ada thread Codex yang diindeks.', lastTask: 'Tugas terbaru', last7Days: '7 hari terakhir', last30Days: '30 hari terakhir', projects: 'Proyek', projectLabel: 'Proyek',
+      title: 'Penggunaan Codex', overview: 'Ringkasan', usageTrend: 'Tren penggunaan', daily: 'Harian', date: 'Tanggal', role: 'Peran', scope: 'Cakupan', threadLabel: 'Thread', rootRole: 'Utama', childRole: 'Subagen', approvalReviewerRole: 'Peninjau persetujuan', unknownRole: 'Tidak diketahui', noDailyData: 'Belum ada penggunaan harian Codex yang diindeks.', noThreadData: 'Belum ada thread Codex yang diindeks.', lastTask: 'Tugas terbaru', last7Days: '7 hari terakhir', last30Days: '30 hari terakhir', projects: 'Proyek', projectLabel: 'Proyek',
       unnamedSession: 'Sesi tanpa nama', unidentifiedProject: 'Proyek tidak teridentifikasi', parentThread: 'Thread induk', parentTask: 'Tugas induk', searchThreads: 'Cari sesi', sessions: 'Sesi', modelsEffort: 'Model & upaya', clearFilters: 'Hapus filter', activeFilters: 'Filter aktif', all: 'Semua', localDirectory: 'Folder lokal', lastActive: 'Terakhir aktif', expand: 'Perluas', viewAllSessions: 'Lihat semua sesi', sortBy: 'Urutkan berdasarkan', usageLimits: 'Batas penggunaan', resets: 'Reset', credits: 'Kredit', unlimited: 'Tanpa batas',
       allTime: 'Sepanjang waktu', behavior: 'Perilaku', settings: 'Pengaturan', monthly: 'Bulanan', tokenComposition: 'Komposisi token', freshInput: 'Input tanpa cache', reasoningSubset: 'Termasuk dalam output', threadRoleComposition: 'Komposisi peran thread', childThreadsPerRootTask: 'Thread anak / tugas utama', childFreshShare: 'Porsi penggunaan tanpa cache thread anak', approvalFreshShare: 'Porsi penggunaan tanpa cache persetujuan', highEffortFreshShare: 'Porsi penggunaan tanpa cache effort tinggi', processedToFreshRatio: 'Diproses / penggunaan tanpa cache', reasoningOutputShare: 'Porsi penalaran dalam output', postPatchToolCallsPerPatchCall: 'Proksi panggilan alat pasca-patch / panggilan patch', patchCalls: 'Panggilan patch', compactions: 'Pemadatan konteks',
       processed: 'Diproses', apiEquivalentCost: 'Biaya ekuivalen API', apiEquivalentCostHelp: 'Perkiraan dari Token yang saat ini terindeks dengan harga API resmi terkini; bukan tagihan atau biaya langganan. Cakupan harga: {coverage}.', fresh: 'Penggunaan tanpa cache', input: 'Input', cachedInput: 'Input cache', output: 'Output', reasoning: 'Penalaran',
@@ -3635,6 +3689,545 @@ const translations: Record<SupportedLanguage, Translations> = {
 // non-English UIs so the descriptions follow the plugin language too. Code /
 // command tokens (token, /v1/messages, opus:NN%, k/M, git/folder/flat …) are kept
 // verbatim. Generated with DeepSeek V4 Pro and validated for completeness.
+type SharingWorkspaceDerivedField =
+  | 'thisMonth'
+  | 'totalTokens'
+  | 'cacheHitRate'
+  | 'topModel'
+  | 'sessionCount'
+  | 'tokenMix'
+  | 'messageCount'
+  | 'projectName';
+
+function sharingWorkspaceCopy(
+  locale: SupportedLanguage,
+  copy: Omit<SharingWorkspaceTranslations, SharingWorkspaceDerivedField>,
+): SharingWorkspaceTranslations {
+  const popup = translations[locale].popup;
+  return {
+    ...copy,
+    thisMonth: popup.thisMonth,
+    totalTokens: popup.totalTokens,
+    cacheHitRate: popup.cacheHitRate,
+    topModel: popup.model,
+    sessionCount: popup.sessions,
+    tokenMix: popup.tokenComposition,
+    messageCount: popup.messages,
+    projectName: popup.project,
+  };
+}
+
+/** Locale-complete copy for the unified sharing workspace. Presentation names
+ * remain provider-qualified so the selector never implies metric equivalence. */
+export const SHARING_WORKSPACE_TRANSLATIONS: Record<SupportedLanguage, SharingWorkspaceTranslations> = {
+  en: sharingWorkspaceCopy('en', {
+    eyebrow: 'Share',
+    panelTitle: 'Sharing workspace',
+    description: 'Choose a presentation, review the full export preview, then use the controls below it.',
+    privacyBadge: 'Local preview · explicit export',
+    presentationLabel: 'Presentation',
+    combinedPresentation: 'Combined activity heatmap',
+    combinedPresentationDescription: 'Claude and Codex processed-token activity by local calendar day.',
+    claudeCardPresentation: 'Claude Share Card',
+    claudeCardPresentationDescription: 'Claude-only usage totals, estimates, and optional aggregate scope details.',
+    claudeHeatmapPresentation: 'Claude token heatmap',
+    claudeHeatmapPresentationDescription: 'The legacy Claude-only GitHub-style yearly token heatmap.',
+    combinedUnavailable: 'Available when both Claude and Codex have indexed daily activity.',
+    rangeRollingGroup: 'Rolling ranges',
+    rangeSpecificMonthGroup: 'Specific month',
+    last7: 'Last 7 days',
+    last12Months: 'Last 12 months',
+    todayHourly: 'Today (hourly)',
+    lastMonthSuffix: 'last month',
+    scopeLabel: 'Scope',
+    scopeAllGroup: 'All Claude usage',
+    overall: 'Overall',
+    byProject: 'By project',
+    bySession: 'By session',
+    themeLabel: 'Theme',
+    claudeClassic: 'Claude Classic',
+    claudeCream: 'Claude Cream',
+    auroraDark: 'Aurora Dark',
+    autoTheme: 'Auto (follow VS Code)',
+    cardContentsLabel: 'Card contents',
+    estimatedCost: 'Estimated cost',
+    dailyPulse: 'Daily pulse',
+    badge: 'Badge',
+    fullNumbers: 'Full numbers',
+    fullNumbersHelp: 'Show exact token counts instead of compact values such as 1.2M.',
+    previewPending: 'The preview will appear here.',
+    generating: 'Generating preview…',
+    cardBuildFailed: 'Could not build the card:',
+    publishGitHub: 'Publish to GitHub…',
+    publishPreferenceSaveWarning: 'The file was published, but this destination could not be saved for next time.',
+    claudeHeatmapDisclaimer: 'Claude-only token activity. Publishing still requires the existing public-repository checks and exact confirmation.',
+    noClaudeData: 'No Claude usage is available for sharing yet.',
+  }),
+  'de-DE': sharingWorkspaceCopy('de-DE', {
+    eyebrow: 'Freigeben',
+    panelTitle: 'Freigabe-Arbeitsbereich',
+    description: 'Wähle eine Darstellung, prüfe die vollständige Exportvorschau und nutze danach die darunterliegenden Steuerelemente.',
+    privacyBadge: 'Lokale Vorschau · ausdrücklicher Export',
+    presentationLabel: 'Darstellung',
+    combinedPresentation: 'Kombinierte Aktivitäts-Heatmap',
+    combinedPresentationDescription: 'Verarbeitete Token-Aktivität von Claude und Codex nach lokalem Kalendertag.',
+    claudeCardPresentation: 'Claude-Freigabekarte',
+    claudeCardPresentationDescription: 'Nur Claude: Nutzungssummen, Schätzungen und optionale aggregierte Bereichsdetails.',
+    claudeHeatmapPresentation: 'Claude-Token-Heatmap',
+    claudeHeatmapPresentationDescription: 'Die bisherige GitHub-artige Jahres-Heatmap nur für Claude.',
+    combinedUnavailable: 'Verfügbar, sobald Claude und Codex beide indexierte Tagesaktivität haben.',
+    rangeRollingGroup: 'Gleitende Zeiträume',
+    rangeSpecificMonthGroup: 'Bestimmter Monat',
+    last7: 'Letzte 7 Tage',
+    last12Months: 'Letzte 12 Monate',
+    todayHourly: 'Heute (stündlich)',
+    lastMonthSuffix: 'letzter Monat',
+    scopeLabel: 'Bereich',
+    scopeAllGroup: 'Gesamte Claude-Nutzung',
+    overall: 'Gesamt',
+    byProject: 'Nach Projekt',
+    bySession: 'Nach Sitzung',
+    themeLabel: 'Design',
+    claudeClassic: 'Claude Classic',
+    claudeCream: 'Claude Cream',
+    auroraDark: 'Aurora Dark',
+    autoTheme: 'Automatisch (VS Code folgen)',
+    cardContentsLabel: 'Karteninhalt',
+    estimatedCost: 'Geschätzte Kosten',
+    dailyPulse: 'Tagesrhythmus',
+    badge: 'Abzeichen',
+    fullNumbers: 'Vollständige Zahlen',
+    fullNumbersHelp: 'Zeigt exakte Tokenzahlen statt kompakter Werte wie 1,2 Mio.',
+    previewPending: 'Die Vorschau erscheint hier.',
+    generating: 'Vorschau wird erstellt…',
+    cardBuildFailed: 'Die Karte konnte nicht erstellt werden:',
+    publishGitHub: 'Auf GitHub veröffentlichen…',
+    publishPreferenceSaveWarning: 'Die Datei wurde veröffentlicht, aber dieses Ziel konnte nicht für das nächste Mal gespeichert werden.',
+    claudeHeatmapDisclaimer: 'Nur Claude-Tokenaktivität. Für die Veröffentlichung gelten weiterhin die Prüfungen für öffentliche Repositories und die exakte Bestätigung.',
+    noClaudeData: 'Noch keine Claude-Nutzung zum Teilen verfügbar.',
+  }),
+  'zh-TW': sharingWorkspaceCopy('zh-TW', {
+    eyebrow: '分享',
+    panelTitle: '分享工作區',
+    description: '選擇呈現方式，先檢查完整匯出預覽，再使用下方控制項。',
+    privacyBadge: '本機預覽 · 明確匯出',
+    presentationLabel: '呈現方式',
+    combinedPresentation: '綜合活動熱力圖',
+    combinedPresentationDescription: '依本機自然日呈現 Claude 與 Codex 的已處理 Token 活動量。',
+    claudeCardPresentation: 'Claude 分享卡',
+    claudeCardPresentationDescription: '僅含 Claude 用量總計、估算與可選的彙總範圍資訊。',
+    claudeHeatmapPresentation: 'Claude Token 熱力圖',
+    claudeHeatmapPresentationDescription: '舊版僅 Claude 的 GitHub 風格年度 Token 熱力圖。',
+    combinedUnavailable: 'Claude 與 Codex 都有已索引的每日活動後即可使用。',
+    rangeRollingGroup: '滾動範圍',
+    rangeSpecificMonthGroup: '指定月份',
+    last7: '最近 7 天',
+    last12Months: '最近 12 個月',
+    todayHourly: '今天（每小時）',
+    lastMonthSuffix: '上個月',
+    scopeLabel: '範圍',
+    scopeAllGroup: '全部 Claude 用量',
+    overall: '整體',
+    byProject: '依專案',
+    bySession: '依工作階段',
+    themeLabel: '主題',
+    claudeClassic: 'Claude 經典',
+    claudeCream: 'Claude 奶油',
+    auroraDark: '極光深色',
+    autoTheme: '自動（跟隨 VS Code）',
+    cardContentsLabel: '卡片內容',
+    estimatedCost: '預估成本',
+    dailyPulse: '每日節奏',
+    badge: '徽章',
+    fullNumbers: '完整數字',
+    fullNumbersHelp: '顯示精確 Token 數，而不是 1.2M 等精簡值。',
+    previewPending: '預覽會顯示在這裡。',
+    generating: '正在產生預覽…',
+    cardBuildFailed: '無法建立卡片：',
+    publishGitHub: '發佈到 GitHub…',
+    publishPreferenceSaveWarning: '檔案已發佈，但無法儲存此目的地供下次使用。',
+    claudeHeatmapDisclaimer: '僅顯示 Claude Token 活動。發佈仍須通過既有的公開儲存庫檢查與精確確認。',
+    noClaudeData: '尚無可分享的 Claude 用量。',
+  }),
+  'zh-CN': sharingWorkspaceCopy('zh-CN', {
+    eyebrow: '分享',
+    panelTitle: '分享工作台',
+    description: '选择呈现方式，先检查完整导出预览，再使用下方控件。',
+    privacyBadge: '本地预览 · 明确导出',
+    presentationLabel: '呈现方式',
+    combinedPresentation: '综合活动热力图',
+    combinedPresentationDescription: '按本地自然日呈现 Claude 与 Codex 的已处理 Token 活动量。',
+    claudeCardPresentation: 'Claude 分享卡',
+    claudeCardPresentationDescription: '仅含 Claude 用量总计、估算与可选的汇总范围信息。',
+    claudeHeatmapPresentation: 'Claude Token 热力图',
+    claudeHeatmapPresentationDescription: '旧版仅 Claude 的 GitHub 风格年度 Token 热力图。',
+    combinedUnavailable: 'Claude 与 Codex 都有已索引的每日活动后即可使用。',
+    rangeRollingGroup: '滚动范围',
+    rangeSpecificMonthGroup: '指定月份',
+    last7: '最近 7 天',
+    last12Months: '最近 12 个月',
+    todayHourly: '今天（每小时）',
+    lastMonthSuffix: '上个月',
+    scopeLabel: '范围',
+    scopeAllGroup: '全部 Claude 用量',
+    overall: '总体',
+    byProject: '按项目',
+    bySession: '按会话',
+    themeLabel: '主题',
+    claudeClassic: 'Claude 经典',
+    claudeCream: 'Claude 奶油',
+    auroraDark: '极光深色',
+    autoTheme: '自动（跟随 VS Code）',
+    cardContentsLabel: '卡片内容',
+    estimatedCost: '预估成本',
+    dailyPulse: '每日节奏',
+    badge: '徽章',
+    fullNumbers: '完整数字',
+    fullNumbersHelp: '显示精确 Token 数，而不是 1.2M 等紧凑值。',
+    previewPending: '预览会显示在这里。',
+    generating: '正在生成预览…',
+    cardBuildFailed: '无法生成卡片：',
+    publishGitHub: '发布到 GitHub…',
+    publishPreferenceSaveWarning: '文件已发布，但无法保存此目标供下次使用。',
+    claudeHeatmapDisclaimer: '仅显示 Claude Token 活动。发布仍须通过现有的公共仓库检查与精确确认。',
+    noClaudeData: '尚无可分享的 Claude 用量。',
+  }),
+  ja: sharingWorkspaceCopy('ja', {
+    eyebrow: '共有',
+    panelTitle: '共有ワークスペース',
+    description: '表示形式を選び、完全な書き出しプレビューを確認してから、下のコントロールを使用します。',
+    privacyBadge: 'ローカルプレビュー · 明示的な書き出し',
+    presentationLabel: '表示形式',
+    combinedPresentation: '統合アクティビティヒートマップ',
+    combinedPresentationDescription: 'ローカル暦日ごとの Claude と Codex の処理済みトークン活動。',
+    claudeCardPresentation: 'Claude 共有カード',
+    claudeCardPresentationDescription: 'Claude のみの使用量合計、推定値、任意の集計範囲情報。',
+    claudeHeatmapPresentation: 'Claude トークンヒートマップ',
+    claudeHeatmapPresentationDescription: '従来の Claude 専用 GitHub 風年間トークンヒートマップ。',
+    combinedUnavailable: 'Claude と Codex の両方にインデックス済みの日別活動があると利用できます。',
+    rangeRollingGroup: 'ローリング期間',
+    rangeSpecificMonthGroup: '指定月',
+    last7: '過去 7 日間',
+    last12Months: '過去 12 か月',
+    todayHourly: '今日（1時間ごと）',
+    lastMonthSuffix: '先月',
+    scopeLabel: '範囲',
+    scopeAllGroup: 'Claude の全使用量',
+    overall: '全体',
+    byProject: 'プロジェクト別',
+    bySession: 'セッション別',
+    themeLabel: 'テーマ',
+    claudeClassic: 'Claude クラシック',
+    claudeCream: 'Claude クリーム',
+    auroraDark: 'オーロラダーク',
+    autoTheme: '自動（VS Code に合わせる）',
+    cardContentsLabel: 'カード内容',
+    estimatedCost: '推定コスト',
+    dailyPulse: '日別パルス',
+    badge: 'バッジ',
+    fullNumbers: '完全な数値',
+    fullNumbersHelp: '1.2M のような省略値ではなく正確なトークン数を表示します。',
+    previewPending: 'プレビューはここに表示されます。',
+    generating: 'プレビューを生成中…',
+    cardBuildFailed: 'カードを作成できませんでした：',
+    publishGitHub: 'GitHub に公開…',
+    publishPreferenceSaveWarning: 'ファイルは公開されましたが、次回用にこの公開先を保存できませんでした。',
+    claudeHeatmapDisclaimer: 'Claude のトークン活動のみです。公開には従来どおり公開リポジトリの検査と正確な確認が必要です。',
+    noClaudeData: '共有できる Claude 使用量はまだありません。',
+  }),
+  ko: sharingWorkspaceCopy('ko', {
+    eyebrow: '공유',
+    panelTitle: '공유 작업 공간',
+    description: '표시 형식을 선택하고 전체 내보내기 미리보기를 확인한 뒤 아래 컨트롤을 사용하세요.',
+    privacyBadge: '로컬 미리보기 · 명시적 내보내기',
+    presentationLabel: '표시 형식',
+    combinedPresentation: '통합 활동 히트맵',
+    combinedPresentationDescription: '로컬 달력 날짜별 Claude와 Codex의 처리된 토큰 활동입니다.',
+    claudeCardPresentation: 'Claude 공유 카드',
+    claudeCardPresentationDescription: 'Claude 전용 사용량 합계, 추정치 및 선택적 집계 범위 정보입니다.',
+    claudeHeatmapPresentation: 'Claude 토큰 히트맵',
+    claudeHeatmapPresentationDescription: '기존 Claude 전용 GitHub 스타일 연간 토큰 히트맵입니다.',
+    combinedUnavailable: 'Claude와 Codex 모두 인덱싱된 일별 활동이 있을 때 사용할 수 있습니다.',
+    rangeRollingGroup: '이동 범위',
+    rangeSpecificMonthGroup: '특정 월',
+    last7: '최근 7일',
+    last12Months: '최근 12개월',
+    todayHourly: '오늘(시간별)',
+    lastMonthSuffix: '지난달',
+    scopeLabel: '범위',
+    scopeAllGroup: '전체 Claude 사용량',
+    overall: '전체',
+    byProject: '프로젝트별',
+    bySession: '세션별',
+    themeLabel: '테마',
+    claudeClassic: 'Claude 클래식',
+    claudeCream: 'Claude 크림',
+    auroraDark: '오로라 다크',
+    autoTheme: '자동(VS Code 따름)',
+    cardContentsLabel: '카드 내용',
+    estimatedCost: '예상 비용',
+    dailyPulse: '일별 흐름',
+    badge: '배지',
+    fullNumbers: '전체 숫자',
+    fullNumbersHelp: '1.2M 같은 축약값 대신 정확한 토큰 수를 표시합니다.',
+    previewPending: '미리보기가 여기에 표시됩니다.',
+    generating: '미리보기 생성 중…',
+    cardBuildFailed: '카드를 만들 수 없습니다:',
+    publishGitHub: 'GitHub에 게시…',
+    publishPreferenceSaveWarning: '파일은 게시되었지만 다음 사용을 위해 이 대상을 저장하지 못했습니다.',
+    claudeHeatmapDisclaimer: 'Claude 토큰 활동만 표시합니다. 게시하려면 기존 공개 저장소 검사와 정확한 확인이 계속 필요합니다.',
+    noClaudeData: '아직 공유할 Claude 사용량이 없습니다.',
+  }),
+  'pt-BR': sharingWorkspaceCopy('pt-BR', {
+    eyebrow: 'Compartilhar',
+    panelTitle: 'Espaço de compartilhamento',
+    description: 'Escolha uma apresentação, revise a prévia completa da exportação e então use os controles abaixo dela.',
+    privacyBadge: 'Prévia local · exportação explícita',
+    presentationLabel: 'Apresentação',
+    combinedPresentation: 'Mapa de calor de atividade combinado',
+    combinedPresentationDescription: 'Atividade de tokens processados do Claude e do Codex por dia do calendário local.',
+    claudeCardPresentation: 'Cartão de compartilhamento do Claude',
+    claudeCardPresentationDescription: 'Totais, estimativas e detalhes opcionais de escopo agregado somente do Claude.',
+    claudeHeatmapPresentation: 'Mapa de calor de tokens do Claude',
+    claudeHeatmapPresentationDescription: 'O mapa de calor anual legado, estilo GitHub, somente do Claude.',
+    combinedUnavailable: 'Disponível quando Claude e Codex têm atividade diária indexada.',
+    rangeRollingGroup: 'Intervalos móveis',
+    rangeSpecificMonthGroup: 'Mês específico',
+    last7: 'Últimos 7 dias',
+    last12Months: 'Últimos 12 meses',
+    todayHourly: 'Hoje (por hora)',
+    lastMonthSuffix: 'mês passado',
+    scopeLabel: 'Escopo',
+    scopeAllGroup: 'Todo o uso do Claude',
+    overall: 'Geral',
+    byProject: 'Por projeto',
+    bySession: 'Por sessão',
+    themeLabel: 'Tema',
+    claudeClassic: 'Claude Clássico',
+    claudeCream: 'Claude Creme',
+    auroraDark: 'Aurora Escuro',
+    autoTheme: 'Automático (seguir o VS Code)',
+    cardContentsLabel: 'Conteúdo do cartão',
+    estimatedCost: 'Custo estimado',
+    dailyPulse: 'Pulso diário',
+    badge: 'Selo',
+    fullNumbers: 'Números completos',
+    fullNumbersHelp: 'Mostra contagens exatas de tokens em vez de valores compactos como 1,2 mi.',
+    previewPending: 'A prévia aparecerá aqui.',
+    generating: 'Gerando prévia…',
+    cardBuildFailed: 'Não foi possível criar o cartão:',
+    publishGitHub: 'Publicar no GitHub…',
+    publishPreferenceSaveWarning: 'O arquivo foi publicado, mas este destino não pôde ser salvo para a próxima vez.',
+    claudeHeatmapDisclaimer: 'Somente atividade de tokens do Claude. A publicação ainda exige as verificações de repositório público e a confirmação exata existentes.',
+    noClaudeData: 'Ainda não há uso do Claude disponível para compartilhar.',
+  }),
+  id: sharingWorkspaceCopy('id', {
+    eyebrow: 'Bagikan',
+    panelTitle: 'Ruang kerja berbagi',
+    description: 'Pilih presentasi, tinjau pratinjau ekspor lengkap, lalu gunakan kontrol di bawahnya.',
+    privacyBadge: 'Pratinjau lokal · ekspor eksplisit',
+    presentationLabel: 'Presentasi',
+    combinedPresentation: 'Heatmap aktivitas gabungan',
+    combinedPresentationDescription: 'Aktivitas token yang diproses Claude dan Codex per hari kalender lokal.',
+    claudeCardPresentation: 'Kartu Berbagi Claude',
+    claudeCardPresentationDescription: 'Total penggunaan, estimasi, dan detail cakupan agregat opsional khusus Claude.',
+    claudeHeatmapPresentation: 'Heatmap token Claude',
+    claudeHeatmapPresentationDescription: 'Heatmap token tahunan gaya GitHub lama yang hanya mencakup Claude.',
+    combinedUnavailable: 'Tersedia saat Claude dan Codex memiliki aktivitas harian terindeks.',
+    rangeRollingGroup: 'Rentang bergulir',
+    rangeSpecificMonthGroup: 'Bulan tertentu',
+    last7: '7 hari terakhir',
+    last12Months: '12 bulan terakhir',
+    todayHourly: 'Hari ini (per jam)',
+    lastMonthSuffix: 'bulan lalu',
+    scopeLabel: 'Cakupan',
+    scopeAllGroup: 'Semua penggunaan Claude',
+    overall: 'Keseluruhan',
+    byProject: 'Menurut proyek',
+    bySession: 'Menurut sesi',
+    themeLabel: 'Tema',
+    claudeClassic: 'Claude Klasik',
+    claudeCream: 'Claude Krem',
+    auroraDark: 'Aurora Gelap',
+    autoTheme: 'Otomatis (ikuti VS Code)',
+    cardContentsLabel: 'Isi kartu',
+    estimatedCost: 'Perkiraan biaya',
+    dailyPulse: 'Denyut harian',
+    badge: 'Lencana',
+    fullNumbers: 'Angka lengkap',
+    fullNumbersHelp: 'Tampilkan jumlah token persis, bukan nilai ringkas seperti 1,2 jt.',
+    previewPending: 'Pratinjau akan muncul di sini.',
+    generating: 'Membuat pratinjau…',
+    cardBuildFailed: 'Kartu tidak dapat dibuat:',
+    publishGitHub: 'Publikasikan ke GitHub…',
+    publishPreferenceSaveWarning: 'File telah dipublikasikan, tetapi tujuan ini tidak dapat disimpan untuk penggunaan berikutnya.',
+    claudeHeatmapDisclaimer: 'Hanya aktivitas token Claude. Publikasi tetap memerlukan pemeriksaan repositori publik dan konfirmasi target yang persis.',
+    noClaudeData: 'Belum ada penggunaan Claude yang dapat dibagikan.',
+  }),
+};
+
+export interface ShareCardArtifactTranslations {
+  subtitle: string;
+  totalTokens: string;
+  spent: string;
+  sessionsUnit: string;
+  estCost: string;
+  cacheHit: string;
+  topModel: string;
+  sessions: string;
+  messages: string;
+  workflows: string;
+  peakCtx: string;
+  tokenMix: string;
+  input: string;
+  output: string;
+  cacheWrite: string;
+  cacheRead: string;
+  daily: string;
+  hourly: string;
+  peak: string;
+  madeWith: string;
+  today: string;
+  last7: string;
+  last30: string;
+  thisMonth: string;
+  last12Months: string;
+}
+
+export interface HeatmapArtifactTranslations {
+  tokens: string;
+  sessions: string;
+  usage: string;
+  inClaudeCode: string;
+  no: string;
+  on: string;
+  less: string;
+  more: string;
+  madeWith: string;
+  combinedTitle: string;
+  combined: string;
+  processedTokens: string;
+  combinedFooter: string;
+}
+
+export const SHARE_CARD_ARTIFACT_TRANSLATIONS: Record<SupportedLanguage, ShareCardArtifactTranslations> = {
+  en: {
+    subtitle: 'AI coding usage snapshot', totalTokens: 'total tokens', spent: 'estimated spend', sessionsUnit: 'sessions',
+    estCost: 'est. cost', cacheHit: 'cache hit', topModel: 'top model', sessions: 'sessions', messages: 'messages',
+    workflows: 'workflows', peakCtx: 'peak ctx', tokenMix: 'Token mix', input: 'Input', output: 'Output',
+    cacheWrite: 'Cache write', cacheRead: 'Cache read', daily: 'Daily pulse', hourly: 'Hourly pulse', peak: 'peak',
+    madeWith: 'Made with Claude Code Usage', today: 'today', last7: 'the last 7 days', last30: 'the last 30 days',
+    thisMonth: 'this month', last12Months: 'the last 12 months',
+  },
+  'de-DE': {
+    subtitle: 'Momentaufnahme der KI-Programmier-Nutzung', totalTokens: 'Gesamttoken', spent: 'geschätzte Ausgaben', sessionsUnit: 'Sitzungen',
+    estCost: 'geschätzte Kosten', cacheHit: 'Cache-Treffer', topModel: 'Topmodell', sessions: 'Sitzungen', messages: 'Nachrichten',
+    workflows: 'Workflows', peakCtx: 'max. Kontext', tokenMix: 'Token-Mix', input: 'Eingabe', output: 'Ausgabe',
+    cacheWrite: 'Cache-Schreiben', cacheRead: 'Cache-Lesen', daily: 'Tagesverlauf', hourly: 'Stundenverlauf', peak: 'Spitze',
+    madeWith: 'Erstellt mit Claude Code Usage', today: 'heute', last7: 'die letzten 7 Tage', last30: 'die letzten 30 Tage',
+    thisMonth: 'dieser Monat', last12Months: 'die letzten 12 Monate',
+  },
+  'zh-TW': {
+    subtitle: 'AI 程式設計用量快照', totalTokens: '總 token', spent: '預計花費', sessionsUnit: '會話',
+    estCost: '預計成本', cacheHit: '快取命中', topModel: '主力模型', sessions: '會話數', messages: '訊息數',
+    workflows: '工作流', peakCtx: '峰值上下文', tokenMix: 'Token 組成', input: '輸入', output: '輸出',
+    cacheWrite: '快取寫入', cacheRead: '快取讀取', daily: '每日節奏', hourly: '每小時節奏', peak: '峰值',
+    madeWith: '由 Claude Code Usage 製作', today: '今天', last7: '最近 7 天', last30: '最近 30 天',
+    thisMonth: '本月', last12Months: '最近 12 個月',
+  },
+  'zh-CN': {
+    subtitle: 'AI 编程用量快照', totalTokens: '总 token', spent: '预计花费', sessionsUnit: '会话',
+    estCost: '预计成本', cacheHit: '缓存命中', topModel: '主力模型', sessions: '会话数', messages: '消息数',
+    workflows: '工作流', peakCtx: '峰值上下文', tokenMix: 'Token 组成', input: '输入', output: '输出',
+    cacheWrite: '缓存写入', cacheRead: '缓存读取', daily: '每日节奏', hourly: '每小时节奏', peak: '峰值',
+    madeWith: '由 Claude Code Usage 制作', today: '今天', last7: '最近 7 天', last30: '最近 30 天',
+    thisMonth: '本月', last12Months: '最近 12 个月',
+  },
+  ja: {
+    subtitle: 'AI コーディング使用量のスナップショット', totalTokens: '総トークン', spent: '推定使用額', sessionsUnit: 'セッション',
+    estCost: '推定コスト', cacheHit: 'キャッシュヒット', topModel: '最多モデル', sessions: 'セッション', messages: 'メッセージ',
+    workflows: 'ワークフロー', peakCtx: '最大コンテキスト', tokenMix: 'トークン構成', input: '入力', output: '出力',
+    cacheWrite: 'キャッシュ書込', cacheRead: 'キャッシュ読込', daily: '日別推移', hourly: '時間別推移', peak: 'ピーク',
+    madeWith: 'Claude Code Usage で作成', today: '今日', last7: '過去 7 日間', last30: '過去 30 日間',
+    thisMonth: '今月', last12Months: '過去 12 か月',
+  },
+  ko: {
+    subtitle: 'AI 코딩 사용량 스냅샷', totalTokens: '총 토큰', spent: '예상 지출', sessionsUnit: '세션',
+    estCost: '예상 비용', cacheHit: '캐시 적중', topModel: '최다 모델', sessions: '세션', messages: '메시지',
+    workflows: '워크플로', peakCtx: '최대 컨텍스트', tokenMix: '토큰 구성', input: '입력', output: '출력',
+    cacheWrite: '캐시 쓰기', cacheRead: '캐시 읽기', daily: '일별 흐름', hourly: '시간별 흐름', peak: '최고',
+    madeWith: 'Claude Code Usage로 제작', today: '오늘', last7: '최근 7일', last30: '최근 30일',
+    thisMonth: '이번 달', last12Months: '최근 12개월',
+  },
+  'pt-BR': {
+    subtitle: 'Resumo do uso de programação com IA', totalTokens: 'total de tokens', spent: 'gasto estimado', sessionsUnit: 'sessões',
+    estCost: 'custo estimado', cacheHit: 'acerto de cache', topModel: 'modelo principal', sessions: 'sessões', messages: 'mensagens',
+    workflows: 'fluxos', peakCtx: 'pico de contexto', tokenMix: 'Composição de tokens', input: 'Entrada', output: 'Saída',
+    cacheWrite: 'Gravação em cache', cacheRead: 'Leitura do cache', daily: 'Pulso diário', hourly: 'Pulso por hora', peak: 'pico',
+    madeWith: 'Criado com Claude Code Usage', today: 'hoje', last7: 'os últimos 7 dias', last30: 'os últimos 30 dias',
+    thisMonth: 'este mês', last12Months: 'os últimos 12 meses',
+  },
+  id: {
+    subtitle: 'Ringkasan penggunaan coding AI', totalTokens: 'total token', spent: 'perkiraan pengeluaran', sessionsUnit: 'sesi',
+    estCost: 'perkiraan biaya', cacheHit: 'cache hit', topModel: 'model teratas', sessions: 'sesi', messages: 'pesan',
+    workflows: 'alur kerja', peakCtx: 'konteks puncak', tokenMix: 'Komposisi token', input: 'Input', output: 'Output',
+    cacheWrite: 'Tulis cache', cacheRead: 'Baca cache', daily: 'Denyut harian', hourly: 'Denyut per jam', peak: 'puncak',
+    madeWith: 'Dibuat dengan Claude Code Usage', today: 'hari ini', last7: '7 hari terakhir', last30: '30 hari terakhir',
+    thisMonth: 'bulan ini', last12Months: '12 bulan terakhir',
+  },
+};
+
+export const HEATMAP_ARTIFACT_TRANSLATIONS: Record<SupportedLanguage, HeatmapArtifactTranslations> = {
+  en: { tokens: 'tokens', sessions: 'sessions', usage: 'usage', inClaudeCode: 'in Claude Code', no: 'No', on: 'on', less: 'Less', more: 'More', madeWith: 'Made with Claude Code Usage', combinedTitle: 'Claude + Codex local activity', combined: 'Combined', processedTokens: 'processed tokens', combinedFooter: 'Local activity volume · not productivity, billing, or provider equivalence' },
+  'de-DE': { tokens: 'Token', sessions: 'Sitzungen', usage: 'Nutzung', inClaudeCode: 'in Claude Code', no: 'Keine', on: 'am', less: 'Weniger', more: 'Mehr', madeWith: 'Erstellt mit Claude Code Usage', combinedTitle: 'Lokale Aktivität von Claude + Codex', combined: 'Kombiniert', processedTokens: 'verarbeitete Token', combinedFooter: 'Lokales Aktivitätsvolumen · keine Produktivität, Abrechnung oder Anbieter-Gleichwertigkeit' },
+  'zh-TW': { tokens: 'Token', sessions: '會話', usage: '用量', inClaudeCode: '於 Claude Code', no: '無', on: '日期', less: '較少', more: '較多', madeWith: '由 Claude Code Usage 製作', combinedTitle: 'Claude + Codex 本機活動', combined: '綜合', processedTokens: '已處理 Token', combinedFooter: '本機活動量 · 不代表生產力、帳單或供應商等價性' },
+  'zh-CN': { tokens: 'Token', sessions: '会话', usage: '用量', inClaudeCode: '于 Claude Code', no: '无', on: '日期', less: '较少', more: '较多', madeWith: '由 Claude Code Usage 制作', combinedTitle: 'Claude + Codex 本地活动', combined: '综合', processedTokens: '已处理 Token', combinedFooter: '本地活动量 · 不代表生产力、账单或供应商等价性' },
+  ja: { tokens: 'トークン', sessions: 'セッション', usage: '使用量', inClaudeCode: '（Claude Code）', no: 'なし：', on: '日付', less: '少ない', more: '多い', madeWith: 'Claude Code Usage で作成', combinedTitle: 'Claude + Codex のローカルアクティビティ', combined: '合計', processedTokens: '処理済みトークン', combinedFooter: 'ローカル活動量 · 生産性、請求、プロバイダー同等性を示すものではありません' },
+  ko: { tokens: '토큰', sessions: '세션', usage: '사용량', inClaudeCode: 'Claude Code에서', no: '없음:', on: '날짜', less: '적게', more: '많이', madeWith: 'Claude Code Usage로 제작', combinedTitle: 'Claude + Codex 로컬 활동', combined: '합계', processedTokens: '처리된 토큰', combinedFooter: '로컬 활동량 · 생산성, 청구 또는 제공자 동등성을 의미하지 않음' },
+  'pt-BR': { tokens: 'tokens', sessions: 'sessões', usage: 'uso', inClaudeCode: 'no Claude Code', no: 'Sem', on: 'em', less: 'Menos', more: 'Mais', madeWith: 'Criado com Claude Code Usage', combinedTitle: 'Atividade local do Claude + Codex', combined: 'Combinado', processedTokens: 'tokens processados', combinedFooter: 'Volume de atividade local · não representa produtividade, cobrança ou equivalência entre provedores' },
+  id: { tokens: 'token', sessions: 'sesi', usage: 'penggunaan', inClaudeCode: 'di Claude Code', no: 'Tidak ada', on: 'pada', less: 'Lebih sedikit', more: 'Lebih banyak', madeWith: 'Dibuat dengan Claude Code Usage', combinedTitle: 'Aktivitas lokal Claude + Codex', combined: 'Gabungan', processedTokens: 'token diproses', combinedFooter: 'Volume aktivitas lokal · bukan produktivitas, tagihan, atau kesetaraan penyedia' },
+};
+
+export const SHARE_BADGE_TRANSLATIONS: Record<string, Record<SupportedLanguage, { title: string; line: string }>> = {
+  'context-marathoner': {
+    en: { title: 'Context Marathon', line: "Half-marathon of context — the model's still catching its breath." },
+    'de-DE': { title: 'Kontextmarathon', line: 'Ein Halbmarathon an Kontext — das Modell holt noch Luft.' },
+    'zh-TW': { title: 'Context 馬拉松', line: '上下文跑了個半馬，模型還在喘。' }, 'zh-CN': { title: 'Context 马拉松', line: '上下文跑了个半马，模型还在喘。' },
+    ja: { title: 'コンテキストマラソン', line: 'コンテキストはハーフマラソン級。モデルも息切れ中。' }, ko: { title: '컨텍스트 마라톤', line: '컨텍스트가 하프 마라톤급이라 모델도 숨을 고르는 중.' },
+    'pt-BR': { title: 'Maratona de contexto', line: 'Uma meia maratona de contexto — o modelo ainda recupera o fôlego.' }, id: { title: 'Maraton konteks', line: 'Konteks setara setengah maraton — model masih mengatur napas.' },
+  },
+  'cache-saver': {
+    en: { title: 'Cache Alchemist', line: 'High cache hits — barely a token wasted.' },
+    'de-DE': { title: 'Cache-Alchemist', line: 'Hohe Cache-Treffer — kaum ein Token verschwendet.' },
+    'zh-TW': { title: '快取日子人', line: '快取命中高，token 沒白燒。' }, 'zh-CN': { title: '缓存日子人', line: '缓存命中高，token 没白烧。' },
+    ja: { title: 'キャッシュ錬金術師', line: '高いキャッシュヒット率。無駄なトークンはほぼなし。' }, ko: { title: '캐시 연금술사', line: '높은 캐시 적중률로 낭비되는 토큰이 거의 없습니다.' },
+    'pt-BR': { title: 'Alquimista do cache', line: 'Muitos acertos de cache — quase nenhum token desperdiçado.' }, id: { title: 'Alkemis cache', line: 'Cache hit tinggi — nyaris tak ada token terbuang.' },
+  },
+  'token-sprinter': {
+    en: { title: 'Token Sprinter', line: 'Full throttle. 🔥' }, 'de-DE': { title: 'Token-Sprinter', line: 'Vollgas. 🔥' },
+    'zh-TW': { title: '無限火力', line: '開炮！！！' }, 'zh-CN': { title: '无限火力', line: '开炮！！！' },
+    ja: { title: 'トークンスプリンター', line: '全開です。🔥' }, ko: { title: '토큰 스프린터', line: '전속력. 🔥' },
+    'pt-BR': { title: 'Velocista de tokens', line: 'A todo vapor. 🔥' }, id: { title: 'Sprinter token', line: 'Kecepatan penuh. 🔥' },
+  },
+  'workflow-pilot': {
+    en: { title: 'Workflow Pilot', line: "You're not coding — you're running a crew." }, 'de-DE': { title: 'Workflow-Pilot', line: 'Du programmierst nicht nur — du leitest ein Team.' },
+    'zh-TW': { title: 'Agent 包工頭', line: '你不是在寫程式，你是在使喚一支小隊。' }, 'zh-CN': { title: 'Agent 包工头', line: '你不是在写代码，你是在使唤一支小队。' },
+    ja: { title: 'ワークフローパイロット', line: 'コーディングではなく、チームを動かしています。' }, ko: { title: '워크플로 파일럿', line: '코딩을 넘어 하나의 팀을 지휘하고 있습니다.' },
+    'pt-BR': { title: 'Piloto de fluxos', line: 'Você não está só programando — está liderando uma equipe.' }, id: { title: 'Pilot alur kerja', line: 'Anda bukan sekadar coding — Anda memimpin tim.' },
+  },
+  'steady-builder': {
+    en: { title: 'Steady Builder', line: 'No rush, no burnout — steady progress.' }, 'de-DE': { title: 'Stetiger Builder', line: 'Keine Hektik, kein Burnout — stetiger Fortschritt.' },
+    'zh-TW': { title: '節奏大師', line: '不捲不燥，程式碼穩步推進。' }, 'zh-CN': { title: '节奏大师', line: '不卷不燥，代码稳步推进。' },
+    ja: { title: '着実なビルダー', line: '焦らず燃え尽きず、着実に前進。' }, ko: { title: '꾸준한 빌더', line: '서두르지 않고 번아웃 없이 꾸준히 전진.' },
+    'pt-BR': { title: 'Construtor constante', line: 'Sem pressa nem esgotamento — progresso constante.' }, id: { title: 'Pembangun konsisten', line: 'Tanpa terburu-buru atau burnout — terus maju.' },
+  },
+};
+
+export function artifactLocale(value: string | undefined): SupportedLanguage {
+  return value === 'de-DE' || value === 'zh-TW' || value === 'zh-CN' || value === 'ja' ||
+    value === 'ko' || value === 'pt-BR' || value === 'id' ? value : 'en';
+}
+
 const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: string; help: string }>>> = {
   'de-DE': {
     'language': { label: 'Anzeigesprache', help: 'UI-Sprache. "auto" folgt VS Code.' },
@@ -3644,19 +4237,19 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'compactNumbers': { label: 'Kompakte Token-Zahlen', help: 'Zeige 1.2M / 345K statt voller Zahlen.' },
     'releaseAnnouncements': { label: 'Release-Hinweise', help: 'Nach einem Erweiterungs-Upgrade einmal die Neuerungen anzeigen.' },
     'pricingBackend': { label: 'Claude-Preisquelle', help: 'Wähle AWS-Bedrock-In-Region-Preise, wenn Claude Code über Bedrock geroutet wird.' },
-    'codex.enabled': { label: 'Codex Beta aktivieren', help: 'Datenschutzfreundliche Nutzungsaggregate aus lokalen Codex-Sitzungslogs lesen.' },
+    'codex.enabled': { label: 'Codex aktivieren', help: 'Datenschutzfreundliche Nutzungsaggregate aus lokalen Codex-Sitzungslogs lesen.' },
     'codex.dataDirectory': { label: 'Benutzerdefiniertes Codex-Datenverzeichnis', help: 'Leer = CODEX_HOME, dann ~/.codex. Authentifizierungsdateien werden nie gelesen.' },
     'codex.fileWatchSeconds': { label: 'Codex-Live-Aktualisierungsverzögerung', help: 'Ruhe-Debounce nach lokalen Codex-JSONL-Änderungen. Aus deaktiviert die Überwachung.' },
     'codex.optimization.enabled': { label: 'Codex-Verhaltensoptimierung anzeigen', help: 'Lokale, deterministische Codex-Verhaltensmetriken und Empfehlungen anzeigen.' },
     'statusBarProvider': { label: 'Statusleisten-Anbieter', help: 'Auto bevorzugt Claude, wenn beide Anbieter Daten haben.' },
-    'codex.statusMetric': { label: 'Codex-Statusmetrik', help: 'Heutige Nutzung ohne Cache, verarbeitete Token oder Ausgabe-Token.' },
+    'codex.statusMetric': { label: 'Codex-Statusmetrik', help: 'Heute verarbeitete Token (Standard), Nutzung ohne Cache oder Ausgabe-Token.' },
     'timezone': { label: 'Zeitzone für Daten', help: 'Gängige Zone oder UTC-Offset (jeder Offset abgedeckt) oder Systemstandard. Labels zeigen den aktuellen UTC-Offset.' },
     'showWeeklyEquivalentValue': { label: 'Wöchentlichen API-Gegenwert anzeigen', help: 'Standardmäßig an. Zeigt den historischen wöchentlichen API-Gegenwert in „Seit Aufzeichnungsbeginn“ und „Vergleich“. Dies ist eine Schätzung, keine Rechnung und kein Abonnementkontingent.' },
     'showProjectUsageMatrix': { label: 'Projekt-Nutzungsmatrix anzeigen', help: 'Standardmäßig an. Ergänzt Projekte um eine lokale 30/90-Tage-Token-Heatmap und einen gestapelten Trend. Nutzt bestehende Indexaggregate und ordnet Projekten kein Abonnementkontingent zu.' },
     'showHeatmap': { label: 'Token-Heatmap zeigen (Tab „Seit Aufzeichnungsbeginn“)', help: 'Standardmäßig aus. GitHub-artige Jahres-Heatmap; als SVG exportieren oder auf dein GitHub-Profil veröffentlichen.' },
     'showEfficiency': { label: 'Effizienz-Einblicke zeigen', help: 'Standardmäßig aus. Kosten/Nachricht, Token/Nachricht, Cache-Ersparnis und die Cache-Warmzeit-Schätzung.' },
     'showCostliestMessages': { label: '„Top 10 teuerste Nachrichten“ zeigen', help: 'Standardmäßig aus. Reiht deine teuersten Einzel-Turns; das Aufklappen zeigt den Prompt (dein eigener Text).' },
-    'enableShareCard': { label: 'Freigabe-Arbeitsbereich aktivieren', help: 'Standardmäßig an. Zeigt den Freigabe-Arbeitsbereich im Vergleich und die Anbieter-Sharecard. Ausschalten blendet die Freigabeoberfläche aus; Export bleibt eine ausdrückliche Aktion.' },
+    'enableShareCard': { label: 'Freigabe-Arbeitsbereich aktivieren', help: 'Standardmäßig an. Zeigt einen gemeinsamen, vorschauorientierten Freigabe-Arbeitsbereich. Ausschalten blendet die Oberfläche aus; ältere Exportbefehle öffnen weiterhin ausdrücklich die passende Vorschau.' },
     'enableSessionActions': { label: 'Sitzungsaktionen (Fortsetzen & Löschen)', help: 'Standardmäßig aus. Zeigt auf dem Sitzungen-Tab die Schaltflächen „Fortsetzen“ und „Löschen“. Beide WIRKEN auf dein Claude Code (Gespräch erneut öffnen / Log in den Papierkorb), anders als diese schreibgeschützte Erweiterung — daher zusammen optional.' },
     'projectGroupingMode': { label: 'Projektgruppierung', help: 'git = nach Repo · folder = oberste Ebene · flat = jedes cwd.' },
     'showCost': { label: 'Heutige Kosten / Token anzeigen', help: '' },
@@ -3696,19 +4289,19 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'compactNumbers': { label: '簡潔的 Token 計數', help: '顯示 1.2M / 345K 而非完整數字。' },
     'releaseAnnouncements': { label: '版本更新通知', help: '擴充套件升級後顯示一次「新功能」通知。' },
     'pricingBackend': { label: 'Claude 價格來源', help: '若 Claude Code 透過 Bedrock 路由，請選擇 AWS Bedrock 區域內價格。' },
-    'codex.enabled': { label: '啟用 Codex Beta', help: '從本機 Codex 工作階段日誌讀取隱私安全的用量彙總。' },
+    'codex.enabled': { label: '啟用 Codex', help: '從本機 Codex 工作階段日誌讀取隱私安全的用量彙總。' },
     'codex.dataDirectory': { label: '自訂 Codex 資料目錄', help: '留空時使用 CODEX_HOME，再使用 ~/.codex；不會讀取認證檔案。' },
     'codex.fileWatchSeconds': { label: 'Codex 即時重新整理延遲', help: '本機 Codex JSONL 變更後的靜默防抖；關閉即停用監看。' },
     'codex.optimization.enabled': { label: '顯示 Codex 行為最佳化', help: '顯示本機、確定性的 Codex 行為指標與建議。' },
     'statusBarProvider': { label: '狀態列供應商', help: '兩個供應商都有資料時，自動模式優先顯示 Claude。' },
-    'codex.statusMetric': { label: 'Codex 狀態列指標', help: '今日未快取用量、已處理 Token 或輸出 Token。' },
+    'codex.statusMetric': { label: 'Codex 狀態列指標', help: '今日已處理 Token（預設）、未快取用量或輸出 Token。' },
     'timezone': { label: '日期時區', help: '常用時區或 UTC 偏移（涵蓋所有偏移），或系統預設。標籤顯示目前的 UTC 偏移。' },
     'showWeeklyEquivalentValue': { label: '顯示每週 API 等效價值', help: '預設開啟。在「所有」與「比較」中顯示歷史每週 API 等效價值；屬於估算，不是帳單或訂閱額度。' },
     'showProjectUsageMatrix': { label: '顯示專案用量矩陣', help: '預設開啟。在「專案」加入本機 30/90 天 Token 熱力圖與堆疊趨勢；沿用既有索引彙總，不會把訂閱額度分配到專案。' },
     'showHeatmap': { label: '顯示 Token 熱力圖（「所有」分頁）', help: '預設關閉。全部分頁上的 GitHub 風格年度熱力圖；可匯出 SVG 或發佈到你的 GitHub 首頁。' },
     'showEfficiency': { label: '顯示效率洞察', help: '預設關閉。加入每則成本、每則 token、快取節省與快取保溫估計。' },
     'showCostliestMessages': { label: '顯示「最貴 10 則訊息」', help: '預設關閉。列出最貴的單則對話；展開會顯示 prompt（隱私：你自己的文字）。' },
-    'enableShareCard': { label: '啟用分享工作台', help: '預設開啟。顯示「比較」分享工作台與供應商分享卡；關閉後隱藏分享介面，匯出仍需明確操作。' },
+    'enableShareCard': { label: '啟用分享工作台', help: '預設開啟。顯示單一、預覽優先的分享工作台；關閉後隱藏分享介面，舊版匯出命令仍會明確開啟對應預覽。' },
     'enableSessionActions': { label: '會話操作（恢復與刪除）', help: '預設關閉。在「會話」分頁顯示「恢復」和「刪除」按鈕。兩者都會「操作」你的 Claude Code（重開對話／把紀錄檔丟進垃圾桶），與這個唯讀擴充功能的定位相反，所以一起維持選用。' },
     'projectGroupingMode': { label: '專案分組', help: 'git = 依儲存庫 · folder = 最上層 · flat = 每個目前工作目錄。' },
     'showCost': { label: '顯示今日費用 / Token 用量', help: '' },
@@ -3748,19 +4341,19 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'compactNumbers': { label: '简洁的 token 计数', help: '显示 1.2M / 345K 而非完整数字。' },
     'releaseAnnouncements': { label: '版本更新通知', help: '扩展升级后显示一次“新功能”通知。' },
     'pricingBackend': { label: 'Claude 价格来源', help: '如果 Claude Code 通过 Bedrock 路由，请选择 AWS Bedrock 区域内价格。' },
-    'codex.enabled': { label: '启用 Codex Beta', help: '从本地 Codex 会话日志读取隐私安全的用量汇总。' },
+    'codex.enabled': { label: '启用 Codex', help: '从本地 Codex 会话日志读取隐私安全的用量汇总。' },
     'codex.dataDirectory': { label: '自定义 Codex 数据目录', help: '留空时使用 CODEX_HOME，再使用 ~/.codex；不会读取认证文件。' },
     'codex.fileWatchSeconds': { label: 'Codex 实时刷新延迟', help: '本地 Codex JSONL 变更后的静默防抖；关闭即停用监视。' },
     'codex.optimization.enabled': { label: '显示 Codex 行为优化', help: '显示本地、确定性的 Codex 行为指标与建议。' },
     'statusBarProvider': { label: '状态栏供应商', help: '两个供应商都有数据时，自动模式优先显示 Claude。' },
-    'codex.statusMetric': { label: 'Codex 状态栏指标', help: '今日未缓存用量、已处理 Token 或输出 Token。' },
+    'codex.statusMetric': { label: 'Codex 状态栏指标', help: '今日已处理 Token（默认）、未缓存用量或输出 Token。' },
     'timezone': { label: '日期时区', help: '常用时区或 UTC 偏移（涵盖所有偏移），或系统默认。标签显示当前的 UTC 偏移。' },
     'showWeeklyEquivalentValue': { label: '显示每周 API 等效价值', help: '默认开启。在“全部时间”和“对比”中显示历史每周 API 等效价值；属于估算，不是账单或订阅额度。' },
     'showProjectUsageMatrix': { label: '显示项目用量矩阵', help: '默认开启。在“项目”中加入本地 30/90 天 Token 热力图与堆叠趋势；复用现有索引汇总，不会把订阅额度分配到项目。' },
     'showHeatmap': { label: '显示 Token 热力图（“所有”选项卡）', help: '默认关闭。全部标签上的 GitHub 风格年度热力图；可导出 SVG 或发布到你的 GitHub 主页。' },
     'showEfficiency': { label: '显示效率洞察', help: '默认关闭。加入每条成本、每条 token、缓存节省与缓存保温估计。' },
     'showCostliestMessages': { label: '显示“最贵 10 条消息”', help: '默认关闭。列出最贵的单条对话；展开会显示 prompt（隐私：你自己的文字）。' },
-    'enableShareCard': { label: '启用分享工作台', help: '默认开启。显示“对比”分享工作台与供应商分享卡；关闭后隐藏分享界面，导出仍需明确操作。' },
+    'enableShareCard': { label: '启用分享工作台', help: '默认开启。显示单一、预览优先的分享工作台；关闭后隐藏分享界面，旧版导出命令仍会明确打开对应预览。' },
     'enableSessionActions': { label: '会话操作（恢复与删除）', help: '默认关闭。在「会话」标签页显示「恢复」和「删除」按钮。两者都会「操作」你的 Claude Code（重开对话／把日志丢进回收站），与这个只读扩展的定位相反，所以一起保持可选。' },
     'projectGroupingMode': { label: '项目分组', help: 'git = 按仓库 · folder = 顶层 · flat = 每个当前工作目录。' },
     'showCost': { label: '显示今日费用 / token 用量', help: '' },
@@ -3800,19 +4393,19 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'compactNumbers': { label: 'トークン数を短縮表記', help: '完全な数値の代わりに 1.2M / 345K と表示します。' },
     'releaseAnnouncements': { label: 'リリース通知', help: '拡張機能のアップグレード後に新機能を一度通知します。' },
     'pricingBackend': { label: 'Claude の価格ソース', help: 'Claude Code を Bedrock 経由でルーティングする場合は AWS Bedrock のリージョン内価格を選択します。' },
-    'codex.enabled': { label: 'Codex Beta を有効化', help: 'ローカルの Codex セッションログからプライバシー安全な使用量集計を読み取ります。' },
+    'codex.enabled': { label: 'Codex を有効化', help: 'ローカルの Codex セッションログからプライバシー安全な使用量集計を読み取ります。' },
     'codex.dataDirectory': { label: 'カスタム Codex データディレクトリ', help: '空欄の場合は CODEX_HOME、次に ~/.codex。認証ファイルは読みません。' },
     'codex.fileWatchSeconds': { label: 'Codex ライブ更新遅延', help: 'ローカル Codex JSONL 変更後の静かなデバウンス。オフで監視を無効化します。' },
     'codex.optimization.enabled': { label: 'Codex の行動最適化を表示', help: 'ローカルで決定論的な Codex の行動指標と提案を表示します。' },
     'statusBarProvider': { label: 'ステータスバーのプロバイダー', help: '両方にデータがある場合、自動は Claude を優先します。' },
-    'codex.statusMetric': { label: 'Codex ステータスメトリック', help: '今日の非キャッシュ使用量、処理済みトークン、または出力トークン。' },
+    'codex.statusMetric': { label: 'Codex ステータスメトリック', help: '今日の処理済みトークン（既定）、非キャッシュ使用量、または出力トークン。' },
     'timezone': { label: '日付のタイムゾーン', help: '一般的なゾーンまたは UTC オフセット（全オフセット対応）、あるいはシステム既定。ラベルは現在の UTC オフセットを表示。' },
     'showWeeklyEquivalentValue': { label: '週間 API 等価価値を表示', help: '既定でオン。「すべて」と「比較」に過去の週間 API 等価価値を表示します。これは推定値であり、請求額やサブスクリプション利用枠ではありません。' },
     'showProjectUsageMatrix': { label: 'プロジェクト使用量マトリクスを表示', help: '既定でオン。「プロジェクト」にローカルの30/90日トークンヒートマップと積み上げトレンドを追加します。既存のインデックス集計を再利用し、サブスクリプション枠をプロジェクト別に配分しません。' },
     'showHeatmap': { label: 'トークンヒートマップを表示（「すべて」タブ）', help: '既定でオフ。GitHub 風の年間ヒートマップ。SVG 書き出しや GitHub プロフィールへの公開が可能。' },
     'showEfficiency': { label: '効率インサイトを表示', help: '既定でオフ。メッセージ単価、メッセージ当たりトークン、キャッシュ節約、キャッシュ保温推定を追加。' },
     'showCostliestMessages': { label: '「最も高価なメッセージ Top 10」を表示', help: '既定でオフ。最も高価な単一ターンを順位付け。展開でプロンプト表示（自分の文章）。' },
-    'enableShareCard': { label: '共有ワークスペースを有効化', help: '既定でオン。「比較」の共有ワークスペースとプロバイダーの共有カードを表示します。オフにすると共有 UI を隠し、書き出しは引き続き明示操作です。' },
+    'enableShareCard': { label: '共有ワークスペースを有効化', help: '既定でオン。単一のプレビュー優先共有ワークスペースを表示します。オフにすると共有 UI を隠しますが、従来の書き出しコマンドは対応するプレビューを明示的に開きます。' },
     'enableSessionActions': { label: 'セッション操作（再開と削除）', help: '既定はオフ。セッションタブに「再開」と「削除」ボタンを表示します。どちらもあなたの Claude Code を操作します（会話を再度開く／ログをゴミ箱へ）。読み取り専用のこの拡張とは相容れないため、まとめてオプトインです。' },
     'projectGroupingMode': { label: 'プロジェクトのグループ化', help: 'git = リポジトリごと · folder = トップレベル · flat = 各 cwd。' },
     'showCost': { label: '今日のコスト / トークンを表示', help: '' },
@@ -3852,19 +4445,19 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'compactNumbers': { label: '간략한 토큰 수 표시', help: '전체 숫자 대신 1.2M / 345K로 표시합니다.' },
     'releaseAnnouncements': { label: '릴리스 알림', help: '확장 업그레이드 후 새 기능 알림을 한 번 표시합니다.' },
     'pricingBackend': { label: 'Claude 가격 출처', help: 'Claude Code가 Bedrock을 통해 라우팅될 때 AWS Bedrock 리전 내 가격을 선택합니다.' },
-    'codex.enabled': { label: 'Codex Beta 사용', help: '로컬 Codex 세션 로그에서 개인정보 보호형 사용량 집계를 읽습니다.' },
+    'codex.enabled': { label: 'Codex 사용', help: '로컬 Codex 세션 로그에서 개인정보 보호형 사용량 집계를 읽습니다.' },
     'codex.dataDirectory': { label: '사용자 지정 Codex 데이터 디렉터리', help: '비우면 CODEX_HOME, 그다음 ~/.codex를 사용하며 인증 파일은 읽지 않습니다.' },
     'codex.fileWatchSeconds': { label: 'Codex 실시간 새로고침 지연', help: '로컬 Codex JSONL 변경 후 조용한 디바운스입니다. 끄면 감시를 중지합니다.' },
     'codex.optimization.enabled': { label: 'Codex 행동 최적화 표시', help: '로컬의 결정론적 Codex 행동 지표와 권장 사항을 표시합니다.' },
     'statusBarProvider': { label: '상태 표시줄 공급자', help: '두 공급자 모두 데이터가 있으면 자동은 Claude를 우선합니다.' },
-    'codex.statusMetric': { label: 'Codex 상태 지표', help: '오늘의 캐시되지 않은 사용량, 처리된 토큰 또는 출력 토큰.' },
+    'codex.statusMetric': { label: 'Codex 상태 지표', help: '오늘 처리된 토큰(기본값), 캐시되지 않은 사용량 또는 출력 토큰.' },
     'timezone': { label: '날짜 시간대', help: '일반 지역 또는 UTC 오프셋(모든 오프셋 지원), 또는 시스템 기본값. 라벨에 현재 UTC 오프셋 표시.' },
     'showWeeklyEquivalentValue': { label: '주간 API 등가 가치 표시', help: '기본값 켜짐. 전체 및 비교 화면에 과거 주간 API 등가 가치를 표시합니다. 이는 추정치이며 청구서나 구독 할당량이 아닙니다.' },
     'showProjectUsageMatrix': { label: '프로젝트 사용량 매트릭스 표시', help: '기본값 켜짐. 프로젝트에 로컬 30/90일 토큰 히트맵과 누적 추세를 추가합니다. 기존 인덱스 집계를 재사용하며 구독 할당량을 프로젝트별로 배분하지 않습니다.' },
     'showHeatmap': { label: '토큰 히트맵 표시(전체 탭)', help: '기본 꺼짐. GitHub 스타일 연간 히트맵. SVG 내보내기 또는 GitHub 프로필에 게시 가능.' },
     'showEfficiency': { label: '효율 인사이트 표시', help: '기본 꺼짐. 메시지당 비용/토큰, 캐시 절감, 캐시 보온 추정치를 추가.' },
     'showCostliestMessages': { label: '“가장 비싼 메시지 Top 10” 표시', help: '기본 꺼짐. 가장 비싼 단일 턴을 순위화. 펼치면 프롬프트 표시(본인 텍스트).' },
-    'enableShareCard': { label: '공유 작업 공간 사용', help: '기본 켜짐. 비교 공유 작업 공간과 공급자 공유 카드를 표시합니다. 끄면 공유 UI가 숨겨지며 내보내기는 계속 명시적 작업입니다.' },
+    'enableShareCard': { label: '공유 작업 공간 사용', help: '기본 켜짐. 하나의 미리보기 우선 공유 작업 공간을 표시합니다. 끄면 공유 UI가 숨겨지지만 기존 내보내기 명령은 해당 미리보기를 명시적으로 엽니다.' },
     'enableSessionActions': { label: '세션 작업(재개 및 삭제)', help: '기본값 꺼짐. 세션 탭에 재개·삭제 버튼을 표시합니다. 둘 다 사용자의 Claude Code를 조작하므로(대화 다시 열기/로그를 휴지통으로) 읽기 전용인 이 확장과 맞지 않아 함께 옵트인으로 둡니다.' },
     'projectGroupingMode': { label: '프로젝트 그룹화', help: 'git = 저장소별 · folder = 최상위 · flat = 각 cwd.' },
     'showCost': { label: '오늘의 비용 / 토큰 표시', help: '' },
@@ -3904,19 +4497,19 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'compactNumbers': { label: 'Contagem de tokens compacta', help: 'Mostra 1.2M / 345K em vez dos números completos.' },
     'releaseAnnouncements': { label: 'Avisos de versão', help: 'Mostra uma vez as novidades após atualizar a extensão.' },
     'pricingBackend': { label: 'Fonte de preços do Claude', help: 'Selecione os preços regionais da AWS Bedrock quando o Claude Code for roteado pela Bedrock.' },
-    'codex.enabled': { label: 'Ativar Codex Beta', help: 'Lê agregados de uso com privacidade a partir dos logs locais de sessão do Codex.' },
+    'codex.enabled': { label: 'Ativar Codex', help: 'Lê agregados de uso com privacidade a partir dos logs locais de sessão do Codex.' },
     'codex.dataDirectory': { label: 'Diretório de dados Codex personalizado', help: 'Vazio = CODEX_HOME, depois ~/.codex. Arquivos de autenticação nunca são lidos.' },
     'codex.fileWatchSeconds': { label: 'Atraso da atualização ao vivo do Codex', help: 'Debounce silencioso após mudanças locais em JSONL do Codex. Desligado desativa a observação.' },
     'codex.optimization.enabled': { label: 'Mostrar otimização de comportamento do Codex', help: 'Mostra métricas e recomendações locais e determinísticas de comportamento do Codex.' },
     'statusBarProvider': { label: 'Provedor da barra de status', help: 'Auto prioriza Claude quando ambos têm dados.' },
-    'codex.statusMetric': { label: 'Métrica de status do Codex', help: 'Uso de hoje sem cache, tokens processados ou tokens de saída.' },
+    'codex.statusMetric': { label: 'Métrica de status do Codex', help: 'Tokens processados hoje (padrão), uso sem cache ou tokens de saída.' },
     'timezone': { label: 'Fuso horário das datas', help: 'Zona comum ou deslocamento UTC (todos cobertos), ou padrão do sistema. Os rótulos mostram o deslocamento UTC atual.' },
     'showWeeklyEquivalentValue': { label: 'Mostrar valor equivalente semanal da API', help: 'Ligado por padrão. Mostra o valor equivalente semanal histórico da API em Todo o período e Comparar. É uma estimativa, não uma fatura nem uma franquia de assinatura.' },
     'showProjectUsageMatrix': { label: 'Mostrar matriz de uso por projeto', help: 'Ligado por padrão. Adiciona a Projetos um heatmap local de tokens de 30/90 dias e uma tendência empilhada. Reutiliza agregados indexados e não distribui a franquia da assinatura por projeto.' },
     'showHeatmap': { label: 'Mostrar heatmap de tokens (aba Todo o período)', help: 'Desligado por padrão. Heatmap anual estilo GitHub; exporte SVG ou publique no seu perfil do GitHub.' },
     'showEfficiency': { label: 'Mostrar insights de eficiência', help: 'Desligado por padrão. Custo/mensagem, tokens/mensagem, economia de cache e a estimativa de aquecimento do cache.' },
     'showCostliestMessages': { label: 'Mostrar "10 mensagens mais caras"', help: 'Desligado por padrão. Ranqueia seus turnos mais caros; ao expandir mostra o prompt (seu próprio texto).' },
-    'enableShareCard': { label: 'Ativar espaço de compartilhamento', help: 'Ligado por padrão. Mostra o espaço de compartilhamento em Comparar e o cartão do provedor. Desligar oculta a interface; exportar continua exigindo uma ação explícita.' },
+    'enableShareCard': { label: 'Ativar espaço de compartilhamento', help: 'Ligado por padrão. Mostra um único espaço de compartilhamento centrado na prévia. Desligar oculta a interface; os comandos de exportação antigos ainda abrem explicitamente a prévia correspondente.' },
     'enableSessionActions': { label: 'Ações de sessão (retomar e excluir)', help: 'Desligado por padrão. Mostra os botões Retomar e Excluir na aba Sessões. Ambos AGEM sobre o seu Claude Code (reabrir uma conversa / mover o log para a lixeira), ao contrário desta extensão somente leitura, então ficam opcionais juntos.' },
     'projectGroupingMode': { label: 'Agrupamento de projetos', help: 'git = por repositório · folder = nível superior · flat = cada cwd.' },
     'showCost': { label: 'Mostrar custo / tokens de hoje', help: '' },
@@ -3957,19 +4550,19 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
     'compactNumbers': { label: 'Jumlah token ringkas', help: 'Tampilkan 1.2M / 345K, bukan angka penuh.' },
     'releaseAnnouncements': { label: 'Pengumuman rilis', help: 'Tampilkan sekali hal baru setelah ekstensi ditingkatkan.' },
     'pricingBackend': { label: 'Sumber harga Claude', help: 'Pilih harga AWS Bedrock dalam-region saat Claude Code dirutekan melalui Bedrock.' },
-    'codex.enabled': { label: 'Aktifkan Codex Beta', help: 'Baca agregat penggunaan yang aman untuk privasi dari log sesi Codex lokal.' },
+    'codex.enabled': { label: 'Aktifkan Codex', help: 'Baca agregat penggunaan yang aman untuk privasi dari log sesi Codex lokal.' },
     'codex.dataDirectory': { label: 'Direktori data Codex kustom', help: 'Kosong = CODEX_HOME, lalu ~/.codex. Berkas autentikasi tidak pernah dibaca.' },
     'codex.fileWatchSeconds': { label: 'Jeda penyegaran langsung Codex', help: 'Debounce tenang setelah perubahan JSONL Codex lokal. Mati menonaktifkan pemantauan.' },
     'codex.optimization.enabled': { label: 'Tampilkan optimasi perilaku Codex', help: 'Tampilkan metrik dan rekomendasi perilaku Codex yang lokal dan deterministik.' },
     'statusBarProvider': { label: 'Penyedia status bar', help: 'Otomatis memprioritaskan Claude saat keduanya memiliki data.' },
-    'codex.statusMetric': { label: 'Metrik status Codex', help: 'Penggunaan hari ini tanpa cache, token diproses, atau token output.' },
+    'codex.statusMetric': { label: 'Metrik status Codex', help: 'Token diproses hari ini (bawaan), penggunaan tanpa cache, atau token output.' },
     'timezone': { label: 'Zona waktu untuk tanggal', help: 'Pilih zona umum atau offset UTC (semua offset tersedia), atau default sistem. Label menampilkan offset UTC saat ini.' },
     'showWeeklyEquivalentValue': { label: 'Tampilkan nilai ekuivalen API mingguan', help: 'Aktif secara default. Tampilkan riwayat nilai ekuivalen API mingguan di Sepanjang Waktu dan Perbandingan. Ini perkiraan, bukan tagihan atau jatah langganan.' },
     'showProjectUsageMatrix': { label: 'Tampilkan matriks penggunaan proyek', help: 'Aktif secara default. Menambahkan heatmap Token lokal 30/90 hari dan tren bertumpuk ke Proyek. Menggunakan kembali agregat indeks dan tidak membagi jatah langganan per proyek.' },
     'showHeatmap': { label: 'Tampilkan heatmap token (tab Sepanjang Waktu)', help: 'Nonaktif secara default. Heatmap token tahunan bergaya GitHub di tab All; ekspor sebagai SVG atau publikasikan ke profil GitHub Anda.' },
     'showEfficiency': { label: 'Tampilkan wawasan efisiensi', help: 'Nonaktif secara default. Menambahkan biaya/pesan, token/pesan, penghematan cache, dan perkiraan cache warmth.' },
     'showCostliestMessages': { label: 'Tampilkan "10 pesan termahal"', help: 'Nonaktif secara default. Menampilkan giliran termahal; membuka detail menampilkan prompt-nya (teks Anda sendiri).' },
-    'enableShareCard': { label: 'Aktifkan ruang kerja berbagi', help: 'Aktif secara default. Menampilkan ruang kerja berbagi Perbandingan dan kartu penyedia. Menonaktifkannya menyembunyikan UI; ekspor tetap memerlukan tindakan eksplisit.' },
+    'enableShareCard': { label: 'Aktifkan ruang kerja berbagi', help: 'Aktif secara default. Menampilkan satu ruang kerja berbagi yang mengutamakan pratinjau. Menonaktifkannya menyembunyikan UI; perintah ekspor lama tetap membuka pratinjau yang sesuai secara eksplisit.' },
     'enableSessionActions': { label: 'Aksi sesi (Lanjutkan & Hapus)', help: 'Nonaktif secara default. Menampilkan tombol Lanjutkan dan Hapus di tab Sesi. Keduanya BERTINDAK pada Claude Code Anda (membuka ulang percakapan / memindahkan log ke sampah) — bertentangan dengan sifat baca-saja extension ini, jadi tetap opsional bersama.' },
     'projectGroupingMode': { label: 'Pengelompokan proyek', help: 'git = per repo · folder = level teratas · flat = setiap cwd.' },
     'showCost': { label: 'Tampilkan biaya / token hari ini', help: '' },
@@ -4085,9 +4678,9 @@ export class I18n {
     this.compactNumbers = !!enabled;
   }
 
-  static setLanguage(lang: SupportedLanguage | 'auto'): void {
+  static setLanguage(lang: SupportedLanguage | 'auto', editorLocale?: string): void {
     if (lang === 'auto') {
-      this.currentLanguage = this.detectLanguage();
+      this.currentLanguage = this.detectLanguage(editorLocale);
     } else {
       this.currentLanguage = lang;
     }
@@ -4124,6 +4717,10 @@ export class I18n {
     return translations[this.currentLanguage];
   }
 
+  static get sharingWorkspace(): SharingWorkspaceTranslations {
+    return SHARING_WORKSPACE_TRANSLATIONS[this.currentLanguage];
+  }
+
   /** Localised label / help for a settings-panel entry, for the current UI
    * language. Returns {} for English (the panel then falls back to the catalog
    * English in settings.ts). */
@@ -4132,20 +4729,27 @@ export class I18n {
     return (m && m[key]) || {};
   }
 
-  private static detectLanguage(): SupportedLanguage {
-    const locale = process.env.LANG || process.env.LANGUAGE || 'en';
+  private static detectLanguage(editorLocale?: string): SupportedLanguage {
+    // The editor display language is authoritative. LANG is only a fallback
+    // for callers outside a VS Code extension host (for example local tests).
+    const locale = (editorLocale || process.env.LANG || process.env.LANGUAGE || 'en')
+      .replace(/_/g, '-')
+      .split(/[.@:]/, 1)[0]
+      .toLowerCase();
 
-    if (locale.includes('zh')) {
-      if (locale.includes('TW') || locale.includes('HK') || locale.includes('MO')) {
+    if (locale === 'zh' || locale.startsWith('zh-')) {
+      if (locale.startsWith('zh-tw') || locale.startsWith('zh-hk') || locale.startsWith('zh-mo') ||
+          locale.startsWith('zh-hant')) {
         return 'zh-TW';
       }
       return 'zh-CN';
     }
 
-    if (locale.includes('ja')) return 'ja';
-    if (locale.includes('ko')) return 'ko';
-    if (locale.includes('pt')) return 'pt-BR';
-    if (locale.includes('id')) return 'id';
+    if (locale === 'de' || locale.startsWith('de-')) return 'de-DE';
+    if (locale === 'ja' || locale.startsWith('ja-')) return 'ja';
+    if (locale === 'ko' || locale.startsWith('ko-')) return 'ko';
+    if (locale === 'pt' || locale.startsWith('pt-')) return 'pt-BR';
+    if (locale === 'id' || locale.startsWith('id-')) return 'id';
 
     return 'en';
   }

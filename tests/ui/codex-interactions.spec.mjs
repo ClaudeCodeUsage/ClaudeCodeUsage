@@ -349,11 +349,25 @@ test('materialized Claude hourly detail sends no host message and survives a ful
   ))).toEqual([]);
 });
 
-test('Claude monthly chart drill-down survives a full webview reload', async ({ page }) => {
+test('Claude all-time months drill into materialized days and supported hours', async ({ page }) => {
   await openClaude(page);
   await page.locator('#tab-all').click();
 
-  const month = '2026-07';
+  const month = '2026-07-01';
+  const day = '2026-07-19';
+  const dailyData = [{
+    date: day,
+    data: {
+      totalInputTokens: 400,
+      totalOutputTokens: 80,
+      totalCacheCreationTokens: 120,
+      totalCacheReadTokens: 200,
+      totalCost: 1.6,
+      costBreakdown: { input: 0.2, output: 0.4, cacheWrite: 0.6, cacheRead: 0.4 },
+      messageCount: 10,
+      modelBreakdown: {},
+    },
+  }];
   const chartBar = page.locator(
     `#all #allTimeChart .hc-col[data-date="${month}"] .chart-bar.clickable`,
   );
@@ -367,6 +381,30 @@ test('Claude monthly chart drill-down survives a full webview reload', async ({ 
     return state.claudeDrilldownDetails?.['claude:all:monthly'];
   })).toBe(month);
 
+  await page.evaluate(({ month, dailyData }) => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'dailyDataResponse', provider: 'claude', month, data: dailyData },
+    }));
+  }, { month, dailyData });
+  const daily = detail.locator('[data-claude-alltime-daily]');
+  const hourlyId = `claude-alltime-hourly-detail-${day}`;
+  const dailyBar = daily.locator(`.chart-content .hc-col[data-date="${day}"] .chart-bar.clickable`);
+  const dailyToggle = daily.locator(`[data-claude-alltime-hourly-toggle][data-date="${day}"]`);
+  await expect(dailyBar).toHaveAttribute('aria-controls', hourlyId);
+  await expect(dailyToggle).toHaveAttribute('aria-controls', hourlyId);
+  const postedBeforeHourlyOpen = await page.evaluate(() => window.__ccuPostedMessages.length);
+  await dailyBar.focus();
+  await page.keyboard.press('Space');
+  const hourlyDetail = daily.locator(`[data-claude-alltime-hourly-detail-row][data-date="${day}"]`);
+  await expect(hourlyDetail).toBeVisible();
+  await expect(hourlyDetail.locator('[data-claude-materialized-hours="true"]')).toBeVisible();
+  await expect(hourlyDetail.locator('.daily-table tbody tr')).toHaveCount(24);
+  expect(await page.evaluate(() => window.__ccuPostedMessages.length)).toBe(postedBeforeHourlyOpen);
+  await expect.poll(() => page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('__ccu-vscode-state') || '{}');
+    return state.claudeDrilldownDetails?.['claude:all:hourly'];
+  })).toBe(day);
+
   await page.reload({ waitUntil: 'load' });
 
   await expect(page.locator('#tab-all')).toHaveClass(/active/);
@@ -377,6 +415,17 @@ test('Claude monthly chart drill-down survives a full webview reload', async ({ 
   await expect.poll(() => page.evaluate(() => window.__ccuPostedMessages.find(
     (message) => message.command === 'getDailyData',
   ))).toEqual({ command: 'getDailyData', month, provider: 'claude' });
+  await page.evaluate(({ month, dailyData }) => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { command: 'dailyDataResponse', provider: 'claude', month, data: dailyData },
+    }));
+  }, { month, dailyData });
+  await expect(page.locator(
+    `#all [data-claude-alltime-daily] [data-claude-alltime-hourly-detail-row][data-date="${day}"]`,
+  )).toBeVisible();
+  await expect(page.locator(
+    `#all [data-claude-alltime-daily] .chart-content .hc-col[data-date="${day}"] .chart-bar.clickable`,
+  )).toHaveAttribute('aria-expanded', 'true');
 });
 
 test('Codex all-time months drill into indexed days and available hours on demand', async ({ page }) => {

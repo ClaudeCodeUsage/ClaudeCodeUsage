@@ -1,4 +1,95 @@
-import { test, expect, openClaude } from './support/app.mjs';
+import { test, expect, openClaude, openCodex } from './support/app.mjs';
+
+test('a live Codex refresh waits for an active scroll burst before replacing the panel', async ({ page }) => {
+  await openCodex(page, { height: 420 });
+  const before = await page.evaluate(() => {
+    const panel = document.getElementById('provider-panel');
+    const filler = document.createElement('div');
+    filler.style.height = '1600px';
+    panel.appendChild(filler);
+    scrollTo(0, 160);
+    window.dispatchEvent(new Event('scroll'));
+    window.__ccuScrollPanel = panel.firstElementChild;
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      command: 'dashboardDataPatch',
+      provider: 'codex',
+      tab: 'today',
+      revision: 1,
+      html: panel.innerHTML,
+      claudeLast30HoursByDay: {},
+    } }));
+    return { scrollY, calls: window.__ccuSetStateCalls };
+  });
+  expect(before.scrollY).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.getElementById('provider-panel').firstElementChild === window.__ccuScrollPanel)).toBe(true);
+  expect(await page.evaluate(() => window.__ccuPostedMessages.some((message) => message.command === 'dashboardDataPatchAck'))).toBe(false);
+  await expect.poll(() => page.evaluate(() =>
+    window.__ccuPostedMessages.some((message) => message.command === 'dashboardDataPatchAck' && message.revision === 1 && message.ok),
+  )).toBe(true);
+  expect(await page.evaluate((calls) => window.__ccuSetStateCalls - calls, before.calls)).toBeLessThanOrEqual(1);
+});
+
+test('continued Codex scrolling coalesces updates but cannot starve the latest patch', async ({ page }) => {
+  await openCodex(page, { height: 420 });
+  await page.evaluate(() => {
+    const panel = document.getElementById('provider-panel');
+    const filler = document.createElement('div');
+    filler.style.height = '1600px';
+    panel.appendChild(filler);
+    scrollTo(0, 160);
+    window.dispatchEvent(new Event('scroll'));
+    window.__ccuScrollPulse = setInterval(() => window.dispatchEvent(new Event('scroll')), 35);
+    for (let revision = 1; revision <= 4; revision += 1) {
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        command: 'dashboardDataPatch', provider: 'codex', tab: 'today', revision,
+        html: panel.innerHTML, claudeLast30HoursByDay: {},
+      } }));
+    }
+  });
+  try {
+    await expect.poll(() => page.evaluate(() =>
+      window.__ccuPostedMessages.filter((message) => message.command === 'dashboardDataPatchAck'),
+    )).toEqual([{ command: 'dashboardDataPatchAck', revision: 4, ok: true }]);
+  } finally {
+    await page.evaluate(() => clearInterval(window.__ccuScrollPulse));
+  }
+});
+
+test('a 20-update scroll storm swaps the provider panel at most twice', async ({ page }) => {
+  await openCodex(page, { height: 420 });
+  const result = await page.evaluate(async () => {
+    const panel = document.getElementById('provider-panel');
+    const filler = document.createElement('div');
+    filler.style.height = '1600px';
+    panel.appendChild(filler);
+    const html = panel.innerHTML;
+    let swaps = 0;
+    const observer = new MutationObserver((records) => {
+      swaps += records.filter((record) => record.type === 'childList').length;
+    });
+    observer.observe(panel, { childList: true });
+    scrollTo(0, 160);
+    for (let revision = 1; revision <= 20; revision += 1) {
+      window.dispatchEvent(new Event('scroll'));
+      window.dispatchEvent(new MessageEvent('message', { data: {
+        command: 'dashboardDataPatch', provider: 'codex', tab: 'today', revision,
+        html, claudeLast30HoursByDay: {},
+      } }));
+      await new Promise((done) => setTimeout(done, 25));
+    }
+    await new Promise((done) => setTimeout(done, 650));
+    observer.disconnect();
+    return {
+      swaps,
+      acks: window.__ccuPostedMessages
+        .filter((message) => message.command === 'dashboardDataPatchAck')
+        .map((message) => message.revision),
+    };
+  });
+  expect(result.swaps).toBeGreaterThan(0);
+  expect(result.swaps).toBeLessThanOrEqual(2);
+  expect(result.acks.at(-1)).toBe(20);
+});
 
 const scrollerFixtures = [
   ['dashboard-tabs', 'tabs'],

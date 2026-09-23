@@ -228,6 +228,7 @@ test('pending Webview reset tombstone survives failure and clears only after ver
   const acknowledgements = [false, true];
   const extension = Object.create(ClaudeCodeUsageExtension.prototype) as any;
   extension.context = { globalState };
+  extension.localDataActionWrite = Promise.resolve();
   extension.pendingClientResetReplay = Promise.resolve();
   extension.webviewProvider = {
     requestClientLocalDataAction: async (action: string) => {
@@ -243,6 +244,63 @@ test('pending Webview reset tombstone survives failure and clears only after ver
   );
   await extension.replayPendingClientReset();
   assert.equal(globalState.state.has('ccu.localData.pendingClientReset.v1'), false);
+});
+
+test('an acknowledged reset replay cannot clear a newer tombstone revision', async () => {
+  const key = 'ccu.localData.pendingClientReset.v1';
+  const globalState = memoryGlobalState({
+    [key]: 'clear-all-client-state',
+  });
+  let releaseAck!: (ok: boolean) => void;
+  const ack = new Promise<boolean>((resolve) => { releaseAck = resolve; });
+  const extension = Object.create(ClaudeCodeUsageExtension.prototype) as any;
+  extension.context = { globalState };
+  extension.localDataActionWrite = Promise.resolve();
+  extension.pendingClientResetReplay = Promise.resolve();
+  extension.webviewProvider = {
+    requestClientLocalDataAction: async () => ack,
+  };
+
+  const replay = extension.replayPendingClientReset();
+  await new Promise((resolve) => setImmediate(resolve));
+  const newer = {
+    schemaVersion: 1,
+    revision: 2,
+    action: 'reset-sharing-preferences',
+  };
+  await globalState.update(key, newer);
+  releaseAck(true);
+  await replay;
+
+  assert.deepEqual(globalState.state.get(key), newer);
+});
+
+test('reset replay is serialized with newly requested local-data actions', async () => {
+  const globalState = memoryGlobalState({
+    'ccu.localData.pendingClientReset.v1': 'clear-all-client-state',
+  });
+  let releaseAck!: (ok: boolean) => void;
+  const ack = new Promise<boolean>((resolve) => { releaseAck = resolve; });
+  const extension = Object.create(ClaudeCodeUsageExtension.prototype) as any;
+  extension.context = { globalState };
+  extension.localDataActionWrite = Promise.resolve();
+  extension.pendingClientResetReplay = Promise.resolve();
+  extension.webviewProvider = {
+    requestClientLocalDataAction: async () => ack,
+  };
+
+  const replay = extension.replayPendingClientReset();
+  await new Promise((resolve) => setImmediate(resolve));
+  let newerActionStarted = false;
+  const newerAction = extension.serializeLocalDataAction(async () => {
+    newerActionStarted = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(newerActionStarted, false);
+
+  releaseAck(true);
+  await Promise.all([replay, newerAction]);
+  assert.equal(newerActionStarted, true);
 });
 
 test('clear-all uses the exact allowlist and preserves unrelated state', async () => {
