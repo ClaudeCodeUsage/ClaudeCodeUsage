@@ -1,14 +1,14 @@
 # Claude Code Usage
 
-🌐 **Language**: [🏠 Main](README.md) | **English** | [繁體中文](README-zh-TW.md) | [简体中文](README-zh-CN.md) | [日本語](README-ja.md) | [한국어](README-ko.md) | [Bahasa Indonesia](README-id.md)
+🌐 **Language**: [🏠 Main](README.md) | **English** | [Deutsch](README-de-DE.md) | [繁體中文](README-zh-TW.md) | [简体中文](README-zh-CN.md) | [日本語](README-ja.md) | [한국어](README-ko.md) | [Português (Brasil)](README-pt-BR.md) | [Bahasa Indonesia](README-id.md)
 
 ---
 
-**The local Claude Code and Codex usage coach in your status bar.** Not a billing tool. Claude retains its cost and quota views; Codex Beta adds token and behaviour insights with Codex-native semantics.
+**The local Claude Code and Codex usage coach in your status bar.** Not a billing tool. Claude retains its cost and quota views; Codex adds token and behaviour insights with Codex-native semantics.
 
-> **What it is:** a VS Code status-bar monitor that reads your local Claude Code conversation logs and shows **token-derived** usage and cost estimates — plus an optional AI advisor that suggests how to improve your prompts and reduce waste.
+> **What it is:** a VS Code status-bar monitor that reads local Claude Code and Codex usage logs, shows provider-appropriate token and quota views, and offers optional advice for reducing avoidable overhead.
 >
-> **What it is _not_:** a billing tool. All amounts are estimates based on public per-million-token rates. Refer to your Anthropic account for actual charges.
+> **What it is _not_:** a billing tool. Claude costs and Codex API-equivalent values are estimates, not subscription charges or invoices. Refer to the relevant provider account for billing truth.
 
 > Screenshots include English and Simplified Chinese. See the [main README](README.md) for the full feature reference.
 
@@ -57,6 +57,34 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 - **Multi-vendor pricing** — Opus 4.x / Sonnet 4.x / Haiku 4.5 verified against Anthropic's public pricing; reference rates for OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen with family-aware fallback. `Refresh Token Pricing` pulls live LiteLLM data.
 - **Personalisation** — language, timezone, decimal places, compact numbers, project grouping, dashboard auto-refresh toggle.
 
+## What's new in v2.4
+
+- **Codex status and scrolling** — today's processed tokens are the default
+  compact metric, while weekly quota shows remaining capacity. Live panel
+  updates briefly defer during scrolling, with a bounded delay.
+- **One preview-first sharing workspace** — a full-width export preview now
+  comes first, with controls below it and one presentation selector for the
+  **Combined activity heatmap**, **Claude Share Card**, and **Claude token
+  heatmap**. The combined presentation requires real data from both providers;
+  both legacy presentations remain Claude-only.
+- **Compatibility without duplicate panels** — `exportShareCard`,
+  `exportHeatmap`, and `publishHeatmapToGitHub` remain available and open the
+  matching presentation. `enableShareCard` is still the single visible sharing
+  switch and defaults to on; retired `showHeatmap` state remains only for one
+  release of compatibility and bounded clearing.
+- **Strict local-artifact and provider boundaries** — selecting, previewing,
+  and local SVG/Markdown export use materialized aggregates only and make no
+  network request, GitHub sign-in, or profile/avatar/name lookup. Only the
+  separate Claude-heatmap **Publish to GitHub** action can connect; it remains
+  public-repository-only and confirms the exact target and create/overwrite
+  action before writing. Combined activity does not claim billing,
+  productivity, capability, or provider equivalence.
+
+![v2.4 combined sharing workspace, light theme](images/v2.4.0/compare-sharing-en-light.png)
+
+Production renderer, synthetic usage and VS Code theme variables; not an
+installed-VSIX or real-account screenshot.
+
 ## What's new in v2.3
 
 - **Refined throughout the v2.3 line** — GPT-6 Astra and Fable 5.1 model
@@ -89,14 +117,17 @@ Also on the [Open VSX Registry](https://open-vsx.org/extension/GrowthJack/claude
 
 ## Configuration
 
-Open Settings (`Ctrl+,`) and search for **`Claude Code Usage`**. All settings are optional. The most useful:
+Open the dashboard's ⚙ Settings tab for most options, including the BYOK API
+key, which is stored in SecretStorage and is not synced. VS Code Settings
+(`Ctrl+,`) retains only `language`, `dataDirectory`, and
+`codex.dataDirectory`. The most useful options are:
 
 - `language` — UI language (`auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR` / `id`).
 - `timezone` — IANA timezone for date display (e.g. `Asia/Hong_Kong`).
 - `usageLimitTracking` — show the real 5h / weekly quota indicator.
 - `showCost` / `showContext` — toggle the cost item and the context-window fill indicator (like `/context`) in the status bar.
 - Each of these status-bar items is opt-out — set `usageLimitTracking`, `showCost`, or `showContext` to `false` to hide just that one.
-- `advice.apiKey` — bring-your-own key shared by AI Advice and the Usage Optimizer (Anthropic or OpenAI-compatible endpoint).
+- `advice.apiKey` — enter your own key in the dashboard for AI Advice and the Usage Optimizer (Anthropic or OpenAI-compatible endpoint).
 - `pauseDashboardRefresh` — pause dashboard auto-refresh (also toggleable in the dashboard header).
 
 See the [full settings table in the main README](README.md#configuration).

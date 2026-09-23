@@ -1,14 +1,14 @@
 # Claude Code Usage
 
-🌐 **Bahasa**: [🏠 Main](README.md) | [English](README-en.md) | [繁體中文](README-zh-TW.md) | [简体中文](README-zh-CN.md) | [日本語](README-ja.md) | [한국어](README-ko.md) | **Bahasa Indonesia**
+🌐 **Bahasa**: [🏠 Main](README.md) | [English](README-en.md) | [Deutsch](README-de-DE.md) | [繁體中文](README-zh-TW.md) | [简体中文](README-zh-CN.md) | [日本語](README-ja.md) | [한국어](README-ko.md) | [Português (Brasil)](README-pt-BR.md) | **Bahasa Indonesia**
 
 ---
 
-**Pelatih penggunaan lokal Claude Code dan Codex di status bar.** Bukan alat billing. Tampilan biaya / kuota Claude tetap ada; Codex Beta menganalisis token dan perilaku sesuai semantik Codex.
+**Pelatih penggunaan lokal Claude Code dan Codex di status bar.** Bukan alat billing. Tampilan biaya / kuota Claude tetap ada; Codex menganalisis token dan perilaku sesuai semantik Codex.
 
-> **Apa ini:** monitor status bar VS Code yang membaca log percakapan Claude Code lokal Anda dan menampilkan estimasi penggunaan serta biaya **berbasis token** — plus penasihat AI opsional yang menyarankan cara memperbaiki prompt Anda dan mengurangi pemborosan.
+> **Apa ini:** monitor status bar VS Code yang membaca log penggunaan lokal Claude Code dan Codex, lalu menampilkan token, kuota, dan estimasi sesuai makna data masing-masing penyedia. Saran opsional membantu mengurangi pemakaian yang tidak perlu.
 
-> **ini _Bukanlah_:** alat billing. Semua angka adalah estimasi berdasarkan tarif publik per-juta-token. Rujuk ke akun Anthropic Anda untuk biaya yang sebenarnya.
+> **Apa yang bukan:** alat penagihan. Biaya Claude dan biaya setara API Codex hanyalah estimasi, bukan tagihan langganan. Periksa akun penyedia terkait untuk tagihan sebenarnya. Kuota Codex adalah pengamatan lokal terakhir, bukan saldo langsung.
 
 > Screenshot mencakup UI bahasa Inggris dan Tionghoa Sederhana. Lihat [README utama](README.md) untuk referensi lengkap.
 
@@ -56,6 +56,30 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
   Pencabutan persetujuan langsung membatalkan pratinjau dan permintaan saran yang sedang berjalan; data yang sudah terkirim tidak dapat ditarik kembali.
 - **Harga multi-vendor** — Opus 4.x / Sonnet 4.x / Haiku 4.5 diverifikasi terhadap harga publik Anthropic; tarif referensi untuk OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen dengan fallback berbasis family model. `Refresh Token Pricing` menarik data LiteLLM langsung.
 - **Personalisasi** — bahasa, zona waktu, angka desimal, angka ringkas, pengelompokan proyek, toggle penyegaran otomatis dashboard.
+
+## Yang baru di v2.4
+
+- **Status Codex dan pengguliran** — metrik ringkas bawaan menampilkan token
+  yang diproses hari ini, sedangkan jatah mingguan menampilkan sisanya.
+  Pembaruan panel ditunda sebentar saat menggulir, dengan batas waktu tunggu.
+- **Satu ruang kerja berbagi yang mengutamakan pratinjau** — pratinjau ekspor
+  selebar penuh menjadi fokus, dengan kontrol di bawahnya. Satu pemilih tampilan
+  berpindah antara **heatmap aktivitas gabungan**, **Claude Share Card**, dan
+  **heatmap token Claude**. Tampilan gabungan hanya tersedia saat kedua penyedia
+  memiliki data nyata; dua tampilan lama tetap khusus Claude.
+- **Entri kompatibel tanpa panel ganda** — `exportShareCard`, `exportHeatmap`,
+  dan `publishHeatmapToGitHub` tetap tersedia dan membuka pratinjau yang sesuai.
+  `enableShareCard` tetap menjadi satu-satunya sakelar berbagi yang terlihat dan
+  aktif secara default; `showHeatmap` yang dipensiunkan disimpan hanya untuk satu
+  rilis kompatibilitas status dan penghapusan terbatas.
+- **Batas artefak lokal dan penyedia yang ketat** — memilih tampilan, melihat
+  pratinjau, serta mengekspor SVG/Markdown lokal hanya memakai agregat yang
+  sudah tersedia dan tidak melakukan permintaan jaringan, login GitHub, atau
+  pengambilan profil/avatar/nama. Hanya tindakan terpisah **Publikasikan ke
+  GitHub** untuk heatmap Claude yang dapat terhubung; tindakan ini tetap khusus
+  repositori publik dan mengonfirmasi target serta aksi buat/timpa yang tepat
+  sebelum menulis. Aktivitas gabungan bukan klaim tagihan, produktivitas,
+  kemampuan, atau kesetaraan penyedia.
 
 ## Yang baru di v2.3
 

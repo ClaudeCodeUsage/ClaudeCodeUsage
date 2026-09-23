@@ -5,7 +5,7 @@ import * as path from 'path';
 // Removed tinyglobby dependency - using native fs instead
 // Removed zod dependency - using native validation instead
 import { calculateCostBreakdown, getModelRatesPerMillion } from './pricing';
-import { isRetryDuplicatePrompt } from './promptDedup';
+import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
 import {
   dayKeyInZone,
   formatHourLabel,
@@ -80,6 +80,41 @@ export function validateUsageRecord(data: any): data is ClaudeUsageRecord {
   if (typeof usage.input_tokens !== 'number') return false;
   if (typeof usage.output_tokens !== 'number') return false;
   return true;
+}
+
+/** Keep only usage evidence after content analysis has inspected the raw line.
+ * A usage-bearing assistant row may contain a very large response/tool body;
+ * retaining the parsed row would pin that body in every dashboard snapshot. */
+export function compactUsageRecord(data: ClaudeUsageRecord): ClaudeUsageRecord {
+  const sourceUsage = data.message.usage;
+  const usage: ClaudeUsageRecord['message']['usage'] = {
+    input_tokens: sourceUsage.input_tokens,
+    output_tokens: sourceUsage.output_tokens,
+    ...(sourceUsage.cache_creation_input_tokens !== undefined
+      ? { cache_creation_input_tokens: sourceUsage.cache_creation_input_tokens } : {}),
+    ...(sourceUsage.cache_read_input_tokens !== undefined
+      ? { cache_read_input_tokens: sourceUsage.cache_read_input_tokens } : {}),
+    ...(sourceUsage.cache_creation !== undefined ? {
+      cache_creation: {
+        ...(sourceUsage.cache_creation?.ephemeral_1h_input_tokens !== undefined
+          ? { ephemeral_1h_input_tokens: sourceUsage.cache_creation.ephemeral_1h_input_tokens } : {}),
+        ...(sourceUsage.cache_creation?.ephemeral_5m_input_tokens !== undefined
+          ? { ephemeral_5m_input_tokens: sourceUsage.cache_creation.ephemeral_5m_input_tokens } : {}),
+      },
+    } : {}),
+  };
+  return {
+    timestamp: data.timestamp,
+    ...(data.version !== undefined ? { version: data.version } : {}),
+    message: {
+      usage,
+      ...(data.message.model !== undefined ? { model: data.message.model } : {}),
+      ...(data.message.id !== undefined ? { id: data.message.id } : {}),
+    },
+    ...(data.costUSD !== undefined ? { costUSD: data.costUSD } : {}),
+    ...(data.requestId !== undefined ? { requestId: data.requestId } : {}),
+    ...(data.isApiErrorMessage !== undefined ? { isApiErrorMessage: data.isApiErrorMessage } : {}),
+  };
 }
 
 function validationDropReason(data: any): string {
@@ -216,7 +251,7 @@ function collectPrompt(
   // Web Component examples and must remain eligible for explicit opt-in.
   acc.prompts.push({
     cwd,
-    text: trimmed.slice(0, 2500),
+    text: detachedPromptPrefix(trimmed, 2500),
     observedAtEpochMs: Number.isFinite(observedAtEpochMs) ? observedAtEpochMs : 0,
   });
   if (acc.prompts.length > 600) {
@@ -234,7 +269,7 @@ function collectCommandUse(acc: AnalysisAcc, text: string, sessionId: string, ti
   if (!m) {
     return;
   }
-  const name = m[1].trim();
+  const name = detachedPromptPrefix(m[1].trim(), 80);
   if (TRIVIAL_COMMANDS.has(name.toLowerCase())) {
     return;
   }
@@ -842,7 +877,7 @@ export class ClaudeDataLoader {
             }
           }
 
-          // Per-session (per-file) map of prompt text → last-counted epoch ms,
+          // Per-session (per-file) map of prompt digest → last-counted epoch ms,
           // to drop API-error retry re-logs of the same prompt from the Messages
           // count (see promptDedup.ts).
           const recentPrompts = new Map<string, number>();
@@ -891,7 +926,7 @@ export class ClaudeDataLoader {
                         : '';
                   const trimmed = text.replace(/\s+/g, ' ').trim();
                   if (trimmed.length > 0) {
-                    agentInfo.task = trimmed.slice(0, 200);
+                    agentInfo.task = detachedPromptPrefix(trimmed, 200);
                   }
                 }
               }
@@ -930,7 +965,7 @@ export class ClaudeDataLoader {
                     // Kept generous so the "costliest messages" panel can show
                     // the whole triggering prompt (scrollable); giant pastes are
                     // capped so a few huge prompts can't bloat memory.
-                    _promptText: text.trim().slice(0, 4000),
+                    _promptText: detachedPromptPrefix(text.trim(), 4000),
                     _sessionId: sessionInfo.sessionId,
                     _projectDirEncoded: sessionInfo.projectPath,
                   };
@@ -961,7 +996,7 @@ export class ClaudeDataLoader {
               // Tag the record with the session/project it came from.
               // Prefer the real working directory (`cwd`) recorded in the log line
               // over the lossy, dash-encoded folder name when it is available.
-              const record = data as ClaudeUsageRecord;
+              const record = compactUsageRecord(data as ClaudeUsageRecord);
               record._sessionId = sessionInfo.sessionId;
               record._projectDirEncoded = sessionInfo.projectPath;
               const cwd = (parsed as { cwd?: unknown }).cwd;

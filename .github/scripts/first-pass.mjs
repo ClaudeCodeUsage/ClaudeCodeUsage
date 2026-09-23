@@ -27,7 +27,7 @@ const REPO_ROOT = resolve(process.cwd());
 const env = process.env;
 const base = (env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com').replace(/\/$/, '');
 const githubApi = (env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
-const model = env.CCU_BOT_MODEL || 'deepseek-v4-flash';
+const model = env.CCU_BOT_MODEL || 'deepseek-flash';
 const modelPro = env.CCU_BOT_MODEL_PRO || 'deepseek-v4-pro';
 
 const fail = (message) => {
@@ -119,14 +119,20 @@ const buildUser = (extraFiles) =>
   `\n\n--- PROJECT DOCS ---\n${docs}` +
   (extraFiles ? `\n\n--- REPO SOURCE FILES (read-only) ---\n${extraFiles}` : '');
 
-async function askModel(useModel, system, userText, think = false) {
+async function askModel(useModel, generator, system, userText, think = false) {
   const body = {
     model: useModel,
-    max_tokens: 1400,
+    max_tokens: think ? 8192 : 1800,
     system,
     messages: [{ role: 'user', content: userText }],
   };
-  if (think) body.thinking = { type: 'enabled', budget_tokens: 6000 };
+  // DeepSeek defaults to reasoning even on the cheap tier. Reserve that tier's
+  // output budget for the actual reply; the pro tier may reason first.
+  if (generator.id === 'deepseek') {
+    body.thinking = { type: think ? 'enabled' : 'disabled' };
+  } else if (think) {
+    body.thinking = { type: 'enabled', budget_tokens: 6000 };
+  }
 
   let response = await fetch(`${base}/v1/messages`, {
     method: 'POST',
@@ -151,11 +157,11 @@ async function askModel(useModel, system, userText, think = false) {
         body: JSON.stringify(body),
       });
     } else {
-      throw new Error(`Model API error ${response.status}: ${errorText.slice(0, 500)}`);
+      throw Object.assign(new Error('Model API request failed'), { status: response.status });
     }
   }
   if (!response.ok) {
-    throw new Error(`Model API error ${response.status}: ${(await response.text()).slice(0, 500)}`);
+    throw Object.assign(new Error('Model API request failed'), { status: response.status });
   }
   const data = await response.json();
   return (data.content || [])
@@ -186,20 +192,22 @@ try {
   fail(`Comment lookup failed: ${error.message}`);
 }
 
+const modelFailures = [];
 const selected = await resolveFirstPassCandidates({
   cheap: async () => ({
-    ...parseFirstPassResponse(await askModel(model, buildSystem(false), buildUser(''))),
+    ...parseFirstPassResponse(await askModel(model, cheapGenerator, buildSystem(false), buildUser(''))),
     generator: cheapGenerator,
   }),
   pro: async (cheapCandidate) => {
     const extra = repoReader.read(cheapCandidate?.want_files || []).text;
     return {
       ...parseFirstPassResponse(
-        await askModel(modelPro, buildSystem(true), buildUser(extra), true),
+        await askModel(modelPro, proGenerator, buildSystem(true), buildUser(extra), true),
       ),
       generator: proGenerator,
     };
   },
+  onFailure: (event) => modelFailures.push(event),
 });
 
 let commentBody;
@@ -213,11 +221,17 @@ if (selected) {
     fail(`First-pass formatting failed: ${error.message}`);
   }
 } else {
+  const summary = ['cheap', 'pro']
+    .map((tier) => `${tier}=${modelFailures.find((event) => event.tier === tier)?.reason || 'no-usable-reply'}`)
+    .join(' ');
+  if (isPr) {
+    fail(`::error::First-pass PR review unavailable: ${summary}. No comment was posted.`);
+  }
   const authorWroteInChinese = /[\u3400-\u9fff]/u.test(
     `${env.ITEM_TITLE || ''}\n${env.ITEM_BODY || ''}`,
   );
   commentBody = formatFirstPassFallback({ kind, isChinese: authorWroteInChinese });
-  console.warn(`Both model tiers failed to return a usable first-pass ${kind}; posting fallback.`);
+  console.warn(`Both model tiers failed to return a usable first-pass ${kind} (${summary}); posting fallback.`);
 }
 
 try {

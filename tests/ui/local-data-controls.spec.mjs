@@ -1,4 +1,4 @@
-import { test, expect, openCodex } from './support/app.mjs';
+import { test, expect, openClaude, openCodex } from './support/app.mjs';
 
 test('Settings stays concise: repository privacy controls are not rendered in the plugin', async ({ page }) => {
   await openCodex(page);
@@ -61,6 +61,7 @@ test('UI and sharing resets are independent and preserve unrelated localStorage'
   await page.evaluate(() => {
     localStorage.setItem('ccu.activeTab', 'settings');
     localStorage.setItem('ccu.sessionRange', '30');
+    localStorage.setItem('ccu.sharing.template', 'claudeShareCard');
     localStorage.setItem('ccu.combinedHeatmap.title', 'Synthetic title');
     localStorage.setItem('ccu.combinedHeatmap.range', '90d');
     localStorage.setItem('unrelated-private-canary', 'preserve');
@@ -83,12 +84,14 @@ test('UI and sharing resets are independent and preserve unrelated localStorage'
   expect(await page.evaluate(() => ({
     active: localStorage.getItem('ccu.activeTab'),
     range: localStorage.getItem('ccu.sessionRange'),
+    sharingTemplate: localStorage.getItem('ccu.sharing.template'),
     shareTitle: localStorage.getItem('ccu.combinedHeatmap.title'),
     state: JSON.parse(localStorage.getItem('__ccu-vscode-state') || '{}'),
     unrelated: localStorage.getItem('unrelated-private-canary'),
   }))).toEqual({
     active: null,
     range: null,
+    sharingTemplate: 'claudeShareCard',
     shareTitle: 'Synthetic title',
     state: {},
     unrelated: 'preserve',
@@ -100,10 +103,49 @@ test('UI and sharing resets are independent and preserve unrelated localStorage'
     }));
   });
   expect(await page.evaluate(() => ({
+    sharingTemplate: localStorage.getItem('ccu.sharing.template'),
     title: localStorage.getItem('ccu.combinedHeatmap.title'),
     range: localStorage.getItem('ccu.combinedHeatmap.range'),
     unrelated: localStorage.getItem('unrelated-private-canary'),
-  }))).toEqual({ title: null, range: null, unrelated: 'preserve' });
+  }))).toEqual({ sharingTemplate: null, title: null, range: null, unrelated: 'preserve' });
+});
+
+test('sharing reset refreshes the visible master switch without browser command-coordination state', async ({ page }) => {
+  await openClaude(page);
+  await page.locator('#tab-settings').click();
+  const masterSwitch = page.locator('#set_enableShareCard');
+  await masterSwitch.evaluate((element) => {
+    element.checked = false;
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.evaluate(() => {
+    localStorage.setItem('ccu.sharing.template', 'claudeShareCard');
+    sessionStorage.setItem('unrelated-session-canary', 'preserve');
+    window.dispatchEvent(new MessageEvent('message', {
+      data: {
+        command: 'localDataClientAction',
+        action: 'reset-sharing-preferences',
+        requestId: 'sharing-reset-runtime-1',
+      },
+    }));
+  });
+
+  await expect(masterSwitch).toBeChecked();
+  expect(await page.evaluate(() => ({
+    template: localStorage.getItem('ccu.sharing.template'),
+    unrelated: sessionStorage.getItem('unrelated-session-canary'),
+    ack: window.__ccuPostedMessages.findLast(
+      (message) => message.requestId === 'sharing-reset-runtime-1',
+    ),
+  }))).toEqual({
+    template: null,
+    unrelated: 'preserve',
+    ack: {
+      command: 'localDataClientActionAck',
+      requestId: 'sharing-reset-runtime-1',
+      ok: true,
+    },
+  });
 });
 
 test('client reset ACK is false when allowlisted browser storage cannot be deleted', async ({ page }) => {

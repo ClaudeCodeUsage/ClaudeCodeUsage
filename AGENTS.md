@@ -150,9 +150,9 @@ A static assertion of the first render is not acceptance evidence.
 
 - Every user-facing string goes through `I18n` with all eight UI locales:
   `en`, `de-DE`, `zh-TW`, `zh-CN`, `ja`, `ko`, `pt-BR`, and `id`.
-- Update all seven README files together: `README.md`, `README-en.md`,
-  `README-zh-CN.md`, `README-zh-TW.md`, `README-ja.md`, `README-ko.md`, and
-  `README-id.md`.
+- Update all nine README files together: `README.md`, `README-en.md`,
+  `README-de-DE.md`, `README-zh-CN.md`, `README-zh-TW.md`, `README-ja.md`,
+  `README-ko.md`, `README-pt-BR.md`, and `README-id.md`.
 - For every artifact submitted for maintainer review—including a spec,
   implementation plan, design, release checklist, policy, or substantial
   contributor-document change—provide a faithful Chinese sibling or review
@@ -204,7 +204,7 @@ An unreviewed automated Codex first pass uses exactly:
 - Attribution must name the actual generator. The current first-pass runner
   defaults to DeepSeek and must not be relabelled Codex.
 - The wrapper, not model output, owns the trusted footer and emits exactly one.
-- Credit Claude Code and OpenAI Codex as development tools in all seven README
+- Credit Claude Code and OpenAI Codex as development tools in all nine README
   files. Do not put tools in Release Drafter's human contributor list. A commit
   mainly written by OpenAI Codex must include this exact trailer:
 

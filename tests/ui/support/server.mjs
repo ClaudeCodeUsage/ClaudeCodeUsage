@@ -65,6 +65,12 @@ const server = createServer(async (request, response) => {
     const codexMonth = /^\d{4}-\d{2}$/.test(requestedCodexMonth)
       ? requestedCodexMonth
       : '';
+    const claudeOnly = url.searchParams.get('claudeOnly') === 'true';
+    const requestedCommandTemplate = url.searchParams.get('commandTemplate') ?? '';
+    const commandTemplate = ['claudeShareCard', 'claudeHeatmap'].includes(requestedCommandTemplate)
+      ? requestedCommandTemplate
+      : '';
+    const commandAfterReset = url.searchParams.get('commandAfterReset') === 'true';
     const html = await renderHarness({
       provider,
       locale,
@@ -77,6 +83,9 @@ const server = createServer(async (request, response) => {
       adviceFeedback,
       timeZone,
       codexMonth,
+      claudeOnly,
+      commandTemplate,
+      commandAfterReset,
     });
     response.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',

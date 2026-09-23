@@ -198,7 +198,7 @@ test('shared chart controls expose and update aria-pressed from the keyboard', a
 
 for (const scenario of [
   { name: 'Claude', label: 'Claude', open: openClaude },
-  { name: 'Codex', label: 'Codex Beta', open: openCodex },
+  { name: 'Codex', label: 'Codex', open: openCodex },
   { name: 'Compare', label: 'Compare', open: openCompare },
 ]) {
   test(`${scenario.name} chart regions have unique provider-qualified accessible names`, async ({ page }) => {

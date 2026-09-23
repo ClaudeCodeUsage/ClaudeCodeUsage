@@ -8,6 +8,14 @@
 // README renders on a white/light canvas.
 
 import { DayUsage, HeatMetric, intensityBucket } from './heatmap';
+import {
+  approximateSvgTextWidth,
+  escapeSvgAttribute,
+  escapeSvgText,
+  fitSvgText,
+} from './svgEscape';
+import { HEATMAP_ARTIFACT_TRANSLATIONS, artifactLocale } from './i18n';
+import { SupportedLanguage } from './types';
 
 /** Claude-orange 5-step intensity ramp (bucket 0..4). 0 = empty cell. */
 export const CLAUDE_ORANGE_SCALE = ['#ebedf0', '#fadcc9', '#f0aa82', '#e07d4f', '#c85a2b'];
@@ -30,6 +38,7 @@ export interface HeatmapSvgOptions {
   accentColor?: string;
   minWidth?: number; // optional card width floor for short date ranges
   ariaLabel?: string;
+  locale?: string;
   tooltip?: (dateISO: string, usage: DayUsage, value: number, metric: HeatMetric) => string;
 }
 
@@ -114,7 +123,13 @@ function daysBetween(aISO: string, bISO: string): number {
 }
 
 /** Compact number: 5.3B / 1.2M / 345K / 42. */
-function compactNum(n: number): string {
+function compactNum(n: number, locale: SupportedLanguage = 'en'): string {
+  if (locale !== 'en') {
+    return new Intl.NumberFormat(locale, {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(n);
+  }
   const abs = Math.abs(n);
   const trim = (x: number): string => x.toFixed(1).replace(/\.0$/, '');
   if (abs >= 1e9) return trim(n / 1e9) + 'B';
@@ -130,19 +145,25 @@ function ordinal(d: number): string {
   return d + suffix;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTHS_FULL = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-/** "June 18th" for a YYYY-MM-DD key. */
-function longDate(dateISO: string): string {
+/** Locale-aware visible date for a YYYY-MM-DD key. */
+function longDate(dateISO: string, locale: SupportedLanguage): string {
+  if (locale !== 'en') {
+    return new Intl.DateTimeFormat(locale, {
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC',
+    }).format(new Date(`${dateISO}T00:00:00.000Z`));
+  }
   const month = MONTHS_FULL[Number(dateISO.slice(5, 7)) - 1];
   return `${month} ${ordinal(Number(dateISO.slice(8, 10)))}`;
 }
 
-const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const esc = escapeSvgText;
 
 export interface HeatGridCell {
   dateISO: string;
@@ -198,6 +219,8 @@ export function buildContributionGrid(
 
 /** Render the trailing-year token heatmap as a self-contained SVG string. */
 export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapSvgOptions = {}): string {
+  const locale = artifactLocale(opts.locale);
+  const copy = HEATMAP_ARTIFACT_TRANSLATIONS[locale];
   const metric = opts.metric ?? 'tokens';
   const weeks = Math.max(1, Math.min(53, opts.weeks ?? 53));
   const today = opts.endDateISO ?? new Date().toISOString().slice(0, 10);
@@ -208,7 +231,7 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
     color,
     CLAUDE_ORANGE_SCALE[Math.min(index, CLAUDE_ORANGE_SCALE.length - 1)],
   ));
-  const watermark = opts.watermark ?? 'Made with Claude Code Usage';
+  const watermark = opts.watermark ?? copy.madeWith;
 
   // Trailing window: full weeks ending on the Saturday of today's week, cells
   // only up to today (no future) — GitHub's default contribution view.
@@ -227,11 +250,11 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
   const summary =
     opts.title ??
     (metric === 'cost'
-      ? `$${compactNum(grid.total)} in Claude Code · ${year}`
+      ? `$${compactNum(grid.total, locale)} ${copy.inClaudeCode} · ${year}`
       : metric === 'sessions'
-        ? `${compactNum(grid.total)} sessions in Claude Code · ${year}`
-        : `${compactNum(grid.total)} tokens in Claude Code · ${year}`);
-  const noun = metric === 'sessions' ? 'sessions' : metric === 'cost' ? '' : 'tokens';
+        ? `${compactNum(grid.total, locale)} ${copy.sessions} ${copy.inClaudeCode} · ${year}`
+        : `${compactNum(grid.total, locale)} ${copy.tokens} ${copy.inClaudeCode} · ${year}`);
+  const noun = metric === 'sessions' ? copy.sessions : metric === 'cost' ? '' : copy.tokens;
 
   const cell = 12;
   const gap = 3;
@@ -245,6 +268,7 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
   const footerH = opts.footerNote ? 48 : 30;
   const width = Math.max(padL + gridW + 10, Math.max(0, opts.minWidth ?? 0));
   const height = padT + gridH + footerH;
+  const renderedSummary = fitSvgText(summary, width - padL - 10, 15);
 
   const parts: string[] = [];
   const background = safeSvgColor(opts.background, '#ffffff');
@@ -255,13 +279,13 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
     ? safeSvgColor(opts.accentColor, '')
     : undefined;
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" role="img" aria-label="${esc(opts.ariaLabel ?? summary)}">`
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" role="img" aria-label="${escapeSvgAttribute(opts.ariaLabel ?? summary)}">`
   );
   parts.push(`<rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="12" fill="${background}" stroke="${borderColor}"/>`);
   if (accentColor) {
     parts.push(`<rect x="0" y="0" width="${width}" height="4" rx="2" fill="${accentColor}"/>`);
   }
-  parts.push(`<text x="${padL}" y="16" font-size="15" font-weight="600" fill="${primaryText}">${esc(summary)}</text>`);
+  parts.push(`<text x="${padL}" y="16" font-size="15" font-weight="600" fill="${primaryText}">${esc(renderedSummary)}</text>`);
   if (opts.subtitle) {
     parts.push(`<text x="${padL}" y="34" font-size="11" fill="${secondaryText}">${esc(opts.subtitle)}</text>`);
   }
@@ -270,15 +294,15 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
   for (const c of grid.cells) {
     const x = padL + c.col * step;
     const y = padT + c.row * step;
-    const when = longDate(c.dateISO);
+    const when = longDate(c.dateISO, locale);
     const usage = daily[c.dateISO] ?? { tokens: 0, cost: 0, sessions: 0 };
     const tip = opts.tooltip
       ? opts.tooltip(c.dateISO, usage, c.value, metric)
       : c.value <= 0
-        ? `No ${noun || 'usage'} on ${when}`
+        ? `${copy.no} ${noun || copy.usage} ${copy.on} ${when}`
         : metric === 'cost'
-          ? `$${compactNum(c.value)} on ${when}`
-          : `${compactNum(c.value)} ${noun} on ${when}`;
+          ? `$${compactNum(c.value, locale)} ${copy.on} ${when}`
+          : `${compactNum(c.value, locale)} ${noun} ${copy.on} ${when}`;
     parts.push(
       `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" ry="2" fill="${scale[c.bucket]}"><title>${esc(tip)}</title></rect>`
     );
@@ -294,12 +318,20 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
     const m = Number(first.dateISO.slice(5, 7)) - 1;
     if (m !== lastMonth) {
       lastMonth = m;
-      parts.push(`<text x="${padL + col * step}" y="${titleH + 13}" font-size="12" fill="${secondaryText}">${MONTHS[m]}</text>`);
+      const monthLabel = new Intl.DateTimeFormat(locale, {
+        month: 'short',
+        timeZone: 'UTC',
+      }).format(new Date(Date.UTC(2026, m, 1)));
+      parts.push(`<text x="${padL + col * step}" y="${titleH + 13}" font-size="12" fill="${secondaryText}">${esc(monthLabel)}</text>`);
     }
   }
 
   // Weekday labels (Mon / Wed / Fri).
-  for (const [row, label] of [[1, 'Mon'], [3, 'Wed'], [5, 'Fri']] as [number, string][]) {
+  for (const [row, weekday] of [[1, 1], [3, 3], [5, 5]] as [number, number][]) {
+    const label = new Intl.DateTimeFormat(locale, {
+      weekday: 'short',
+      timeZone: 'UTC',
+    }).format(new Date(Date.UTC(2026, 0, 4 + weekday)));
     parts.push(`<text x="0" y="${padT + row * step + cell - 1}" font-size="11" fill="${secondaryText}">${label}</text>`);
   }
 
@@ -318,13 +350,16 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
   // Anchor to the rendered card rather than the raw grid. Short 30/90-day
   // ranges use minWidth, so a grid-relative position can fall outside the
   // viewBox as the legend gains additional bands.
-  let lx = Math.max(padL, width - (scale.length * step + 66));
-  parts.push(`<text x="${lx}" y="${footY}" font-size="11" fill="${secondaryText}">Less</text>`);
-  lx += 26;
+  const lessWidth = approximateSvgTextWidth(copy.less, 11);
+  const moreWidth = approximateSvgTextWidth(copy.more, 11);
+  const legendWidth = lessWidth + 8 + scale.length * step + 4 + moreWidth;
+  let lx = Math.max(padL, width - legendWidth - 10);
+  parts.push(`<text x="${lx}" y="${footY}" font-size="11" fill="${secondaryText}">${esc(copy.less)}</text>`);
+  lx += lessWidth + 8;
   for (let b = 0; b < scale.length; b++) {
     parts.push(`<rect x="${lx + b * step}" y="${footY - 9}" width="${cell}" height="${cell}" rx="2" ry="2" fill="${scale[b]}"/>`);
   }
-  parts.push(`<text x="${lx + scale.length * step + 4}" y="${footY}" font-size="11" fill="${secondaryText}">More</text>`);
+  parts.push(`<text x="${lx + scale.length * step + 4}" y="${footY}" font-size="11" fill="${secondaryText}">${esc(copy.more)}</text>`);
 
   parts.push('</svg>');
   return parts.join('\n');

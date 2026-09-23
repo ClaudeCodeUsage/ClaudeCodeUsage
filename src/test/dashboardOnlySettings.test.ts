@@ -42,3 +42,18 @@ test('currency display settings reformat materialized data without rebuilding pr
   assert.match(branch, /return;/);
   assert.doesNotMatch(branch, /restart|createCodexProvider|startWatcher|scan/i);
 });
+
+test('pricing changes also invalidate sharing projections before a dashboard refresh', () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'extension.ts'),
+    'utf8',
+  );
+  assert.match(
+    source,
+    /private async refreshPricing\(\)[\s\S]*?this\.invalidateClaudeUsagePricingCache\(\);\s*this\.webviewProvider\.invalidateShareCardPreview\(\);/,
+  );
+  assert.match(
+    source,
+    /if \(pricingBackendChanged\) \{\s*this\.invalidateClaudeUsagePricingCache\(\);\s*this\.webviewProvider\.invalidateShareCardPreview\(\);/,
+  );
+});

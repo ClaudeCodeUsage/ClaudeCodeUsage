@@ -44,11 +44,11 @@ export async function openCodex(
 
 export async function openClaude(
   page,
-  { locale = 'en', theme = 'light', fixture = 'default', autoRefresh = false, weeklyValue = true, shareStudio = true, projectMatrix = true, timeZone = 'Asia/Hong_Kong', width = 1280, height = 900 } = {},
+  { locale = 'en', theme = 'light', fixture = 'default', autoRefresh = false, weeklyValue = true, shareStudio = true, projectMatrix = true, timeZone = 'Asia/Hong_Kong', claudeOnly = false, commandTemplate = '', commandAfterReset = false, width = 1280, height = 900 } = {},
 ) {
   await page.setViewportSize({ width, height });
   await page.goto(
-    `${uiBaseUrl}/?provider=claude&locale=${encodeURIComponent(locale)}&theme=${theme}&fixture=${encodeURIComponent(fixture)}&autoRefresh=${autoRefresh}&weeklyValue=${weeklyValue}&shareStudio=${shareStudio}&projectMatrix=${projectMatrix}&timeZone=${encodeURIComponent(timeZone)}`,
+    `${uiBaseUrl}/?provider=claude&locale=${encodeURIComponent(locale)}&theme=${theme}&fixture=${encodeURIComponent(fixture)}&autoRefresh=${autoRefresh}&weeklyValue=${weeklyValue}&shareStudio=${shareStudio}&projectMatrix=${projectMatrix}&timeZone=${encodeURIComponent(timeZone)}&claudeOnly=${claudeOnly}&commandTemplate=${encodeURIComponent(commandTemplate)}&commandAfterReset=${commandAfterReset}`,
     { waitUntil: 'load' },
   );
   await page.locator('.tab-content.active').waitFor();
@@ -56,11 +56,11 @@ export async function openClaude(
 
 export async function openCompare(
   page,
-  { locale = 'en', theme = 'light', fixture = 'default', autoRefresh = false, weeklyValue = true, shareStudio = true, width = 1280, height = 900 } = {},
+  { locale = 'en', theme = 'light', fixture = 'default', autoRefresh = false, weeklyValue = true, shareStudio = true, commandTemplate = '', commandAfterReset = false, width = 1280, height = 900 } = {},
 ) {
   await page.setViewportSize({ width, height });
   await page.goto(
-    `${uiBaseUrl}/?provider=compare&locale=${encodeURIComponent(locale)}&theme=${theme}&fixture=${encodeURIComponent(fixture)}&autoRefresh=${autoRefresh}&weeklyValue=${weeklyValue}&shareStudio=${shareStudio}`,
+    `${uiBaseUrl}/?provider=compare&locale=${encodeURIComponent(locale)}&theme=${theme}&fixture=${encodeURIComponent(fixture)}&autoRefresh=${autoRefresh}&weeklyValue=${weeklyValue}&shareStudio=${shareStudio}&commandTemplate=${encodeURIComponent(commandTemplate)}&commandAfterReset=${commandAfterReset}`,
     { waitUntil: 'load' },
   );
   await page.locator('#provider-panel').waitFor();

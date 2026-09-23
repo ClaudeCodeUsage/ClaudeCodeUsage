@@ -272,3 +272,24 @@ test('title, filename, and Markdown are bounded and deterministic', () => {
     '![Claude + Codex activity](claude-codex-activity-90d-2026-07-20.svg)',
   );
 });
+
+test('combined exported SVG copy is localized in all eight UI locales', () => {
+  const expected = {
+    en: ['Less', 'More', 'Made with Claude Code Usage'],
+    'de-DE': ['Weniger', 'Mehr', 'Erstellt mit Claude Code Usage'],
+    'zh-TW': ['較少', '較多', '由 Claude Code Usage 製作'],
+    'zh-CN': ['较少', '较多', '由 Claude Code Usage 制作'],
+    ja: ['少ない', '多い', 'Claude Code Usage で作成'],
+    ko: ['적게', '많이', 'Claude Code Usage로 제작'],
+    'pt-BR': ['Menos', 'Mais', 'Criado com Claude Code Usage'],
+    id: ['Lebih sedikit', 'Lebih banyak', 'Dibuat dengan Claude Code Usage'],
+  };
+  for (const [locale, markers] of Object.entries(expected)) {
+    const svg = renderCombinedHeatmapSvg({}, {
+      range: '30d',
+      endDateISO: '2026-07-22',
+      locale,
+    });
+    for (const marker of markers) assert.match(svg, new RegExp(marker));
+  }
+});

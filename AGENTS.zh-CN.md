@@ -126,8 +126,9 @@ webview 刷新为整页替换。任何新增的用户可交互状态（展开/�
 
 - 每个用户可见字符串都通过 `I18n` 覆盖八个 UI locale：`en`、`de-DE`、
   `zh-TW`、`zh-CN`、`ja`、`ko`、`pt-BR`、`id`。
-- 七份 README 必须一起更新：`README.md`、`README-en.md`、`README-zh-CN.md`、
-  `README-zh-TW.md`、`README-ja.md`、`README-ko.md`、`README-id.md`。
+- 九份 README 必须一起更新：`README.md`、`README-en.md`、`README-de-DE.md`、
+  `README-zh-CN.md`、`README-zh-TW.md`、`README-ja.md`、`README-ko.md`、
+  `README-pt-BR.md`、`README-id.md`。
 - 每份交给维护者审阅的 artifact（包括 spec、implementation plan、design、
   release checklist、policy 或大幅 contributor 文档变更），都提供忠实中文副本
   或中文 review companion，并确保交付时中文链接排在英文链接之前。
@@ -168,7 +169,7 @@ webview 刷新为整页替换。任何新增的用户可交互状态（展开/�
 
 - 归因必须写实际 generator。当前 first-pass runner 默认使用 DeepSeek，不得改标 Codex。
 - trusted footer 由 wrapper 而不是模型输出负责，并且只能出现一次。
-- 在七份 README 中把 Claude Code 与 OpenAI Codex 记为开发工具；不得把工具放入
+- 在九份 README 中把 Claude Code 与 OpenAI Codex 记为开发工具；不得把工具放入
   Release Drafter 的人类 contributor 列表。主要撰写代码的 OpenAI Codex commit 必须
   带以下精确 trailer：
 

@@ -14,20 +14,28 @@ Claude Code Usage 采用本地优先设计。插件只读取供应商拥有的�
 | Claude 用量记录 | Claude Code 本地 `projects/**/*.jsonl` | 运行时用量记录和内存中的逐文件索引；仅在启用内容分析时保留有界提示样本 | 窗口重载/退出即释放。本地数据控制绝不触碰源日志；另行启用的“会话操作”可把一个精确确认的日志移入系统回收站（可恢复） | 默认无；只有用户另行预览并发送建议请求时才可能包含获准内容 |
 | Codex 用量记录 | `$CODEX_HOME/sessions/**/*.jsonl` 与 `archived_sessions/**/*.jsonl` | 版本化增量索引：匿名文件键、偏移量、数值用量、日期、模型/effort 和已净化结构聚合 | 保留到重建、明确清除、schema 替换或宿主移除 | 无 |
 | Codex 标题 | 仅 `$CODEX_HOME/session_index.jsonl` | 流式读取 `id → thread_name` 供运行时显示；标题不写入索引 | 仅运行时 | 无 |
-| 额度观测 | Claude 官方额度响应或 Codex 结构化 rate-limit 事件 | 供应商、本机匿名账号 epoch、观测/重置时间、周期、已用/剩余比例、匿名窗口标识、来源、可信度和质量标志 | 保留不超过 180 天；边界保护压缩后每个供应商/账号/周期最多 512 条；可单独或随全部派生数据清除 | 启用时 Claude 额度查询会访问 Anthropic；Codex 额度证据只来自本地 |
-| 设置与 UI 偏好 | 用户选择 | 类型化设置、标签页/筛选、有限后台任务状态、热力图标题/范围/隐私预览，以及可选显示币种预设 | 保留到重置、清除或卸载；普通 VS Code 设置可能参与 Settings Sync | 插件不主动传输，也不查询汇率 |
-| 分享目标 | 用户输入的 GitHub 目标 | 可选 `owner/repository/path`；不保存 GitHub 凭据 | 保留到重置分享偏好 | 仅在用户明确发布并确认精确目标后发生 |
+| 额度观测 | Claude 官方额度响应或 Codex 结构化 rate-limit 事件 | 供应商、本机匿名账号 epoch、观测/重置时间、周期、已用/剩余比例、匿名窗口标识、来源、可信度和质量标志 | 保留不超过 180 天；边界保护压缩后每个供应商/账号/周期最多 512 条；可单独或随全部派生数据清除 | 启用时 Claude 额度查询会访问 Anthropic；过期 token 会经 Anthropic 刷新并写回原凭证来源。Codex 额度证据只来自本地 |
+| 设置与 UI 偏好 | 用户选择 | 类型化设置、标签页/筛选、有限后台任务状态、分享呈现方式、分享卡未应用的控件草稿、热力图标题/范围/隐私预览，以及可选显示币种预设 | 保留到重置、清除或卸载；普通 VS Code 设置可能参与 Settings Sync | 插件不主动传输，也不查询汇率 |
+| 分享目标 | 用户输入的 GitHub 目标 | 单个版本化 `ccu.heatmapDestination.v1` 对象，包含可选 `owner/repository/path`；不保存 GitHub 凭据 | 保留到重置分享偏好 | 仅在用户明确发布并确认精确目标后发生；即使保存此便利偏好失败，成功写入仍会如实报告 |
 | 建议证据 | 本地派生聚合与明确反馈 | 粗粒度观察、建议、评分、暂停、可比任务指标、覆盖率和版本 | 有界本地台账；可独立清除 | 默认不发送；只有单独确认后才发送精确预览过的请求 |
 | 建议 API Key | 用户自备密钥 | 仅存于 VS Code SecretStorage | 保留到清除密钥或全部派生数据 | 只作为用户明确配置端点的授权凭据 |
 
 ## 绝不缓存什么
 
-- OAuth access/refresh token、cookie、authorization header 或 GitHub 凭据。
+- 插件自有派生存储中不会缓存 OAuth access/refresh token、cookie、authorization
+  header 或 GitHub 凭据。为查询 Claude 额度而刷新 OAuth token 时，Claude
+  自有的凭证文件或 macOS 钥匙串项目可能会被更新。
 - VS Code SecretStorage 之外的 API key。
 - 完整账号标识、邮箱、显示名或订阅名称。账号连续性只用本机 HMAC
   fingerprint 或隔离的未归属 epoch。
 - 原始提示/响应正文、工具参数、命令、完整 CLI 输出、源日志绝对路径、
   仓库 remote 或持久化线程标题。
+
+启用 Claude 额度跟踪后，插件用所选 Claude 资料的现有 access token 查询
+`api.anthropic.com/api/oauth/usage`。如该 token 过期，会把现有 refresh token
+发送到 `console.anthropic.com/v1/oauth/token`，并将新 access token 写回该资料的
+凭证文件或 macOS 钥匙串项目。这与可选的自备密钥 AI 建议分开；后者不会使用
+Claude 订阅凭据。
 
 不同匿名账号 fingerprint 不会合并。如果本地 Codex 日志无法证明属于同一账号
 和同一窗口，仪表盘只显示已用 API 等效价值，并说明为何不能声称账号级未用额度。
@@ -39,9 +47,19 @@ Claude Code Usage 采用本地优先设计。插件只读取供应商拥有的�
 [欧洲央行欧元参考汇率](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html)
 换算得到。
 
-## 综合热力图与导出
+## 分享工作台与导出
 
-“对比”热力图直接复用供应商日聚合，不会再次扫描日志，也不会新增第二套统计缓存。
+预览优先的分享工作台直接复用已物化的供应商聚合，不会再次扫描日志，也不会新增第二套
+统计缓存。记住的呈现方式只是本地枚举 `ccu.sharing.template`：综合活动热力图、Claude
+分享卡或 Claude token 热力图。`enableShareCard` 是唯一可见的开关。退役的 `showHeatmap`
+仍保留在 catalog 中，以便执行有界清除并维持一个版本的兼容性，但不再生成第二个面板。
+显式旧命令的协调仅存在于运行时：host 把 provider 生命周期内单调递增的 revision 与唯一
+live intent 分开保存，并在 Webview ACK 精确 revision 后删除 live intent。浏览器存储不保存
+命令 revision。
+
+分享卡的项目或会话范围可能包含原始本地路径或会话标识，因此这些值只保留在内存中，
+Webview 关闭即消失。浏览器存储只保留不具识别性的呈现控件，例如范围、主题、显示区块、
+数字格式和所选呈现方式。
 
 ```text
 Claude processed = input + cache creation + cache read + output
@@ -55,11 +73,14 @@ Codex 的 cached input 已包含在 input total 中，reasoning 已包含在 out
 
 本地 SVG 与 Markdown 导出只含有界标题、所选日期范围、每日 Claude/Codex/综合聚合、
 标签和免责声明；不含账号、项目、线程标题、路径、提示或日志内容。
+Claude 分享卡和 Claude token 热力图只消费 Claude 聚合，不暗示 Codex 具有等价字段。
+预览与本地导出严格不联网，也不请求 GitHub authentication、profile、头像或名称数据。
 
-直接发布到 GitHub 是可选动作，且绝不在后台运行。v2.3.1 仅请求 `public_repo`，
+直接发布到 GitHub 是独立的可选动作，且绝不在后台运行。它仅请求 `public_repo`，
 先验证仓库公开性和默认分支，再要求用户确认精确的
 `owner/repository/branch/path` 以及创建或覆盖动作。私有仓库应改用本地 SVG +
-Markdown，不会静默索取更宽权限。
+Markdown，不会静默索取更宽权限。GitHub 接受写入后，插件会先如实报告成功；若原子化
+目的地偏好保存失败，再另行显示警告。
 
 ## 清除与迁移
 
@@ -78,7 +99,9 @@ UI 或分享偏好、移除 BYOK 密钥。“清除全部扩展派生数据”�
 若发现 VS Code 已无法安全更新的未注册旧设置，整个操作会在零删除状态下停止，并提示
 手动移除。激活期排队写入会先排空，删除后再验证精确后置条件。若 Webview 未能确认其
 白名单浏览器状态已清除，插件会保存一个不含数据值的待重试动作，在下次打开面板时重放，
-而不会误报成功。
+而不会误报成功。分享工作台内部的重置按钮也复用同一条 host request → 带 request-id 的
+client reset → ACK 路径；浏览器存储删除失败会明确报错，且只有 allowlist 删除成功后才应用
+默认值。
 
 这个清除边界与另行选择启用的“会话操作”相互独立。后者只有在用户针对单个 Claude
 会话日志完成模态确认后，才会把它移入系统回收站（可恢复）；它不会参与“清除全部”。

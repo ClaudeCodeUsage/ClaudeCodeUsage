@@ -31,7 +31,6 @@ export type CodexQualityFlag = (typeof CODEX_QUALITY_FLAGS)[number];
 
 export interface CodexViewCopy {
   title: string;
-  beta: string;
   refresh: string;
   overview: string;
   explore: string;
@@ -160,7 +159,6 @@ export interface CodexViewCopy {
 
 export const CODEX_COPY_EN: CodexViewCopy = {
   title: 'Codex usage',
-  beta: 'Beta',
   refresh: 'Refresh',
   overview: 'Overview',
   explore: 'Explore',

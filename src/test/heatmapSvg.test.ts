@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { buildContributionGrid, renderHeatmapSvg, CLAUDE_ORANGE_SCALE } from '../heatmapSvg';
 import { DayUsage } from '../heatmap';
+import { renderCombinedHeatmapSvg } from '../combinedHeatmapSvg';
 
 const day = (tokens: number): DayUsage => ({ tokens, cost: tokens / 1000, sessions: 1 });
 
@@ -14,18 +15,48 @@ function fillForDate(svg: string, dateISO: string): string | undefined {
   return match?.[1];
 }
 
+function relativeLuminance(hex: string): number {
+  const channels = [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16) / 255);
+  const linear = channels.map((value) =>
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
+  );
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function contrastRatio(left: string, right: string): number {
+  const l1 = relativeLuminance(left);
+  const l2 = relativeLuminance(right);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+function assertNormalSvgLabelContrast(svg: string): void {
+  const background = /<rect\b[^>]*\bfill="(#[0-9a-f]{6})"/i.exec(svg)?.[1];
+  assert.ok(background, 'SVG must expose a solid, auditable background');
+  const labels = [...svg.matchAll(/<text\b([^>]*)>/g)];
+  assert.ok(labels.length > 0, 'SVG must contain labels');
+  for (const [, attributes] of labels) {
+    const fill = /\bfill="(#[0-9a-f]{6})"/i.exec(attributes)?.[1];
+    const fontSize = Number(/\bfont-size="([\d.]+)"/.exec(attributes)?.[1]);
+    assert.ok(fill, `normal SVG label at ${fontSize}px must use a solid fill`);
+    assert.ok(
+      contrastRatio(fill, background) >= 4.5,
+      `${fill} at ${fontSize}px must retain 4.5:1 contrast against ${background}`,
+    );
+  }
+}
+
 test('the in-dashboard heatmap anchors its end date in the configured timezone', () => {
   const webviewSource = fs.readFileSync(
     path.join(__dirname, '..', '..', 'src', 'webview.ts'),
     'utf8',
   );
-  const start = webviewSource.indexOf("if (this.setting<boolean>('showHeatmap', false)");
-  const end = webviewSource.indexOf('const dailyBreakdown =', start);
-  assert.ok(start >= 0 && end > start, 'the live provider heatmap panel must remain discoverable');
+  const start = webviewSource.indexOf('private renderClaudeHeatmapPresentation');
+  const end = webviewSource.indexOf('private buildShareCardSvgFor', start);
+  assert.ok(start >= 0 && end > start, 'the Claude heatmap presentation must remain discoverable');
   const panel = webviewSource.slice(start, end);
   assert.match(
     panel,
-    /renderHeatmapSvg\(daily,\s*\{\s*endDateISO:\s*dayKeyInZone\(new Date\(\),\s*I18n\.getTimezone\(\)\),?\s*\}\)/,
+    /renderHeatmapSvg\(daily,\s*\{\s*endDateISO:\s*dayKeyInZone\(new Date\(\),\s*I18n\.getTimezone\(\)\),\s*locale:\s*I18n\.getLocale\(\),?\s*\}\)/,
   );
 });
 
@@ -88,6 +119,20 @@ test('has legend, watermark and the orange ramp; no crash on empty data', () => 
   assert.ok(svg.includes('Less') && svg.includes('More'));
   assert.ok(svg.includes('Made with Claude Code Usage'));
   assert.ok(svg.includes(CLAUDE_ORANGE_SCALE[0]));
+});
+
+test('legacy and combined heatmaps give every normal SVG label at least 4.5:1 contrast', () => {
+  assertNormalSvgLabelContrast(renderHeatmapSvg({}, { endDateISO: '2026-07-01' }));
+  assertNormalSvgLabelContrast(renderCombinedHeatmapSvg({
+    '2026-06-30': {
+      dateISO: '2026-06-30',
+      claudeProcessed: 1_000,
+      codexProcessed: 2_000,
+      combinedProcessed: 3_000,
+    },
+  }, {
+    endDateISO: '2026-07-01',
+  }));
 });
 
 test('short custom ramps keep a valid watermark and matching legend', () => {
@@ -173,8 +218,8 @@ test('short-range legends stay inside a min-width share card', () => {
   });
 
   assert.doesNotMatch(svg, /<(?:text|rect) x="-/);
-  assert.match(svg, /<text x="\d+"[^>]*>Less<\/text>/);
-  assert.match(svg, /<text x="\d+"[^>]*>More<\/text>/);
+  assert.match(svg, /<text x="[\d.]+"[^>]*>Less<\/text>/);
+  assert.match(svg, /<text x="[\d.]+"[^>]*>More<\/text>/);
 });
 
 test('the default linear renderer preserves the original four active buckets', () => {
@@ -210,4 +255,53 @@ test('renderer sanitizes caller-supplied SVG colors at the shared boundary', () 
   );
 
   assert.doesNotMatch(svg, /javascript|onload|url\(/i);
+});
+
+test('renderer escapes quotes before caller text enters an SVG attribute', () => {
+  const svg = renderHeatmapSvg({}, {
+    endDateISO: '2026-07-01',
+    title: 'Safe title',
+    ariaLabel: `Safe title\" onload=\"alert(1)' data-canary='unsafe`,
+  });
+
+  assert.doesNotMatch(svg, /aria-label="Safe title"\s+onload=/i);
+  assert.match(svg, /aria-label="Safe title&quot; onload=&quot;alert\(1\)&#39; data-canary=&#39;unsafe"/);
+  assert.match(svg, /&#39;/);
+});
+
+test('maximum ASCII and CJK titles are visually contained in the SVG viewBox', () => {
+  for (const title of ['W'.repeat(80), '综合活动热力图'.repeat(12)]) {
+    const svg = renderHeatmapSvg({}, {
+      startDateISO: '2026-06-23',
+      endDateISO: '2026-07-22',
+      minWidth: 720,
+      title,
+    });
+    const width = Number(/viewBox="0 0 ([\d.]+)/.exec(svg)?.[1]);
+    const renderedTitle = /<text x="38" y="16"[^>]*>(.*?)<\/text>/.exec(svg)?.[1] ?? '';
+    assert.equal(width, 720);
+    assert.ok(renderedTitle.endsWith('…'), `expected a contained title: ${renderedTitle}`);
+    assert.ok(renderedTitle.length < title.length);
+  }
+});
+
+test('Claude heatmap labels and tooltips use all eight UI locales', () => {
+  const expected = {
+    en: ['Less', 'More', 'No tokens on June'],
+    'de-DE': ['Weniger', 'Mehr', 'Keine Token am'],
+    'zh-TW': ['較少', '較多', '無 Token 日期'],
+    'zh-CN': ['较少', '较多', '无 Token 日期'],
+    ja: ['少ない', '多い', 'なし： トークン 日付'],
+    ko: ['적게', '많이', '없음: 토큰 날짜'],
+    'pt-BR': ['Menos', 'Mais', 'Sem tokens em'],
+    id: ['Lebih sedikit', 'Lebih banyak', 'Tidak ada token pada'],
+  };
+  for (const [locale, markers] of Object.entries(expected)) {
+    const svg = renderHeatmapSvg({}, {
+      startDateISO: '2026-06-20',
+      endDateISO: '2026-06-22',
+      locale,
+    });
+    for (const marker of markers) assert.match(svg, new RegExp(marker));
+  }
 });

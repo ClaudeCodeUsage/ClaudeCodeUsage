@@ -28,14 +28,18 @@ import {
 const ANTHROPIC_MESSAGES = 'anthropic-messages';
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 
-async function runFallbackScenario(eventKind) {
+async function runFallbackScenario(eventKind, modelResponse = { content: [] }) {
   const postedComments = [];
   let modelCalls = 0;
+  const modelRequests = [];
   const server = createServer(async (request, response) => {
     if (request.method === 'POST' && request.url === '/v1/messages') {
       modelCalls += 1;
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ content: [] }));
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      modelRequests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      response.writeHead(modelResponse.status || 200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(modelResponse.body || modelResponse));
       return;
     }
     if (request.method === 'GET' && request.url?.endsWith('/comments?per_page=100')) {
@@ -90,25 +94,49 @@ async function runFallbackScenario(eventKind) {
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     const exitCode = await new Promise((accept) => child.on('close', accept));
-    return { exitCode, modelCalls, postedComments, stdout, stderr };
+    return { exitCode, modelCalls, modelRequests, postedComments, stdout, stderr };
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
     await new Promise((accept) => server.close(accept));
   }
 }
 
-test('shared runner posts a deterministic fallback for issue and PR model failures', async () => {
-  for (const eventKind of ['issue', 'pr']) {
-    const result = await runFallbackScenario(eventKind);
-    assert.equal(result.exitCode, 0, result.stderr);
-    assert.equal(result.modelCalls, 2);
-    assert.equal(result.postedComments.length, 1);
-    assert.match(
-      result.postedComments[0],
-      new RegExp(`^🤖 Automated first-pass ${eventKind === 'issue' ? 'reply' : 'review'}`),
-    );
-    assert.match(result.postedComments[0], /not a maintainer decision/);
-  }
+test('issue runner retains its fallback, but failed PR review posts nothing and fails visibly', async () => {
+  const issue = await runFallbackScenario('issue');
+  assert.equal(issue.exitCode, 0, issue.stderr);
+  assert.equal(issue.modelCalls, 2);
+  assert.match(issue.postedComments[0], /^🤖 Automated first-pass reply/);
+
+  const pr = await runFallbackScenario('pr');
+  assert.notEqual(pr.exitCode, 0);
+  assert.equal(pr.modelCalls, 2);
+  assert.equal(pr.postedComments.length, 0);
+  assert.match(pr.stderr, /cheap=empty-reply.*pro=empty-reply/);
+  assert.ok(pr.modelRequests[1].max_tokens > 6000);
+  assert.equal(pr.modelRequests[1].thinking?.type, 'enabled');
+  assert.doesNotMatch(pr.stderr, /test-model-key|test-github-token/);
+});
+
+test('API failures report status and tier, never remote body or credentials', async () => {
+  const result = await runFallbackScenario('pr', {
+    status: 401,
+    body: { error: 'sensitive untrusted upstream response' },
+  });
+  assert.notEqual(result.exitCode, 0);
+  assert.equal(result.postedComments.length, 0);
+  assert.match(result.stderr, /cheap=http-401.*pro=http-401/);
+  assert.doesNotMatch(result.stderr, /sensitive untrusted|test-model-key|test-github-token/);
+});
+
+test('DeepSeek tiers have compatible output budgets and reserve the cheap tier for a reply', async () => {
+  const result = await runFallbackScenario('pr', {
+    content: [{ type: 'text', text: '<control>{"answerable":true}</control><reply>Specific finding in src/a.ts.</reply>' }],
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(result.modelCalls, 1);
+  assert.equal(result.modelRequests[0].thinking?.type, 'disabled');
+  assert.ok(result.modelRequests[0].max_tokens >= 1400);
+  assert.match(result.postedComments[0], /Specific finding in src\/a\.ts/);
 });
 
 test('empty cheap replies escalate even when the control says answerable', () => {
@@ -167,6 +195,20 @@ test('candidate resolution returns null instead of throwing when both tiers fail
   });
   assert.equal(proCalls, 1);
   assert.equal(selected, null);
+});
+
+test('an unanswered cheap draft is not posted when the pro tier fails', async () => {
+  const failures = [];
+  const selected = await resolveFirstPassCandidates({
+    cheap: async () => ({ reply: 'Need source', answerable: false }),
+    pro: async () => { throw new Error('secret remote text'); },
+    onFailure: (event) => failures.push(event),
+  });
+  assert.equal(selected, null);
+  assert.deepEqual(failures, [
+    { tier: 'cheap', reason: 'needs-source' },
+    { tier: 'pro', reason: 'request-error' },
+  ]);
 });
 
 test('current transport truthfully supports DeepSeek and Claude per tier', () => {

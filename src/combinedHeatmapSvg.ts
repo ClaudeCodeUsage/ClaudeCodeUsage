@@ -5,6 +5,7 @@ import {
   selectCombinedHeatmapWindow,
 } from './combinedHeatmap';
 import { renderHeatmapSvg } from './heatmapSvg';
+import { HEATMAP_ARTIFACT_TRANSLATIONS, artifactLocale } from './i18n';
 
 export type CombinedHeatmapPalette =
   | 'academicViolet'
@@ -112,6 +113,7 @@ export interface CombinedHeatmapSvgOptions {
   palette?: CombinedHeatmapPalette | string;
   customAccent?: string;
   intensityMode?: CombinedHeatmapIntensityMode | string;
+  locale?: string;
   labels?: {
     combined: string;
     processedTokens: string;
@@ -119,7 +121,13 @@ export interface CombinedHeatmapSvgOptions {
   };
 }
 
-function compactNumber(value: number): string {
+function compactNumber(value: number, locale = 'en'): string {
+  if (locale !== 'en') {
+    return new Intl.NumberFormat(locale, {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(value);
+  }
   const absolute = Math.abs(value);
   const format = (scaled: number): string => scaled.toFixed(1).replace(/\.0$/, '');
   if (absolute >= 1_000_000_000) return `${format(value / 1_000_000_000)}B`;
@@ -137,21 +145,23 @@ export function renderCombinedHeatmapSvg(
   daily: Readonly<Record<string, CombinedDayUsage>>,
   options: CombinedHeatmapSvgOptions,
 ): string {
+  const locale = artifactLocale(options.locale);
+  const artifactCopy = HEATMAP_ARTIFACT_TRANSLATIONS[locale];
   const window = selectCombinedHeatmapWindow(
     daily,
     options.range ?? 'year',
     options.endDateISO,
   );
-  const title = options.title ?? 'Claude + Codex local activity';
+  const title = options.title ?? artifactCopy.combinedTitle;
   const labels = options.labels ?? {
-    combined: 'Combined',
-    processedTokens: 'processed tokens',
-    footerNote: 'Local activity volume · not productivity, billing, or provider equivalence',
+    combined: artifactCopy.combined,
+    processedTokens: artifactCopy.processedTokens,
+    footerNote: artifactCopy.combinedFooter,
   };
   const subtitle = [
-    `Claude ${compactNumber(window.totals.claudeProcessed)}`,
-    `Codex ${compactNumber(window.totals.codexProcessed)}`,
-    `${labels.combined} ${compactNumber(window.totals.combinedProcessed)} ${labels.processedTokens}`,
+    `Claude ${compactNumber(window.totals.claudeProcessed, locale)}`,
+    `Codex ${compactNumber(window.totals.codexProcessed, locale)}`,
+    `${labels.combined} ${compactNumber(window.totals.combinedProcessed, locale)} ${labels.processedTokens}`,
   ].join(' · ');
   const palette = normalizeCombinedHeatmapPalette(options.palette);
   const scale = palette === 'custom'
@@ -164,7 +174,8 @@ export function renderCombinedHeatmapSvg(
     title,
     subtitle,
     footerNote: labels.footerNote,
-    watermark: options.watermark ?? 'Made with Claude Code Usage',
+    watermark: options.watermark ?? artifactCopy.madeWith,
+    locale,
     scale,
     intensityMode: normalizeCombinedHeatmapIntensityMode(options.intensityMode),
     background: '#fcfaff',
@@ -180,9 +191,9 @@ export function renderCombinedHeatmapSvg(
         codexProcessed: 0,
         combinedProcessed: 0,
       };
-      return `${dateISO} · Claude: ${compactNumber(usage.claudeProcessed)} · ` +
-        `Codex: ${compactNumber(usage.codexProcessed)} · ` +
-        `${labels.combined}: ${compactNumber(usage.combinedProcessed)} ${labels.processedTokens}`;
+      return `${dateISO} · Claude: ${compactNumber(usage.claudeProcessed, locale)} · ` +
+        `Codex: ${compactNumber(usage.codexProcessed, locale)} · ` +
+        `${labels.combined}: ${compactNumber(usage.combinedProcessed, locale)} ${labels.processedTokens}`;
     },
   });
 }

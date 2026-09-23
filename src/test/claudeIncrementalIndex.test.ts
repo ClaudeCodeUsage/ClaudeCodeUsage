@@ -64,6 +64,37 @@ function usageLine(
   return JSON.stringify(value);
 }
 
+test('usage records retain numeric evidence but not assistant response bodies', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-compact-usage-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-compact');
+  await mkdir(project, { recursive: true });
+  const source = JSON.parse(usageLine('large-response', 12, 4)) as Record<string, any>;
+  source.message.content = [{ type: 'text', text: 'synthetic-only-'.repeat(17_000) }];
+  source.message.usage.cache_creation = {
+    ephemeral_1h_input_tokens: 2,
+    ephemeral_5m_input_tokens: 0,
+  };
+  source.costUSD = 1.25;
+  await writeFile(path.join(project, 'session-compact.jsonl'), `${JSON.stringify(source)}\n`, 'utf8');
+
+  const incremental = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+    analyzeContent: true,
+  });
+  const full = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
+  for (const record of [incremental.records[0], full.records[0]]) {
+    assert.equal(record.message.usage.input_tokens, 12);
+    assert.equal(record.message.usage.output_tokens, 4);
+    assert.deepEqual(record.message.usage, source.message.usage);
+    assert.equal(record.message.model, 'claude-sonnet-4-5');
+    assert.equal(record.message.id, 'message-large-response');
+    assert.equal(record.requestId, 'request-large-response');
+    assert.equal(record.costUSD, 1.25);
+    assert.equal('content' in record.message, false);
+    assert.equal(JSON.stringify(record).includes('synthetic-only-'), false);
+  }
+});
+
 function promptLine(text: string, timestamp = '2026-08-21T08:00:00.000Z'): string {
   return JSON.stringify({
     type: 'user',
@@ -603,19 +634,17 @@ test('a file that is appended to while losing an event to the window stays incre
     // The same file is appended to in the refresh where its oldest event leaves
     // the window. Its stored aggregate still counts the expired event, so the
     // tail cannot simply be added to it and the file is re-read in full — but
-    // the body only grew, and re-reading one file is no reason to re-read 32.
+    // the body only grew, and re-reading one file is no reason to re-read all eight.
     now = Date.parse('2026-09-10T14:00:00.000Z');
     await appendFile(files[2], `${analysisTextLine(
       'window-append-tail', 'tail', '2026-09-10T13:55:00.000Z',
     )}
 `, 'utf8');
-
     const warm = await updateClaudeUsageIndex(cold.index, root, { windowDays: 1 });
     const full = await ClaudeDataLoader.loadUsageRecords(root, {
       analyzeContent: true,
       windowDays: 1,
     });
-
     assert.ok(
       warm.diagnostics.bodyReads < 8,
       `an appended file losing an event re-read the whole corpus: ${warm.diagnostics.bodyReads} bodies, ` +
@@ -660,6 +689,42 @@ test('mixed window rebuild and append give a new UUID to the earliest file', asy
       windowDays: 1,
     });
     assert.equal(warm.diagnostics.bodyReads, 2);
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('same-file expiry plus an earlier UUID preemption falls back to ordered analysis', async () => {
+  const previousNow = Date.now;
+  let now = Date.parse('2026-09-10T12:00:00.000Z');
+  Date.now = () => now;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-same-file-uuid-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-same-file-uuid');
+  await mkdir(project, { recursive: true });
+  try {
+    const earlier = path.join(project, 'earlier.jsonl');
+    const later = path.join(project, 'later.jsonl');
+    await writeFile(earlier, [
+      analysisTextLine('earlier-seed', 'early seed', '2026-09-10T00:00:00.000Z'),
+      analysisTextLine('earlier-expiring', 'expires', '2026-09-09T13:00:00.000Z'),
+    ].join('\n') + '\n', 'utf8');
+    await writeFile(later, `${analysisTextLine(
+      'shared-window-uuid', 'later owner', '2026-09-10T00:01:00.000Z',
+    )}\n`, 'utf8');
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { windowDays: 1 });
+
+    now = Date.parse('2026-09-10T14:00:00.000Z');
+    await appendFile(earlier, `${analysisTextLine(
+      'shared-window-uuid', 'earlier owner', '2026-09-10T13:55:00.000Z',
+    )}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, { windowDays: 1 });
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 1,
+    });
+    assert.equal(warm.diagnostics.bodyReads, 3);
     assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
   } finally {
     Date.now = previousNow;
@@ -737,6 +802,62 @@ test('concurrent appends to several files stay incremental instead of forcing a 
     assert.equal(warm.diagnostics.bodyReads, appended.length);
     assert.equal(warm.diagnostics.bytesRead, appendedBytes);
     assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a 645-session corpus reads only seven live tails and one new session', async (t) => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-many-sessions-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-many-sessions');
+  await mkdir(project, { recursive: true });
+  const files: string[] = [];
+  try {
+    const start = Date.parse('2026-09-09T00:00:00.000Z');
+    for (let index = 0; index < 645; index += 1) {
+      const file = path.join(project, `session-${String(index).padStart(3, '0')}.jsonl`);
+      files.push(file);
+      await writeFile(file, `${usageLine(`many-seed-${index}`, 10, 1, {
+        timestamp: new Date(start + index * 1_000).toISOString(),
+      })}\n`, 'utf8');
+    }
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root);
+    assert.equal(cold.diagnostics.bodyReads, 645);
+
+    let expectedBytesRead = 0;
+    for (const [offset, index] of [7, 91, 183, 275, 367, 459, 644].entries()) {
+      const tail = `${usageLine(`many-tail-${index}`, 20, 2, {
+        timestamp: new Date(start + (1_800 + offset) * 1_000).toISOString(),
+      })}\n`;
+      expectedBytesRead += Buffer.byteLength(tail);
+      await appendFile(files[index], tail, 'utf8');
+    }
+    const newFile = `${usageLine('many-new', 30, 3, {
+      timestamp: '2026-09-09T00:31:00.000Z',
+    })}\n`;
+    // A new file is read once to establish canonical source order and once to
+    // parse its body. Both reads remain bounded to the new file, never history.
+    expectedBytesRead += 2 * Buffer.byteLength(newFile);
+    await writeFile(path.join(project, 'session-new.jsonl'), newFile, 'utf8');
+
+    const warm = await updateClaudeUsageIndex(cold.index, root);
+    const full = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+    // Some filesystems reuse a removed file identity, legitimately turning a
+    // new session into a move/rebuild. Correctness still holds; only the
+    // bounded-read assertion becomes inapplicable.
+    if (warm.diagnostics.changed.move > 0) {
+      t.skip('the filesystem reused a file identity, so this refresh is a move');
+      return;
+    }
+    assert.equal(warm.diagnostics.filesDiscovered, 646);
+    assert.equal(warm.diagnostics.bodyReads, 8);
+    assert.equal(warm.diagnostics.linesParsed, 8);
+    assert.equal(warm.diagnostics.bytesRead, expectedBytesRead);
   } finally {
     Date.now = previousNow;
   }

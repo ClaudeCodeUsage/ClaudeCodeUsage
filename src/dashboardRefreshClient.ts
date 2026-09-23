@@ -506,5 +506,41 @@ function ccuApplyDashboardDataPatch(message) {
     return false;
   }
 }
+
+// A full provider-panel swap during wheel/trackpad motion forces layout on the
+// scrolling frame. Keep the newest patch in memory until the burst quiets;
+// the cap ensures a long continuous gesture cannot starve live data forever.
+var __ccuLastScrollEventAt = -Infinity;
+var __ccuScrollPatchPending = null;
+var __ccuScrollPatchQuietTimer = 0;
+var __ccuScrollPatchMaxTimer = 0;
+function ccuFlushScrollPatch() {
+  if (__ccuScrollPatchQuietTimer) { clearTimeout(__ccuScrollPatchQuietTimer); }
+  if (__ccuScrollPatchMaxTimer) { clearTimeout(__ccuScrollPatchMaxTimer); }
+  __ccuScrollPatchQuietTimer = 0;
+  __ccuScrollPatchMaxTimer = 0;
+  var latest = __ccuScrollPatchPending;
+  __ccuScrollPatchPending = null;
+  if (latest) { ccuApplyDashboardDataPatch(latest); }
+}
+function ccuScheduleScrollPatchQuiet() {
+  if (__ccuScrollPatchQuietTimer) { clearTimeout(__ccuScrollPatchQuietTimer); }
+  __ccuScrollPatchQuietTimer = setTimeout(ccuFlushScrollPatch, 120);
+}
+window.addEventListener('scroll', function() {
+  __ccuLastScrollEventAt = performance.now();
+  if (__ccuScrollPatchPending) { ccuScheduleScrollPatchQuiet(); }
+}, { passive: true });
+function ccuQueueDashboardDataPatch(message) {
+  if (!__ccuScrollPatchPending && performance.now() - __ccuLastScrollEventAt >= 120) {
+    ccuApplyDashboardDataPatch(message);
+    return;
+  }
+  __ccuScrollPatchPending = message;
+  ccuScheduleScrollPatchQuiet();
+  if (!__ccuScrollPatchMaxTimer) {
+    __ccuScrollPatchMaxTimer = setTimeout(ccuFlushScrollPatch, 500);
+  }
+}
 `;
 }

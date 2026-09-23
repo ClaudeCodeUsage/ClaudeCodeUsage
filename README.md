@@ -1,14 +1,13 @@
 # Claude Code Usage
 
 [![VSCode Marketplace](https://img.shields.io/visual-studio-marketplace/v/growthjack.claude-code-usage?style=flat-square&logo=visual-studio-code&label=VS%20Code%20Marketplace)](https://marketplace.visualstudio.com/items?itemName=growthjack.claude-code-usage)
-[![Open VSX Registry](https://img.shields.io/open-vsx/v/GrowthJack/claude-code-usage?style=flat-square&logo=eclipseide&label=Open%20VSX)](https://marketplace.cursorapi.com/items/?itemName=GrowthJack.claude-code-usage)
+[![Open VSX Registry](https://img.shields.io/open-vsx/v/GrowthJack/claude-code-usage?style=flat-square&logo=eclipseide&label=Open%20VSX)](https://open-vsx.org/extension/GrowthJack/claude-code-usage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
 **The local Claude Code and Codex usage coach in your status bar.** Not a
-billing tool. Claude keeps its cost and quota views; the v2.3 Codex Beta adds
-provider-specific token and behaviour insights through the same dashboard tabs,
-render functions, and visual system without pretending both providers expose
-the same data.
+billing tool. Claude keeps its cost and quota views; Codex adds provider-specific
+token and behaviour insights through the same dashboard tabs, render functions,
+and visual system without pretending both providers expose the same data.
 
 > **What this is:** A VS Code status-bar monitor that reads your local
 > Claude Code and Codex logs and shows provider-appropriate usage views — plus
@@ -23,7 +22,7 @@ the same data.
 > **看清 Claude Code 与 Codex 的本地用量，让 AI 帮你用得更好。**
 >
 > **简介**：一个 VS Code 状态栏小工具。Claude 保留成本与配额视图；
-> v2.3 的 Codex Beta 则按 Codex 自身的数据语义展示 token、effort、任务结构
+> Codex 则按自身的数据语义展示 token、effort、任务结构
 > 和本地优化建议，同时复用 Claude 仪表盘的标签页、渲染函数和视觉体系，
 > 而不是另做一套页面或强行套用 Claude 的统计口径。
 >
@@ -33,10 +32,12 @@ the same data.
 
 🌐 **Multi-language documentation**:
 [English](README-en.md) ·
+[Deutsch](README-de-DE.md) ·
 [繁體中文](README-zh-TW.md) ·
 [简体中文](README-zh-CN.md) ·
 [日本語](README-ja.md) ·
 [한국어](README-ko.md) ·
+[Português (Brasil)](README-pt-BR.md) ·
 [Bahasa Indonesia](README-id.md)
 
 ---
@@ -162,6 +163,38 @@ same full-request preview and separate explicit Send action as AI advice.
 
 ---
 
+## What's new in 2.4
+
+- **Codex status and scrolling** — the default compact Token item shows today's
+  processed amount; the separate weekly indicator shows remaining capacity.
+  Live panel updates wait briefly for scrolling to pause, with a bounded delay.
+- **One preview-first sharing workspace** — a full-width export preview now
+  leads the surface, with controls below it and one presentation selector for
+  the **Combined activity heatmap**, **Claude Share Card**, and **Claude token
+  heatmap**. The combined presentation appears only with real data from both
+  providers; both legacy presentations remain Claude-only.
+- **Compatibility without duplicate panels** — `exportShareCard`,
+  `exportHeatmap`, and `publishHeatmapToGitHub` remain available and open the
+  matching presentation instead of bypassing preview. `enableShareCard` remains
+  the single visible sharing switch and still defaults to on; the retired
+  `showHeatmap` value is retained only for one-release state compatibility and
+  bounded clearing.
+- **Strict local-artifact boundary and provider truth** — switching, previewing,
+  and local SVG/Markdown export use materialized aggregates only and perform no
+  network request, GitHub sign-in, or profile/avatar/name lookup. Only the
+  separate **Publish to GitHub** action for the Claude heatmap can connect; it
+  remains public-repository-only and confirms the exact target and create/
+  overwrite action before writing. Combined activity is not billing,
+  productivity, capability, or cross-provider equivalence.
+
+![v2.4 combined sharing workspace, light theme](images/v2.4.0/compare-sharing-en-light.png)
+
+This is a production-renderer capture with synthetic usage and VS Code theme
+variables, not evidence from an installed VSIX or a real account. The
+[Claude Share Card](images/v2.4.0/claude-sharing-zh-CN-dark.png) and
+[360 px dark-theme view](images/v2.4.0/narrow-sharing-de-DE-dark.png) use the same
+fixture boundary.
+
 ## What's new in 2.3
 
 - **Refined throughout the v2.3 line** — GPT-6 Astra and Fable 5.1 model
@@ -281,7 +314,8 @@ same full-request preview and separate explicit Send action as AI advice.
 - **Usage share card** (opt-in, `enableShareCard`) — a themed, configurable
   one-page SVG of your usage: pick a range × scope (overall / project / session)
   × which metrics to show, and a theme (**Claude Classic** / **Cream** /
-  **Aurora Dark** / **Auto**), with an optional GitHub avatar + name.
+  **Aurora Dark** / **Auto**). Preview and local export never fetch GitHub
+  identity data.
   Self-contained and deterministic; no prompts, paths or ids ever leave your
   machine. Chinese locales use 万/亿 units.
 - **Read-only conversation viewer** (Sessions tab, **on by default**) — a "view"
@@ -343,9 +377,10 @@ same full-request preview and separate explicit Send action as AI advice.
 - **Workflow quota guard** — a dismissible banner before you start a run
   the remaining 5-hour window can't finish
   (`claudeCodeUsage.workflowQuotaWarnPercent`).
-- **Settings in the dashboard** — a new ⚙ Settings tab manages every option
-  in place; VS Code's own Settings keeps only the three that benefit from
-  syncing (`language`, `dataDirectory`, `advice.apiKey`). Header buttons
+- **Settings in the dashboard** — a new ⚙ Settings tab manages most options
+  in place; VS Code's own Settings keeps the language and provider data
+  directories. The advice API key is entered in the dashboard and stored in
+  SecretStorage, not Settings Sync. Header buttons
   trimmed to ✨ AI advice and ⚙ Settings (both jump to their tab); the
   auto-refresh toggle moved into Settings (a manual ↻ appears when paused).
   If you hide the cost, quota *and* context items, the status bar keeps a small
@@ -419,7 +454,7 @@ ext install GrowthJack.claude-code-usage
 ### Cursor / Windsurf / Antigravity (Open VSX)
 
 Same extension is published at the Open VSX Registry:
-[GrowthJack.claude-code-usage](https://marketplace.cursorapi.com/items/?itemName=GrowthJack.claude-code-usage).
+[GrowthJack.claude-code-usage](https://open-vsx.org/extension/GrowthJack/claude-code-usage).
 
 ### From a `.vsix` file
 
@@ -435,8 +470,10 @@ downloaded `.vsix`.
 tab — grouped into General, Status bar, Data & refresh, and AI advice &
 Optimizer. Changes apply immediately.
 
-To keep VS Code's own Settings UI uncluttered, only four settings stay there
-(so they still travel with Settings Sync). Open Settings (`Ctrl+,`) and search
+To keep VS Code's own Settings UI uncluttered, only three ordinary settings
+stay there. The BYOK advice key is entered in the dashboard's ⚙ Settings tab
+and stored in SecretStorage; it does not travel with Settings Sync. Open VS Code
+Settings (`Ctrl+,`) and search
 for **`Claude Code Usage`**:
 
 | Setting | Default | What it does |
@@ -444,7 +481,6 @@ for **`Claude Code Usage`**:
 | `language` | `"auto"` | UI language: `auto` / `en` / `de-DE` / `zh-TW` / `zh-CN` / `ja` / `ko` / `pt-BR` / `id`. |
 | `dataDirectory` | `""` | Custom Claude data dir; empty = auto-detect. |
 | `codex.dataDirectory` | `""` | Custom Codex home; empty = `CODEX_HOME` or `~/.codex`. |
-| `advice.apiKey` | `""` | Bring-your-own key for AI advice + the Usage Optimizer; empty means no request can be sent. |
 
 Everything else — refresh interval, status-bar items, number/date formatting,
 project grouping, content analysis, and all the AI advice / Optimizer options —
@@ -523,7 +559,10 @@ remote boundaries are in [Local data and privacy](LOCAL-DATA.md) ([简体中文]
   effort, role, time, and quality metadata. It never stores raw IDs, full paths
   or repository URLs, thread titles, or conversation bodies.
 - The quota indicator calls **`api.anthropic.com/api/oauth/usage`** using
-  Claude Code's existing OAuth token. No additional credentials are sent.
+  Claude Code's existing OAuth token. If that token has expired, the extension
+  sends the existing refresh token to **`console.anthropic.com/v1/oauth/token`**
+  and writes the refreshed credentials back to the selected Claude credential
+  file or macOS Keychain item. See [Local data and privacy](LOCAL-DATA.md).
 - **AI advice** and the **Usage Optimizer** are the only features that call a
   model — and only after *you* preview and explicitly send a prepared request.
   Advice defaults to allowlisted aggregates; prompt samples and optional user

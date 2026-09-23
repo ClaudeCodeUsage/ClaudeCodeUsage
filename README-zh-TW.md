@@ -1,14 +1,14 @@
 # Claude Code 使用量監控
 
-🌐 **語言**: [🏠 Main](README.md) | [English](README-en.md) | **繁體中文** | [简体中文](README-zh-CN.md) | [日本語](README-ja.md) | [한국어](README-ko.md) | [Bahasa Indonesia](README-id.md)
+🌐 **語言**: [🏠 Main](README.md) | [English](README-en.md) | [Deutsch](README-de-DE.md) | **繁體中文** | [简体中文](README-zh-CN.md) | [日本語](README-ja.md) | [한국어](README-ko.md) | [Português (Brasil)](README-pt-BR.md) | [Bahasa Indonesia](README-id.md)
 
 ---
 
-**看清 Claude Code 與 Codex 的本地用量，讓 AI 幫你用得更好。** 不是帳單工具。Claude 保留成本與配額檢視；Codex Beta 依自己的 token 與行為語意提供分析。
+**看清 Claude Code 與 Codex 的本地用量，讓 AI 幫你用得更好。** 不是帳單工具。Claude 保留成本與配額檢視；Codex 依自己的 token 與行為語意提供分析。
 
-> **它是什麼**：一個 VS Code 狀態列小工具，讀取本地 Claude Code 對話日誌，按 token × 公開單價估算用量與成本；並提供可選的 AI 建議功能，幫你優化提示詞、減少不必要的 token 消耗。
+> **它是什麼**：一個 VS Code 狀態列小工具，讀取本地 Claude Code 與 Codex 用量日誌，依各自語意顯示 token、配額與估算值；並提供可選的建議，協助減少不必要的消耗。
 >
-> **它不是什麼**：帳單工具。顯示金額均為估算值，實際費用請以官方帳單為準。
+> **它不是什麼**：帳單工具。Claude 成本與 Codex API 等效成本均為估算值，不是訂閱扣款或發票；實際帳單請以相應供應商帳戶為準。Codex 配額僅為本地最後觀測，並非即時餘額。
 
 > 截圖包含英文與簡體中文介面。完整功能說明請見[主 README](README.md)。
 
@@ -56,6 +56,21 @@
   撤回建議的資料授權會立即使預覽失效並取消進行中的建議請求；已傳出的位元組無法收回。
 - **多廠商定價** — Opus 4.x / Sonnet 4.x / Haiku 4.5 對照 Anthropic 官方定價；OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen 參考價，含家族感知回退。`Refresh Token Pricing` 可拉取 LiteLLM 即時價格。
 - **個人化** — 語言、時區、小數位數、精簡數字、專案分組、儀表板自動刷新開關。
+
+## v2.4 新功能
+
+- **Codex 狀態列與捲動**：預設精簡指標顯示今日已處理 Token，獨立的每週額度顯示
+  剩餘比例。捲動期間面板更新會短暫延後，並設有最長等待邊界。
+- **統一、預覽優先的分享工作台**：全寬匯出預覽成為視覺焦點，控制項統一置於下方；
+  一個呈現方式選擇器即可切換**綜合活動熱力圖**、**Claude 分享卡**與 **Claude token
+  熱力圖**。綜合呈現只在兩個供應商都有真實資料時出現，後兩種舊版呈現仍只使用 Claude 資料。
+- **相容入口，不再重複面板**：`exportShareCard`、`exportHeatmap` 與
+  `publishHeatmapToGitHub` 繼續保留並開啟對應預覽。`enableShareCard` 仍是唯一可見的
+  分享開關且預設開啟；退役的 `showHeatmap` 僅為一個版本的狀態相容與有界清除而保留。
+- **嚴格的本機產物與供應商邊界**：切換、預覽和本機 SVG/Markdown 匯出只使用已物化彙總，
+  不發出網路請求，也不登入 GitHub 或取得 profile／頭像／名稱。只有 Claude 熱力圖中獨立的
+  **發佈到 GitHub** 動作可以連線；它仍僅支援公開儲存庫，並在寫入前確認精確目標及建立／覆寫動作。
+  綜合活動不代表帳單、生產力、能力或跨供應商等價。
 
 ## v2.3 新功能
 

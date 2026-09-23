@@ -9,13 +9,76 @@ import { renderShareCardSvg, resolveShareCardTheme, SHARE_CARD_THEMES, BADGE_COP
 
 const base: ShareCardData = { range: 'month', watermark: true };
 
+type Rgb = [number, number, number];
+
+function hexRgb(hex: string): Rgb {
+  assert.match(hex, /^#[0-9a-f]{6}$/i);
+  return [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16)) as Rgb;
+}
+
+function composite(foreground: Rgb, background: Rgb, alpha: number): Rgb {
+  return foreground.map((value, index) =>
+    Math.round(value * alpha + background[index] * (1 - alpha)),
+  ) as Rgb;
+}
+
+function compositeCssColor(color: string, background: Rgb): Rgb {
+  const rgba = /^rgba\((\d+),(\d+),(\d+),([\d.]+)\)$/.exec(color.replace(/\s+/g, ''));
+  if (rgba) {
+    return composite(
+      [Number(rgba[1]), Number(rgba[2]), Number(rgba[3])],
+      background,
+      Number(rgba[4]),
+    );
+  }
+  return hexRgb(color);
+}
+
+function relativeLuminance(rgb: Rgb): number {
+  const channels = rgb.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(foreground: Rgb, background: Rgb): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  return (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+    (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+}
+
+function possibleTextSurfaces(theme: (typeof SHARE_CARD_THEMES)[keyof typeof SHARE_CARD_THEMES]): Rgb[] {
+  const bases = [hexRgb(theme.bgTop), hexRgb(theme.bgBottom)];
+  const decorated = bases.flatMap((background) => [
+    background,
+    composite(hexRgb(theme.blobWarm), background, 0.55),
+    composite(hexRgb(theme.blobCool), background, 0.5),
+  ]);
+  return decorated.flatMap((background) => [
+    background,
+    compositeCssColor(theme.panelFill, background),
+    compositeCssColor(theme.badgeFill, background),
+  ]);
+}
+
 test('renders a well-formed 1200x680 svg with the brand', () => {
   const svg = renderShareCardSvg(base);
   assert.match(svg, /^<svg /);
   assert.match(svg, /<\/svg>$/);
   assert.match(svg, /width="1200" height="680"/);
+  assert.match(svg, /role="img" aria-label="Claude Code Usage/);
   assert.match(svg, />Claude Code Usage</);
   assert.match(svg, />AI coding usage snapshot</);
+});
+
+test('share-card attribute values cannot break out through quotes', () => {
+  const svg = renderShareCardSvg(base, {
+    avatarDataUri: `data:image/svg+xml,\" onload=\"alert(1)' data-canary='unsafe`,
+  });
+  assert.doesNotMatch(svg, /href="data:image\/svg\+xml," onload=/i);
+  assert.match(svg, /href="data:image\/svg\+xml,&quot; onload=&quot;alert\(1\)&#39; data-canary=&#39;unsafe"/);
 });
 
 test('draws the total-tokens hero compactly with its label + one decimal', () => {
@@ -151,9 +214,9 @@ test('hidden project / cost stay hidden in both themes', () => {
   }
 });
 
-test('BADGE_COPY covers every badge id in en / zh-CN / zh-TW', () => {
+test('BADGE_COPY covers every badge id in all eight UI locales', () => {
   for (const id of ['context-marathoner', 'cache-saver', 'token-sprinter', 'workflow-pilot', 'steady-builder']) {
-    for (const lang of ['en', 'zh-CN', 'zh-TW'] as const) {
+    for (const lang of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'] as const) {
       assert.ok(BADGE_COPY[id]?.[lang]?.title && BADGE_COPY[id]?.[lang]?.line, `${id} ${lang}`);
     }
   }
@@ -168,7 +231,91 @@ test('card text follows the UI language', () => {
   assert.match(zh, />总 token</);
   assert.match(zh, />缓存命中</);
   assert.doesNotMatch(zh, />total tokens</);
-  // unknown UI language falls back to English (never mixed)
+  const expectedLabels = {
+    'de-DE': 'Gesamttoken',
+    ja: '総トークン',
+    ko: '총 토큰',
+    'pt-BR': 'total de tokens',
+    id: 'total token',
+  };
+  for (const [lang, label] of Object.entries(expectedLabels)) {
+    assert.match(renderShareCardSvg(data, { lang }), new RegExp(`>${label}<`));
+  }
+  // Unknown UI languages still fall back to English.
   const de = renderShareCardSvg(data, { lang: 'de-DE' });
-  assert.match(de, />total tokens</);
+  assert.doesNotMatch(de, />total tokens</);
+  const unknown = renderShareCardSvg(data, { lang: 'unknown' });
+  assert.match(unknown, />total tokens</);
+});
+
+test('share-card ranges and date labels follow every UI locale', () => {
+  const data: ShareCardData = {
+    ...base,
+    range: 'week',
+    rhythm: [1, 2],
+    rhythmStart: '2026-06-01',
+    rhythmEnd: '2026-06-02',
+  };
+  const expected = {
+    en: ['the last 7 days', 'Jun 1'],
+    'de-DE': ['letzten 7 Tage', '1. Juni'],
+    'zh-TW': ['最近 7 天', '6月1日'],
+    'zh-CN': ['最近 7 天', '6月1日'],
+    ja: ['過去 7 日間', '6月1日'],
+    ko: ['최근 7일', '6월 1일'],
+    'pt-BR': ['últimos 7 dias', '1 de jun.'],
+    id: ['7 hari terakhir', '1 Jun'],
+  };
+  for (const [lang, markers] of Object.entries(expected)) {
+    const svg = renderShareCardSvg(data, { lang });
+    for (const marker of markers) assert.match(svg, new RegExp(marker));
+  }
+});
+
+test('every normal-size SVG label has at least 4.5:1 contrast on every possible card surface', () => {
+  const data: ShareCardData = {
+    ...base,
+    totalTokens: 5_000_000_000,
+    estimatedCost: 42,
+    cacheSharePct: 71,
+    topModelName: 'Opus 4.8',
+    sessions: 9,
+    messages: 20,
+    composition: {
+      input: 1_000_000,
+      output: 3_000_000,
+      cacheCreate: 2_000_000,
+      cacheRead: 4_000_000,
+    },
+    rhythm: [1, 2, 5_300_000],
+    rhythmStart: '2026-06-01',
+    rhythmEnd: '2026-06-30',
+    badge: { id: 'cache-saver', label: 'Cache Saver' },
+  };
+
+  for (const themeName of ['claudeClassic', 'claudeCream', 'auroraDark'] as const) {
+    const svg = renderShareCardSvg(data, {
+      theme: themeName,
+      avatarDataUri: 'data:image/png;base64,AAA',
+      username: 'octocat',
+    });
+    const labels = [...svg.matchAll(/<text\b([^>]*)>/g)].flatMap((match) => {
+      const fontSize = /font-size="([\d.]+)"/.exec(match[1])?.[1];
+      const fill = /fill="([^"]+)"/.exec(match[1])?.[1];
+      return fontSize && fill && Number(fontSize) <= 22
+        ? [{ fontSize: Number(fontSize), fill }]
+        : [];
+    });
+    assert.ok(labels.length > 0, `${themeName} should render normal-size labels`);
+
+    for (const label of labels) {
+      assert.match(label.fill, /^#[0-9a-f]{6}$/i, `${themeName} normal text must use an auditable solid fill`);
+      for (const background of possibleTextSurfaces(SHARE_CARD_THEMES[themeName])) {
+        assert.ok(
+          contrastRatio(hexRgb(label.fill), background) >= 4.5,
+          `${themeName} ${label.fill} at ${label.fontSize}px must retain 4.5:1 contrast`,
+        );
+      }
+    }
+  }
 });

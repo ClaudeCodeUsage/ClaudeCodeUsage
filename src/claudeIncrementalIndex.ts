@@ -13,6 +13,7 @@ import {
   AnalysisStructuralEvent,
   analyzeLine,
   ClaudeDataLoader,
+  compactUsageRecord,
   finalizeAnalysis,
   mergeAnalysisAcc,
   newAnalysisAcc,
@@ -26,7 +27,7 @@ import {
   rollingDayKeys,
 } from './dateKeys';
 import { I18n } from './i18n';
-import { isRetryDuplicatePrompt } from './promptDedup';
+import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
 import {
   buildProjectUsageMatrixSnapshot,
   ProjectUsageMatrixSnapshot,
@@ -272,6 +273,9 @@ export interface ClaudeUsageAggregateSnapshot {
   allTime: UsageData;
   dailyForLast30Days: { date: string; data: UsageData }[];
   dailyForMonth: { date: string; data: UsageData }[];
+  /** All indexed local-calendar days. Kept host-side so month drill-downs can
+   * filter materialized aggregates instead of rescanning raw usage records. */
+  dailyForAllTime: { date: string; data: UsageData }[];
   monthlyForAllTime: { date: string; data: UsageData }[];
   hourlyForToday: { hour: string; data: UsageData }[];
   /** Sparse, already-materialized hours for active days in the rolling
@@ -1400,7 +1404,7 @@ async function parsePlan(
         const role = message?.role ?? parsed.type;
         if (agentInfo && base.agentTask === undefined && role === 'user') {
           const task = textFromUserContent(message?.content, ' ').replace(/\s+/g, ' ').trim();
-          if (task) base.agentTask = task.slice(0, 200);
+          if (task) base.agentTask = detachedPromptPrefix(task, 200);
         }
 
         if (!isSubagentFile && role === 'user' && !parsed.isMeta && !parsed.isSidechain &&
@@ -1412,7 +1416,7 @@ async function parsePlan(
               timestamp: parsed.timestamp,
               message: { usage: { input_tokens: 0, output_tokens: 0 } },
               _isUserPrompt: true,
-              _promptText: text.trim().slice(0, 4000),
+              _promptText: detachedPromptPrefix(text.trim(), 4000),
               _sessionId: sessionInfo.sessionId,
               _projectDirEncoded: sessionInfo.projectPath,
             };
@@ -1440,7 +1444,7 @@ async function parsePlan(
         }
 
         if (!validateUsageRecord(parsed)) return;
-        const record = parsed as unknown as ClaudeUsageRecord;
+        const record = compactUsageRecord(parsed as unknown as ClaudeUsageRecord);
         record._sessionId = sessionInfo.sessionId;
         record._projectDirEncoded = sessionInfo.projectPath;
         const cwd = parsed.cwd;
@@ -2276,6 +2280,9 @@ export function claudeUsageAggregateSnapshot(
     .filter(([day]) => day.startsWith(configuredMonth))
     .map(([date, data]) => ({ date, data: cloneUsageData(data) }))
     .sort((left, right) => right.date.localeCompare(left.date));
+  const dailyForAllTime = [...index.aggregates.byLocalDay.entries()]
+    .map(([date, data]) => ({ date, data: cloneUsageData(data) }))
+    .sort((left, right) => right.date.localeCompare(left.date));
   const monthlyForAllTime = [...index.aggregates.byMonth.entries()]
     .map(([month, data]) => ({ date: `${month}-01`, data: cloneUsageData(data) }))
     .sort((left, right) => right.date.localeCompare(left.date));
@@ -2288,6 +2295,7 @@ export function claudeUsageAggregateSnapshot(
     allTime: cloneUsageData(index.aggregates.allTime),
     dailyForLast30Days,
     dailyForMonth,
+    dailyForAllTime,
     monthlyForAllTime,
     hourlyForToday,
     hourlyForLast30DaysByDay,
@@ -2622,8 +2630,10 @@ export async function updateClaudeUsageIndex(
     // is re-read only to recompute its aggregate under the new cutoff — its
     // body on disk is unchanged ('cutoff' is assigned only when bodyUnchanged),
     // so it owns exactly the UUIDs it owned before and cannot preempt anyone.
-    // A rebase is the same story without the read: it only narrows a stored
-    // aggregate, and the UUIDs it drops are handed to the ownership pass below.
+    // A verified append can cross that cutoff in the same file; it and other
+    // appends remain bounded to their changed bodies. UUID ownership preemption
+    // is checked after parsing, while dropped UUIDs are handed to the ownership
+    // restoration pass below.
     //
     // Requiring "appends and nothing else" therefore rejected the fast path on
     // ordinary drift: measured on a 650-file history, 136 of 140 refreshes

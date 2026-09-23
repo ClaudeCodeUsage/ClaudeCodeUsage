@@ -13,15 +13,19 @@ v2.3.0 保留完整 Claude 体验，并增加 provider-specific 的 Codex Beta �
 v2.3.1 候选在不改变 provider 计量口径的前提下，增加一套默认关闭、
 local-first 的建议有效性闭环、唯一的显式 BYOK 请求边界、可持久的历史任务状态、
 Codex 有界的本地每周重置观测历史，以及滚动 30 天的日期→小时投影。
+v2.4 第一阶段把既有分享界面收敛为一个预览优先的工作台。呈现方式选择器可切换
+综合活动热力图、旧版 Claude 分享卡与仅 Claude 的 token 热力图；全宽导出预览始终位于控制项之前。
 
 - Claude：精确的本地 token bucket、模型成本估算和 Anthropic OAuth 5 小时/每周配额。
-- Codex Beta：本地 processed/fresh/cache/output/reasoning 指标、模型与 effort 拆分、
+- Codex：本地 processed/fresh/cache/output/reasoning 指标、模型与 effort 拆分、
   thread 结构、索引 coverage、quality flag 与结构化优化建议。已知模型还会显示明确限定的
   API 等效成本估算；它绝不是账单或订阅扣费，未知模型保持未定价。
 - Compare：只并列可比指标，绝不把不同 provider 的成本、配额或 token 求和为误导性总量。
 
-完整账单/发票对账、驱动任一 coding agent 与后台 telemetry 不在范围内。
-Opt-in GitHub 认证和跨设备聚合同步延后到 v2.4.x，届时单独做隐私审阅。
+完整账单/发票对账、驱动任一 coding agent、后台 telemetry 与跨设备聚合同步不在范围内。
+既有 Claude 热力图发布仍是用户明确触发、仅公开仓库且需精确确认目标的 GitHub 动作；
+打开、切换、预览以及本地 SVG/Markdown 导出严格不联网，也不请求 GitHub 身份；
+只有独立的发布动作可以执行该网络操作。
 
 ## 模块地图（`src/`）
 
@@ -50,7 +54,7 @@ Opt-in GitHub 认证和跨设备聚合同步延后到 v2.4.x，届时单独做�
 | `codexView.ts` / `codexViewComponents.ts` | Codex 本地化文案与默认 provider contract；不负责 HTML renderer、client script 或 CSS。 |
 | `settings.ts` | 权威 `SETTINGS` catalog 和 `SettingsStore`；普通值进入 configuration/globalState，BYOK 凭证只进入 SecretStorage，且绝不进入 Webview snapshot。不得散落直接读取。 |
 | `statusBar.ts` / `codexStatus.ts` | Provider-specific 状态展示和通用 Claude 配额格式化。 |
-| `webview.ts` | Claude/Codex 唯一一套 provider-aware dashboard shell、共享 render function、共享 client 行为、provider tab 与 Compare 展示。 |
+| `webview.ts` | Claude/Codex 唯一一套 provider-aware dashboard shell、共享 render function、共享 client 行为、provider tab、Compare 展示与统一分享工作台。 |
 | `i18n.ts` | 八个 UI locale 的全部用户可见文案。 |
 | `types.ts` | 共享 extension 和 Claude contract。 |
 
@@ -80,6 +84,12 @@ Claude JSONL
 Claude aggregate + Codex scope ──> 同一套 `webview.ts` dashboard render stack
 Claude aggregate + Codex scope ──> 并列 Compare（不跨 provider 求和）
 
+已物化 Claude + Codex 每日聚合
+  ──> 统一分享选择器 ──> 综合活动预览 ──> 显式本地 SVG/Markdown 导出
+已物化 Claude 聚合
+  ──> 统一分享选择器 ──> 旧版分享卡或 Claude token 热力图预览
+  ──> 显式本地导出，或仅公开仓库且精确确认目标的 Claude 热力图 GitHub 发布
+
 已物化 provider snapshot
   ──> 隐私重建型 advice adapter
   ──> 本地证据 + 确定性建议
@@ -107,6 +117,24 @@ Provider panel 的实时 patch 会保留页面 anchor，以及标签栏、图表
 驻留内存的 privacy-safe 结构 key；不会逐帧写入 Webview state，也不会发送给
 Extension Host。Compare 显示的更新时间绑定到稳定的已渲染数据 snapshot，因此
 数据未变化的 refresh 保持 byte-identical，不会替换整份文档。
+用户连续滚动时，Webview 会将 provider panel 的更新合并到 120 ms 的静默间隔，
+并以 500 ms 为最长等待边界；只应用并确认最新修订。队列只驻留内存，既不重读
+源日志，也不逐帧持久化滚动位置。
+
+分享工作台只渲染一次：两个 provider 都有数据时位于「对比」，否则作为 Claude「所有」的
+回退入口。`enableShareCard` 是唯一可见的分享开关。公共命令 ID `exportShareCard`、
+`exportHeatmap` 与 `publishHeatmapToGitHub` 至少保留一个版本并打开对应呈现方式，不绕过预览。
+退役的 `showHeatmap` 仍保留在 catalog 中并可被清除，但隐藏且不再创建重复面板。所选呈现方式
+只是本地 UI 偏好，不改变 provider 统计口径。显式兼容命令会生成 provider 生命周期内单调递增的
+revision，并把它作为独立的 live intent；Webview 应用后 ACK 精确 revision，host 随即删除 live intent，
+但不回退 revision 历史。因此，已确认的命令不会在普通重绘、分享重置或同一 provider 的
+dispose/reopen 后重放。「重置分享偏好」复用既有的确认式本地数据动作：host 发送带 request-id 的
+client action，Webview 验证八个 allowlist localStorage key 均已删除；只有匹配 ACK 为 true 才算成功，
+否则 host 报错并保留恢复 tombstone。
+
+在窄 Webview 中，1200×680 Claude 分享卡在可键盘聚焦的局部横向滚动区内保留原始宽度，
+不缩小到无法阅读。Renderer 测试逐一审计所有普通字号 SVG 标签，保证至少 4.5:1；浏览器 geometry
+测试保证标签不越出各自 viewBox，且完整产物仍包含在外围 Axe 扫描中。
 
 ## Token 与 limit 语义
 
@@ -165,6 +193,12 @@ Machine salt 存在 VS Code `globalState`，不写入索引。Worker progress/re
 watcher/coalescing 计数，以及操作系统未提供 filename 的 quota watcher 事件数。`codex-index`
 diagnostics 还会记录实际 refresh trigger、watcher/debounce 计数、历史 backfill 模式与
 foreground/background worker profile；通用失败路径无法确认模式时明确记为 `unknown`，不作猜测。
+
+分享预览只消费已经物化的聚合。综合活动仅在明确的活动可视化中把 Claude processed 与
+Codex processed 相加；Codex cached input 与 reasoning 子集不会重复计入，也不声称成本、额度、
+能力或生产率等价。Claude 分享卡与 Claude 热力图仍只属于 Claude。本地预览/导出不联网；
+也不存在 GitHub authentication、profile、头像或名称查询。Claude 热力图发布是独立的显式动作，
+继续遵守本地数据契约中的公开仓库探测，以及精确 branch/path 与创建／覆盖确认边界。
 
 ### Schema 3 索引契约
 
@@ -307,7 +341,7 @@ v2.3.0 不推断 20、100 或 200 美元的订阅档位。本地 Codex 日志没
 - 根据变更风险执行 strict TypeScript、red-green TDD、完整 `node:test`、F5 smoke test
   和安装 VSIX smoke test。
 - 用户可见字符串覆盖 `en`、`de-DE`、`zh-TW`、`zh-CN`、`ja`、`ko`、`pt-BR`、`id`；
-  七份 README 同步。
+  九份 README（首页加八份语言版）同步。
 - dormant 的 preparation/experiment 模块与仅供评审的 v2.3.1 文档必须保持不可从生产 command graph 到达，并排除出 VSIX。
 - 不手工修改 `package.json` 版本。发布已审阅的 Release Drafter draft 后才创建 tag，
   publish workflow 再从 tag 写入包版本。

@@ -3,6 +3,23 @@
 const Module = require('node:module');
 const originalLoad = Module._load;
 
+let latestHarnessPanel;
+
+function createHarnessPanel() {
+  const webview = {
+    html: '',
+    onDidReceiveMessage: () => ({ dispose: () => undefined }),
+    postMessage: async () => true,
+  };
+  const panel = {
+    webview,
+    reveal: () => undefined,
+    onDidDispose: () => ({ dispose: () => undefined }),
+  };
+  latestHarnessPanel = panel;
+  return panel;
+}
+
 const vscodeHost = {
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
   ViewColumn: { One: 1 },
@@ -13,7 +30,7 @@ const vscodeHost = {
   authentication: { getSession: async () => undefined },
   window: {
     activeColorTheme: { kind: 1 },
-    createWebviewPanel: () => { throw new Error('UI harness does not create VS Code panels'); },
+    createWebviewPanel: () => createHarnessPanel(),
   },
   workspace: {
     workspaceFolders: undefined,
@@ -318,8 +335,8 @@ function addClaudeData(provider, { fixture = 'default', enableContent = false } 
       { date: '2026-07-20', data: claudeUsage(0.6) },
     ],
     [
-      { date: '2026-06', data: claudeUsage(5) },
-      { date: '2026-07', data: claudeUsage(13) },
+      { date: '2026-06-01', data: claudeUsage(5) },
+      { date: '2026-07-01', data: claudeUsage(13) },
     ],
     [
       { hour: '18:00', data: claudeUsage(0.35) },
@@ -349,6 +366,11 @@ function addClaudeData(provider, { fixture = 'default', enableContent = false } 
       '2026-07-20': [{ hour: '18:00', data: claudeUsage(0.6) }],
     },
     claudeProjectUsageMatrix(),
+    [
+      { date: '2026-06-01', data: claudeUsage(5) },
+      { date: '2026-07-19', data: claudeUsage(0.4) },
+      { date: '2026-07-20', data: claudeUsage(0.6) },
+    ],
   );
   if (completedWeeklyFixture) {
     provider.updateWeeklyQuotaHistory([{
@@ -431,6 +453,9 @@ exports.renderHarness = async function renderHarness({
   adviceFeedback = 'none',
   timeZone = 'Asia/Hong_Kong',
   codexMonth = '',
+  claudeOnly = false,
+  commandTemplate = '',
+  commandAfterReset = false,
 } = {}) {
   I18n.setLanguage(locale);
   I18n.setTimezone(timeZone);
@@ -535,9 +560,11 @@ exports.renderHarness = async function renderHarness({
       };
     }
     provider.updateProviderData(
-      view,
+      claudeOnly ? null : view,
       buildScopedCodexInsights(view),
-      { claude: true, codex: true },
+      claudeOnly
+        ? { claude: true, codex: false, codexData: false }
+        : { claude: true, codex: true },
     );
     provider.currentProvider = selectedProvider;
 
@@ -548,7 +575,17 @@ exports.renderHarness = async function renderHarness({
       return provider.renderCodexMonthDailyDetail(codexMonth, rows);
     }
 
-    const html = provider.getWebviewContent();
+    latestHarnessPanel = undefined;
+    if (commandTemplate) {
+      provider.showSharingWorkspace(commandTemplate);
+      if (commandAfterReset) {
+        provider.clearSharingRuntimeState();
+        provider.showSharingWorkspace(commandTemplate);
+      }
+    }
+    const html = latestHarnessPanel
+      ? latestHarnessPanel.webview.html
+      : provider.getWebviewContent();
     const fixtureHtml = persistedDetailsFixture
       ? html.replace('<details class="model-item"', '<details class="model-item" data-persist="test-model"')
       : html;
