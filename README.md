@@ -46,13 +46,6 @@ bar. See [features](#features-at-a-glance), [privacy](#privacy),
 - **Local first:** source logs stay provider-owned; optional AI advice requires
   an explicit request preview and separate Send action.
 
-## Current preview
-
-![v2.4 combined sharing workspace, light theme](images/v2.4.0/compare-sharing-en-light.png)
-
-*Production renderer with synthetic usage and VS Code theme variables, not a
-real account or an installed-VSIX capture. More views are in [screenshots](#screenshots).*
-
 ## Screenshots
 
 ### v2.3 Claude, Codex and Compare
@@ -177,6 +170,13 @@ shown as chips. Three optional toggles refine it (flag vague references · conde
 long pastes · suggest a style direction). Experimental, off by default; **only the
 text you paste is included** — never your files or the terminal. It now uses the
 same full-request preview and separate explicit Send action as AI advice.
+
+### Sharing workspace (optional)
+
+![v2.4 combined sharing workspace, light theme](images/v2.4.0/compare-sharing-en-light.png)
+
+*Production renderer with synthetic usage and VS Code theme variables, not a
+real account or an installed-VSIX capture.*
 
 ---
 
