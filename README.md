@@ -46,13 +46,6 @@ bar. See [features](#features-at-a-glance), [privacy](#privacy),
 - **Local first:** source logs stay provider-owned; optional AI advice requires
   an explicit request preview and separate Send action.
 
-## Current preview
-
-![v2.4 combined sharing workspace, light theme](images/v2.4.0/compare-sharing-en-light.png)
-
-*Production renderer with synthetic usage and VS Code theme variables, not a
-real account or an installed-VSIX capture. More views are in [screenshots](#screenshots).*
-
 ## Screenshots
 
 ### v2.3 Claude, Codex and Compare
@@ -177,6 +170,13 @@ shown as chips. Three optional toggles refine it (flag vague references · conde
 long pastes · suggest a style direction). Experimental, off by default; **only the
 text you paste is included** — never your files or the terminal. It now uses the
 same full-request preview and separate explicit Send action as AI advice.
+
+### Sharing workspace (optional)
+
+![v2.4 combined sharing workspace, light theme](images/v2.4.0/compare-sharing-en-light.png)
+
+*Production renderer with synthetic usage and VS Code theme variables, not a
+real account or an installed-VSIX capture.*
 
 ---
 
@@ -720,31 +720,29 @@ The lists below cover public PR and issue authors through v2.4.0; a linked PR
 is not a claim that every proposed line shipped. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the release-credit convention.
 
-<details>
+<details open>
 <summary>Merged PR authors and examples of their contributions</summary>
 
-- [@Alfiefe10](https://github.com/Alfiefe10) — [#108](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/108), [#110](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/110)
-- [@akapti](https://github.com/akapti) — [#95](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/95)
-- [@Dobidop](https://github.com/Dobidop) — [#9](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/9), the Claude OAuth `/usage` approach
-- [@e7d](https://github.com/e7d) — [#81](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/81)
-- [@henrique-carvalho-dev](https://github.com/henrique-carvalho-dev) — [#48](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/48)
-- [@jack21](https://github.com/jack21) — original project and [#96](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/96)
-- [@jackieyangjq](https://github.com/jackieyangjq) — [#115](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/115), first-time contributor
-- [@mxzinke](https://github.com/mxzinke) — [#5](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/5), [#6](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/6), model pricing and German translation
-- [@nickearnshaw](https://github.com/nickearnshaw) — [#4](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/4), [#8](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/8), [#20](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/20), [#21](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/21), [#22](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/22), [#24](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/24), [#32](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/32), [#34](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/34), [#35](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/35)
-- [@oxsean](https://github.com/oxsean) — [#43](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/43)
-- [@PhisicsLollo0](https://github.com/PhisicsLollo0) — [#41](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/41)
-- [@projectronic](https://github.com/projectronic) — [#75](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/75), [#76](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/76), [#77](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/77)
-- [@ptweezy](https://github.com/ptweezy) — [#79](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/79)
-- [@rsyuzyov](https://github.com/rsyuzyov) — [#109](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/109), [#111](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/111), [#112](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/112), [#113](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/113), [#114](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/114)
-- [@ScherbakovAl](https://github.com/ScherbakovAl) — [#31](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/31), status-bar context controls
-- [@UfukTanriverdi8](https://github.com/UfukTanriverdi8) — [#50](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/50)
-- [@wheelbarrel00](https://github.com/wheelbarrel00) — [#38](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/38), model-scoped weekly limit
-- [@YuboZhang](https://github.com/YuboZhang) — [#46](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/46), [#71](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/71)
-- [@zeyutang](https://github.com/zeyutang) — [#62](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/62), [#63](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/63), [#86](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/86), [#90](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/90)
-
-[@Carl723000](https://github.com/Carl723000) authored and merged many of the
-maintainer PRs; these are visible in the [pull-request history](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pulls?q=is%3Apr+author%3ACarl723000).
+- [@Alfiefe10](https://github.com/Alfiefe10) — [quota format](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/108); [test stability](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/110).
+- [@akapti](https://github.com/akapti) — [AWS Bedrock regional pricing](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/95).
+- [@Carl723000](https://github.com/Carl723000) — [Claude/Codex dashboard](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/116); [release and maintenance work](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pulls?q=is%3Apr+is%3Amerged+author%3ACarl723000).
+- [@Dobidop](https://github.com/Dobidop) — [OAuth usage limits](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/9).
+- [@e7d](https://github.com/e7d) — [Opus 5 context window](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/81).
+- [@henrique-carvalho-dev](https://github.com/henrique-carvalho-dev) — [Brazilian Portuguese](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/48).
+- [@jack21](https://github.com/jack21) — original project; [Codex adaptation guidance](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/96).
+- [@jackieyangjq](https://github.com/jackieyangjq) — [dashboard date-label performance](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/115).
+- [@mxzinke](https://github.com/mxzinke) — [model pricing](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/5); [German translation](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/6).
+- [@nickearnshaw](https://github.com/nickearnshaw) — localization; loading/quota fixes; test, CI, and docs foundations ([PRs](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pulls?q=is%3Apr+is%3Amerged+author%3Anickearnshaw)).
+- [@oxsean](https://github.com/oxsean) — [session actions and quota resilience](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/43).
+- [@PhisicsLollo0](https://github.com/PhisicsLollo0) — [monthly cost in the status bar](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/41).
+- [@projectronic](https://github.com/projectronic) — reset countdown; Indonesian UI and timezones ([PRs](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pulls?q=is%3Apr+is%3Amerged+author%3Aprojectronic)).
+- [@ptweezy](https://github.com/ptweezy) — [unreadable-log resilience](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/79).
+- [@rsyuzyov](https://github.com/rsyuzyov) — incremental indexing and date-formatting performance ([PRs](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pulls?q=is%3Apr+is%3Amerged+author%3Arsyuzyov)).
+- [@ScherbakovAl](https://github.com/ScherbakovAl) — [status-bar cost toggle and context fill](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/31).
+- [@UfukTanriverdi8](https://github.com/UfukTanriverdi8) — [Sonnet 5 context window](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/50).
+- [@wheelbarrel00](https://github.com/wheelbarrel00) — [model-scoped weekly quota](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/38).
+- [@YuboZhang](https://github.com/YuboZhang) — [model pricing](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/46); [daily date labels](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/71).
+- [@zeyutang](https://github.com/zeyutang) — timezone/cache pricing; weekly quotas and credits tooltip ([PRs](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pulls?q=is%3Apr+is%3Amerged+author%3Azeyutang)).
 
 </details>
 

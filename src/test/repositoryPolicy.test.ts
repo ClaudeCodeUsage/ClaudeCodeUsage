@@ -1440,6 +1440,14 @@ test('release history stays scannable and human contributors stay discoverable',
   }
 
   const main = repoFile('README.md');
+  const credits = main.split(/^## Credits$/m)[1]?.split(/^## Changelog$/m)[0] ?? '';
+  assert.match(
+    credits,
+    /<details open>\s*<summary>Merged PR authors and examples of their contributions<\/summary>/,
+    'merged PR credits should be visible by default',
+  );
+  assert.doesNotMatch(credits, /first[- ]time contributor/i,
+    'Credits should not single out first-time contributors');
   for (const login of [
     'Carl723000', 'jack21', 'Dobidop', 'nickearnshaw', 'mxzinke',
     'Alfiefe10', 'jackieyangjq', 'rsyuzyov', 'projectronic', 'zeyutang',
@@ -1451,6 +1459,23 @@ test('release history stays scannable and human contributors stay discoverable',
   const drafter = repoFile('.github/release-drafter.yml');
   assert.match(drafter, /change-template:\s*'[^']*\$TITLE[^']*\$NUMBER[^']*@\$AUTHOR[^']*'/);
   assert.match(repoFile('CONTRIBUTING.md'), /@PR-author` \*\*on each change entry\*\*/i);
+});
+
+test('repository homepage leads with core usage views before optional sharing', () => {
+  const home = repoFile('README.md');
+  const features = home.indexOf('## Features at a glance');
+  const screenshots = home.indexOf('## Screenshots');
+  const status = home.indexOf('### Claude status bar');
+  const dashboard = home.indexOf('### Dashboard');
+  const sharing = home.indexOf('### Sharing workspace (optional)');
+  const release = home.indexOf("## What's new in 2.4");
+  assert.ok(features >= 0 && features < screenshots);
+  assert.ok(screenshots < status && status < dashboard);
+  assert.ok(dashboard < sharing && sharing < release,
+    'optional sharing preview should follow core usage screenshots');
+  assert.ok(home.indexOf('![v2.4 combined sharing workspace') > dashboard);
+  assert.doesNotMatch(home, /^## Current preview$/m,
+    'sharing should not be the homepage lead image');
 });
 
 test('all nine README files explain current Codex support without a Beta label', () => {
