@@ -1440,6 +1440,14 @@ test('release history stays scannable and human contributors stay discoverable',
   }
 
   const main = repoFile('README.md');
+  const credits = main.split(/^## Credits$/m)[1]?.split(/^## Changelog$/m)[0] ?? '';
+  assert.match(
+    credits,
+    /<details open>\s*<summary>Merged PR authors and examples of their contributions<\/summary>/,
+    'merged PR credits should be visible by default',
+  );
+  assert.doesNotMatch(credits, /first[- ]time contributor/i,
+    'Credits should not single out first-time contributors');
   for (const login of [
     'Carl723000', 'jack21', 'Dobidop', 'nickearnshaw', 'mxzinke',
     'Alfiefe10', 'jackieyangjq', 'rsyuzyov', 'projectronic', 'zeyutang',
