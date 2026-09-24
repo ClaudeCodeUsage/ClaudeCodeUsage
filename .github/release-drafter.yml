@@ -5,8 +5,8 @@
 # creates the tag and triggers publish.yml. Nothing publishes automatically.
 #
 # The next version is inferred from the labels on the merged PRs:
-#   major → "breaking"          minor → "feature"/"enhancement"
-#   patch → everything else (the default)
+#   major → "breaking"/"major"   minor → "minor"
+#   patch → ordinary feature/fix/docs and everything else (the default)
 #
 # A version label is set by the maintainer when they merge (the PR template shows
 # the mapping; unlabeled defaults to patch). The `autolabeler` block below is
@@ -29,6 +29,8 @@ categories:
   - title: '📝 Docs / CI / chore'
     labels: ['docs', 'ci', 'chore', 'dependencies']
 
+# Preserve the author on every change, even when the maintainer rewrites the
+# draft. The aggregate CONTRIBUTORS footer alone does not identify who did what.
 change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
 change-title-escapes: '\<*_&'
 

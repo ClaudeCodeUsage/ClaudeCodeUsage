@@ -97,8 +97,8 @@ tags:
 
 1. **Open a PR** (a `fix/…`, `feat/…` or `docs/…` branch name keeps the intent
    clear). A maintainer applies the matching label when merging — that label sets
-   the version bump (`feature` → minor, `breaking` → major, otherwise patch;
-   unlabeled → patch).
+   the version bump (`minor` → minor, `breaking` or `major` → major; ordinary
+   `feature` / `fix` / docs and unlabeled PRs → patch).
 2. **A maintainer merges it.** [Release Drafter](https://github.com/release-drafter/release-drafter)
    then adds your change to a continuously-updated **draft GitHub Release** and
    recomputes the next version.
@@ -112,6 +112,22 @@ tags:
 
 Because changes ship by **merging** your PR — not by re-applying it — your commit
 authorship and the PR's *merged* status are preserved.
+
+### Release-note attribution
+
+The draft release already puts `@PR-author` **on each change entry**. When a
+maintainer edits the draft before publishing, keep that per-entry attribution
+beside the specific change; a single Contributors list at the bottom is not a
+substitute. If a fix comes from a linked public issue, verify the issue reporter
+and credit `@reporter` on that same entry too. Keep the summary Contributors
+list (including the maintainer when they contributed), and identify a verified
+first-time contributor where relevant. Do not attribute unmerged PR code as
+shipped, or mention private plans in public notes. The maintainer reviews the
+draft and personally clicks Publish.
+
+At each minor release, reconcile the README Credits against public PR and
+issue authors. Keep merged PRs, issue reports, and unmerged proposals distinct;
+do not remove earlier contributors when refreshing the list.
 
 ## Repository assistants and truthful attribution
 
