@@ -54,6 +54,10 @@ unter [Issues](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues) willko
 
 ## Credits und Lizenz
 
+Die vollständige Liste der PR-Autoren und Issue-Meldenden steht unter
+[Credits im Haupt-README](README.md#credits); zusammengeführte PRs und
+nicht übernommene Vorschläge sind dort getrennt.
+
 MIT-Lizenz. Die Pflege verwendet [Claude Code](https://claude.com/claude-code)
 und [OpenAI Codex](https://developers.openai.com/codex/) als Werkzeuge;
 menschliche Beiträge stehen im [Changelog](CHANGELOG.md).

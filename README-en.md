@@ -4,7 +4,10 @@
 
 ---
 
-**The local Claude Code and Codex usage coach in your status bar.** Not a billing tool. Claude retains its cost and quota views; Codex adds token and behaviour insights with Codex-native semantics.
+**Track Claude Code and OpenAI Codex token usage and quota locally in VS Code.**
+Open the dashboard from the status bar to explore cache, models, sessions,
+projects, and optional advice. [Install from the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=growthjack.claude-code-usage).
+This is not a billing tool: Claude costs and Codex API-equivalent values are estimates.
 
 > **What it is:** a VS Code status-bar monitor that reads local Claude Code and Codex usage logs, shows provider-appropriate token and quota views, and offers optional advice for reducing avoidable overhead.
 >
@@ -59,6 +62,10 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 
 ## What's new in v2.4
 
+<details open>
+<summary>Current release: status bar, smoother scrolling, and one sharing workspace</summary>
+
+
 - **Codex status and scrolling** — today's processed tokens are the default
   compact metric, while weekly quota shows remaining capacity. Live panel
   updates briefly defer during scrolling, with a bounded delay.
@@ -85,7 +92,18 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 Production renderer, synthetic usage and VS Code theme variables; not an
 installed-VSIX or real-account screenshot.
 
+</details>
+
 ## What's new in v2.3
+
+The v2.3 series added Codex tracking, provider-aware comparisons, honest
+token accounting, weekly estimates, and month → day → hour drill-down.
+For patch-level detail, see [CHANGELOG.md](CHANGELOG.md).
+
+<details>
+<summary>Read the v2.3 technical details</summary>
+
+### Models and accounting
 
 - **Refined throughout the v2.3 line** — GPT-6 Astra and Fable 5.1 model
   metadata, optional AWS Bedrock pricing, a fixed-reference display-currency
@@ -104,6 +122,8 @@ installed-VSIX or real-account screenshot.
 - Each recommendation presents an observation, readable evidence, and a conditional action only when the indexed 30-day structural aggregates support it; no evidence means no generic advice.
 - The persistent index stores machine-salted pseudonymous keys; numeric and structural aggregates; and sanitized project, directory, agent, model, effort, role, time, and quality metadata. It never stores raw IDs, full paths or repository URLs, thread titles, or conversation bodies.
 - The shared Settings tab shows only common and Codex-effective controls when Codex is selected. Codex collection and local Codex recommendations can be disabled independently; the background watcher delay is configurable (30 seconds by default, with Off and longer intervals available). A first-time index or incomplete legacy migration gets one bounded 64 GiB / 16,384-file-pass streaming ceiling; it does not reserve that amount of memory and remains cancellable and resumable. After convergence, background work returns to 128 MiB / 64 file passes and the always-visible Refresh action uses 2 GiB / 512 file passes. Unchanged warm refreshes still read zero usage-record JSONL body bytes.
+
+</details>
 
 ## Install
 
@@ -189,7 +209,11 @@ sums the rows. The extension does not multiply its total to match that cache.
 
 ## Credits
 
-Forked from [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage). MIT-licensed. Community contributions credited in [CHANGELOG.md](CHANGELOG.md). Many code changes drafted with [Claude Code](https://claude.com/claude-code).
+Created by [@jack21](https://github.com/jack21), maintained by
+[@Carl723000](https://github.com/Carl723000), and improved by PR authors and
+issue reporters. See the [full contributor credits](README.md#credits), which
+distinguish merged work from proposals. Future release notes credit each change
+beside its contributor, not only in a summary list. MIT-licensed.
 
 Development-tool credit: repository maintenance uses both [Claude Code](https://claude.com/claude-code) and [OpenAI Codex](https://developers.openai.com/codex/). This credits tools separately from human contributors; Codex is not added to Release Drafter's contributor list and receives no fabricated `Co-Authored-By` identity.
 

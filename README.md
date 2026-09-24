@@ -4,31 +4,22 @@
 [![Open VSX Registry](https://img.shields.io/open-vsx/v/GrowthJack/claude-code-usage?style=flat-square&logo=eclipseide&label=Open%20VSX)](https://open-vsx.org/extension/GrowthJack/claude-code-usage)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-**The local Claude Code and Codex usage coach in your status bar.** Not a
-billing tool. Claude keeps its cost and quota views; Codex adds provider-specific
-token and behaviour insights through the same dashboard tabs, render functions,
-and visual system without pretending both providers expose the same data.
+**Track Claude Code and OpenAI Codex usage locally in VS Code.** See today's
+tokens in the status bar, remaining quota, cache usage, project and session
+trends, and optional usage advice in one dashboard. Install from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=growthjack.claude-code-usage)
+or [Open VSX](https://open-vsx.org/extension/GrowthJack/claude-code-usage).
 
-> **What this is:** A VS Code status-bar monitor that reads your local
-> Claude Code and Codex logs and shows provider-appropriate usage views — plus
-> optional guidance that helps reduce avoidable token and workflow overhead.
->
-> **What this is _not_:** a billing tool. Claude dollar amounts are estimates
-> based on public per-million-token rates. Codex has no billing-cost card; its
-> first summary card is an explicitly labelled API-equivalent cost estimate,
-> and its weekly allowance panel uses the same proxy rather than billing data.
-> Refer to the provider account for billing truth.
+The extension reads local provider logs. **Processed** Codex tokens include
+input and output; **uncached usage** excludes cached input, and quota is the
+**last local observation**, not a live account balance. Claude costs and Codex
+API-equivalent prices are estimates, **not bills or subscription charges**.
+Provider accounts remain the source of truth for billing. The
+[简体中文说明](README-zh-CN.md) covers the same features in detail.
 
-> **看清 Claude Code 与 Codex 的本地用量，让 AI 帮你用得更好。**
->
-> **简介**：一个 VS Code 状态栏小工具。Claude 保留成本与配额视图；
-> Codex 则按自身的数据语义展示 token、effort、任务结构
-> 和本地优化建议，同时复用 Claude 仪表盘的标签页、渲染函数和视觉体系，
-> 而不是另做一套页面或强行套用 Claude 的统计口径。
->
-> **它不是什么**：账单工具。Claude 金额为估算值；Codex 首张汇总卡仅显示
-> 明确标注的 API 等效成本估算，每周额度面板也使用同一代理口径，而非账单数据。
-> 实际费用请以相应供应商的官方账单为准。
+Open the dashboard by clicking either usage indicator in the VS Code status
+bar. See [features](#features-at-a-glance), [privacy](#privacy),
+[installation](#install), and [contributors](#credits) below.
 
 🌐 **Multi-language documentation**:
 [English](README-en.md) ·
@@ -42,9 +33,33 @@ and visual system without pretending both providers expose the same data.
 
 ---
 
+## Features at a glance
+
+- **Claude Code and Codex, side by side:** provider-specific Today, Last 30 days,
+  All time, Sessions, and Projects views; Compare keeps their accounting separate.
+- **Know what used tokens:** input, cached input, uncached usage, output, models,
+  effort, and month → day → hour drill-down without rereading logs on chart clicks.
+- **See quota without confusing it with spend:** Claude's official `/usage`
+  utilisation and Codex's last-observed remaining allowance; estimates are labelled.
+- **Keep sharing under your control:** preview and export local SVG/Markdown;
+  sharing is on by default but can be disabled, and GitHub publication is separate.
+- **Local first:** source logs stay provider-owned; optional AI advice requires
+  an explicit request preview and separate Send action.
+
+## Current preview
+
+![v2.4 combined sharing workspace, light theme](images/v2.4.0/compare-sharing-en-light.png)
+
+*Production renderer with synthetic usage and VS Code theme variables, not a
+real account or an installed-VSIX capture. More views are in [screenshots](#screenshots).*
+
 ## Screenshots
 
 ### v2.3 Claude, Codex and Compare
+
+<details>
+<summary>Show five historical dashboard previews (v2.3.1–v2.3.2)</summary>
+
 
 The five v2.3 images below are reproducible captures of the production dashboard
 renderer with synthetic fixtures and VS Code Light+/Dark+ theme variables, not
@@ -82,6 +97,8 @@ logarithmic, or linear scaling. The metric is activity volume, not productivity 
 *Projects now adds a Token-only 30/90-day project × day heatmap and stacked
 daily trend for both providers. Exact tooltips, explicit coverage, bounded rows,
 and an Other-projects tail keep the view auditable without rereading source logs.*
+
+</details>
 
 ### Claude status bar
 
@@ -165,6 +182,10 @@ same full-request preview and separate explicit Send action as AI advice.
 
 ## What's new in 2.4
 
+<details open>
+<summary>Current release · status bar, smooth scrolling, and one sharing workspace</summary>
+
+
 - **Codex status and scrolling** — the default compact Token item shows today's
   processed amount; the separate weekly indicator shows remaining capacity.
   Live panel updates wait briefly for scrolling to pause, with a bounded delay.
@@ -187,15 +208,23 @@ same full-request preview and separate explicit Send action as AI advice.
   overwrite action before writing. Combined activity is not billing,
   productivity, capability, or cross-provider equivalence.
 
-![v2.4 combined sharing workspace, light theme](images/v2.4.0/compare-sharing-en-light.png)
+[Claude Share Card preview](images/v2.4.0/claude-sharing-zh-CN-dark.png) ·
+[360 px dark-theme view](images/v2.4.0/narrow-sharing-de-DE-dark.png).
+Both use synthetic fixtures, not a real account.
 
-This is a production-renderer capture with synthetic usage and VS Code theme
-variables, not evidence from an installed VSIX or a real account. The
-[Claude Share Card](images/v2.4.0/claude-sharing-zh-CN-dark.png) and
-[360 px dark-theme view](images/v2.4.0/narrow-sharing-de-DE-dark.png) use the same
-fixture boundary.
+</details>
 
 ## What's new in 2.3
+
+The 2.3 series introduced local Codex tracking, provider-aware comparisons,
+request-level token attribution, and shareable activity views. It later added
+model/pricing updates, the project activity matrix, and month → day → hour
+drill-down. See [CHANGELOG.md](CHANGELOG.md) for patch-by-patch details.
+
+<details>
+<summary>Read the v2.3 changes by area</summary>
+
+### Models, token accounting, and cost semantics
 
 - **Refined throughout the v2.3 line** — GPT-6 Astra and Fable 5.1 model
   metadata, optional AWS Bedrock pricing, a fixed-reference display-currency
@@ -234,6 +263,9 @@ fixture boundary.
   proven replay; missing last snapshots fall back to cumulative lineage
   high-water. Upgrading triggers one automatic reindex, with the indexed
   subtotal still visible throughout the pass.
+
+### Weekly estimates and provider boundaries
+
 - **Weekly allowance-value trend** — Claude and Codex All-time / Compare views
   calculate historical used equivalents directly from local token logs. The
   newest valid official reset observation anchors one sequence of unique,
@@ -262,6 +294,9 @@ fixture boundary.
   Current official API rates are applied consistently across history. This is a
   proxy, not a bill or an official subscription price. The panel is enabled by
   default and can be hidden in Settings with `showWeeklyEquivalentValue`.
+
+### Dashboard, indexing, and privacy
+
 - **One dashboard render stack** — switching to Codex keeps the established
   Today / Last 30 days / All time / Sessions / Projects / Content / Settings structure,
   relabelled where Codex semantics differ. The same render functions, HTML
@@ -309,7 +344,12 @@ fixture boundary.
 - **Exact-version release notice** — the upgrade message only describes the
   installed release. It is on by default and can be disabled in Settings.
 
+</details>
+
 ## What's new in 2.2
+
+<details>
+<summary>Sharing, conversation viewer, and usage analysis</summary>
 
 - **Usage share card** (opt-in, `enableShareCard`) — a themed, configurable
   one-page SVG of your usage: pick a range × scope (overall / project / session)
@@ -351,7 +391,13 @@ fixture boundary.
   a validated dropdown so a bad value can't crash the dashboard (#51); German
   (de-DE) and Brazilian Portuguese (pt-BR) are selectable everywhere.
 
+</details>
+
 ## What's new in 2.1
+
+<details>
+<summary>Sessions, workflow analysis, dashboard settings, and AI advice</summary>
+
 
 - **Sessions: resume / copy / delete** — each row can copy the session id,
   **resume** it (official Claude Code extension in-tab for this project, or a
@@ -408,7 +454,13 @@ fixture boundary.
   Settings to show the current session's context fill in the status bar. A "~"
   marks a guessed window; set `contextWindowOverride` for proxied/custom models.
 
+</details>
+
 ## What's new in 2.0
+
+<details>
+<summary>Official Claude quota, new tabs, pricing, and live status bar</summary>
+
 
 - **Real 5-hour and weekly quota** in the status bar — reads the OAuth session
   from the same Claude profile as the window: explicit `dataDirectory`, then
@@ -437,6 +489,8 @@ Closes upstream issues
 [#10](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/10),
 [#11](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/11),
 [#13](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/13).
+
+</details>
 
 ---
 
@@ -659,66 +713,80 @@ remote boundaries are in [Local data and privacy](LOCAL-DATA.md) ([简体中文]
 
 ## Credits
 
-Maintained by [**@Carl723000**](https://github.com/Carl723000), who forked it
-from [@jack21](https://github.com/jack21)'s original
-[`ClaudeCodeUsage`](https://github.com/jack21) and now also helps own and
-maintain the upstream organization
-[`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage).
-MIT-licensed. The 2.x work documented here (everything under "What's new") is by
-@Carl723000 with [Claude Code](https://claude.com/claude-code); it has grown well
-beyond the 2.0 baseline — see [CHANGELOG.md](CHANGELOG.md).
+Created by [@jack21](https://github.com/jack21) and maintained by
+[@Carl723000](https://github.com/Carl723000), with community PRs, issue reports,
+reviews, and translations. Thank you to everyone who helped shape the project.
+The lists below cover public PR and issue authors through v2.4.0; a linked PR
+is not a claim that every proposed line shipped. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the release-credit convention.
 
-Development-tool credit: repository maintenance uses both
-[Claude Code](https://claude.com/claude-code) and
-[OpenAI Codex](https://developers.openai.com/codex/). This credits the tools
-separately from human contributors: Codex is not added to Release Drafter's
-contributor list, and no fabricated `Co-Authored-By` identity is used for it.
+<details>
+<summary>Merged PR authors and examples of their contributions</summary>
 
-Contributors whose upstream PRs / issues are incorporated here:
+- [@Alfiefe10](https://github.com/Alfiefe10) — [#108](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/108), [#110](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/110)
+- [@akapti](https://github.com/akapti) — [#95](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/95)
+- [@Dobidop](https://github.com/Dobidop) — [#9](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/9), the Claude OAuth `/usage` approach
+- [@e7d](https://github.com/e7d) — [#81](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/81)
+- [@henrique-carvalho-dev](https://github.com/henrique-carvalho-dev) — [#48](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/48)
+- [@jack21](https://github.com/jack21) — original project and [#96](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/96)
+- [@jackieyangjq](https://github.com/jackieyangjq) — [#115](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/115), first-time contributor
+- [@mxzinke](https://github.com/mxzinke) — [#5](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/5), [#6](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/6), model pricing and German translation
+- [@nickearnshaw](https://github.com/nickearnshaw) — [#4](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/4), [#8](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/8), [#20](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/20), [#21](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/21), [#22](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/22), [#24](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/24), [#32](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/32), [#34](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/34), [#35](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/35)
+- [@oxsean](https://github.com/oxsean) — [#43](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/43)
+- [@PhisicsLollo0](https://github.com/PhisicsLollo0) — [#41](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/41)
+- [@projectronic](https://github.com/projectronic) — [#75](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/75), [#76](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/76), [#77](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/77)
+- [@ptweezy](https://github.com/ptweezy) — [#79](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/79)
+- [@rsyuzyov](https://github.com/rsyuzyov) — [#109](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/109), [#111](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/111), [#112](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/112), [#113](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/113), [#114](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/114)
+- [@ScherbakovAl](https://github.com/ScherbakovAl) — [#31](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/31), status-bar context controls
+- [@UfukTanriverdi8](https://github.com/UfukTanriverdi8) — [#50](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/50)
+- [@wheelbarrel00](https://github.com/wheelbarrel00) — [#38](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/38), model-scoped weekly limit
+- [@YuboZhang](https://github.com/YuboZhang) — [#46](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/46), [#71](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/71)
+- [@zeyutang](https://github.com/zeyutang) — [#62](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/62), [#63](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/63), [#86](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/86), [#90](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/90)
 
-- [@Dobidop](https://github.com/Dobidop) —
-  [PR #9](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/9), the OAuth
-  approach for reading real `/usage` data; the quota indicator is adapted from
-  that work.
-- [@nickearnshaw](https://github.com/nickearnshaw) —
-  [PR #8](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/8) locale-aware
-  number/date formatting;
-  [PR #20](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/20) fix for
-  the webview/status-bar getting stuck on "Loading…" (re-entrancy guard +
-  spinner only on cold start);
-  [PR #21](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/21) docs on
-  `cleanupPeriodDays` for retaining usage history;
-  [PR #24](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/24) quota-window
-  rollover handling (drop a window once its reset has passed).
-- [@ScherbakovAl](https://github.com/ScherbakovAl) —
-  [PR #31](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/31), the
-  original status-bar context-window indicator and the `showCost` toggle.
-- [@wheelbarrel00](https://github.com/wheelbarrel00) —
-  [PR #38](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/38), the opt-in
-  weekly Opus limit in the status bar, which grew into today's API-named
-  `showScopedWeekly`.
-- [@brenoneill](https://github.com/brenoneill) —
-  [PR #14](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/14), custom
-  data directory (merged into upstream 1.0.8).
-- [@mxzinke](https://github.com/mxzinke) — Opus 4.5 / Haiku 4.5 prices
-  + German translation (upstream 1.0.8).
+[@Carl723000](https://github.com/Carl723000) authored and merged many of the
+maintainer PRs; these are visible in the [pull-request history](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pulls?q=is%3Apr+author%3ACarl723000).
 
-Also closed along the way: the test-suite seed
-([#25](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/25)) and
-unreliable context-window detection for proxied/custom models
-([#31](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/31)).
+</details>
 
-Many code changes in this fork were drafted with assistance from
-[Claude Code](https://claude.com/claude-code) (commits include
-`Co-Authored-By: Claude <noreply@anthropic.com>`).
+<details>
+<summary>Issue reporters (including issue-only contributors)</summary>
+
+- [@dreamerhyde](https://github.com/dreamerhyde) [#1](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/1) · [@skyprawngo](https://github.com/skyprawngo) [#2](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/2) · [@tjx666](https://github.com/tjx666) [#3](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/3)
+- [@andrew-west-empromptu](https://github.com/andrew-west-empromptu) [#7](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/7) · [@faangbait](https://github.com/faangbait) [#10](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/10) · [@leisn](https://github.com/leisn) [#11](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/11) · [@dmathisen](https://github.com/dmathisen) [#13](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/13)
+- [@Rissew](https://github.com/Rissew) [#17](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/17) · [@zhaoxiao9302](https://github.com/zhaoxiao9302) [#18](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/18), [#105](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/105)
+- [@danielboxer](https://github.com/danielboxer) [#26](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/26) · [@lyrzxz](https://github.com/lyrzxz) [#27](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/27) · [@BarisKuzu](https://github.com/BarisKuzu) [#45](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/45), [#87](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/87)
+- [@ekimminau](https://github.com/ekimminau) [#51](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/51) · [@dbookstaber](https://github.com/dbookstaber) [#54](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/54) · [@eduardogomezgvp](https://github.com/eduardogomezgvp) [#55](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/55) · [@chuccv](https://github.com/chuccv) [#70](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/70)
+- [@nsevene](https://github.com/nsevene) [#80](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/80) · [@arhneu](https://github.com/arhneu) [#82](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/82) · [@jcastillooo](https://github.com/jcastillooo) [#84](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/84)
+- [@HoangJN](https://github.com/HoangJN) [#89](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/89) · [@Bozodragon](https://github.com/Bozodragon) [#91](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/91) · [@aaroncvan](https://github.com/aaroncvan) [#94](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/94) · [@mkgaskin-ops](https://github.com/mkgaskin-ops) [#99](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/99)
+- PR authors also reported issues: [@nickearnshaw](https://github.com/nickearnshaw) [#25](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/25), [#33](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/33) · [@oxsean](https://github.com/oxsean) [#40](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/40) · [@projectronic](https://github.com/projectronic) [#74](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/74). The maintainer's own issues are in the [issue history](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues?q=is%3Aissue+author%3ACarl723000).
+
+</details>
+
+<details>
+<summary>PR proposals not merged</summary>
+
+Thanks also to [@huanglune](https://github.com/huanglune)
+([#12](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/12)),
+[@brenoneill](https://github.com/brenoneill)
+([#14](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/14)), and
+[@Ailuras](https://github.com/Ailuras)
+([#28](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/28)) for proposing
+changes. These PRs were closed without merge; their ideas are credited without
+claiming that the PR code shipped.
+
+</details>
+
+Development assistance: [Claude Code](https://claude.com/claude-code) and
+[OpenAI Codex](https://developers.openai.com/codex/) are credited separately
+from human contributors. The project is [MIT-licensed](LICENSE).
 
 ---
 
 ## Changelog
 
-The current changelog lives in [**CHANGELOG.md**](CHANGELOG.md). The
-most recent 2.1 entry summarises every feature, fix and personalisation
-option in this release.
+See [CHANGELOG.md](CHANGELOG.md) and the
+[versioned GitHub Releases](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/releases)
+for detailed change history and release-specific attribution.
 
 <details>
 <summary><b>Pre-2.0 history (upstream 1.0.x)</b></summary>

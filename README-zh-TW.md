@@ -59,6 +59,10 @@
 
 ## v2.4 新功能
 
+<details open>
+<summary>目前版本的主要更新</summary>
+
+
 - **Codex 狀態列與捲動**：預設精簡指標顯示今日已處理 Token，獨立的每週額度顯示
   剩餘比例。捲動期間面板更新會短暫延後，並設有最長等待邊界。
 - **統一、預覽優先的分享工作台**：全寬匯出預覽成為視覺焦點，控制項統一置於下方；
@@ -72,7 +76,13 @@
   **發佈到 GitHub** 動作可以連線；它仍僅支援公開儲存庫，並在寫入前確認精確目標及建立／覆寫動作。
   綜合活動不代表帳單、生產力、能力或跨供應商等價。
 
+</details>
+
 ## v2.3 新功能
+
+<details>
+<summary>展開 v2.3 的 Codex、比較與歷史功能</summary>
+
 
 - **v2.3 系列持續完善**——新增 GPT-6 Astra、Fable 5.1 模型中繼資料與
   可選 AWS Bedrock 定價，提供固定參考匯率幣別選擇、僅 Token 的 30／90 天
@@ -89,6 +99,8 @@
 - 每則建議只在已索引的 30 天結構聚合有證據時顯示觀測、易讀證據和條件式行動；沒有證據就不會產生泛化建議。
 - 持久索引保存使用本機鹽值產生的假名化鍵、數值與結構聚合，以及經過去識別化的專案、目錄、agent、模型、effort、角色、時間和品質中繼資料；絕不保存原始 ID、完整路徑或儲存庫 URL、執行緒標題或對話正文。
 - 共用設定分頁在 Codex 下只顯示通用與對 Codex 有效的選項。Codex 資料收集和本地 Codex 建議可分別關閉；背景監聽延遲可設定（預設 30 秒，也可關閉或選更長間隔）。首次建立索引或舊索引遷移尚未收斂時，會取得一次受限的 64 GiB / 16,384 檔案輪次串流上限；這不會預先占用等量記憶體，且仍可取消、可續傳。收斂後，背景工作恢復為 128 MiB / 64 檔案輪次，永遠可見的「重新整理」使用 2 GiB / 512 檔案輪次。未變更的常規重新整理仍不會讀取用量 JSONL 內文。
+
+</details>
 
 ## 安裝
 
@@ -163,9 +175,7 @@ Code 的 `stats-cache` 則逐行累加。本擴充功能不會用倍率去貼合
 
 ## 致謝
 
-Fork 自 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)。MIT 授權。社群貢獻致謝見 [CHANGELOG.md](CHANGELOG.md)。許多程式碼改動由 [Claude Code](https://claude.com/claude-code) 協助起草。
-
-開發工具致謝：repository 維護同時使用 [Claude Code](https://claude.com/claude-code) 與 [OpenAI Codex](https://developers.openai.com/codex/)。這只記錄開發工具，與人類貢獻者身分分開；Codex 不會列入 Release Drafter 的人類 contributor 名單，也不會使用虛構的 `Co-Authored-By` 身分。
+由 [@jack21](https://github.com/jack21) 建立、[@Carl723000](https://github.com/Carl723000) 維護；PR 與 issue 貢獻者的完整名單見[主 README 的 Credits](README.md#credits)。開發工具 [Claude Code](https://claude.com/claude-code) 與 [OpenAI Codex](https://developers.openai.com/codex/) 另行致謝。
 
 **歡迎提出 Issue、PR 與想法** —— 這正是專案成長的方式。
 

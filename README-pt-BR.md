@@ -51,6 +51,10 @@ Para a referência completa, consulte [inglês](README.md) ou
 
 ## Créditos e licença
 
+A lista completa de autores de PRs e pessoas que relataram issues está nos
+[créditos do README principal](README.md#credits), separando PRs integrados
+de propostas que não foram integradas.
+
 Licença MIT. A manutenção usa [Claude Code](https://claude.com/claude-code)
 e [OpenAI Codex](https://developers.openai.com/codex/) como ferramentas;
 contribuições humanas constam no [changelog](CHANGELOG.md).
