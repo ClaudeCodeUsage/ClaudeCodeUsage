@@ -59,6 +59,10 @@
 
 ## v2.4 새로운 기능
 
+<details open>
+<summary>최신 릴리스의 주요 변경 사항</summary>
+
+
 - **Codex 상태와 스크롤** — 간결한 기본 지표는 오늘 처리한 토큰이며 주간 한도는
   남은 비율을 표시합니다. 스크롤 중 패널 갱신은 잠시 미루되 대기 시간에 상한을 둡니다.
 - **하나의 미리보기 우선 공유 작업 공간** — 전체 너비 내보내기 미리보기를 중심에 두고
@@ -74,7 +78,13 @@
   이 작업은 공개 저장소로 제한되며 쓰기 전에 정확한 대상과 생성/덮어쓰기 작업을 확인합니다.
   통합 활동은 청구, 생산성, 능력 또는 공급자 간 동등성을 뜻하지 않습니다.
 
+</details>
+
 ## v2.3 새로운 기능
+
+<details>
+<summary>v2.3 Codex·비교·기록 기능 보기</summary>
+
 
 - **v2.3 계열 전반의 개선** — GPT-6 Astra와 Fable 5.1 모델 메타데이터,
   선택형 AWS Bedrock 가격, 고정 기준 환율 표시 통화 선택, Token 전용 30/90일
@@ -92,6 +102,8 @@
 - 각 제안은 인덱싱된 30일 구조 집계에 근거가 있을 때만 관측, 읽기 쉬운 근거, 조건부 행동을 보여 줍니다. 근거가 없으면 일반적인 조언을 생성하지 않습니다.
 - 영구 인덱스에는 기기별 솔트로 가명화한 키, 수치·구조 집계, 그리고 정제된 프로젝트, 디렉터리, 에이전트, 모델, effort, 역할, 시간, 품질 메타데이터를 저장합니다. 원시 ID, 전체 경로나 저장소 URL, 스레드 제목, 대화 본문은 저장하지 않습니다.
 - 공용 Settings 탭은 Codex 선택 시 공통 설정과 Codex에 유효한 설정만 표시합니다. Codex 수집과 로컬 Codex 제안은 각각 끌 수 있습니다. 백그라운드 감시 지연은 기본 30초이며 Off 또는 더 긴 간격도 선택할 수 있습니다. 최초 인덱스 또는 완료되지 않은 이전 인덱스 마이그레이션에는 한 번의 제한된 64 GiB / 16,384 파일 패스 스트리밍 상한을 적용합니다. 이 용량만큼 메모리를 미리 할당하지 않으며 취소와 재개를 지원합니다. 수렴 후 백그라운드 작업은 128 MiB / 64 파일 패스로 돌아가고, 항상 보이는 새로 고침은 2 GiB / 512 파일 패스를 사용합니다. 변경 없는 일반 새로 고침은 사용량 JSONL 본문을 읽지 않습니다.
+
+</details>
 
 ## 설치
 
@@ -162,7 +174,9 @@ API 등가 값은 청구액이 아닙니다. 원본 로그 보존은 Claude Code
 
 ## 크레딧
 
-[`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)에서 포크. MIT 라이선스. 커뮤니티 기여는 [CHANGELOG.md](CHANGELOG.md)에 명시. 많은 코드 변경은 [Claude Code](https://claude.com/claude-code)의 도움으로 작성되었습니다.
+PR 작성자와 issue 제보자의 전체 목록은 [메인 README의 Credits](README.md#credits)에 있습니다. 병합된 변경과 병합되지 않은 제안은 구분합니다.
+
+[@jack21](https://github.com/jack21)이 만들고 [@Carl723000](https://github.com/Carl723000)이 유지 관리합니다. MIT 라이선스입니다.
 
 개발 도구 크레딧: 저장소 유지보수에는 [Claude Code](https://claude.com/claude-code)와 [OpenAI Codex](https://developers.openai.com/codex/)를 함께 사용합니다. 이는 사람 기여자와 분리된 도구 표기이며, Codex를 Release Drafter의 사람 기여자 목록에 넣거나 허위 `Co-Authored-By` 신원을 부여하지 않습니다.
 

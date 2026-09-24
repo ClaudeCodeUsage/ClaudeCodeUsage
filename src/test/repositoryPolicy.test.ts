@@ -1429,6 +1429,30 @@ test('all nine README files credit both development tools', () => {
   }
 });
 
+test('release history stays scannable and human contributors stay discoverable', () => {
+  for (const readme of ['README.md', 'README-en.md', 'README-zh-CN.md']) {
+    const body = repoFile(readme);
+    assert.match(body, /<details>\s*<summary>[^\n]*(?:2\.3|v2\.3)[^\n]*<\/summary>/,
+      `${readme} should collapse the older v2.3 history`);
+    assert.match(body, /<\/details>/, `${readme} should close its history disclosure`);
+    assert.match(body, /README\.md#credits|^## Credits$|^## 致谢$/m,
+      `${readme} should lead readers to contributor credits`);
+  }
+
+  const main = repoFile('README.md');
+  for (const login of [
+    'Carl723000', 'jack21', 'Dobidop', 'nickearnshaw', 'mxzinke',
+    'Alfiefe10', 'jackieyangjq', 'rsyuzyov', 'projectronic', 'zeyutang',
+    'chuccv', 'eduardogomezgvp', 'zhaoxiao9302', 'mkgaskin-ops',
+  ]) {
+    assert.ok(main.includes(`https://github.com/${login}`), `missing contributor ${login}`);
+  }
+
+  const drafter = repoFile('.github/release-drafter.yml');
+  assert.match(drafter, /change-template:\s*'[^']*\$TITLE[^']*\$NUMBER[^']*@\$AUTHOR[^']*'/);
+  assert.match(repoFile('CONTRIBUTING.md'), /@PR-author` \*\*on each change entry\*\*/i);
+});
+
 test('all nine README files explain current Codex support without a Beta label', () => {
   const expectations: Record<string, RegExp[]> = {
     'README.md': [/Codex/, /processed/i, /uncached usage/i, /cached/i, /last-observed/i],

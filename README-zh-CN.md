@@ -4,7 +4,11 @@
 
 ---
 
-**状态栏中的 Claude Code 与 Codex 本地用量教练。** 它不是账单工具。Claude 保留成本与配额视图；Codex 按自己的 token 与行为语义提供分析，无需硬套 Claude 的结构。
+**在 VS Code 本地查看 Claude Code 与 OpenAI Codex 的 Token 用量和额度。**
+状态栏显示今日用量与周额度余量；仪表板可查看缓存、模型、会话、项目及可选的优化建议。
+[从 VS Code Marketplace 安装](https://marketplace.visualstudio.com/items?itemName=growthjack.claude-code-usage)，
+或阅读下方的[功能](#截图)、[安装](#安装)、[隐私](#隐私)与[贡献者致谢](#致谢)。
+Claude 成本与 Codex API 等效价格均为估算，不是账单。
 
 > **它是什么**：一个 VS Code 状态栏小工具，读取本地 Claude Code 与 Codex 用量日志，分别展示各自的 token、额度与估算值；还可提供可选建议，帮助减少不必要的消耗。
 >
@@ -79,6 +83,10 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 
 ## 2.4 新功能
 
+<details open>
+<summary>当前版本：状态栏、滚动体验与统一分享工作台</summary>
+
+
 - **Codex 状态栏与滚动**：默认简短指标显示今日已处理 Token，独立的每周额度显示
   剩余比例。滚动期间面板刷新短暂延后，且有最长等待边界。
 - **统一、预览优先的分享工作台**：全宽导出预览位于视觉中心，控制项统一放在下方；
@@ -96,7 +104,19 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 
 此图来自生产渲染器、合成用量与 VS Code 主题变量；不是已安装 VSIX 或真实账号的截图。
 
+</details>
+
 ## 2.3 新功能
+
+2.3 系列加入 Codex 本地用量、独立于 Claude 的统计口径、对比视图与每周等效估算；
+后续补齐月→日→小时下钻、项目活动矩阵和模型定价信息。
+逐补丁详情见 [CHANGELOG.md](CHANGELOG.md)。
+
+<details>
+<summary>按主题查看 2.3 的技术细节</summary>
+
+### 模型、Token 与计价
+
 
 - **2.3 系列持续完善**——新增 GPT-6 Astra、Fable 5.1 模型元数据与可选
   AWS Bedrock 定价，提供固定参考汇率币种选择、仅 Token 的 30／90 天项目
@@ -114,7 +134,13 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 - 持久索引保存使用本机盐值生成的假名化键、数值与结构聚合，以及经过脱敏的项目、目录、agent、模型、effort、角色、时间和质量元数据；绝不保存原始 ID、完整路径或仓库 URL、线程标题或对话正文。
 - 共享设置标签页在 Codex 下只显示通用和对 Codex 有效的选项。Codex 数据收集和本地 Codex 建议可分别关闭；后台监听延迟可配置（默认 30 秒，也可关闭或选更长间隔）。首次建立索引或旧索引迁移尚未收敛时，会获得一次受限的 64 GiB / 16,384 文件轮次流式上限；这不会预先占用等量内存，并且仍可取消、可续传。收敛后，后台任务恢复为 128 MiB / 64 文件轮次，始终可见的「刷新」使用 2 GiB / 512 文件轮次。未变化的常规刷新仍不会读取用量 JSONL 正文。
 
+</details>
+
 ## 2.2 新功能
+
+<details>
+<summary>分享、会话查看与用量分析</summary>
+
 
 - **用量分享卡**（可选，`enableShareCard`）：一张可配置的单页 SVG 用量卡——自选时间范围 × 范围（总体 / 工程 / 会话）× 展示哪些指标，以及主题（**Claude 经典橙** / **奶油** / **极光暗色** / **自动**）。预览和本地导出不会获取 GitHub 身份数据。自包含、可复现；提示词、路径、ID 一律不出本机。中文语言下使用 万/亿 单位。
 - **只读会话查看器**（会话标签，**默认开启**）：每行的「查看」按钮以只读方式重开某个历史会话的提示词与 Markdown 渲染的回答，帮你回忆内容，而**不必**像「恢复」那样把它重新塞回模型上下文。思考与工具调用收进折叠区，默认展示最近若干轮。
@@ -128,7 +154,13 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 - **升级后「新功能」提示**：每次首次运行新的 major.minor 版本时给一次可关闭的提示，让可选功能不被埋没。
 - **修复**：Sonnet 5 正确上报 1M 上下文窗口（#50）；日志带 TTL 拆分时，1 小时缓存写入按 2× 基础输入计价（#62）；多窗口下后台窗口在获得焦点时刷新、不再显示过期数据（#55）；时区设置改为校验过的下拉框，非法值不再拖垮仪表板（#51）；德语（de-DE）与巴西葡语（pt-BR）在各处均可选。
 
+</details>
+
 ## 2.1 新功能
+
+<details>
+<summary>会话、工作流、设置与 AI 建议</summary>
+
 
 - **会话：恢复 / 拷贝 / 删除**：每行可拷贝会话 ID、**恢复**（本工程会话优先在官方 Claude Code 扩展的新 tab 打开；其他工程的会话在其所在目录开终端执行 `claude --resume <id>`，因为官方 in-tab 恢复用的是当前工作区目录、找不到跨工程会话）、或**删除**（移至回收站，需确认）。并新增「当前工程 / 全部」筛选，默认当前工程。
 - **配额显示选项**：`quotaFiveHourOnly`（只显示 5 小时配额窗口）、`showResetInStatusBar`（在状态栏配额后附加重置倒计时，如 `5h:50%:2.3h | wk:30%:3.2d`），均在 ⚙ 设置标签页中。（想隐藏金额：把现有的「状态栏指标」切到 tokens 即可。）
@@ -147,7 +179,13 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 - **用量优化器**（实验性，`advice.optimizer.enabled`，默认关闭）：Content 标签页的一张卡，粘贴进粗略需求，返回一条精炼提示词，以**纯文本**形式（可直接粘贴、无 Markdown），并附推荐的 effort / thinking / 模型。三个可选微调项（标出含糊指代 · 压缩长粘贴内容 · 建议风格方向）。先生成包含所粘贴文字的精确请求预览；只有随后明确点击发送才会访问配置的 BYOK endpoint。
 - **上下文窗口指示器**（实验性，默认关闭）：在设置里开启后，状态栏显示当前 session 的上下文占用。`~` 表示窗口大小是猜测；代理 / 自定义模型可用 `contextWindowOverride` 手填真实窗口。
 
+</details>
+
 ## 2.0 新功能
+
+<details>
+<summary>官方额度、新标签页、定价与实时状态栏</summary>
+
 
 - **真实的 5 小时和每周配额** 显示在状态栏：OAuth 会话跟随当前窗口所选的 Claude profile，优先级为显式 `dataDirectory`、首个有效 `CLAUDE_CONFIG_DIR`、最后 `~/.claude`；macOS 钥匙串仅用于默认 profile。借鉴上游 [PR #9](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/9)（[@Dobidop](https://github.com/Dobidop)）。
 - **四个新标签页**：Sessions、Projects、Content、Branches，均可排序。
@@ -162,6 +200,8 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 完整变更：[CHANGELOG.md](CHANGELOG.md)。
 
 ---
+
+</details>
 
 ## 安装
 
@@ -294,20 +334,16 @@ ext install GrowthJack.claude-code-usage
 
 ## 致谢
 
-由 [**@Carl723000**](https://github.com/Carl723000) 维护 —— 最早从 [@jack21](https://github.com/jack21) 的原始项目 [`ClaudeCodeUsage`](https://github.com/jack21) fork 而来，现在也是上游组织 [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage) 的 owner 之一、负责后续维护。MIT 授权。本文档「新功能」里的 2.x 内容由 @Carl723000 借助 [Claude Code](https://claude.com/claude-code) 完成，已在 2.0 基础上推进许多 —— 见 [CHANGELOG.md](CHANGELOG.md)。
+项目由 [@jack21](https://github.com/jack21) 创建、
+[@Carl723000](https://github.com/Carl723000) 维护，也受益于社区的 PR、issue、审阅与翻译。
+完整名单按**已合并 PR、issue 提报、未合并提案**分组，见
+[主 README 的 Credits](README.md#credits)。这里不会把“提出问题”误写成“代码已合并”。
+今后的 release 文档会在每项改动旁标注相应贡献者的 `@` 用户名，
+而非只在末尾汇总。感谢所有贡献者。
 
-开发工具致谢：仓库维护同时使用了 [Claude Code](https://claude.com/claude-code) 和 [OpenAI Codex](https://developers.openai.com/codex/)。这只记录开发工具，与人类贡献者身份分开；Codex 不会进入 Release Drafter 的人类 contributor 列表，也不会获得伪造的 `Co-Authored-By` 身份。
-
-已并入的上游贡献者 PR / issue：
-
-- [@Dobidop](https://github.com/Dobidop) —— [PR #9](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/9)，读取真实 `/usage` 数据的 OAuth 方案；配额指示器据此改编。
-- [@nickearnshaw](https://github.com/nickearnshaw) —— [PR #8](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/8) 本地化数字 / 日期；[PR #20](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/20) 修复 webview / 状态栏卡在 "Loading…"；[PR #21](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/21) `cleanupPeriodDays` 文档；[PR #24](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/24) 配额窗口滚动处理。
-- [@ScherbakovAl](https://github.com/ScherbakovAl) —— [PR #31](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/31)，状态栏上下文窗口指示器与 `showCost` 开关的原始实现。
-- [@wheelbarrel00](https://github.com/wheelbarrel00) —— [PR #38](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/38)，状态栏可选显示每周 Opus 上限，即如今由 API 动态命名的 `showScopedWeekly` 前身。
-- [@brenoneill](https://github.com/brenoneill) —— [PR #14](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/14)，自定义数据目录（已并入上游 1.0.8）。
-- [@mxzinke](https://github.com/mxzinke) —— Opus 4.5 / Haiku 4.5 价格 + 德语翻译（上游 1.0.8）。
-
-本 fork 中许多代码改动由 [Claude Code](https://claude.com/claude-code) 协助起草（commit 含 `Co-Authored-By: Claude <noreply@anthropic.com>`）。
+开发工具 [Claude Code](https://claude.com/claude-code) 与
+[OpenAI Codex](https://developers.openai.com/codex/) 单独致谢，
+不代替人类贡献者署名。项目采用 [MIT 许可证](LICENSE)。
 
 **欢迎提出 Issue、PR 与想法** —— 这正是项目成长的方式。
 

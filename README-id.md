@@ -59,6 +59,10 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Yang baru di v2.4
 
+<details open>
+<summary>Perubahan utama rilis terbaru</summary>
+
+
 - **Status Codex dan pengguliran** — metrik ringkas bawaan menampilkan token
   yang diproses hari ini, sedangkan jatah mingguan menampilkan sisanya.
   Pembaruan panel ditunda sebentar saat menggulir, dengan batas waktu tunggu.
@@ -81,7 +85,13 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
   sebelum menulis. Aktivitas gabungan bukan klaim tagihan, produktivitas,
   kemampuan, atau kesetaraan penyedia.
 
+</details>
+
 ## Yang baru di v2.3
+
+<details>
+<summary>Tampilkan fitur Codex, perbandingan, dan riwayat v2.3</summary>
+
 
 - **Penyempurnaan di seluruh seri v2.3** — metadata model GPT-6 Astra dan
   Fable 5.1, harga AWS Bedrock opsional, pilihan mata uang tampilan dengan kurs
@@ -100,6 +110,8 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - Setiap rekomendasi hanya menampilkan pengamatan, bukti yang mudah dibaca, dan tindakan bersyarat bila agregat struktural 30 hari yang telah diindeks mendukungnya. Tanpa bukti, tidak ada saran umum.
 - Indeks persisten menyimpan kunci pseudonim dengan salt khusus mesin; agregat numerik dan struktural; serta metadata proyek, direktori, agen, model, effort, peran, waktu, dan kualitas yang telah disanitasi. Indeks tidak pernah menyimpan ID mentah, jalur lengkap atau URL repositori, judul thread, maupun isi percakapan.
 - Tab Settings bersama hanya menampilkan kontrol umum dan kontrol yang berlaku untuk Codex saat Codex dipilih. Pengumpulan Codex dan rekomendasi Codex lokal dapat dinonaktifkan secara terpisah; jeda watcher latar dapat diatur (default 30 detik, tersedia Off dan interval lebih panjang). Indeks pertama atau migrasi indeks lama yang belum tuntas mendapat satu batas streaming 64 GiB / 16.384 lintasan file; kapasitas itu tidak dialokasikan di memori di muka serta tetap dapat dibatalkan dan dilanjutkan. Setelah tuntas, kerja latar kembali ke 128 MiB / 64 lintasan file dan Refresh yang selalu terlihat memakai 2 GiB / 512 lintasan file. Refresh biasa tanpa perubahan tetap membaca nol isi JSONL penggunaan.
+</details>
+
 ## Instalasi
 
 Cari **`Claude Code Usage`** di tampilan Extensions (`Ctrl+Shift+X`), atau:
@@ -165,7 +177,9 @@ faktor pengali agar hasilnya menyerupai cache itu.
 
 ## Kredit
 
-Fork dari [`ClaudeCodeUsage/ClaudeCodeUsage`](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage). Berlisensi MIT. Kontribusi komunitas dicatat di [CHANGELOG.md](CHANGELOG.md). Banyak perubahan kode disusun dengan bantuan [Claude Code](https://claude.com/claude-code).
+Daftar lengkap penulis PR dan pelapor issue ada di [Credits README utama](README.md#credits), dengan PR yang digabung dibedakan dari usulan yang belum digabung.
+
+Dibuat oleh [@jack21](https://github.com/jack21) dan dikelola oleh [@Carl723000](https://github.com/Carl723000). Berlisensi MIT.
 
 Kredit alat pengembangan: pemeliharaan repositori menggunakan [Claude Code](https://claude.com/claude-code) dan [OpenAI Codex](https://developers.openai.com/codex/). Kredit alat ini dipisahkan dari kontributor manusia; Codex tidak ditambahkan ke daftar kontributor manusia Release Drafter dan tidak diberi identitas `Co-Authored-By` yang dibuat-buat.
 

@@ -1,7 +1,7 @@
 {
   "name": "claude-code-usage",
   "displayName": "Claude Code Usage",
-  "description": "Local Claude Code and Codex token usage and quota insights in the VS Code status bar",
+  "description": "Local Claude Code and OpenAI Codex token usage, cache, and quota tracker in the VS Code status bar",
   "version": "2.1.1",
   "publisher": "GrowthJack",
   "author": "GrowthJack",
@@ -17,8 +17,10 @@
   "keywords": [
     "claude",
     "claude-code",
+    "claude-code-usage",
     "codex",
     "openai",
+    "openai-codex",
     "local-usage",
     "usage",
     "cost",
@@ -29,7 +31,9 @@
     "status-bar",
     "codex-usage",
     "token-usage",
-    "quota"
+    "quota",
+    "usage-tracker",
+    "token-tracker"
   ],
   "engines": {
     "vscode": "^1.74.0"
