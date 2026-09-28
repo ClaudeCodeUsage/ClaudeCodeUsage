@@ -112,6 +112,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   `toLocaleDateString` built a fresh formatter for every date it rendered. The
   formatter is now memoised per locale and options, with output identical to
   `toLocaleDateString` for every UI locale; one label went from ~31 µs to ~1 µs.
+- **Append fast path never ran on a history older than the window (#99)** —
+  every file whose events were all older than the content-analysis window got
+  fresh empty collections on each refresh, so it read as a changed payload and
+  kept the fast path off for good. Such a file now keeps its empty
+  contribution. On a 979-file history, 53 spurious payload rebases per refresh
+  became none.
 - **One-shot sharing command intent** — command-opened previews now override a
   previously saved Claude tab and presentation exactly once. A provider-local
   monotonic revision history is separate from the live intent; the Webview ACK
