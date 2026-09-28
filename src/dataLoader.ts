@@ -211,6 +211,26 @@ export function newAnalysisAcc(cutoffMs: number, captureStructuralEvents = false
   };
 }
 
+/** The content-analysis cutoff moves in whole steps rather than continuously. */
+export const ANALYSIS_CUTOFF_STEP_MS = 60 * 60 * 1000;
+
+/**
+ * Start of the content-analysis window: `windowDays` back from `nowMs`, rounded
+ * down to a whole step. Both the full loader and the incremental index use it,
+ * so they keep producing the same analysis.
+ *
+ * A millisecond-precise cutoff moves on every refresh, and every event it
+ * passes forces the incremental index to re-read that file in full — its stored
+ * aggregate still counts the expired event. A file that was busy 30 days ago at
+ * this time of day loses an event almost every refresh, so it was re-read almost
+ * every refresh (5-48 MB per tick on a live history). Stepping the cutoff pays
+ * that once per step, and the window is at most one step wider than `windowDays`.
+ */
+export function analysisWindowCutoffMs(nowMs: number, windowDays: number): number {
+  const cutoffMs = nowMs - windowDays * 24 * 60 * 60 * 1000;
+  return Math.floor(cutoffMs / ANALYSIS_CUTOFF_STEP_MS) * ANALYSIS_CUTOFF_STEP_MS;
+}
+
 const MAX_SKILL_USES = 5000;
 
 // Session-management slash commands: invoking them says nothing about what
@@ -780,7 +800,7 @@ export class ClaudeDataLoader {
     // How many days back the content analysis (and its prompt sample) looks.
     // Configurable via advice.promptWindowDays; defaults to 30.
     const windowDays = Math.min(365, Math.max(1, Math.round(options?.windowDays ?? 30)));
-    const windowMs = windowDays * 24 * 60 * 60 * 1000;
+    const analysisCutoffMs = analysisWindowCutoffMs(Date.now(), windowDays);
     const log = options?.log;
     const readParseStarted = performance.now();
     let filesDiscovered = 0;
@@ -816,7 +836,7 @@ export class ClaudeDataLoader {
       const customTitleBySession: Record<string, string> = {};
       // Content analysis (last `windowDays` days, default 30) is optional —
       // skipped when the user disables it via claudeCodeUsage.enableContentAnalysis.
-      const analysis = analyzeContent ? newAnalysisAcc(Date.now() - windowMs) : null;
+      const analysis = analyzeContent ? newAnalysisAcc(analysisCutoffMs) : null;
       // Per-refresh caches for sub-agent attribution lookups: agent type from
       // agent-*.meta.json (keyed by meta path) and workflow display name from
       // the session's workflows/scripts dir (keyed by workflow id).
@@ -1141,7 +1161,7 @@ export class ClaudeDataLoader {
         // Calibration anchors (Phase 8): exact billed token totals over the
         // analysis window (same cutoff the analyzer used), so the text-length
         // category estimates can be scaled to billing reality.
-        const calibrationCutoff = Date.now() - windowMs;
+        const calibrationCutoff = analysisCutoffMs;
         let realOutputTokens = 0;
         let realInputSideTokens = 0;
         for (const r of records) {

@@ -469,7 +469,8 @@ test('calibration follows missing request IDs, a cross-file winner, and cutoff e
     });
     assert.deepEqual(warm.contentAnalysis, warmFull.contentAnalysis);
 
-    now = Date.parse('2026-09-10T12:01:00.000Z');
+    // One cutoff step later (the analysis window moves in whole hours).
+    now = Date.parse('2026-09-10T13:01:00.000Z');
     const expired = await updateClaudeUsageIndex(warm.index, root, { windowDays: 1 });
     const expiredFull = await ClaudeDataLoader.loadUsageRecords(root, {
       analyzeContent: true,
@@ -533,6 +534,61 @@ test('a newly started session file does not rebuild the established corpus', asy
 
     assert.equal(warm.diagnostics.bodyReads, 3);
     assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('the window drifting within one cutoff step re-reads nothing', async () => {
+  const previousNow = Date.now;
+  let now = Date.parse('2026-09-10T12:05:00.000Z');
+  Date.now = () => now;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-window-step-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-window-step');
+  await mkdir(project, { recursive: true });
+  try {
+    // A session that was busy 30 days ago at this time of day: events every few
+    // minutes right at the edge of the window.
+    const boundary = path.join(project, 'session-boundary.jsonl');
+    const lines: string[] = [];
+    for (let minute = 10; minute < 60; minute += 5) {
+      lines.push(analysisTextLine(
+        `boundary-${minute}`, `edge ${minute}`, `2026-08-11T12:${String(minute).padStart(2, '0')}:00.000Z`,
+      ));
+    }
+    await writeFile(boundary, `${lines.join('\n')}\n`, 'utf8');
+    const active = path.join(project, 'session-active.jsonl');
+    await writeFile(active, `${analysisTextLine('active', 'recent', '2026-09-10T12:00:00.000Z')}\n`, 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { windowDays: 30 });
+    assert.equal(cold.index.analysisCutoffMs, Date.parse('2026-08-11T12:00:00.000Z'));
+
+    // A millisecond cutoff would now have passed most of the boundary events and
+    // re-read the file on every refresh; within the step nothing moves.
+    let previous = cold;
+    for (const time of ['12:17:00', '12:33:00', '12:59:59']) {
+      now = Date.parse(`2026-09-10T${time}.000Z`);
+      const warm = await updateClaudeUsageIndex(previous.index, root, { windowDays: 30 });
+      const full = await ClaudeDataLoader.loadUsageRecords(root, {
+        analyzeContent: true,
+        windowDays: 30,
+      });
+      assert.equal(warm.diagnostics.bodyReads, 0);
+      assert.equal(warm.index.analysisCutoffMs, cold.index.analysisCutoffMs);
+      assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+      previous = warm;
+    }
+
+    // The next step expires the whole hour at once, and still matches the full loader.
+    now = Date.parse('2026-09-10T13:00:00.000Z');
+    const stepped = await updateClaudeUsageIndex(previous.index, root, { windowDays: 30 });
+    const steppedFull = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.equal(stepped.index.analysisCutoffMs, Date.parse('2026-08-11T13:00:00.000Z'));
+    assert.deepEqual(stepped.contentAnalysis, steppedFull.contentAnalysis);
   } finally {
     Date.now = previousNow;
   }
@@ -951,7 +1007,8 @@ test('content analysis expires a completed boundary file after configured-zone m
       2,
     );
 
-    now = Date.parse('2026-09-10T16:00:30.000Z');
+    // Past configured-zone midnight and one cutoff step past the boundary event.
+    now = Date.parse('2026-09-10T17:00:30.000Z');
     const warm = await updateClaudeUsageIndex(cold.index, root, {
       analyzeContent: true,
       windowDays: 30,
@@ -1074,7 +1131,8 @@ test('content analysis ages out records later on the same configured-zone day', 
       2,
     );
 
-    now = Date.parse('2026-09-10T12:01:00.000Z');
+    // One cutoff step later (the analysis window moves in whole hours).
+    now = Date.parse('2026-09-10T13:01:00.000Z');
     const warm = await updateClaudeUsageIndex(cold.index, root, {
       analyzeContent: true,
       windowDays: 30,
@@ -1389,7 +1447,8 @@ test('per-file skill retention preserves the full loader global skill cap semant
     );
     assert.deepEqual(incremental.contentAnalysis, full.contentAnalysis);
 
-    now = Date.parse('2026-09-10T12:01:00.000Z');
+    // One cutoff step later (the analysis window moves in whole hours).
+    now = Date.parse('2026-09-10T13:01:00.000Z');
     const aged = await updateClaudeUsageIndex(incremental.index, root);
     const agedFull = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
 
