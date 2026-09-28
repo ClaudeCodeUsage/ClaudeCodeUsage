@@ -545,13 +545,25 @@ export function getModelPricing(modelName: string | undefined): ModelPricing | n
   // Family-aware fallback for unrecognised (typically newer) snapshots.
   const inferred = inferPricingByFamily(modelName);
   if (inferred) {
-    console.warn(`Unknown model: ${modelName}, using ${inferred.family} pricing as fallback`);
+    warnUnknownModelOnce(modelName, inferred.family);
     return inferred.pricing;
   }
 
   // Truly unknown model (no family keyword) — fall back to Sonnet, the most common default.
-  console.warn(`Unknown model: ${modelName}, using Sonnet pricing as fallback`);
+  warnUnknownModelOnce(modelName, 'Sonnet');
   return SONNET;
+}
+
+// Pricing is resolved per usage record, so a model missing from the table was
+// reported once for every record carrying it: ~90k console lines on one full
+// index build, and the console write cost more than the lookup. The fallback is
+// deterministic, so one line per model says everything the repeats did.
+const warnedUnknownModels = new Set<string>();
+
+function warnUnknownModelOnce(modelName: string, family: string): void {
+  if (warnedUnknownModels.has(modelName)) return;
+  warnedUnknownModels.add(modelName);
+  console.warn(`Unknown model: ${modelName}, using ${family} pricing as fallback`);
 }
 
 /**
