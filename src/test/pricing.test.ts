@@ -228,3 +228,21 @@ test('Claude Sonnet 4.5 switches between direct and Bedrock rates for the same m
     setPricingBackend('anthropic');
   }
 });
+
+test('an unknown model is reported once, not once per priced record', () => {
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => { warnings.push(args); };
+  try {
+    for (let index = 0; index < 3; index += 1) {
+      assert.ok(getModelPricing('claude-opus-99-test-once'));
+      assert.ok(getModelPricing('unlabelled-model-test-once'));
+    }
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.deepEqual(warnings, [
+    ['Unknown model: claude-opus-99-test-once, using Opus (current tier) pricing as fallback'],
+    ['Unknown model: unlabelled-model-test-once, using Sonnet pricing as fallback'],
+  ]);
+});
