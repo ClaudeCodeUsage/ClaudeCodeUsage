@@ -59,6 +59,15 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   hidden Share Card and heatmap artifacts are not rebuilt on every refresh.
   Materialized daily aggregates are reused while their input and pricing
   identity is unchanged.
+- **Content-analysis window moves in whole hours (#99)** — the window
+  (`advice.promptWindowDays`, default 30 days) used to start exactly
+  `windowDays` before now and moved on every refresh; each event it passed made
+  the incremental index re-read that transcript in full, which on a busy
+  history meant re-reading 5-48 MB almost every refresh. Its start is now
+  rounded down to the hour, shared by the full loader and the incremental
+  index, so the window may include up to one extra hour and expired events
+  leave in hourly batches. Refreshes on the same history read only the
+  appended tails (3-100 KB).
 
 ### Fixed
 - **Claude all-time drill-down cost on large histories** — month → day uses a
