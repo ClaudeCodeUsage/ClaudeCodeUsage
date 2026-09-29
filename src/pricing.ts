@@ -145,6 +145,16 @@ const SONNET: ModelPricing = {
   cache_read_input_token_cost: 0.3 / MILL,
 };
 
+// Sonnet 5.5 — verified 2026-09-30, including the separate 1h TTL rate.
+// https://platform.claude.com/docs/en/about-claude/pricing
+const SONNET_55: ModelPricing = {
+  input_cost_per_token: 2 / MILL,
+  output_cost_per_token: 10 / MILL,
+  cache_creation_input_token_cost: 2.5 / MILL,
+  cache_creation_1h_input_token_cost: 4 / MILL,
+  cache_read_input_token_cost: 0.2 / MILL,
+};
+
 // Haiku 4.5 ($1 / $5)
 const HAIKU_45: ModelPricing = {
   input_cost_per_token: 1 / MILL,
@@ -205,6 +215,15 @@ const BEDROCK_SONNET_5: ModelPricing = {
   cache_read_input_token_cost: 0.33 / MILL,
 };
 
+// Sonnet 5.5 standard prices with the documented 10% regional premium.
+const BEDROCK_SONNET_55: ModelPricing = {
+  input_cost_per_token: 2.2 / MILL,
+  output_cost_per_token: 11 / MILL,
+  cache_creation_input_token_cost: 2.75 / MILL,
+  cache_creation_1h_input_token_cost: 4.4 / MILL,
+  cache_read_input_token_cost: 0.22 / MILL,
+};
+
 const BEDROCK_HAIKU_45: ModelPricing = {
   input_cost_per_token: 1.1 / MILL,
   output_cost_per_token: 5.5 / MILL,
@@ -251,6 +270,9 @@ function getBedrockPricing(modelName: string): ModelPricing | null {
   ) {
     return BEDROCK_OPUS_5;
   }
+  if (/(?:^|-)sonnet-5-5(?:-|$)/.test(name)) {
+    return BEDROCK_SONNET_55;
+  }
   if (name.includes('claude-sonnet-5') || name.includes('sonnet-5')) {
     return BEDROCK_SONNET_5;
   }
@@ -296,6 +318,17 @@ function priced(
 // https://developers.openai.com/api/docs/models/gpt-6-astra
 const GPT_6_ASTRA = priced(10, 50, 1, 12.5);
 
+// Standard short-context prices verified 2026-09-30. Keep Sol generations
+// separate: GPT-6.1 Sol cached input is 5% of base, GPT-6 Sol is 10%.
+// https://developers.openai.com/api/docs/models/gpt-6.1-sol
+// https://developers.openai.com/api/docs/models/gpt-6-sol
+// https://developers.openai.com/api/docs/models/gpt-6-luna
+// As for Astra, aggregate data cannot prove request-level long-context,
+// Fast/Batch/Flex or regional surcharges; these are not invented here.
+const GPT_61_SOL = priced(2, 10, 0.1, 2.5);
+const GPT_6_SOL = priced(2, 10, 0.2, 2.5);
+const GPT_6_LUNA = priced(0.1, 0.5, 0.01, 0.125);
+
 // =====================================================================
 // Non-Claude reference pricing (USD per 1M tokens)
 // Last checked 2026-05. OpenAI / Gemini / DeepSeek from vendor docs; Chinese
@@ -308,6 +341,12 @@ const NON_CLAUDE_PRICING: Record<string, ModelPricing> = {
   // Common proxy-qualified spelling; the official API model id remains the
   // unprefixed `gpt-6-astra` above.
   'openai/gpt-6-astra': GPT_6_ASTRA,
+  'gpt-6.1-sol': GPT_61_SOL,
+  'openai/gpt-6.1-sol': GPT_61_SOL,
+  'gpt-6-sol': GPT_6_SOL,
+  'openai/gpt-6-sol': GPT_6_SOL,
+  'gpt-6-luna': GPT_6_LUNA,
+  'openai/gpt-6-luna': GPT_6_LUNA,
   // GPT-5.6 Codex tiers — verified 2026-08-22 against the official model
   // catalog. These exact entries are also used by the weekly API-equivalent
   // value audit; unknown Codex model labels are intentionally not inferred.
@@ -424,6 +463,10 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // any "sonnet" model to SONNET, so this is an explicit anchor for clarity.
   'claude-sonnet-5': SONNET,
 
+  // Sonnet 5.5 is a dedicated rate, not a generic Sonnet fallback.
+  'claude-sonnet-5-5': SONNET_55,
+  'anthropic/claude-sonnet-5-5': SONNET_55,
+
   // Claude Sonnet 4.6
   'claude-sonnet-4-6': SONNET,
 
@@ -451,8 +494,9 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
 // Runtime pricing overrides fetched on demand from LiteLLM's public pricing
 // dataset (see fetchLatestPricing). These take precedence over the built-in
 // table, letting users pull fresh prices without waiting for an extension update.
-const runtimePricingOverrides: Record<string, ModelPricing> = {};
+let runtimePricingOverrides: Record<string, ModelPricing> = Object.create(null);
 let lastPricingFetch: { time: number; count: number } | null = null;
+let activePricingFetch: Promise<{ updated: number }> | null = null;
 
 /**
  * Resolve pricing for an unknown model id by detecting its family.
@@ -488,12 +532,24 @@ function inferPricingByFamily(modelName: string): { pricing: ModelPricing; famil
     return { pricing: OPUS_CURRENT, family: 'Opus (current tier)' };
   }
   if (name.includes('sonnet')) {
+    if (/\bsonnet[._ -]+5[._ -]+5(?:\b|[._ -])/.test(name)) {
+      return { pricing: SONNET_55, family: 'Sonnet 5.5' };
+    }
     return { pricing: SONNET, family: 'Sonnet' };
   }
 
   // --- Other providers ---
   if (name.includes('gpt-6-astra')) {
     return { pricing: GPT_6_ASTRA, family: 'OpenAI GPT-6 Astra' };
+  }
+  if (/\bgpt-6\.1-sol(?:\b|-)/.test(name)) {
+    return { pricing: GPT_61_SOL, family: 'OpenAI GPT-6.1 Sol' };
+  }
+  if (/\bgpt-6-sol(?:\b|-)/.test(name)) {
+    return { pricing: GPT_6_SOL, family: 'OpenAI GPT-6 Sol' };
+  }
+  if (/\bgpt-6-luna(?:\b|-)/.test(name)) {
+    return { pricing: GPT_6_LUNA, family: 'OpenAI GPT-6 Luna' };
   }
   if (name.includes('gpt') || /(^|[^a-z])o[1-9]([^a-z]|$)/.test(name)) {
     return { pricing: NON_CLAUDE_PRICING['gpt-5'], family: 'OpenAI GPT' };
@@ -535,7 +591,7 @@ function inferPricingByFamily(modelName: string): { pricing: ModelPricing; famil
  * @returns Pricing information, or null if not found
  */
 export function getModelPricing(modelName: string | undefined): ModelPricing | null {
-  if (!modelName) {
+  if (typeof modelName !== 'string' || !modelName || modelName === '<unknown>') {
     return null;
   }
 
@@ -568,7 +624,7 @@ export function getModelPricing(modelName: string | undefined): ModelPricing | n
 
   // Built-in table.
   for (const variation of variations) {
-    if (MODEL_PRICING[variation]) {
+    if (Object.prototype.hasOwnProperty.call(MODEL_PRICING, variation)) {
       return MODEL_PRICING[variation];
     }
   }
@@ -625,7 +681,7 @@ function warnUnknownModelOnce(modelName: string, family: string): void {
  * historical trend is recalculated against one reviewable built-in rate table.
  */
 export function getExactModelPricing(modelName: string | undefined): ModelPricing | null {
-  if (!modelName) {
+  if (typeof modelName !== 'string' || !modelName || modelName === '<unknown>') {
     return null;
   }
   const base = modelName.replace(/\[[^\]]*\]\s*$/, '');
@@ -643,7 +699,7 @@ export function getExactModelPricing(modelName: string | undefined): ModelPricin
     `claude-${base}`,
   ];
   for (const variation of variations) {
-    if (MODEL_PRICING[variation]) {
+    if (Object.prototype.hasOwnProperty.call(MODEL_PRICING, variation)) {
       return MODEL_PRICING[variation];
     }
   }
@@ -743,6 +799,45 @@ export function getPricingLastFetched(): { time: number; count: number } | null 
 
 const LITELLM_PRICING_URL =
   'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
+const MAX_PRICING_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_PRICING_MODELS = 16_384;
+const PRICING_FETCH_DEADLINE_MS = 15_000;
+
+/** Validate and build a replacement before mutating the last good catalog. */
+function parseRuntimePricing(body: string): { prices: Record<string, ModelPricing>; count: number } {
+  const json: unknown = JSON.parse(body);
+  if (!json || typeof json !== 'object' || Array.isArray(json)) {
+    throw new Error('Invalid pricing catalog');
+  }
+  const prices: Record<string, ModelPricing> = Object.create(null);
+  const fields = [
+    'input_cost_per_token', 'output_cost_per_token',
+    'cache_creation_input_token_cost', 'cache_creation_1h_input_token_cost',
+    'cache_read_input_token_cost',
+  ] as const;
+  let entries = 0;
+  let count = 0;
+  for (const name in json) {
+    if (!Object.prototype.hasOwnProperty.call(json, name)) continue;
+    if (++entries > MAX_PRICING_MODELS) throw new Error('Pricing catalog exceeds model limit');
+    if (name.length > 256 || !/^[a-z0-9][a-z0-9._:/@+\[\]-]*$/i.test(name) ||
+        Object.prototype.hasOwnProperty.call(Object.prototype, name)) continue;
+    const raw = (json as Record<string, unknown>)[name];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const info = raw as Record<string, unknown>;
+    if (typeof info.input_cost_per_token !== 'number') continue;
+    if (fields.some(field => info[field] != null &&
+        (typeof info[field] !== 'number' || !Number.isFinite(info[field]) || (info[field] as number) < 0))) continue;
+    const pricing: ModelPricing = { input_cost_per_token: info.input_cost_per_token };
+    for (const field of fields) {
+      if (typeof info[field] === 'number') pricing[field] = info[field];
+    }
+    prices[name] = pricing;
+    count += 1;
+  }
+  if (count === 0) throw new Error('Pricing catalog has no valid models');
+  return { prices, count };
+}
 
 /**
  * Fetch the latest model prices from LiteLLM's public pricing dataset and apply
@@ -752,55 +847,84 @@ const LITELLM_PRICING_URL =
  * @returns the number of models updated
  */
 export function fetchLatestPricing(): Promise<{ updated: number }> {
+  if (activePricingFetch) return activePricingFetch;
+  const pending = loadLatestPricing().finally(() => {
+    if (activePricingFetch === pending) activePricingFetch = null;
+  });
+  activePricingFetch = pending;
+  return pending;
+}
+
+function loadLatestPricing(): Promise<{ updated: number }> {
   return new Promise((resolve, reject) => {
-    const request = https.get(LITELLM_PRICING_URL, { timeout: 15000 }, (response) => {
+    let settled = false;
+    let body = '';
+    let bytes = 0;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let request: ReturnType<typeof https.get> | undefined;
+    let activeResponse: { destroy(): void } | undefined;
+    const clearDeadline = (): void => {
+      if (deadline !== undefined) clearTimeout(deadline);
+      deadline = undefined;
+    };
+    const fail = (error: Error, destroy = false): void => {
+      if (settled) return;
+      settled = true;
+      clearDeadline();
+      body = '';
+      reject(error);
+      if (destroy) {
+        activeResponse?.destroy();
+        request?.destroy(error);
+      }
+    };
+    request = https.get(LITELLM_PRICING_URL, { timeout: PRICING_FETCH_DEADLINE_MS }, (response) => {
+      activeResponse = response;
+      if (settled) { response.destroy(); return; }
+      response.on('error', error => fail(error, true));
+      response.on('aborted', () => fail(new Error('Pricing response aborted'), true));
+      response.on('close', () => {
+        if (!settled) fail(new Error('Pricing response ended prematurely'), true);
+      });
       if (response.statusCode !== 200) {
-        response.resume();
-        reject(new Error(`HTTP ${response.statusCode}`));
+        fail(new Error(`HTTP ${response.statusCode}`), true);
         return;
       }
-
-      let body = '';
+      if (Number(response.headers['content-length']) > MAX_PRICING_RESPONSE_BYTES) {
+        fail(new Error('Pricing response exceeds size limit'), true);
+        return;
+      }
       response.setEncoding('utf8');
-      response.on('data', (chunk) => {
+      response.on('data', (chunk: string) => {
+        if (settled) return;
+        bytes += Buffer.byteLength(chunk, 'utf8');
+        if (bytes > MAX_PRICING_RESPONSE_BYTES) {
+          fail(new Error('Pricing response exceeds size limit'), true);
+          return;
+        }
         body += chunk;
       });
       response.on('end', () => {
+        if (settled) return;
         try {
-          const json = JSON.parse(body) as Record<string, unknown>;
-          let updated = 0;
-
-          for (const [name, raw] of Object.entries(json)) {
-            if (raw == null || typeof raw !== 'object') {
-              continue;
-            }
-            const info = raw as Record<string, unknown>;
-            if (typeof info.input_cost_per_token !== 'number') {
-              continue;
-            }
-            runtimePricingOverrides[name] = {
-              input_cost_per_token: info.input_cost_per_token,
-              output_cost_per_token:
-                typeof info.output_cost_per_token === 'number' ? info.output_cost_per_token : undefined,
-              cache_creation_input_token_cost:
-                typeof info.cache_creation_input_token_cost === 'number' ? info.cache_creation_input_token_cost : undefined,
-              cache_read_input_token_cost:
-                typeof info.cache_read_input_token_cost === 'number' ? info.cache_read_input_token_cost : undefined,
-            };
-            updated++;
-          }
-
+          const { prices, count: updated } = parseRuntimePricing(body);
+          runtimePricingOverrides = prices;
           lastPricingFetch = { time: Date.now(), count: updated };
+          settled = true;
+          clearDeadline();
+          body = '';
           resolve({ updated });
         } catch (error) {
-          reject(error instanceof Error ? error : new Error(String(error)));
+          fail(error instanceof Error ? error : new Error('Invalid pricing catalog'), true);
         }
       });
     });
-
     request.on('timeout', () => {
-      request.destroy(new Error('Request timed out'));
+      fail(new Error('Request timed out'), true);
     });
-    request.on('error', reject);
+    request.on('error', error => fail(error, true));
+    // A socket timeout is an idle timeout: trickling bytes can evade it.
+    deadline = setTimeout(() => fail(new Error('Request timed out'), true), PRICING_FETCH_DEADLINE_MS);
+    deadline.unref?.();
   });
 }

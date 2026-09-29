@@ -33,6 +33,15 @@ try {
       calculateCostBreakdown(usage, 'claude-opus-5-5[1m]');
     }
   });
+  measure('50k records per new Sol/Luna/Sonnet model, three pricing passes', () => {
+    for (const model of ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna', 'claude-sonnet-5-5']) {
+      for (let index = 0; index < 50_000; index += 1) {
+        calculateCostFromTokens(usage, model);
+        calculateCostBreakdown(usage, model);
+        getModelPricing(model);
+      }
+    }
+  });
   measure('50k unknown-model records, three pricing passes', () => {
     for (let index = 0; index < 50_000; index += 1) {
       calculateCostFromTokens(usage, 'claude-opus-99-performance-fixture');
