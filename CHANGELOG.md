@@ -82,8 +82,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   label without dropping their valid numeric usage. Model/tool/session object
   keys cannot mutate shared prototypes. Each aggregate bucket is copied only
   once per transaction, including model-label churn, while old snapshots stay
-  immutable. A failed provider UI synchronization cannot strand Claude's
-  refresh gate or repeatedly emit diagnostic messages.
+  immutable. Failed provider UI synchronization cannot strand either refresh
+  gate, stop Codex provider work, or repeatedly emit diagnostic messages;
+  a failed Claude new-snapshot render does not discard its verified index.
 - **Bounded background results and pricing downloads** — a slow first Codex
   file or checkpoint no longer accumulates the entire batch of later results:
   dispatch is limited to twice the worker count ahead of ordered application.

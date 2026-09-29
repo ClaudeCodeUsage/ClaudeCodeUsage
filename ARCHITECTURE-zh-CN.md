@@ -285,9 +285,10 @@ first-owner 可能变化的 UUID claimant。
 
 普通的单文件 append 会先只读已验证 tail、应用变化文件 delta，并只重校准受影响的 canonical
 response identity。聚合桶使用本次事务内的 copy-on-write 所有权，每个被触及的桶只复制一次，
-而不是每条记录或每个模型标签复制一次；已发布的快照保持不可变。Claude 刷新收尾阶段的 UI
-同步错误在整个 Extension Host 生命周期内最多报告一次，不能阻止 single-flight gate 释放或
-合并后的后续刷新。仅含数字的结构摘要按全局文件顺序保留 legacy accumulator 的
+而不是每条记录或每个模型标签复制一次；已发布的快照保持不可变。供应商 UI 同步错误在整个
+Extension Host 生命周期内最多报告一次，不能中断 Codex 供应商工作或使刷新 drain 拒绝，
+不能阻止 Claude 在新快照渲染失败后提交已经核验的索引，也不能让任一刷新 gate 永久占用。
+仅含数字的结构摘要按全局文件顺序保留 legacy accumulator 的
 `tool_use` → `tool_result` 映射和 Skill preamble 归因；warm append 只重放被触及的 tool ID。
 UUID membership 最多查询 64 个 immutable layer，并通过 direct first-owner map 判断本次 UUID
 是否可继续走增量路径，无需搜索排序更后的每个文件；偶发的 O(U) 压实替代每次 append 都重建完整

@@ -2361,6 +2361,75 @@ test('a failing provider UI cannot reject refreshes or strand the pending refres
   }
 });
 
+test('Codex refreshes keep provider work and the drain alive despite persistent UI exceptions', async () => {
+  const extension = bareExtension();
+  const diagnostics: string[] = [];
+  let refreshes = 0;
+  extension.getConfiguration = () => ({ codexEnabled: true });
+  extension.syncProviderUi = () => { throw new Error('synthetic-only renderer failure'); };
+  extension.outputChannel = { appendLine: (line: string) => diagnostics.push(line) };
+  extension.codexProvider = {
+    isAvailable: async () => true,
+    loadPersistedSnapshot: async () => null,
+    refresh: async () => { refreshes += 1; return { outcome: 'unavailable' }; },
+  };
+  await assert.doesNotReject(extension.refreshCodexData('watch'));
+  await assert.doesNotReject(extension.refreshCodexData('manual'));
+  assert.equal(refreshes, 2, 'UI errors must not prevent provider work');
+  assert.equal(extension.activeCodexRefreshes.size, 0);
+  assert.equal(extension.codexRefreshing, false);
+  assert.equal(diagnostics.filter(line => line.includes('provider-ui-sync-failed')).length, 1);
+  assert.ok(diagnostics.every(line => !line.includes('synthetic-only')));
+});
+
+test('Codex provider errors plus a failing error UI cannot create an unhandled rejection', async () => {
+  const extension = bareExtension();
+  extension.getConfiguration = () => ({ codexEnabled: true });
+  extension.syncProviderUi = () => { throw new Error('synthetic-only renderer failure'); };
+  extension.codexProvider = { isAvailable: async () => { throw new Error('synthetic-only provider failure'); } };
+  await assert.doesNotReject(extension.refreshCodexData('watch'));
+  await assert.doesNotReject(extension.refreshCodexData('manual'));
+  assert.equal(extension.activeCodexRefreshes.size, 0);
+  assert.equal(extension.codexRefreshDrain, null);
+});
+
+test('Claude commits a verified index even when rendering its new snapshot throws', async () => {
+  const extension = bareExtension();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-render-fault-'));
+  const project = path.join(root, 'projects', '-fixture');
+  const file = path.join(project, 'session.jsonl');
+  const row = (id: string) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(),
+    requestId: id, message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 1 } } });
+  const diagnostics: string[] = [];
+  extension.refreshGate = new RefreshSingleFlight();
+  extension.cache = { records: [], contentAnalysis: null, manifest: null, claudeIndex: createClaudeUsageIndex(),
+    lastUpdate: new Date(0), dataDirectory: null, usageLimits: null };
+  extension.quotaColdRetryDone = true;
+  extension.getConfiguration = () => ({ dataDirectory: root, dashboardAutoRefresh: true,
+    enableContentAnalysis: false, advicePromptWindowDays: 30, projectGroupingMode: 'flat', contextWindowOverride: 0 });
+  extension.maybeFetchUsageLimits = async () => null;
+  extension.refreshCodexData = async () => undefined;
+  extension.syncProviderUi = () => { throw new Error('synthetic-only renderer failure'); };
+  extension.statusBar = { setLoading: () => undefined, updateQuota: () => undefined,
+    updateUsageData: () => undefined, updateContext: () => undefined };
+  extension.webviewProvider = { setLoading: () => undefined, updateQuota: () => undefined,
+    updateData: () => { throw new Error('synthetic-only new-snapshot render failure'); } };
+  extension.outputChannel = { appendLine: (line: string) => diagnostics.push(line) };
+  try {
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(file, row('cold') + '\n');
+    await assert.doesNotReject(extension.refreshData(false, 'watch'));
+    assert.equal(extension.cache.records.length, 1);
+    fs.appendFileSync(file, row('tail') + '\n');
+    await assert.doesNotReject(extension.refreshData(false, 'watch'));
+    assert.equal(extension.cache.records.length, 2);
+    assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 20);
+    await assert.doesNotReject(extension.refreshData(false, 'watch'));
+    assert.match(diagnostics[diagnostics.length - 1] ?? '', /bytes=0/);
+    assert.equal(diagnostics.filter(line => line.includes('provider-ui-sync-failed')).length, 1);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('real Claude filesystem events flow through manifest, index, and dashboard refresh', {
   timeout: 15_000,
 }, async (t) => {

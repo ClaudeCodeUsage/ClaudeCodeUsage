@@ -2263,6 +2263,25 @@ export class ClaudeCodeUsageExtension {
     }
   }
 
+  private tryProviderUiUpdate(update: () => void): void {
+    try {
+      update();
+    } catch {
+      // Never forward arbitrary renderer errors or repeat a diagnostic flood.
+      // Provider/index work remains authoritative even if its view is broken.
+      if (!this.providerUiSyncFailureReported) {
+        this.providerUiSyncFailureReported = true;
+        try {
+          this.outputChannel.appendLine('refresh: provider-ui-sync-failed=1; refresh remains available');
+        } catch { /* The output channel may already have been disposed. */ }
+      }
+    }
+  }
+
+  private syncProviderUiSafely(): void {
+    this.tryProviderUiUpdate(() => this.syncProviderUi());
+  }
+
   /**
    * Build the default-off experimental evidence view from narrow, numeric
    * inputs already materialized by each provider index. Neither provider
@@ -2752,7 +2771,7 @@ export class ClaudeCodeUsageExtension {
           qualityFlags: { 'refresh-failed': 1 },
         }),
       );
-      this.syncProviderUi();
+      this.syncProviderUiSafely();
     } finally {
       this.activeCodexRefreshes.delete(operation);
     }
@@ -2799,7 +2818,7 @@ export class ClaudeCodeUsageExtension {
       this.codexRefreshing = false;
       this.codexProgress = null;
       this.codexProgressLastRenderedAt = 0;
-      this.syncProviderUi();
+      this.syncProviderUiSafely();
       return;
     }
     this.codexAvailable = await this.codexProvider.isAvailable();
@@ -2811,13 +2830,13 @@ export class ClaudeCodeUsageExtension {
       this.codexRefreshing = false;
       this.codexProgress = null;
       this.codexProgressLastRenderedAt = 0;
-      this.syncProviderUi();
+      this.syncProviderUiSafely();
       return;
     }
     this.codexRefreshing = true;
     this.codexProgress = null;
     this.codexProgressLastRenderedAt = 0;
-    this.syncProviderUi();
+    this.syncProviderUiSafely();
     const provider = this.codexProvider;
     this.codexCheckpointHydrationLastAttemptAt = Date.now();
     const persisted = await provider.loadPersistedSnapshot();
@@ -2837,7 +2856,7 @@ export class ClaudeCodeUsageExtension {
         });
         await this.saveCodexBackgroundState();
       }
-      this.syncProviderUi();
+      this.syncProviderUiSafely();
     }
     if (!persisted && this.codexBackgroundState.status === 'complete') {
       this.codexBackgroundState = createBackgroundWorkState({
@@ -2919,7 +2938,7 @@ export class ClaudeCodeUsageExtension {
     }
     // The trigger reason is visible while metadata discovery and the first
     // worker progress event are still pending.
-    this.syncProviderUi();
+    this.syncProviderUiSafely();
     try {
       if (!this.codexWorkerLease?.active) {
         ownedWorkerLease = this.resourceOwnership.register({
@@ -3076,7 +3095,7 @@ export class ClaudeCodeUsageExtension {
       this.codexRefreshing = false;
       this.codexProgress = null;
       this.codexProgressLastRenderedAt = 0;
-      if (!this.disposed) this.syncProviderUi();
+      if (!this.disposed) this.syncProviderUiSafely();
       if (
         !this.disposed &&
         continueHistoricalWork &&
@@ -4513,7 +4532,7 @@ export class ClaudeCodeUsageExtension {
         this.statusBar.updateUsageData(null, null, error);
         this.statusBar.updateContext(null);
         if (updateWebview) {
-          this.webviewProvider.updateData(null, null, null, null, [], [], [], error, dataDirectory);
+          this.tryProviderUiUpdate(() => this.webviewProvider.updateData(null, null, null, null, [], [], [], error, dataDirectory));
         }
       } else {
         const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -4545,7 +4564,7 @@ export class ClaudeCodeUsageExtension {
         this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined, calendarMonthData);
         this.statusBar.updateContext(materialized.context);
         if (updateWebview) {
-          this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime);
+          this.tryProviderUiUpdate(() => this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime));
         }
       }
 
@@ -4604,19 +4623,7 @@ export class ClaudeCodeUsageExtension {
         totalMs: performance.now() - totalStarted,
       }));
     } finally {
-      try {
-        if (!this.disposed) this.syncProviderUi();
-      } catch {
-        // A renderer/status failure must not strand the single-flight gate or
-        // create an unhandled rejection in the queued refresh. One anonymous
-        // diagnostic per lifetime also cannot become another console flood.
-        if (!this.providerUiSyncFailureReported) {
-          this.providerUiSyncFailureReported = true;
-          try {
-            this.outputChannel.appendLine('refresh: provider-ui-sync-failed=1; refresh gate released');
-          } catch { /* The output channel may already have been disposed. */ }
-        }
-      }
+      if (!this.disposed) this.syncProviderUiSafely();
       const next = this.refreshGate.complete();
       if (!this.disposed && next !== null) {
         queueMicrotask(() => void this.runRefresh(next));

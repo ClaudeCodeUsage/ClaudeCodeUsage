@@ -387,9 +387,10 @@ An ordinary single-file append first reads only the verified tail, applies the
 changed-file delta, and recalibrates only affected canonical response identities.
 Aggregate buckets use transaction-local copy-on-write ownership: each touched
 bucket is copied once, not once per record/model label. Previously published
-snapshots remain immutable. A UI synchronization error during Claude refresh
-cleanup is reported at most once per Extension Host lifetime and cannot prevent
-release of the single-flight gate or its coalesced follow-up.
+snapshots remain immutable. Provider UI synchronization failures are reported
+at most once per Extension Host lifetime. They cannot stop Codex provider work
+or reject its refresh drain, prevent Claude from committing an otherwise
+verified index after a failed new-snapshot render, or strand either refresh gate.
 Numeric-only structural summaries preserve the legacy accumulator's global
 `tool_use` → `tool_result` map and Skill-preamble attribution across file
 boundaries; warm appends replay only touched tool IDs. Duplicate UUID membership
