@@ -8,6 +8,10 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 
 ## Auf einen Blick
 
+- **Begrenzte Preisdiagnosen:** Warnungen zu unbekannten Modellen werden pro
+  Extension-Host-Lauf dedupliziert und insgesamt begrenzt ([#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122)).
+  Opus-5.5-Standard- und Cachepreise sind geprüft; abgelaufene Analysebeiträge
+  bleiben leer, ohne laufende inkrementelle Aktualisierungen zu stören.
 - **Claude Code:** geschätzte Token-Kosten und, bei gültiger Anmeldung, die
   offiziellen 5-Stunden- und Wochenquoten des aktiven Claude-Profils.
 - **Codex:** heute verarbeitete Token und die zuletzt beobachtete

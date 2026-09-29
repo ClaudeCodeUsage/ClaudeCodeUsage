@@ -116,6 +116,17 @@ const OPUS_CURRENT: ModelPricing = {
   cache_read_input_token_cost: 0.5 / MILL,
 };
 
+// Opus 5.5 — verified 2026-09-30 against the official pricing table.
+// https://platform.claude.com/docs/en/about-claude/pricing
+// Cache reads are 0.05x input, not the older Opus tier's 0.1x.
+const OPUS_55: ModelPricing = {
+  input_cost_per_token: 4 / MILL,
+  output_cost_per_token: 20 / MILL,
+  cache_creation_input_token_cost: 5 / MILL,
+  cache_creation_1h_input_token_cost: 8 / MILL,
+  cache_read_input_token_cost: 0.2 / MILL,
+};
+
 // Opus 4 / 4.1 — legacy Opus tier ($15 / $75)
 const OPUS_LEGACY: ModelPricing = {
   input_cost_per_token: 15 / MILL,
@@ -165,6 +176,16 @@ const BEDROCK_OPUS_5: ModelPricing = {
   cache_read_input_token_cost: 0.55 / MILL,
 };
 
+// Standard Opus 5.5 rates with Bedrock's documented 10% regional premium.
+// https://platform.claude.com/docs/en/about-claude/pricing#cloud-platform-pricing
+const BEDROCK_OPUS_55: ModelPricing = {
+  input_cost_per_token: 4.4 / MILL,
+  output_cost_per_token: 22 / MILL,
+  cache_creation_input_token_cost: 5.5 / MILL,
+  cache_creation_1h_input_token_cost: 8.8 / MILL,
+  cache_read_input_token_cost: 0.22 / MILL,
+};
+
 // AWS Bedrock Claude Sonnet 4.5 / 4.6 in-region, on-demand pricing.
 const BEDROCK_SONNET_45_PLUS: ModelPricing = {
   input_cost_per_token: 3.3 / MILL,
@@ -212,6 +233,9 @@ function getBedrockPricing(modelName: string): ModelPricing | null {
     .replace(/[._]/g, '-')
     .replace(/\s+/g, '-');
 
+  if (/(?:^|-)opus-5-5(?:-|$)/.test(name)) {
+    return BEDROCK_OPUS_55;
+  }
   if (name.includes('claude-opus-5') || name.includes('opus-5')) {
     return BEDROCK_OPUS_5;
   }
@@ -375,6 +399,10 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   // Claude Opus 5 — same current-Opus tier rate, verified 2026-07-28.
   'claude-opus-5': OPUS_CURRENT,
 
+  // Claude Opus 5.5 has its own lower rates; do not alias it to Opus 5.
+  'claude-opus-5-5': OPUS_55,
+  'anthropic/claude-opus-5-5': OPUS_55,
+
   // Claude Opus 4.8 / 4.7 / 4.6 — current Opus tier rate, verified 2026-06-09
   // against the official pricing page ($5 / $25 / $6.25 / $0.5 per MTok).
   'claude-opus-4-8': OPUS_CURRENT,
@@ -452,6 +480,9 @@ function inferPricingByFamily(modelName: string): { pricing: ModelPricing; famil
     return { pricing: HAIKU_45, family: 'Haiku 4.5' };
   }
   if (name.includes('opus')) {
+    if (/\bopus[._ -]+5[._ -]+5(?:\b|[._ -])/.test(name)) {
+      return { pricing: OPUS_55, family: 'Opus 5.5' };
+    }
     // Legacy Opus (4 / 4.1) is always in the exact map, so an unknown opus is
     // almost certainly a new-tier model.
     return { pricing: OPUS_CURRENT, family: 'Opus (current tier)' };
@@ -559,11 +590,29 @@ export function getModelPricing(modelName: string | undefined): ModelPricing | n
 // index build, and the console write cost more than the lookup. The fallback is
 // deterministic, so one line per model says everything the repeats did.
 const warnedUnknownModels = new Set<string>();
+const UNKNOWN_MODEL_WARNING_LIMIT = 128;
+const DIAGNOSTIC_MODEL_NAME_LIMIT = 160;
+let unknownModelWarningLimitReported = false;
 
 function warnUnknownModelOnce(modelName: string, family: string): void {
-  if (warnedUnknownModels.has(modelName)) return;
-  warnedUnknownModels.add(modelName);
-  console.warn(`Unknown model: ${modelName}, using ${family} pricing as fallback`);
+  // Accept only bounded model-shaped labels for diagnostics. Arbitrary log
+  // values, absolute paths, control characters and huge strings must not be
+  // retained by the dedup set or forwarded to the workbench renderer.
+  const diagnosticName = modelName.length <= DIAGNOSTIC_MODEL_NAME_LIMIT &&
+    /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)?$/i.test(modelName)
+    ? modelName : '[unrecognized label]';
+  if (warnedUnknownModels.has(diagnosticName)) return;
+  // No eviction or timer: rotating new names must not re-arm the warning
+  // flood. Both stored keys and total console messages have a lifetime bound.
+  if (warnedUnknownModels.size >= UNKNOWN_MODEL_WARNING_LIMIT) {
+    if (!unknownModelWarningLimitReported) {
+      unknownModelWarningLimitReported = true;
+      console.warn('Further unknown-model warnings suppressed (128-model session limit). Pricing fallbacks remain active.');
+    }
+    return;
+  }
+  warnedUnknownModels.add(diagnosticName);
+  console.warn(`Unknown model: ${diagnosticName}, using ${family} pricing as fallback`);
 }
 
 /**

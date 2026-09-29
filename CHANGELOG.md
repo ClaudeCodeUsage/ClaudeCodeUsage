@@ -61,6 +61,15 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   identity is unchanged.
 
 ### Fixed
+- **Unknown-model warning flood and Opus 5.5 pricing (#122, #120)** — pricing
+  diagnostics are emitted once per bounded model label, with a hard limit of
+  128 labels plus one suppression message per Extension Host lifetime. The
+  deduplication set cannot grow without bound; oversized or non-model labels
+  are neither retained nor echoed. This removes the per-record console/IPC
+  amplification reported by @jordanvalnet, building on @rsyuzyov's #120.
+  Opus 5.5 now has its own verified standard and cache-write/read prices,
+  including the explicit Bedrock regional backend, instead of inheriting
+  Opus 5 rates. Fallback pricing and exact-price coverage stay distinct.
 - **Claude all-time drill-down cost on large histories** — month → day uses a
   materialized configured-timezone daily aggregate built by the incremental
   index, rather than rescanning retained records when a month is opened.

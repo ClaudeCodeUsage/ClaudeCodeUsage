@@ -62,6 +62,11 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 <details open>
 <summary>Perubahan utama rilis terbaru</summary>
 
+- **Diagnostik harga dibatasi** — peringatan model tidak dikenal dideduplikasi
+  dan dibatasi per masa hidup Extension Host, mengatasi banjir peringatan
+  [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
+  Tarif standar/cache Opus 5.5 telah diverifikasi; berkas analisis yang sudah
+  kedaluwarsa mempertahankan kontribusi kosong agar penyegaran inkremental tetap ringan.
 
 - **Status Codex dan pengguliran** — metrik ringkas bawaan menampilkan token
   yang diproses hari ini, sedangkan jatah mingguan menampilkan sisanya.

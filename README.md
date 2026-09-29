@@ -185,6 +185,11 @@ real account or an installed-VSIX capture.*
 <details open>
 <summary>Current release · status bar, smooth scrolling, and one sharing workspace</summary>
 
+- **Bounded pricing diagnostics** — unknown-model warnings are deduplicated
+  and capped for each Extension Host lifetime, removing the per-record warning
+  flood reported in [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
+  Opus 5.5 uses verified standard/cache prices. Already-expired content-analysis
+  files retain their empty contribution rather than disrupting live-tail refreshes.
 
 - **Codex status and scrolling** — the default compact Token item shows today's
   processed amount; the separate weekly indicator shows remaining capacity.
@@ -749,6 +754,7 @@ is not a claim that every proposed line shipped. See
 <details>
 <summary>Issue reporters (including issue-only contributors)</summary>
 
+- [@jordanvalnet](https://github.com/jordanvalnet) — [unknown-model warning flood and Windows OOM evidence](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
 - [@dreamerhyde](https://github.com/dreamerhyde) [#1](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/1) · [@skyprawngo](https://github.com/skyprawngo) [#2](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/2) · [@tjx666](https://github.com/tjx666) [#3](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/3)
 - [@andrew-west-empromptu](https://github.com/andrew-west-empromptu) [#7](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/7) · [@faangbait](https://github.com/faangbait) [#10](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/10) · [@leisn](https://github.com/leisn) [#11](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/11) · [@dmathisen](https://github.com/dmathisen) [#13](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/13)
 - [@Rissew](https://github.com/Rissew) [#17](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/17) · [@zhaoxiao9302](https://github.com/zhaoxiao9302) [#18](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/18), [#105](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/105)

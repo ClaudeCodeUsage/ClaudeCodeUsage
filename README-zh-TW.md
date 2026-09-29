@@ -62,6 +62,9 @@
 <details open>
 <summary>目前版本的主要更新</summary>
 
+- **計價診斷防護**：未知模型警告在每次擴充功能宿主執行期間去重並限制總量，
+  修正 [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122) 的逐筆警告洪流。
+  Opus 5.5 採用核驗後的標準及快取價格；已過期的分析檔案保留空貢獻，避免打斷增量更新。
 
 - **Codex 狀態列與捲動**：預設精簡指標顯示今日已處理 Token，獨立的每週額度顯示
   剩餘比例。捲動期間面板更新會短暫延後，並設有最長等待邊界。

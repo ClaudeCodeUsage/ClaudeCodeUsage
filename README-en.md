@@ -65,6 +65,11 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 <details open>
 <summary>Current release: status bar, smoother scrolling, and one sharing workspace</summary>
 
+- **Bounded pricing diagnostics** — unknown-model warnings are deduplicated
+  and capped per Extension Host lifetime, addressing the warning flood in
+  [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
+  Opus 5.5 uses verified standard/cache prices; already-expired analysis files
+  keep their empty contribution without disrupting live-tail refreshes.
 
 - **Codex status and scrolling** — today's processed tokens are the default
   compact metric, while weekly quota shows remaining capacity. Live panel

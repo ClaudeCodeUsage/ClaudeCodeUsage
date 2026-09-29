@@ -8,6 +8,10 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
 
 ## O essencial
 
+- **Diagnósticos de preço limitados:** avisos de modelos desconhecidos são
+  deduplicados e limitados por execução do Extension Host ([#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122)).
+  Os preços padrão e de cache do Opus 5.5 foram verificados; contribuições de
+  análise já expiradas permanecem vazias sem atrapalhar a atualização incremental.
 - **Claude Code:** custos estimados a partir de tokens e, quando a conta está
   autenticada, limites oficiais de 5 horas e semanais do perfil ativo.
 - **Codex:** tokens processados hoje e saldo semanal restante da última
