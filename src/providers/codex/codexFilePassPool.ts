@@ -168,6 +168,12 @@ export class CodexFilePassPool {
     if (sequence >= active.tasks.length) {
       return;
     }
+    // Preserve file order without retaining an entire batch behind one slow
+    // file/checkpoint. Idle workers resume as the ordered apply frontier
+    // advances. In-flight + buffered + applying outcomes share this window.
+    if (sequence - active.nextApply >= this.workers.length * 2) {
+      return;
+    }
     active.nextDispatch += 1;
     slot.sequence = sequence;
     slot.worker.postMessage({
@@ -213,6 +219,7 @@ export class CodexFilePassPool {
           active.buffered.delete(active.nextApply);
           await active.onOutcome(outcome);
           active.nextApply += 1;
+          for (const slot of this.workers) this.dispatch(slot);
         }
         active.flushing = false;
         if (

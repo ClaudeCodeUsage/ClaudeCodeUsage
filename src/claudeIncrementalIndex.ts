@@ -28,6 +28,7 @@ import {
 } from './dateKeys';
 import { I18n } from './i18n';
 import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
+import { ownRecordValue, setRecordValue } from './ownRecord';
 import {
   buildProjectUsageMatrixSnapshot,
   ProjectUsageMatrixSnapshot,
@@ -188,6 +189,7 @@ interface DirtyGroups {
 }
 
 interface CopyOnWriteKeys {
+  aggregateBuckets: WeakSet<UsageData>;
   candidateMessages: Set<string>;
   candidateDirect: Set<string>;
   visibleSessions: Set<string>;
@@ -375,6 +377,7 @@ function emptyDirtyGroups(): DirtyGroups {
 
 function emptyCopyOnWriteKeys(): CopyOnWriteKeys {
   return {
+    aggregateBuckets: new WeakSet(),
     candidateMessages: new Set(),
     candidateDirect: new Set(),
     visibleSessions: new Set(),
@@ -732,7 +735,7 @@ function materializeToolBuckets(
   target.tools = {};
   for (const [name, bucket] of [...totals].sort((left, right) =>
     compare(firstByName.get(left[0])!, firstByName.get(right[0])!))) {
-    target.tools[name] = bucket;
+    setRecordValue(target.tools, name, bucket);
   }
   for (const contributors of contributorsByName.values()) {
     contributors.sort((left, right) =>
@@ -901,14 +904,14 @@ function addBucketDelta(
   after: Readonly<Record<string, { tokens: number; chars: number; count: number }>>,
 ): void {
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    const prior = before[key] ?? { tokens: 0, chars: 0, count: 0 };
-    const next = after[key] ?? { tokens: 0, chars: 0, count: 0 };
-    const current = target[key] ?? { tokens: 0, chars: 0, count: 0 };
+    const prior = ownRecordValue(before, key) ?? { tokens: 0, chars: 0, count: 0 };
+    const next = ownRecordValue(after, key) ?? { tokens: 0, chars: 0, count: 0 };
+    const current = ownRecordValue(target, key) ?? { tokens: 0, chars: 0, count: 0 };
     current.tokens += next.tokens - prior.tokens;
     current.chars += next.chars - prior.chars;
     current.count += next.count - prior.count;
     if (current.tokens === 0 && current.chars === 0 && current.count === 0) delete target[key];
-    else target[key] = current;
+    else setRecordValue(target, key, current);
   }
 }
 
@@ -918,14 +921,14 @@ function addThinkingDelta(
   after: AnalysisAcc['thinkingBySession'],
 ): void {
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    const prior = before[key] ?? { thinking: 0, assistantTotal: 0 };
-    const next = after[key] ?? { thinking: 0, assistantTotal: 0 };
-    const current = target[key] ?? { thinking: 0, assistantTotal: 0 };
+    const prior = ownRecordValue(before, key) ?? { thinking: 0, assistantTotal: 0 };
+    const next = ownRecordValue(after, key) ?? { thinking: 0, assistantTotal: 0 };
+    const current = ownRecordValue(target, key) ?? { thinking: 0, assistantTotal: 0 };
     current.thinking += next.thinking - prior.thinking;
     current.assistantTotal += next.assistantTotal - prior.assistantTotal;
     if (next.hiddenThinking) current.hiddenThinking = true;
     if (current.thinking === 0 && current.assistantTotal === 0 && !current.hiddenThinking) delete target[key];
-    else target[key] = current;
+    else setRecordValue(target, key, current);
   }
 }
 
@@ -1608,9 +1611,16 @@ function applyBucket(
   key: string | undefined,
   contribution: UsageData,
   sign: 1 | -1,
+  owned: WeakSet<UsageData>,
 ): void {
   if (!key) return;
-  const value = cloneUsageData(buckets.get(key) ?? emptyUsageData());
+  const previous = buckets.get(key);
+  // An aggregate belongs to this transaction after its first copy. Copying
+  // every model map again per record makes model-label churn quadratic; this
+  // keeps the old published snapshot immutable and copies each bucket once.
+  const value = previous && owned.has(previous) ? previous
+    : previous ? cloneUsageData(previous) : emptyUsageData();
+  owned.add(value);
   addUsageData(value, contribution, sign);
   if (usageIsZero(value)) buckets.delete(key);
   else buckets.set(key, value);
@@ -1627,16 +1637,17 @@ function applyConfiguredTimeAggregate(
   const dayHour = day && hour
     ? `${day}\0${hour}`
     : '';
-  applyBucket(index.aggregates.byDay, day, contribution, sign);
-  applyBucket(index.aggregates.byMonth, month, contribution, sign);
-  applyBucket(index.aggregates.byLocalDay, day, contribution, sign);
+  const owned = index.copyOnWrite.aggregateBuckets;
+  applyBucket(index.aggregates.byDay, day, contribution, sign, owned);
+  applyBucket(index.aggregates.byMonth, month, contribution, sign, owned);
+  applyBucket(index.aggregates.byLocalDay, day, contribution, sign, owned);
   if (day >= index.timeKeyers.hourWindowStartDay) {
-    applyBucket(index.aggregates.byLocalHour, dayHour, contribution, sign);
+    applyBucket(index.aggregates.byLocalHour, dayHour, contribution, sign, owned);
   }
   if (day >= index.timeKeyers.projectWindowStartDay) {
     const rawProject = record._projectPath || record._projectName || 'unknown';
     const project = ClaudeDataLoader.normalizePath(rawProject) || 'unknown';
-    applyBucket(index.aggregates.byProjectDay, `${project}\0${day}`, contribution, sign);
+    applyBucket(index.aggregates.byProjectDay, `${project}\0${day}`, contribution, sign, owned);
   }
 }
 
@@ -1646,10 +1657,11 @@ function applyAggregate(index: ClaudeUsageIndex, record: ClaudeUsageRecord, sign
   applyConfiguredTimeAggregate(index, record, contribution, sign);
   const project = record._projectPath || record._projectName || 'unknown';
   const branch = record._gitBranch && record._gitBranch.trim() ? record._gitBranch : '-';
-  applyBucket(index.aggregates.bySession, record._sessionId || 'unknown', contribution, sign);
-  applyBucket(index.aggregates.byProject, project.toLowerCase(), contribution, sign);
-  applyBucket(index.aggregates.byBranch, `${record._projectName || 'unknown'}\0${branch}`, contribution, sign);
-  applyBucket(index.aggregates.byWorkflow, record._workflowId, contribution, sign);
+  const owned = index.copyOnWrite.aggregateBuckets;
+  applyBucket(index.aggregates.bySession, record._sessionId || 'unknown', contribution, sign, owned);
+  applyBucket(index.aggregates.byProject, project.toLowerCase(), contribution, sign, owned);
+  applyBucket(index.aggregates.byBranch, `${record._projectName || 'unknown'}\0${branch}`, contribution, sign, owned);
+  applyBucket(index.aggregates.byWorkflow, record._workflowId, contribution, sign, owned);
 }
 
 function membershipKeys(index: ClaudeUsageIndex, record: ClaudeUsageRecord): {
@@ -2219,6 +2231,7 @@ function rollingHourlyRowsByDay(
     dayKeys.filter((day) => index.aggregates.byLocalDay.has(day)),
   );
   const buckets = new Map<string, Map<string, UsageData>>();
+  const owned = new WeakSet<UsageData>();
 
   for (const [key, data] of index.aggregates.byLocalHour) {
     const separator = key.indexOf('\0');
@@ -2255,6 +2268,7 @@ function rollingHourlyRowsByDay(
         keys.hour,
         ClaudeDataLoader.calculateUsageData([record]),
         1,
+        owned,
       );
     }
   }

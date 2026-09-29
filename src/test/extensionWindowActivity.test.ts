@@ -2327,6 +2327,40 @@ test('Claude refresh diagnostics drain the unnamed quota-watcher event count', a
   assert.equal(extension.credentialsWatcherMissingFilenameEventsSinceRefresh, 0);
 });
 
+test('a failing provider UI cannot reject refreshes or strand the pending refresh gate', async () => {
+  const extension = bareExtension();
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  let scans = 0;
+  let release!: () => void;
+  const wait = new Promise<void>(resolve => { release = resolve; });
+  extension.refreshGate = new RefreshSingleFlight();
+  extension.cache = { manifest: null, usageLimits: {} };
+  extension.getConfiguration = () => ({ dashboardAutoRefresh: false });
+  extension.maybeFetchUsageLimits = async () => ({});
+  extension.refreshCodexData = async () => undefined;
+  extension.statusBar = { updateQuota: () => undefined, updateUsageData: () => undefined, updateContext: () => undefined };
+  extension.webviewProvider.updateData = () => undefined;
+  extension.syncProviderUi = () => { throw new Error('synthetic-only UI failure'); };
+  (ClaudeDataLoader as any).findClaudeDataDirectory = async () => {
+    scans += 1;
+    if (scans === 1) await wait;
+    return null;
+  };
+  try {
+    const first = extension.refreshData(false, 'poll');
+    await extension.refreshData(false, 'watch');
+    release();
+    await assert.doesNotReject(first);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(scans, 2, 'the coalesced pending request must still run');
+    await extension.refreshData(false, 'manual');
+    assert.equal(scans, 3, 'subsequent refreshes must not remain permanently busy');
+  } finally {
+    release();
+    (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind;
+  }
+});
+
 test('real Claude filesystem events flow through manifest, index, and dashboard refresh', {
   timeout: 15_000,
 }, async (t) => {

@@ -64,6 +64,78 @@ function usageLine(
   return JSON.stringify(value);
 }
 
+test('malformed optional model labels cannot poison a complete index or retain arbitrary objects', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-bad-model-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture');
+  await mkdir(project, { recursive: true });
+  const models = [42, { privatePayload: 'synthetic-private-body'.repeat(8_000) },
+    ['claude-opus-5-5'], '__proto__', 'constructor', 'toString', 'x'.repeat(10_000)];
+  const bad = models.map((model, id) => {
+    const row = JSON.parse(usageLine(`bad-${id}`, 100, 10));
+    row.message.model = model;
+    return JSON.stringify(row);
+  });
+  const file = path.join(project, 'session.jsonl');
+  await writeFile(file, [...Array.from({ length: 500 }, (_, id) => usageLine(`good-${id}`, 100, 10)), ...bad].join('\n') + '\n');
+  const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { analyzeContent: false });
+  assert.equal(cold.diagnostics.filesFailed, 0);
+  assert.equal(cold.records.length, 500 + models.length);
+  assert.equal(cold.index.aggregates.allTime.totalInputTokens, (500 + models.length) * 100);
+  assert.equal(cold.index.aggregates.allTime.modelBreakdown['<unknown>'].inputTokens, models.length * 100);
+  assert.equal(cold.index.aggregates.allTime.modelBreakdown['<unknown>'].cost, 0, 'malformed labels have no invented price');
+  assert.equal(JSON.stringify(cold.records).includes('synthetic-private-body'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(cold.index.aggregates.allTime.modelBreakdown, '__proto__'), false);
+  const unchanged = await updateClaudeUsageIndex(cold.index, root, { analyzeContent: false });
+  assert.equal(unchanged.diagnostics.bodyReads, 0, 'bad secondary metadata must not cause a full retry');
+  await appendFile(file, usageLine('tail', 123, 12) + '\n');
+  const appended = await updateClaudeUsageIndex(unchanged.index, root, { analyzeContent: false });
+  assert.equal(appended.index.aggregates.allTime.totalInputTokens, cold.index.aggregates.allTime.totalInputTokens + 123);
+  assert.equal(cold.index.aggregates.allTime.totalInputTokens, (500 + models.length) * 100);
+  await assertMatchesFull(root, appended.records);
+});
+
+test('model-label churn copies each aggregate bucket once per transaction, not once per record', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-model-churn-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture');
+  await mkdir(project, { recursive: true });
+  const lines = Array.from({ length: 600 }, (_, id) => {
+    const row = JSON.parse(usageLine(`churn-${id}`, 10, 1));
+    row.message.model = `future-model-churn-${id}`;
+    return JSON.stringify(row);
+  });
+  const file = path.join(project, 'session.jsonl');
+  await writeFile(file, lines.join('\n') + '\n');
+  const originalEntries = Object.entries;
+  const originalWarn = console.warn;
+  let multiModelEnumerations = 0;
+  Object.entries = ((value: object) => {
+    const entries = originalEntries(value);
+    if (entries.length > 1 && entries[0][0].startsWith('future-model-churn-')) multiModelEnumerations += 1;
+    return entries;
+  }) as typeof Object.entries;
+  console.warn = () => undefined;
+  try {
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { analyzeContent: false });
+    assert.ok(multiModelEnumerations < 50, `unexpected repeated model-map copies: ${multiModelEnumerations}`);
+    assert.equal(Object.keys(cold.index.aggregates.allTime.modelBreakdown).length, 600);
+    const previous = JSON.stringify(cold.index.aggregates);
+    for (const buckets of Object.values(cold.index.aggregates)) {
+      if (buckets instanceof Map) for (const bucket of buckets.values()) deepFreeze(bucket);
+    }
+    deepFreeze(cold.index.aggregates.allTime);
+    await appendFile(file, usageLine('churn-tail', 9, 1) + '\n');
+    const appended = await updateClaudeUsageIndex(cold.index, root, { analyzeContent: false });
+    assert.equal(appended.index.aggregates.allTime.totalInputTokens, 6009);
+    assert.equal(JSON.stringify(cold.index.aggregates), previous, 'copy-on-write still preserves the old snapshot');
+    await assertMatchesFull(root, appended.records);
+  } finally {
+    Object.entries = originalEntries;
+    console.warn = originalWarn;
+  }
+});
+
 test('usage records retain numeric evidence but not assistant response bodies', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-compact-usage-'));
   roots.push(root);

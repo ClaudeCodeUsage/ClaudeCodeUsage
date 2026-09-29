@@ -421,6 +421,7 @@ export class ClaudeCodeUsageExtension {
   private codexWatchedHome: string | null = null;
   private readonly watchDebounce = this.createOwnedRefreshDebounce('claude');
   private readonly refreshGate = new RefreshSingleFlight();
+  private providerUiSyncFailureReported = false;
   private readonly codexRefreshGate = new RefreshSingleFlight();
   private codexRefreshDrain: Promise<void> | null = null;
   private codexRefreshSuspensionDepth = 0;
@@ -4603,7 +4604,19 @@ export class ClaudeCodeUsageExtension {
         totalMs: performance.now() - totalStarted,
       }));
     } finally {
-      if (!this.disposed) this.syncProviderUi();
+      try {
+        if (!this.disposed) this.syncProviderUi();
+      } catch {
+        // A renderer/status failure must not strand the single-flight gate or
+        // create an unhandled rejection in the queued refresh. One anonymous
+        // diagnostic per lifetime also cannot become another console flood.
+        if (!this.providerUiSyncFailureReported) {
+          this.providerUiSyncFailureReported = true;
+          try {
+            this.outputChannel.appendLine('refresh: provider-ui-sync-failed=1; refresh gate released');
+          } catch { /* The output channel may already have been disposed. */ }
+        }
+      }
       const next = this.refreshGate.complete();
       if (!this.disposed && next !== null) {
         queueMicrotask(() => void this.runRefresh(next));
