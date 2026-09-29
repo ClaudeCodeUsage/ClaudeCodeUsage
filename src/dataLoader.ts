@@ -824,8 +824,8 @@ export class ClaudeDataLoader {
       // sessionId → conversation title. Current Claude Code writes
       // `custom-title` (user-set) and `ai-title` (auto) lines; older versions
       // wrote `summary`. A custom title always wins over an AI one.
-      const aiTitleBySession: Record<string, string> = {};
-      const customTitleBySession: Record<string, string> = {};
+      const aiTitleBySession: Record<string, string> = Object.create(null);
+      const customTitleBySession: Record<string, string> = Object.create(null);
       // Content analysis (last `windowDays` days, default 30) is optional —
       // skipped when the user disables it via claudeCodeUsage.enableContentAnalysis.
       const analysis = analyzeContent ? newAnalysisAcc(Date.now() - windowMs) : null;
@@ -1647,7 +1647,7 @@ export class ClaudeDataLoader {
    * Walks each session in timestamp order to attach the preceding prompt; keeps
    * only the top `limit` by cost (bounded insertion, no full-array sort). */
   static getCostliestMessages(records: ClaudeUsageRecord[], limit: number = 10): CostlyMessage[] {
-    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    const bySession: Record<string, ClaudeUsageRecord[]> = Object.create(null);
     for (const r of records) {
       const sid = r._sessionId || 'unknown';
       (bySession[sid] ?? (bySession[sid] = [])).push(r);
@@ -1738,7 +1738,7 @@ export class ClaudeDataLoader {
     const warm = new Array(edges.length - 1).fill(0);
     const cold = new Array(edges.length - 1).fill(0);
 
-    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    const bySession: Record<string, ClaudeUsageRecord[]> = Object.create(null);
     for (const r of records) {
       const sid = r._sessionId || 'unknown';
       (bySession[sid] ?? (bySession[sid] = [])).push(r);
@@ -1818,7 +1818,7 @@ export class ClaudeDataLoader {
     ttlMin = 60
   ): { wastedUsd: number; switchUsd: number; idleUsd: number; switchCount: number; idleCount: number } | null {
     const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
-    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    const bySession: Record<string, ClaudeUsageRecord[]> = Object.create(null);
     for (const r of records) {
       if (new Date(r.timestamp).getTime() < cutoff) {
         continue;
@@ -1901,7 +1901,7 @@ export class ClaudeDataLoader {
       read: number; inputSide: number; total: number; turns: number;
       warm: number[]; cold: number[];
     };
-    const agg: Record<string, Stat> = {};
+    const agg: Record<string, Stat> = Object.create(null);
     const ensure = (m: string): Stat =>
       agg[m] ?? (agg[m] = {
         read: 0, inputSide: 0, total: 0, turns: 0,
@@ -1910,7 +1910,7 @@ export class ClaudeDataLoader {
       });
 
     // Volume + hit-rate aggregate, and collect per-session series for TTL.
-    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    const bySession: Record<string, ClaudeUsageRecord[]> = Object.create(null);
     for (const r of records) {
       const u = r.message.usage;
       const m = r.message.model;
@@ -2010,7 +2010,7 @@ export class ClaudeDataLoader {
     idleCapMin = 90
   ): Record<string, number> {
     const capMs = idleCapMin * 60000;
-    const bySession: Record<string, ClaudeUsageRecord[]> = {};
+    const bySession: Record<string, ClaudeUsageRecord[]> = Object.create(null);
     for (const r of records) {
       const sid = r._sessionId || 'unknown';
       (bySession[sid] ?? (bySession[sid] = [])).push(r);
@@ -2028,7 +2028,7 @@ export class ClaudeDataLoader {
           active += Math.min(gap, capMs);
         }
       }
-      out[sid] = active;
+      setRecordValue(out, sid, active);
     }
     return out;
   }
@@ -2055,7 +2055,7 @@ export class ClaudeDataLoader {
     let grossUsd = 0;
     let count = 0;
     let cacheReadSum = 0;
-    const perModel: Record<string, number> = {};
+    const perModel: Record<string, number> = Object.create(null);
     for (const r of records) {
       const u = r.message.usage;
       const m = r.message.model;
@@ -2215,7 +2215,7 @@ export class ClaudeDataLoader {
     windowDays = 30
   ): { name: string; kind: 'skill' | 'plugin'; costUsd: number; outputTokens: number; turns: number; outPerUsd: number }[] | null {
     const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
-    const agg: Record<string, { kind: 'skill' | 'plugin'; costUsd: number; outputTokens: number; turns: number }> = {};
+    const agg: Record<string, { kind: 'skill' | 'plugin'; costUsd: number; outputTokens: number; turns: number }> = Object.create(null);
     let tagged = 0;
     for (const r of records) {
       const u = r.message.usage;
@@ -2389,7 +2389,9 @@ export class ClaudeDataLoader {
    *   sessions and narrows them with client-side time / project / model filters.
    */
   static getSessionBreakdown(records: ClaudeUsageRecord[], limit: number = 1000): SessionUsage[] {
-    const recordsBySession: Record<string, ClaudeUsageRecord[]> = {};
+    // Internal grouping tables have no inherited keys. Public rows/snapshots
+    // still use their existing ordinary-object shape.
+    const recordsBySession: Record<string, ClaudeUsageRecord[]> = Object.create(null);
 
     for (const record of records) {
       const sessionId = record._sessionId || 'unknown';
@@ -2495,8 +2497,8 @@ export class ClaudeDataLoader {
    * @param limit Maximum number of runs to return (default 50)
    */
   static getWorkflowBreakdown(records: ClaudeUsageRecord[], limit: number = 50): WorkflowUsage[] {
-    const recordsByWorkflow: Record<string, ClaudeUsageRecord[]> = {};
-    const adHocAgentsBySession: Record<string, Set<string>> = {};
+    const recordsByWorkflow: Record<string, ClaudeUsageRecord[]> = Object.create(null);
+    const adHocAgentsBySession: Record<string, Set<string>> = Object.create(null);
     for (const record of records) {
       if (!record._workflowId) {
         // Generic sub-agent records become ad-hoc batches, one per session.
@@ -2533,7 +2535,7 @@ export class ClaudeDataLoader {
     };
 
     const workflows: WorkflowUsage[] = Object.entries(recordsByWorkflow).map(([workflowId, wfRecords]) => {
-      const recordsByAgent: Record<string, ClaudeUsageRecord[]> = {};
+      const recordsByAgent: Record<string, ClaudeUsageRecord[]> = Object.create(null);
       for (const r of wfRecords) {
         const agentId = r._agentId || 'unknown';
         if (!recordsByAgent[agentId]) {
@@ -2583,7 +2585,7 @@ export class ClaudeDataLoader {
     // orchestration that lives in the main session, not the agent files.
     // To avoid double-counting when two runs of the same session overlap, a
     // record is attributed only if exactly one run's window contains it.
-    const mainBySession: Record<string, ClaudeUsageRecord[]> = {};
+    const mainBySession: Record<string, ClaudeUsageRecord[]> = Object.create(null);
     for (const r of records) {
       if (r._agentId || r._workflowId || r._isUserPrompt) {
         continue;
@@ -2591,7 +2593,7 @@ export class ClaudeDataLoader {
       const sid = r._sessionId || 'unknown';
       (mainBySession[sid] ||= []).push(r);
     }
-    const windowsBySession: Record<string, { start: number; end: number }[]> = {};
+    const windowsBySession: Record<string, { start: number; end: number }[]> = Object.create(null);
     for (const wf of workflows) {
       (windowsBySession[wf.sessionId] ||= []).push({
         start: wf.startTime.getTime(),
@@ -2694,11 +2696,11 @@ export class ClaudeDataLoader {
     // this skill"); shares overlap by design. Plugins use the earliest
     // invocation among their skills, so a plugin never double-counts itself.
     type SkillStart = { key: string; ts: number; isPlugin: boolean };
-    const startsBySession: Record<string, SkillStart[]> = {};
-    const skillMeta: Record<string, { count: number; estTokens: number }> = {};
-    const pluginMeta: Record<string, { count: number; estTokens: number }> = {};
-    const skillW: Record<string, number> = {};
-    const pluginW: Record<string, number> = {};
+    const startsBySession: Record<string, SkillStart[]> = Object.create(null);
+    const skillMeta: Record<string, { count: number; estTokens: number }> = Object.create(null);
+    const pluginMeta: Record<string, { count: number; estTokens: number }> = Object.create(null);
+    const skillW: Record<string, number> = Object.create(null);
+    const pluginW: Record<string, number> = Object.create(null);
     if (analysis && analysis.skillUses.length > 0) {
       let uses = analysis.skillUses;
       if (scope.kind === 'session') {
@@ -2715,8 +2717,8 @@ export class ClaudeDataLoader {
         });
       }
       // key → session → earliest invocation ts (skills and plugins separately)
-      const skillEarliest: Record<string, Record<string, number>> = {};
-      const pluginEarliest: Record<string, Record<string, number>> = {};
+      const skillEarliest: Record<string, Record<string, number>> = Object.create(null);
+      const pluginEarliest: Record<string, Record<string, number>> = Object.create(null);
       const note = (
         key: string,
         u: SkillUse,
@@ -2729,7 +2731,7 @@ export class ClaudeDataLoader {
         meta[key].count += 1;
         meta[key].estTokens += u.estTokens;
         if (!earliest[key]) {
-          earliest[key] = {};
+          earliest[key] = Object.create(null);
         }
         const prev = earliest[key][u.sessionId];
         if (prev === undefined || u.ts < prev) {
@@ -2764,14 +2766,14 @@ export class ClaudeDataLoader {
     let totalTokens = 0;
     let largeContextW = 0;
     let workflowW = 0;
-    const bySession: Record<string, { weight: number; subagentWeight: number; hours: Set<number> }> = {};
-    const byAgentType: Record<string, { weight: number; count: number }> = {};
-    const byModel: Record<string, { weight: number; count: number }> = {};
+    const bySession: Record<string, { weight: number; subagentWeight: number; hours: Set<number> }> = Object.create(null);
+    const byAgentType: Record<string, { weight: number; count: number }> = Object.create(null);
+    const byModel: Record<string, { weight: number; count: number }> = Object.create(null);
     // Authoritative skill/plugin attribution from the log fields (Phase 7a):
     // exact cost-weight + token-sum of the lines Claude Code stamped. Preferred
     // over the <command-name> heuristic whenever any record carries the fields.
-    const skillExactW: Record<string, { weight: number; count: number; tokens: number }> = {};
-    const pluginExactW: Record<string, { weight: number; count: number; tokens: number }> = {};
+    const skillExactW: Record<string, { weight: number; count: number; tokens: number }> = Object.create(null);
+    const pluginExactW: Record<string, { weight: number; count: number; tokens: number }> = Object.create(null);
     for (const r of scoped) {
       const w = this.recordCost(r);
       if (w <= 0) {
@@ -2973,8 +2975,8 @@ export class ClaudeDataLoader {
     mode: 'git' | 'folder' | 'flat' = 'git'
   ): ProjectGroup[] {
     // 1. Group records per project, merging paths that differ only in case.
-    const recordsByKey: Record<string, ClaudeUsageRecord[]> = {};
-    const displayPathByKey: Record<string, string> = {};
+    const recordsByKey: Record<string, ClaudeUsageRecord[]> = Object.create(null);
+    const displayPathByKey: Record<string, string> = Object.create(null);
 
     for (const record of records) {
       const rawPath = record._projectPath || record._projectName || 'unknown';
@@ -2999,7 +3001,7 @@ export class ClaudeDataLoader {
     const groups: Record<
       string,
       { records: ClaudeUsageRecord[]; children: ProjectUsage[]; displayPath: string; isGitRepo: boolean }
-    > = {};
+    > = Object.create(null);
     const gitCache = new Map<string, string | null>();
 
     keys.forEach((key, idx) => {

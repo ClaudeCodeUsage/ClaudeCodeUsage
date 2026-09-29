@@ -3,13 +3,14 @@ import * as assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile, appendFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { analyzeLine, finalizeAnalysis, mergeAnalysisAcc, newAnalysisAcc } from '../dataLoader';
+import { analyzeLine, ClaudeDataLoader, finalizeAnalysis, mergeAnalysisAcc, newAnalysisAcc } from '../dataLoader';
 import { createClaudeUsageIndex, updateClaudeUsageIndex } from '../claudeIncrementalIndex';
+import { ClaudeUsageRecord } from '../types';
 
 const timestamp = new Date().toISOString();
 const keys = ['__proto__', 'constructor', 'toString'];
 function prototypeSnapshots(): Map<object, PropertyDescriptorMap> {
-  return new Map([Object.prototype, Object, Object.prototype.toString]
+  return new Map([Object.prototype, Object, Object.prototype.toString, Object.prototype.valueOf]
     .map(value => [value, Object.getOwnPropertyDescriptors(value)]));
 }
 function restoreSyntheticPollution(before: Map<object, PropertyDescriptorMap>): void {
@@ -50,6 +51,76 @@ test('analysis tool/session keys cannot read or mutate Object.prototype', () => 
     // this failing regression cannot poison unrelated tests in the same realm.
     restoreSyntheticPollution(before);
   }
+});
+
+function usageRow(id: string): object {
+  return { type: 'assistant', timestamp, requestId: `request-${id}`, message: {
+    id: `message-${id}`, model: 'claude-opus-5-5',
+    usage: { input_tokens: 100_000, output_tokens: 100, cache_read_input_tokens: 50_000 },
+  } };
+}
+
+test('prototype-named session files with actual usage survive cold, unchanged and appended indexing', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-session-own-keys-'));
+  const project = path.join(root, 'projects', '-fixture');
+  try {
+    await mkdir(project, { recursive: true });
+    for (const key of [...keys, 'valueOf']) {
+      await writeFile(path.join(project, `${key}.jsonl`), JSON.stringify(usageRow(`cold-${key}`)) + '\n');
+    }
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { analyzeContent: true });
+    assert.equal(cold.records.length, 4);
+    assert.deepEqual([...cold.index.sessionRows.keys()].sort(), [...keys, 'valueOf'].sort());
+    const unchanged = await updateClaudeUsageIndex(cold.index, root, { analyzeContent: true });
+    assert.equal(unchanged.diagnostics.bytesRead, 0);
+    await appendFile(path.join(project, '__proto__.jsonl'), JSON.stringify(usageRow('tail')) + '\n');
+    const warm = await updateClaudeUsageIndex(unchanged.index, root, { analyzeContent: true });
+    assert.equal(warm.records.length, 5);
+    assert.equal(warm.index.aggregates.allTime.totalInputTokens, 500_000);
+    assert.equal(cold.index.aggregates.allTime.totalInputTokens, 400_000);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('render-time session, workflow, skill, plugin and project grouping cannot mutate prototypes', () => {
+  const before = prototypeSnapshots();
+  try {
+    const records: ClaudeUsageRecord[] = [...keys, 'valueOf'].map((key, index) => ({
+      ...usageRow(`render-${index}`) as ClaudeUsageRecord,
+      _sessionId: key, _skill: key, _plugin: key, _agentId: key, _agentType: key,
+      _workflowId: key, _projectPath: key, _projectName: key,
+    }));
+    const attribution = ClaudeDataLoader.getUsageAttribution(records, null, { kind: 'day' });
+    assert.deepEqual(attribution.skills.map(row => row.key).sort(), [...keys, 'valueOf'].sort());
+    assert.deepEqual(attribution.plugins.map(row => row.key).sort(), [...keys, 'valueOf'].sort());
+    assert.deepEqual(attribution.subagents.map(row => row.key).sort(), [...keys, 'valueOf'].sort());
+    assert.equal(ClaudeDataLoader.getSessionBreakdown(records).length, 4);
+    assert.equal(ClaudeDataLoader.getWorkflowBreakdown(records).length, 4);
+    assert.equal(ClaudeDataLoader.getCostliestMessages(records).length, 4);
+    assert.doesNotThrow(() => ClaudeDataLoader.cacheStatsByModel(records));
+    assert.doesNotThrow(() => ClaudeDataLoader.estimateCacheChurnCost(records));
+    assert.doesNotThrow(() => ClaudeDataLoader.getProjectBreakdown(records, 60, 'flat'));
+    const durations = ClaudeDataLoader.activeDurationBySession(records);
+    assert.equal(Object.getPrototypeOf(durations), Object.prototype);
+    for (const key of [...keys, 'valueOf']) assert.ok(Object.prototype.hasOwnProperty.call(durations, key));
+    for (const [value, descriptors] of before) assert.deepEqual(Object.getOwnPropertyDescriptors(value), descriptors);
+  } finally { restoreSyntheticPollution(before); }
+});
+
+test('heuristic skill activation keeps prototype-named skill and session keys distinct', () => {
+  const before = prototypeSnapshots();
+  try {
+    const records = [...keys, 'valueOf'].map(key => ({
+      ...usageRow(`heuristic-${key}`) as ClaudeUsageRecord, _sessionId: key,
+    }));
+    const analysis = finalizeAnalysis(newAnalysisAcc(0));
+    analysis.skillUses = [...keys, 'valueOf'].map(key => ({
+      name: key, sessionId: key, day: '', ts: Date.parse(timestamp) - 1000, estTokens: 100,
+    }));
+    const result = ClaudeDataLoader.getUsageAttribution(records, analysis, { kind: 'day' });
+    assert.equal(result.skills.length, 4);
+    assert.ok(result.skills.every(skill => skill.count === 1 && skill.share > 0));
+    for (const [value, descriptors] of before) assert.deepEqual(Object.getOwnPropertyDescriptors(value), descriptors);
+  } finally { restoreSyntheticPollution(before); }
 });
 
 test('prototype-named tool buckets survive cold materialization and a warm append', async () => {
