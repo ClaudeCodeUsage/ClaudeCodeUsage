@@ -188,9 +188,15 @@ real account or an installed-VSIX capture.*
 - **Bounded pricing diagnostics** — unknown-model warnings are deduplicated
   and capped for each Extension Host lifetime, removing the per-record warning
   flood reported in [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
-  Opus 5.5 uses verified standard/cache prices. Already-expired content-analysis
+  Already-expired content-analysis
   files retain their empty contribution rather than disrupting live-tail refreshes.
-
+- **Current model prices** — dedicated Standard/cache rates for Opus 5.5,
+  Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna. Unknown Codex IDs remain
+  unpriced; family fallback estimates are not promoted to exact-price coverage.
+- **Defensive refreshes** — malformed model metadata no longer aborts a whole
+  index. Unsafe object keys cannot mutate shared prototypes; aggregate buckets
+  are copied once per update, worker results have a bounded apply window, and
+  manual price refreshes have byte, catalog-size, concurrency and time limits.
 - **Codex status and scrolling** — the default compact Token item shows today's
   processed amount; the separate weekly indicator shows remaining capacity.
   Live panel updates wait briefly for scrolling to pause, with a bounded delay.

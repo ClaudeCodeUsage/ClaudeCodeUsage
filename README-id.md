@@ -65,9 +65,12 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - **Diagnostik harga dibatasi** — peringatan model tidak dikenal dideduplikasi
   dan dibatasi per masa hidup Extension Host, mengatasi banjir peringatan
   [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
-  Tarif standar/cache Opus 5.5 telah diverifikasi; berkas analisis yang sudah
+  Berkas analisis yang sudah
   kedaluwarsa mempertahankan kontribusi kosong agar penyegaran inkremental tetap ringan.
-
+- **Model baru dan pembaruan aman** — tarif standar/cache tersendiri untuk Opus 5.5,
+  Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol, dan GPT-6 Luna. Metadata model yang tidak valid
+  tidak menggagalkan seluruh indeks; agregat disalin sekali per pembaruan. Hasil latar
+  belakang dan pembaruan harga dibatasi kapasitasnya. ID Codex tak dikenal tetap tanpa harga.
 - **Status Codex dan pengguliran** — metrik ringkas bawaan menampilkan token
   yang diproses hari ini, sedangkan jatah mingguan menampilkan sisanya.
   Pembaruan panel ditunda sebentar saat menggulir, dengan batas waktu tunggu.

@@ -69,7 +69,29 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   amplification reported by @jordanvalnet, building on @rsyuzyov's #120.
   Opus 5.5 now has its own verified standard and cache-write/read prices,
   including the explicit Bedrock regional backend, instead of inheriting
-  Opus 5 rates. Fallback pricing and exact-price coverage stay distinct.
+  Opus 5 rates. Codex and weekly-value exact-price coverage still exclude
+  family/default fallback rates; Claude's main cost retains its existing
+  estimated fallback behavior.
+- **Current exact model prices** — GPT-6.1 Sol, GPT-6 Sol, GPT-6 Luna, and
+  Sonnet 5.5 now use dedicated, officially verified Standard/cache rates.
+  Sol generations retain their distinct cache-read rates; Sonnet 5.5 retains
+  its separate 1-hour cache-write price and explicit Bedrock regional premium.
+  Unknown dated labels do not acquire fabricated exact-price coverage.
+- **Malformed metadata and related refresh hazards** — non-string, oversized,
+  control-character, and prototype-named model labels become a fixed unpriced
+  label without dropping their valid numeric usage. Model/tool/session object
+  keys cannot mutate shared prototypes. Each aggregate bucket is copied only
+  once per transaction, including model-label churn, while old snapshots stay
+  immutable. A failed provider UI synchronization cannot strand Claude's
+  refresh gate or repeatedly emit diagnostic messages.
+- **Bounded background results and pricing downloads** — a slow first Codex
+  file or checkpoint no longer accumulates the entire batch of later results:
+  dispatch is limited to twice the worker count ahead of ordered application.
+  Manual price refreshes share one request, have a 16 MiB response cap,
+  16,384-entry catalog cap and 15-second absolute deadline, and replace the
+  runtime catalog atomically only after validation. Failed downloads preserve
+  the previous catalog. The compatibility loader reports anonymous counts
+  instead of per-line/file console errors or arbitrary diagnostic labels.
 - **Claude all-time drill-down cost on large histories** — month → day uses a
   materialized configured-timezone daily aggregate built by the incremental
   index, rather than rescanning retained records when a month is opened.

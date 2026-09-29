@@ -10,8 +10,13 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 
 - **Begrenzte Preisdiagnosen:** Warnungen zu unbekannten Modellen werden pro
   Extension-Host-Lauf dedupliziert und insgesamt begrenzt ([#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122)).
-  Opus-5.5-Standard- und Cachepreise sind geprüft; abgelaufene Analysebeiträge
+  Abgelaufene Analysebeiträge
   bleiben leer, ohne laufende inkrementelle Aktualisierungen zu stören.
+- **Neue Modelle und sichere Aktualisierung:** eigene Standard-/Cachepreise für
+  Opus 5.5, Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol und GPT-6 Luna. Ungültige Modellfelder
+  blockieren nicht den gesamten Index; Aggregate werden nur einmal pro Aktualisierung
+  kopiert. Hintergrundresultate und Preisabrufe sind begrenzt. Unbekannte Codex-IDs
+  bleiben ohne geschätzten Preis.
 - **Claude Code:** geschätzte Token-Kosten und, bei gültiger Anmeldung, die
   offiziellen 5-Stunden- und Wochenquoten des aktiven Claude-Profils.
 - **Codex:** heute verarbeitete Token und die zuletzt beobachtete

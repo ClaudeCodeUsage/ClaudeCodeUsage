@@ -10,8 +10,12 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
 
 - **Diagnósticos de preço limitados:** avisos de modelos desconhecidos são
   deduplicados e limitados por execução do Extension Host ([#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122)).
-  Os preços padrão e de cache do Opus 5.5 foram verificados; contribuições de
+  Contribuições de
   análise já expiradas permanecem vazias sem atrapalhar a atualização incremental.
+- **Novos modelos e atualização segura:** preços padrão/cache próprios para Opus 5.5,
+  Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol e GPT-6 Luna. Campos de modelo inválidos não
+  interrompem todo o índice; agregados são copiados uma vez por atualização. Resultados
+  em segundo plano e consultas de preços têm limites. IDs Codex desconhecidos ficam sem preço.
 - **Claude Code:** custos estimados a partir de tokens e, quando a conta está
   autenticada, limites oficiais de 5 horas e semanais do perfil ativo.
 - **Codex:** tokens processados hoje e saldo semanal restante da última

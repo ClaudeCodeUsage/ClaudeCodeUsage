@@ -182,8 +182,34 @@ previously unknown model-shaped label can produce one warning, with at most 128
 retained labels (160 characters each) and one suppression summary. Malformed,
 oversized, or path-shaped labels share an anonymous placeholder. Refreshes and
 label churn never reset the budget; fallback pricing remains active after the
-budget is exhausted. Recognized Opus 5.5 aliases use their own verified rates
-without producing unknown-model warnings.
+budget is exhausted. Recognized Opus 5.5, Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol,
+and GPT-6 Luna aliases use their own verified Standard/cache rates without
+producing unknown-model warnings. Sol generations have different cache-read
+rates. Aggregate data does not establish request-specific Fast/Batch/Flex,
+long-context or regional OpenAI surcharges, so none is invented. Exact-price
+coverage for Codex/weekly value excludes family/default fallback rates; Claude's
+main cost retains its existing estimated fallback behavior, not a coverage flag.
+
+Malformed model metadata (non-string, oversized, control-character or
+prototype-named labels) is normalized to `<unknown>` before retention. Its
+numeric usage remains counted and its price is zero/unattributed. Missing/null
+model fields retain the existing skip behavior. Optional arbitrary objects
+are not coerced to strings. Tool/session analysis maps use own-property reads
+and setter-free own-property writes, preserving normal snapshot object shapes
+without modifying shared prototypes. Internal render-time session, workflow,
+project and attribution grouping tables have no inherited keys; public rows and
+snapshots retain their ordinary-object shape. The compatibility full loader emits
+anonymous summaries, not per-line/file console errors, and retains at most 12
+bounded model names for optional diagnostic detail.
+
+Manual runtime-price refreshes are single-flight. The HTTPS response is capped
+at 16 MiB and 16,384 catalog entries with a 15-second absolute deadline as well
+as an idle timeout. Valid finite non-negative fields build a fresh prototype-safe
+catalog, atomically replacing the prior one only on success. Failures preserve
+the previous catalog and fetched-time metadata; repeated refreshes do not retain
+stale model IDs. Future model additions must verify official exact IDs/rates,
+include repeated-pass diagnostic and cache/output reconciliation regressions,
+and never promote family inference into exact coverage.
 
 Codex uses these rules:
 
@@ -359,6 +385,11 @@ zone.
 
 An ordinary single-file append first reads only the verified tail, applies the
 changed-file delta, and recalibrates only affected canonical response identities.
+Aggregate buckets use transaction-local copy-on-write ownership: each touched
+bucket is copied once, not once per record/model label. Previously published
+snapshots remain immutable. A UI synchronization error during Claude refresh
+cleanup is reported at most once per Extension Host lifetime and cannot prevent
+release of the single-flight gate or its coalesced follow-up.
 Numeric-only structural summaries preserve the legacy accumulator's global
 `tool_use` → `tool_result` map and Skill-preamble attribution across file
 boundaries; warm appends replay only touched tool IDs. Duplicate UUID membership
@@ -404,6 +435,10 @@ Codex history is designed for multi-gigabyte local corpora:
   backfill uses up to half of the available logical CPUs, capped at six local
   file-pass workers, while completed indexes return to the single low-power
   coordinator path;
+- the ordered file-pass apply frontier admits at most twice the worker count
+  of in-flight, buffered and applying results together (at most 12 for six
+  workers). A slow file/checkpoint backpressures idle workers instead of
+  retaining the entire batch; ordering, cancellation and resume stay intact;
 - unchanged warm refresh reads no JSONL body;
 - a first non-empty index or incomplete legacy migration gets one bounded
   16,384 file passes / 64 GiB streaming ceiling; this is not an up-front memory
