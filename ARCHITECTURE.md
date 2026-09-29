@@ -177,6 +177,14 @@ Claude records carry Anthropic's four token buckets. The extension validates,
 deduplicates, sums, and prices them by model. Claude cost remains an estimate
 from the configured rate table; it is not an invoice.
 
+Pricing diagnostics are bounded for the entire Extension Host lifetime. A
+previously unknown model-shaped label can produce one warning, with at most 128
+retained labels (160 characters each) and one suppression summary. Malformed,
+oversized, or path-shaped labels share an anonymous placeholder. Refreshes and
+label churn never reset the budget; fallback pricing remains active after the
+budget is exhausted. Recognized Opus 5.5 aliases use their own verified rates
+without producing unknown-model warnings.
+
 Codex uses these rules:
 
 - processed = `input total + output total`

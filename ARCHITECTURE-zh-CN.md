@@ -141,6 +141,12 @@ client action，Webview 验证八个 allowlist localStorage key 均已删除；�
 Claude record 带 Anthropic 的四个 token bucket。扩展对其校验、去重、求和并按模型计价。
 Claude 成本仍是根据费率表的估算，不是发票。
 
+计价诊断在整个 Extension Host 生命周期内保持有界。每个此前未知、符合模型名称格式的
+标签最多提示一次；最多保留 128 个标签，每个不超过 160 个字符，另有一条停止提示的摘要。
+格式异常、过长或呈路径形式的标签共用匿名占位符。刷新与标签轮换不会重置这一上限；
+提示达到上限后，回退计价仍然有效。已识别的 Opus 5.5 别名使用独立核验的费率，
+不产生未知模型提示。
+
 Codex 使用以下规则：
 
 - processed = `input total + output total`
