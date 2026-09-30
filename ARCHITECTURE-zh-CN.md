@@ -121,6 +121,20 @@ Extension Host。Compare 显示的更新时间绑定到稳定的已渲染数据 
 并以 500 ms 为最长等待边界；只应用并确认最新修订。队列只驻留内存，既不重读
 源日志，也不逐帧持久化滚动位置。
 
+`dashboardAutoRefresh` 只控制两家供应商的页面交付，不停止后台收集和状态栏。
+启动时可以交付一次已验证快照；手动、设置和价格更新仍是显式交付入口。暂停期间
+来源修订仍会撤销过期 AI 请求。刷新失败保留已验证页面，仅发送合并后的简短失败及
+最后成功时间提示。主日志、周期迁移、小时回填显示各自实际计数和持久的等待重试状态，
+不把主日志的 100% 冒充整体完成。
+
+数据面板 HTML 按供应商／页签最多保存一份；Claude 每周用量输入另用单条缓存，
+避免反复遍历未变化记录。数据、设置、价格、语言、币种、主题、自然日及额度到期边界
+使缓存失效；今日按分钟过期，隐藏历史按小时过期。释放或替换数据来源会释放旧引用。
+Codex 只在同一解析后的数据目录内保留失败前统计；切换目录会清空旧视图、建议、成功
+时间及状态栏缓存，新供应商验证前不采用共享旧检查点。异步返回后核对供应商及配置
+代次，已退休任务不能改写新任务。未变化的完整呈现契约保留视图和建议的对象身份；
+已完成的稳定轮询不制造回填进度，也不因切换 loading 状态重复渲染隐藏面板。
+
 分享工作台只渲染一次：两个 provider 都有数据时位于「对比」，否则作为 Claude「所有」的
 回退入口。`enableShareCard` 是唯一可见的分享开关。公共命令 ID `exportShareCard`、
 `exportHeatmap` 与 `publishHeatmapToGitHub` 至少保留一个版本并打开对应呈现方式，不绕过预览。
@@ -206,6 +220,12 @@ host 保管 Prepared 对象和 API key；webview 只拿到预览与不透明 han
 发给用户配置的 BYOK endpoint。Feedback、comparable pair 与 comparison envelope 全部保持本地，
 不接受 prompt、response、path、session、title、endpoint 或 credential 字段。
 
+预览同时显示解析后的 HTTP(S) 目标地址、API 格式和模型。规范化可以追加协议路径，
+但不更换配置的主机或代理前缀；不匹配的直接供应商协议拒绝发送。URL 中的凭据、查询
+参数和片段在预览前拒绝，避免泄密。私有 WeakMap 完整性快照绑定全部目标元数据和
+原始请求字节对象，重新计算公开 hash 不能授权改换目标。恢复普通默认设置保留
+SecretStorage 中的密钥；删除密钥只能走另行确认的清除入口。
+
 Advice 同意变更会立即作废 Prepared handle。host 的 pending-write 计数器在全部排队同意
 写入结束前阻止新预览与发送；持久化失败保持关闭。聚合或提示授权撤回还会通过既有 network
 owner 取消在途建议请求，与仅含用户草稿的 Optimizer 请求隔离。取消不能追回已传出的字节。
@@ -216,7 +236,12 @@ watcher/coalescing 计数，以及操作系统未提供 filename 的 quota watch
 diagnostics 还会记录实际 refresh trigger、watcher/debounce 计数、历史 backfill 模式与
 foreground/background worker profile；通用失败路径无法确认模式时明确记为 `unknown`，不作猜测。
 
-分享预览只消费已经物化的聚合。综合活动仅在明确的活动可视化中把 Claude processed 与
+分享预览只消费已经物化的聚合。分享卡在供应商生命周期内仅保留一份不可变 SVG、
+不透明预览 ID 和允许字段配置摘要；修改控件后须重新接受预览，过期回复不能接受新的
+草稿。导出在异步保存对话框之前捕获已确认 SVG，不重新计算不同内容，不保留产物
+历史，也不额外联网或重读源日志。
+
+综合活动仅在明确的活动可视化中把 Claude processed 与
 Codex processed 相加；Codex cached input 与 reasoning 子集不会重复计入，也不声称成本、额度、
 能力或生产率等价。Claude 分享卡与 Claude 热力图仍只属于 Claude。本地预览/导出不联网；
 也不存在 GitHub authentication、profile、头像或名称查询。Claude 热力图发布是独立的显式动作，
