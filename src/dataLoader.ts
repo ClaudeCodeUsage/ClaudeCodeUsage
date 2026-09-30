@@ -211,24 +211,15 @@ export function newAnalysisAcc(cutoffMs: number, captureStructuralEvents = false
   };
 }
 
-/** The content-analysis cutoff moves in whole steps rather than continuously. */
-export const ANALYSIS_CUTOFF_STEP_MS = 60 * 60 * 1000;
-
 /**
- * Start of the content-analysis window: `windowDays` back from `nowMs`, rounded
- * down to a whole step. Both the full loader and the incremental index use it,
- * so they keep producing the same analysis.
- *
- * A millisecond-precise cutoff moves on every refresh, and every event it
- * passes forces the incremental index to re-read that file in full — its stored
- * aggregate still counts the expired event. A file that was busy 30 days ago at
- * this time of day loses an event almost every refresh, so it was re-read almost
- * every refresh (5-48 MB per tick on a live history). Stepping the cutoff pays
- * that once per step, and the window is at most one step wider than `windowDays`.
+ * Exact rolling content-analysis cutoff shared by the full loader and the
+ * incremental index. Keep millisecond precision: rounding could retain expired
+ * content, prompt samples and calibration contributions. The full loader also
+ * reuses this single captured cutoff for analysis and calibration, so a clock
+ * advance during parsing cannot give them different windows.
  */
 export function analysisWindowCutoffMs(nowMs: number, windowDays: number): number {
-  const cutoffMs = nowMs - windowDays * 24 * 60 * 60 * 1000;
-  return Math.floor(cutoffMs / ANALYSIS_CUTOFF_STEP_MS) * ANALYSIS_CUTOFF_STEP_MS;
+  return nowMs - windowDays * 24 * 60 * 60 * 1000;
 }
 
 const MAX_SKILL_USES = 5000;

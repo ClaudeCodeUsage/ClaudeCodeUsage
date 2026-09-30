@@ -2450,9 +2450,9 @@ export async function updateClaudeUsageIndex(
   const nowMs = Date.now();
   const analysisAsOfDay = dayKeyInZone(new Date(nowMs), configuredTimeZone);
   const previousAnalysisRuntime = analysisRuntimeByIndex.get(previous);
-  // The same stepped cutoff as ClaudeDataLoader; timestamp frontiers below
-  // avoid reparsing when moving the cutoff cannot yet change any materialized
-  // contribution.
+  // Share ClaudeDataLoader's exact rolling cutoff. Timestamp frontiers below
+  // avoid reparsing between actual expiries without rounding or widening the
+  // established content-analysis window.
   const analysisCutoffMs = analysisWindowCutoffMs(nowMs, windowDays);
   const manifest = options.manifest ?? await scanUsageManifest([root]);
   const currentEntries = [...manifest.entries.values()];
