@@ -8,6 +8,14 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
 
 ## O essencial
 
+- **Atualização e recuperação mais claras:** a pausa vale para as duas páginas,
+  não para a coleta em segundo plano nem a barra de status. Falhas mantêm dados
+  verificados; preenchimento de histórico e espera de nova tentativa são separados.
+  Painéis ocultos sem mudanças reutilizam caches limitados.
+- **Prévias exatas e configurações seguras:** destino, formato e modelo de IA ficam
+  visíveis, sem trocar de provedor silenciosamente. Share Cards exportam o SVG aprovado;
+  controles alterados exigem nova prévia. Restaurar padrões preserva a chave de API,
+  e o diretório Codex pode ser corrigido nas duas páginas de configurações.
 - **Diagnósticos de preço limitados:** avisos de modelos desconhecidos são
   deduplicados e limitados por execução do Extension Host ([#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122)).
   Contribuições de

@@ -61,6 +61,41 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   identity is unchanged.
 
 ### Fixed
+- **AI destination mismatch** — the initial DeepSeek configuration now selects
+  its matching OpenAI-compatible format. Request normalization preserves the
+  configured host and proxy prefix, rejects protocol conflicts and secret-bearing
+  URLs, and supports DeepSeek's explicit Anthropic-compatible prefix. Previews
+  disclose endpoint, format and model alongside canonical bytes; private integrity
+  seals bind destination metadata to the exact prepared request.
+- **Share Card preview/export mismatch** — editing range, theme, number format
+  or visible sections disables export until a matching preview is accepted.
+  Stale preview replies cannot enable a newer draft. Export writes that immutable
+  SVG rather than recalculating a different artifact when opening the save dialog.
+- **Auto-refresh pause across providers** — both Claude and Codex pages respect
+  the switch while indexing and status items continue. Manual/settings updates
+  remain available. Source revisions still invalidate stale advice handles while
+  paused; privacy revocation is never gated by presentation pause.
+- **Misleading indexing completion** — primary logs, period migration and hourly
+  history use their own counters; cooldown, no-progress and user-pause states
+  show recovery/wait text rather than treating primary 100% as full completion.
+- **Warm refresh failures without feedback** — verified data remains displayed
+  with a coalesced, anonymous inline failure/last-success indicator. Retry success
+  clears it without replacing charts, scroll or focus merely to report status.
+  Codex retains same-directory snapshots through temporary unavailability, but
+  clears old data on a directory change. Retired asynchronous callbacks cannot
+  mutate the replacement provider's state.
+- **Repeated hidden-panel work** — unchanged panel HTML and Claude weekly usage
+  inputs have provider-lifetime bounded caches. Data, configuration, prices,
+  locale, configured calendar day and quota-reset boundaries invalidate them;
+  Today's relative reset text expires by minute without recalculating history.
+  Complete, unchanged Codex polls retain the verified view and insight revisions
+  instead of generating false backfill progress and invalidating hidden panels.
+- **API key removed by ordinary defaults reset** — the dashboard and host exclude
+  secret keys from that action. The separately confirmed clear-key command remains
+  the explicit deletion route.
+- **Codex directory recovery hidden after fallback** — its existing directory
+  field is available on both providers' settings pages, including when Codex is
+  unavailable and the dashboard falls back to Claude. No additional setting is added.
 - **Unknown-model warning flood and Opus 5.5 pricing (#122, #120)** — pricing
   diagnostics are emitted once per bounded model label, with a hard limit of
   128 labels plus one suppression message per Extension Host lifetime. The

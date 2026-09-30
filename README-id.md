@@ -62,6 +62,14 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 <details open>
 <summary>Perubahan utama rilis terbaru</summary>
 
+- **Penyegaran dan pemulihan lebih jelas** — jeda otomatis berlaku pada kedua
+  halaman, bukan pengumpulan latar atau status bar. Kegagalan mempertahankan
+  data terverifikasi; pengisian riwayat dan tunggu ulang dibedakan. Panel tersembunyi
+  yang tidak berubah memakai cache terbatas.
+- **Pratinjau tepat dan pengaturan aman** — tujuan, format, dan model AI terlihat
+  tanpa berpindah penyedia diam-diam. Share Card mengekspor SVG yang disetujui;
+  perubahan kontrol perlu pratinjau baru. Reset biasa mempertahankan API key,
+  dan direktori Codex dapat diperbaiki di kedua halaman pengaturan.
 - **Diagnostik harga dibatasi** — peringatan model tidak dikenal dideduplikasi
   dan dibatasi per masa hidup Extension Host, mengatasi banjir peringatan
   [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).

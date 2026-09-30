@@ -8,6 +8,14 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 
 ## Auf einen Blick
 
+- **Ruhigere Aktualisierung und klare Wiederherstellung:** Die Pause gilt für beide
+  Seiten, nicht für Hintergrunderfassung und Statusleiste. Fehler behalten geprüfte
+  Daten; Nachindizierung und Wiederholungswartezeit sind getrennt. Unveränderte,
+  ausgeblendete Panels verwenden begrenzte Caches.
+- **Genaue Vorschauen und sichere Einstellungen:** KI-Ziel, Format und Modell sind
+  sichtbar, ohne stillen Anbieterwechsel. Share Cards exportieren das bestätigte SVG;
+  geänderte Optionen verlangen eine neue Vorschau. Zurücksetzen behält den API-Schlüssel,
+  und das Codex-Verzeichnis lässt sich auf beiden Einstellungsseiten korrigieren.
 - **Begrenzte Preisdiagnosen:** Warnungen zu unbekannten Modellen werden pro
   Extension-Host-Lauf dedupliziert und insgesamt begrenzt ([#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122)).
   Abgelaufene Analysebeiträge

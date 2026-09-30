@@ -76,6 +76,14 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 - **Defensive refreshes** — malformed model metadata cannot abort a whole index
   or mutate shared prototypes. Aggregate buckets are copied once per update;
   worker results and manual price refreshes have explicit capacity limits.
+- **Quieter updates and recovery** — auto-refresh pause applies to both pages,
+  not background collection or the status bar. Manual refresh still works;
+  failures retain verified data, and backfill/retry phases are clearly labelled.
+  Unchanged hidden panels and weekly aggregates reuse bounded caches.
+- **Exact previews and safe settings** — AI previews include the endpoint,
+  protocol and model without silently changing providers. Share Card export
+  writes the accepted SVG; edited controls require a new preview. Default reset
+  preserves the API key, and Codex directory recovery stays visible on both pages.
 - **Codex status and scrolling** — today's processed tokens are the default
   compact metric, while weekly quota shows remaining capacity. Live panel
   updates briefly defer during scrolling, with a bounded delay.

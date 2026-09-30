@@ -147,6 +147,35 @@ patches until a 120 ms quiet interval, with a 500 ms upper bound. The newest
 revision alone is applied and acknowledged; the live data queue stays in
 memory and never reads source logs or persists scroll state per frame.
 
+`dashboardAutoRefresh` controls dashboard delivery, not background collection or
+status items, for both providers. Startup may hydrate one verified snapshot;
+manual/settings/pricing triggers remain explicit delivery paths. Source-revision
+handoff to advice is non-rendering and remains active while paused. Refresh
+failure state retains the last verified view and sends a coalesced inline status
+message rather than a replacement panel. Persistent Codex work state and actual
+main/period/hourly counters distinguish coverage from backfill and retry waits.
+Data-panel HTML caches hold at most one entry per provider/tab; a separate
+single-entry Claude weekly-input cache avoids rescanning unchanged records.
+Data references, settings, prices, locale, currency, calendar boundaries and
+quota expiry invalidate these caches. Today expires by minute; hidden history
+by hour. Disposal and source replacement release retained references.
+Codex retains a failed refresh's verified subtotal only within the same resolved
+data directory. A directory change clears its view, insights and success time,
+and suppresses shared checkpoint hydration until that provider refresh verifies
+the source. Provider/generation checks after asynchronous boundaries prevent
+retired work from updating its replacement. Unchanged complete render contracts
+retain view/insight identity; completed steady polls do not fabricate backfill
+progress or invalidate hidden panels merely by toggling loading.
+
+中文：`dashboardAutoRefresh` 仅控制两个供应商的页面交付，不停止后台收集和状态栏。
+手动更新仍可用，暂停期间也会撤销来源已过期的 AI 请求。失败提示单独轻量更新，保留
+已验证页面。主日志、周期迁移和小时回填显示各自计数及重试状态，不把主日志覆盖率
+冒充整体完成度。面板缓存按供应商／页签有界保存；记录、显示设置、价格与时间边界
+变化时失效。今日倒计时按分钟过期，历史不随每分钟刷新重复计算。
+Codex 仅在同一数据目录内保留失败前的已验证统计；切换目录会清空旧视图、建议和成功
+时间，新来源验证前不采用共享旧检查点。异步返回后校验供应商及配置代次，过期任务
+不能改写新任务。已完成且未变化的轮询复用视图，不制造回填进度或重复渲染隐藏面板。
+
 The sharing workspace is rendered once: in Compare when both providers have
 data, otherwise as a Claude All-time fallback. `enableShareCard` is the only
 visible sharing on/off control. The public command IDs `exportShareCard`,
@@ -265,6 +294,18 @@ same byte object to the configured BYOK endpoint. Feedback, comparable pairs,
 and comparison envelopes remain local and accept no prompt, response, path,
 session, title, endpoint, or credential field.
 
+The preview includes the resolved HTTP(S) destination, API format and model.
+Normalization may append a protocol path but never changes the configured host
+or proxy prefix; incompatible direct-provider paths fail closed. URL credentials,
+query parameters and fragments are rejected before preview to prevent secret
+disclosure. A private WeakMap seal binds all metadata and the original byte object;
+public hash recomputation cannot authorize rerouting. Ordinary settings reset
+preserves SecretStorage; separately confirmed clear-key controls own deletion.
+
+中文：AI 预览包含最终地址、API 格式和模型，地址规范化不更换主机或代理前缀。
+不匹配的协议及含凭据、查询参数或片段的 URL 在预览前拒绝；私有完整性快照绑定
+目标信息和原始请求字节。恢复默认设置不删除 SecretStorage 中的密钥。
+
 Advice consent changes invalidate prepared handles immediately. A host-side
 pending-write counter blocks new previews and sends until every queued consent
 write settles; failed persistence stays closed. Aggregate/prompt revocation also
@@ -280,8 +321,18 @@ the actual refresh trigger, watcher/debounce counts, historical-backfill mode,
 and foreground/background worker profile; generic failure paths use `unknown`
 rather than infer a mode that was not observed.
 
-Sharing previews are produced from already materialized aggregates. Combined
-activity adds Claude processed volume to Codex processed volume only for the
+Sharing previews are produced from already materialized aggregates.
+Share Card preview/export uses one provider-lifetime immutable SVG plus an opaque
+preview ID and canonical allowlisted configuration key. Control changes require
+a new accepted preview; stale replies cannot accept a newer draft. Export captures
+the exact accepted SVG before opening the asynchronous save dialog. This cache
+does not retain a history of artifacts or perform network/log reads.
+
+中文：分享卡在运行期仅保留一份已接受的 SVG、匿名预览 ID 与允许字段配置摘要。
+修改控制项后须重新预览；过期回复不会恢复导出权限。导出在保存对话框之前捕获已确认
+的 SVG，不重新生成不同内容，也不保留产物历史。
+
+Combined activity adds Claude processed volume to Codex processed volume only for the
 explicit activity visualization; Codex cached input and reasoning subsets are
 not added twice, and no cost, quota, capability, or productivity equivalence is
 claimed. The Claude Share Card and Claude heatmap remain Claude-only. Local

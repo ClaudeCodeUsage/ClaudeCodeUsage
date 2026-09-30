@@ -197,6 +197,16 @@ real account or an installed-VSIX capture.*
   index. Unsafe object keys cannot mutate shared prototypes; aggregate buckets
   are copied once per update, worker results have a bounded apply window, and
   manual price refreshes have byte, catalog-size, concurrency and time limits.
+- **Less disruptive dashboard updates** — pausing auto-refresh freezes both
+  provider pages, not background indexing or the status bar. Manual refresh
+  remains available; failures retain verified data and show a compact recovery
+  message. Primary-log coverage, hourly backfill and retry waits are separate.
+  Unchanged hidden panels and weekly usage aggregates reuse bounded caches.
+- **Predictable preview and settings** — AI previews show the actual endpoint,
+  protocol and model; incompatible settings fail without redirecting to another
+  host. Share Card export writes the accepted SVG and requires a new preview
+  after control changes. Ordinary defaults reset preserves the API key, and
+  the Codex directory remains editable even when provider detection fails.
 - **Codex status and scrolling** — the default compact Token item shows today's
   processed amount; the separate weekly indicator shows remaining capacity.
   Live panel updates wait briefly for scrolling to pause, with a bounded delay.
@@ -672,9 +682,12 @@ remote boundaries are in [Local data and privacy](LOCAL-DATA.md) ([简体中文]
   item is never substituted for a selected custom profile.
 
 **`Get AI Usage Advice` returns 404**
-- DeepSeek's current endpoint does **not** use a `/v1` prefix. Use
-  `https://api.deepseek.com/chat/completions`. The extension auto-strips
-  `/v1` if present.
+- Match the API format, address and model. For DeepSeek's OpenAI-compatible
+  format use `https://api.deepseek.com/chat/completions`; its explicit Anthropic
+  compatibility base is `https://api.deepseek.com/anthropic`
+  ([official documentation](https://api-docs.deepseek.com/guides/anthropic_api/)).
+  The request preview shows the resolved destination; the extension does not
+  silently switch providers or remove a configured proxy prefix.
 
 **`Send this exact request` is unavailable**
 - Enable the default-off advice-effectiveness setting, allow aggregate data,
