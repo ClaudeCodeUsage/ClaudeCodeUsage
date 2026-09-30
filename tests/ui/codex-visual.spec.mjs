@@ -224,12 +224,14 @@ test('legacy share-card errors are rendered as text instead of executable HTML',
     commandTemplate: 'claudeShareCard',
   });
   await expect(page.locator('#scPreview')).toBeVisible();
+  await page.getByRole('button', { name: 'Update preview', exact: true }).click();
 
   const hostileError = '<img src="missing" onerror="window.__shareCardErrorExecuted = true">';
   await page.evaluate((error) => {
+    const request = window.__ccuPostedMessages.findLast((message) => message.command === 'buildShareCard');
     window.__shareCardErrorExecuted = false;
     window.dispatchEvent(new MessageEvent('message', {
-      data: { command: 'shareCardResult', error },
+      data: { command: 'shareCardResult', requestId: request.requestId, error },
     }));
   }, hostileError);
 
@@ -238,6 +240,7 @@ test('legacy share-card errors are rendered as text instead of executable HTML',
     `Could not build the card: ${hostileError}`,
   );
   expect(await page.evaluate(() => window.__shareCardErrorExecuted)).toBe(false);
+  await expect(page.locator('#scExportBtn')).toBeDisabled();
 });
 
 test('Codex header matches Claude with only Refresh and Settings actions', async ({ page }) => {

@@ -6,6 +6,22 @@ import {
 } from './currencyDisplay';
 import { CODEX_COPY_EN, CodexViewCopy } from './codexView';
 
+/** Compact recovery and preview copy, shared by both provider pages. */
+export const DASHBOARD_FEEDBACK_TRANSLATIONS: Record<SupportedLanguage, {
+  refreshFailed: string; lastSuccess: string; waiting: string; paused: string;
+  stalled: string; logsComplete: string; previewDirty: string; resetPreservesKey: string;
+  destination: string; protocol: string; model: string; invalidEndpoint: string;
+}> = {
+  en: { refreshFailed: 'Refresh failed · showing last verified data.', lastSuccess: 'Last successful refresh', waiting: 'Waiting to retry', paused: 'Paused', stalled: 'No progress · waiting to retry', logsComplete: 'Primary logs indexed', previewDirty: 'Update preview before exporting.', resetPreservesKey: 'Reset preserves your API key. Clear it separately.', destination: 'Destination', protocol: 'API format', model: 'Model', invalidEndpoint: 'Check the API format, URL and model in Settings. No request was sent.' },
+  'de-DE': { refreshFailed: 'Aktualisierung fehlgeschlagen · letzte geprüfte Daten werden angezeigt.', lastSuccess: 'Letzte erfolgreiche Aktualisierung', waiting: 'Warten auf erneuten Versuch', paused: 'Pausiert', stalled: 'Kein Fortschritt · erneuter Versuch ausstehend', logsComplete: 'Primäre Protokolle indiziert', previewDirty: 'Vorschau vor dem Export aktualisieren.', resetPreservesKey: 'Zurücksetzen behält den API-Schlüssel. Separat löschen.', destination: 'Ziel', protocol: 'API-Format', model: 'Modell', invalidEndpoint: 'API-Format, URL und Modell in den Einstellungen prüfen. Keine Anfrage gesendet.' },
+  'zh-TW': { refreshFailed: '更新失敗 · 保留上次已驗證資料。', lastSuccess: '上次成功更新', waiting: '等待重試', paused: '已暫停', stalled: '進度未增加 · 等待重試', logsComplete: '主日誌已完成索引', previewDirty: '請先更新預覽，再匯出。', resetPreservesKey: '恢復預設保留 API 金鑰；可另行清除。', destination: '發送位址', protocol: 'API 格式', model: '模型', invalidEndpoint: '請在設定中核對 API 格式、位址和模型。請求未發送。' },
+  'zh-CN': { refreshFailed: '刷新失败 · 保留上次已验证数据。', lastSuccess: '上次成功刷新', waiting: '等待重试', paused: '已暂停', stalled: '进度未增加 · 等待重试', logsComplete: '主日志已完成索引', previewDirty: '请先更新预览，再导出。', resetPreservesKey: '恢复默认保留 API 密钥；可另行清除。', destination: '发送地址', protocol: 'API 格式', model: '模型', invalidEndpoint: '请在设置中核对 API 格式、地址和模型。请求未发送。' },
+  ja: { refreshFailed: '更新失敗 · 最後に検証したデータを表示中。', lastSuccess: '前回の成功した更新', waiting: '再試行待ち', paused: '一時停止', stalled: '進捗なし · 再試行待ち', logsComplete: '主ログの索引作成完了', previewDirty: 'エクスポート前にプレビューを更新してください。', resetPreservesKey: 'リセットしても API キーは保持されます。個別に削除できます。', destination: '送信先', protocol: 'API 形式', model: 'モデル', invalidEndpoint: '設定の API 形式、URL、モデルを確認してください。リクエストは未送信です。' },
+  ko: { refreshFailed: '새로 고침 실패 · 마지막 검증 데이터를 표시합니다.', lastSuccess: '마지막 성공한 새로 고침', waiting: '재시도 대기 중', paused: '일시 중지됨', stalled: '진행 없음 · 재시도 대기 중', logsComplete: '기본 로그 인덱싱 완료', previewDirty: '내보내기 전에 미리보기를 업데이트하세요.', resetPreservesKey: '초기화해도 API 키는 유지됩니다. 별도로 삭제하세요.', destination: '전송 주소', protocol: 'API 형식', model: '모델', invalidEndpoint: '설정에서 API 형식, URL, 모델을 확인하세요. 요청은 전송되지 않았습니다.' },
+  'pt-BR': { refreshFailed: 'Falha ao atualizar · exibindo os últimos dados verificados.', lastSuccess: 'Última atualização bem-sucedida', waiting: 'Aguardando nova tentativa', paused: 'Pausado', stalled: 'Sem progresso · aguardando nova tentativa', logsComplete: 'Logs principais indexados', previewDirty: 'Atualize a prévia antes de exportar.', resetPreservesKey: 'A restauração mantém a chave de API. Apague-a separadamente.', destination: 'Destino', protocol: 'Formato da API', model: 'Modelo', invalidEndpoint: 'Confira formato da API, URL e modelo nas configurações. Nenhuma solicitação enviada.' },
+  id: { refreshFailed: 'Pembaruan gagal · menampilkan data terakhir yang terverifikasi.', lastSuccess: 'Pembaruan terakhir yang berhasil', waiting: 'Menunggu percobaan ulang', paused: 'Dijeda', stalled: 'Tidak ada kemajuan · menunggu percobaan ulang', logsComplete: 'Log utama telah diindeks', previewDirty: 'Perbarui pratinjau sebelum mengekspor.', resetPreservesKey: 'Reset mempertahankan kunci API. Hapus secara terpisah.', destination: 'Tujuan', protocol: 'Format API', model: 'Model', invalidEndpoint: 'Periksa format API, URL, dan model di Pengaturan. Permintaan belum dikirim.' },
+};
+
 export interface ProviderTranslations {
   claude: string;
   codexBeta: string;
@@ -4719,6 +4735,10 @@ export class I18n {
 
   static get sharingWorkspace(): SharingWorkspaceTranslations {
     return SHARING_WORKSPACE_TRANSLATIONS[this.currentLanguage];
+  }
+
+  static get dashboardFeedback(): typeof DASHBOARD_FEEDBACK_TRANSLATIONS.en {
+    return DASHBOARD_FEEDBACK_TRANSLATIONS[this.currentLanguage];
   }
 
   /** Localised label / help for a settings-panel entry, for the current UI

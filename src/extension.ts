@@ -162,6 +162,21 @@ interface LocalizedReleaseAnnouncement {
   body: () => string;
 }
 
+interface ProviderRefreshState {
+  failed: boolean;
+  lastSuccessfulAt?: number;
+}
+
+interface CodexDashboardProgress {
+  scannedFiles: number;
+  totalFiles: number;
+  indexedBytes: number;
+  totalBytes: number;
+  reason: BackgroundWorkReason;
+  phase: 'main' | 'period' | 'hourly';
+  workState: Pick<BackgroundWorkState, 'status' | 'pausedReason' | 'nextEligibleAt'>;
+}
+
 interface ActiveNetworkOperation {
   readonly lease: ResourceLease;
   /** Resolves only after the request promise has reached its own terminal path. */
@@ -494,6 +509,13 @@ export class ClaudeCodeUsageExtension {
   private codexRefreshing = false;
   private codexProgress: CodexIndexProgress | null = null;
   private codexProgressLastRenderedAt = 0;
+  private claudeDashboardHydrated = false;
+  private codexDashboardHydrated = false;
+  private providerRefreshStates: Record<'claude' | 'codex', ProviderRefreshState> = {
+    claude: { failed: false },
+    codex: { failed: false },
+  };
+  private deliveredRefreshStates: Partial<Record<'claude' | 'codex', ProviderRefreshState>> = {};
   private codexCheckpointHydration: Promise<void> | null = null;
   private codexCheckpointHydrationLastAttemptAt = 0;
   private codexBackgroundState: BackgroundWorkState;
@@ -2207,40 +2229,101 @@ export class ClaudeCodeUsageExtension {
     });
   }
 
-  private syncProviderUi(): void {
+  /** A paused dashboard still accepts explicit control feedback. Ordinary
+   * polling, watchers, focus and workspace events only update host state. */
+  private shouldDeliverDashboard(trigger: RefreshTrigger): boolean {
+    return trigger === 'manual' || trigger === 'settings' || trigger === 'pricing' ||
+      this.getConfiguration().dashboardAutoRefresh !== false;
+  }
+
+  private publishRefreshState(
+    provider: 'claude' | 'codex',
+    trigger: RefreshTrigger,
+    force = false,
+  ): void {
+    if (!this.shouldDeliverDashboard(trigger)) return;
+    const state = this.providerRefreshStates[provider];
+    if (!state.failed && state.lastSuccessfulAt === undefined) return;
+    const previous = this.deliveredRefreshStates[provider];
+    if (!force && previous?.failed === state.failed &&
+      previous?.lastSuccessfulAt === state.lastSuccessfulAt) return;
+    // Old/narrow provider doubles need not implement this additive contract.
+    if (typeof this.webviewProvider.updateRefreshState !== 'function') return;
+    const anonymous: ProviderRefreshState = {
+      failed: state.failed,
+      ...(state.lastSuccessfulAt !== undefined ? { lastSuccessfulAt: state.lastSuccessfulAt } : {}),
+    };
+    this.tryProviderUiUpdate(() => {
+      this.webviewProvider.updateRefreshState(provider, anonymous);
+      this.deliveredRefreshStates[provider] = anonymous;
+    });
+  }
+
+  private recordRefreshState(
+    provider: 'claude' | 'codex',
+    failed: boolean,
+    trigger: RefreshTrigger,
+  ): void {
+    const previous = this.providerRefreshStates[provider];
+    this.providerRefreshStates[provider] = failed
+      ? { ...previous, failed: true }
+      : { failed: false, lastSuccessfulAt: Date.now() };
+    // A direct failed retry must reach the compact in-page feedback even when
+    // the same failure was already observed by an automatic attempt.
+    this.publishRefreshState(provider, trigger, failed && trigger === 'manual');
+  }
+
+  private codexDashboardProgress(): CodexDashboardProgress | null {
+    const live = this.codexProgress;
+    const coverage = this.codexView?.coverage;
+    const state = this.codexBackgroundState;
+    if (!live && !this.codexRefreshing &&
+      (!coverage || (coverage.complete && coverage.identity.complete &&
+        coverage.period.allTime.complete && this.codexView?.hourlyCoverage.complete &&
+        state.status !== 'cooldown' && state.status !== 'paused'))) return null;
+
+    let phase: CodexDashboardProgress['phase'] = 'main';
+    let scannedFiles = live?.scannedFiles ?? coverage?.indexedFiles ?? 0;
+    let totalFiles = live?.totalFiles ?? coverage?.totalFiles ?? 0;
+    let indexedBytes = live?.indexedBytes ?? coverage?.indexedBytes ?? 0;
+    let totalBytes = live?.totalBytes ?? coverage?.totalBytes ?? 0;
+    const period = live?.period?.allTime ?? coverage?.period.allTime;
+    const hourly = live?.hourly ?? this.codexView?.hourlyCoverage;
+    if (scannedFiles >= totalFiles && indexedBytes >= totalBytes) {
+      if (period && !period.complete) {
+        phase = 'period';
+        scannedFiles = period.migratedFiles;
+        totalFiles = period.totalFiles;
+        indexedBytes = period.migratedBytes;
+        totalBytes = period.totalBytes;
+      } else if (hourly && !hourly.complete) {
+        phase = 'hourly';
+        scannedFiles = hourly.indexedFiles;
+        totalFiles = hourly.totalFiles;
+        indexedBytes = hourly.indexedBytes;
+        totalBytes = hourly.totalBytes;
+      }
+    }
+    return {
+      scannedFiles, totalFiles, indexedBytes, totalBytes, phase,
+      reason: phase === 'period' ? 'period-migration'
+        : phase === 'hourly' ? 'hourly-history' : state.reason,
+      workState: {
+        status: this.codexRefreshing && state.status === 'complete' ? 'running' : state.status,
+        pausedReason: state.pausedReason,
+        nextEligibleAt: state.nextEligibleAt,
+      },
+    };
+  }
+
+  private syncProviderUi(trigger: RefreshTrigger = 'settings'): void {
     const config = this.getConfiguration();
     const claudeHasData = this.cache.records.length > 0;
-    this.webviewProvider.updateAdviceEffectivenessData(
+    // This non-rendering handoff revokes prepared handles when the verified
+    // source revision or consent changes, including while the page is paused.
+    this.tryProviderUiUpdate(() => this.webviewProvider.updateAdviceEffectivenessData(
       this.buildAdviceEffectivenessProviderStates(config),
-    );
-    this.webviewProvider.updateProviderData(
-      this.codexView,
-      this.codexInsights,
-      {
-        claude: claudeHasData,
-        codex: this.codexAvailable,
-        codexData: this.codexHasData,
-        codexLoading: this.codexRefreshing,
-        codexProgress: this.codexProgress
-          ? {
-              scannedFiles: this.codexProgress.scannedFiles,
-              totalFiles: this.codexProgress.totalFiles,
-              indexedBytes: this.codexProgress.indexedBytes,
-              totalBytes: this.codexProgress.totalBytes,
-              reason: this.codexBackgroundState.reason,
-            }
-          : this.codexRefreshing
-            ? {
-                scannedFiles: this.codexView?.coverage.indexedFiles ?? 0,
-                totalFiles: this.codexView?.coverage.totalFiles ?? 0,
-                indexedBytes: this.codexView?.coverage.indexedBytes ?? 0,
-                totalBytes: this.codexView?.coverage.totalBytes ?? 0,
-                reason: this.codexBackgroundState.reason,
-              }
-            : null,
-      },
-    );
-
+    ));
     const selected =
       config.statusBarProvider === 'auto'
         ? claudeHasData
@@ -2261,6 +2344,22 @@ export class ClaudeCodeUsageExtension {
     } else {
       this.statusBar.setProvider('claude');
     }
+
+    const initialHydration = trigger === 'startup' && !this.codexDashboardHydrated &&
+      Boolean(this.codexView);
+    if (!this.shouldDeliverDashboard(trigger) && !initialHydration) return;
+    this.webviewProvider.updateProviderData(this.codexView, this.codexInsights, {
+      claude: claudeHasData,
+      codex: this.codexAvailable,
+      codexData: this.codexHasData,
+      codexLoading: this.codexRefreshing,
+      codexProgress: this.codexDashboardProgress(),
+    });
+    if (this.codexView) this.codexDashboardHydrated = true;
+    if (trigger === 'settings' || trigger === 'pricing') {
+      this.publishRefreshState('claude', trigger);
+      this.publishRefreshState('codex', trigger);
+    }
   }
 
   private tryProviderUiUpdate(update: () => void): void {
@@ -2278,8 +2377,8 @@ export class ClaudeCodeUsageExtension {
     }
   }
 
-  private syncProviderUiSafely(): void {
-    this.tryProviderUiUpdate(() => this.syncProviderUi());
+  private syncProviderUiSafely(trigger: RefreshTrigger = 'settings'): void {
+    this.tryProviderUiUpdate(() => this.syncProviderUi(trigger));
   }
 
   /**
@@ -2408,6 +2507,7 @@ export class ClaudeCodeUsageExtension {
 
   private codexBackgroundReason(snapshot: CodexProviderSnapshot | null): BackgroundWorkReason {
     if (!snapshot || snapshot.coverage.totalFiles === 0) return 'first-index';
+    if (!snapshot.coverage.complete) return 'history-backfill';
     if (!snapshot.coverage.period.allTime.complete) return 'period-migration';
     if (!snapshot.hourlyCoverage?.complete) return 'hourly-history';
     return 'history-backfill';
@@ -2728,6 +2828,11 @@ export class ClaudeCodeUsageExtension {
     try {
       await this.waitForCodexProviderRetirements();
     } catch {
+      if (!this.disposed && !this.localDataClearedRequiresReload &&
+        generation === this.configurationGeneration && this.codexRefreshSuspensionDepth === 0) {
+        this.recordRefreshState('codex', true, trigger);
+        this.syncProviderUiSafely(trigger);
+      }
       return;
     }
     if (
@@ -2742,13 +2847,11 @@ export class ClaudeCodeUsageExtension {
     try {
       await operation;
     } catch {
-      this.codexView = null;
-      this.codexInsights = emptyCodexScopedInsights();
-      this.codexHasData = false;
       this.codexRefreshing = false;
       this.codexProgress = null;
       this.codexProgressLastRenderedAt = 0;
       if (this.disposed) return;
+      this.recordRefreshState('codex', true, trigger);
       this.outputChannel.appendLine(
         formatCodexIndexDiagnostic({
           trigger,
@@ -2771,7 +2874,7 @@ export class ClaudeCodeUsageExtension {
           qualityFlags: { 'refresh-failed': 1 },
         }),
       );
-      this.syncProviderUiSafely();
+      this.syncProviderUiSafely(trigger);
     } finally {
       this.activeCodexRefreshes.delete(operation);
     }
@@ -2801,52 +2904,120 @@ export class ClaudeCodeUsageExtension {
     let continueHistoricalWork = false;
     const workerMode = codexRefreshProfileForTrigger(trigger);
     const config = this.getConfiguration();
-    if (!config.codexEnabled) {
-      await this.cancelCodexProviderAndWait();
-      if (this.codexBackfillLease?.active) {
-        await this.codexBackfillLease.stop('feature-disabled', () => undefined);
-      }
-      this.codexBackfillLease = undefined;
-      if (this.codexWorkerLease?.active) {
-        await this.codexWorkerLease.stop('feature-disabled', () => undefined);
-      }
-      this.codexWorkerLease = undefined;
-      this.codexView = null;
-      this.codexInsights = emptyCodexScopedInsights();
-      this.codexAvailable = false;
-      this.codexHasData = false;
-      this.codexRefreshing = false;
-      this.codexProgress = null;
-      this.codexProgressLastRenderedAt = 0;
-      this.syncProviderUiSafely();
-      return;
-    }
-    this.codexAvailable = await this.codexProvider.isAvailable();
-    if (this.disposed) return;
-    if (!this.codexAvailable) {
-      this.codexView = null;
-      this.codexInsights = emptyCodexScopedInsights();
-      this.codexHasData = false;
-      this.codexRefreshing = false;
-      this.codexProgress = null;
-      this.codexProgressLastRenderedAt = 0;
-      this.syncProviderUiSafely();
-      return;
-    }
-    this.codexRefreshing = true;
-    this.codexProgress = null;
-    this.codexProgressLastRenderedAt = 0;
-    this.syncProviderUiSafely();
     const provider = this.codexProvider;
-    this.codexCheckpointHydrationLastAttemptAt = Date.now();
-    const persisted = await provider.loadPersistedSnapshot();
-    if (this.disposed || provider !== this.codexProvider) {
-      return;
-    }
-    if (persisted) {
-      this.applyCodexSnapshot(persisted);
-      if (this.codexBackgroundState.indexGeneration !== this.codexIndexGeneration(persisted)) {
+    try {
+      if (!config.codexEnabled) {
+        await this.cancelCodexProviderAndWait();
+        if (this.codexBackfillLease?.active) {
+          await this.codexBackfillLease.stop('feature-disabled', () => undefined);
+        }
+        this.codexBackfillLease = undefined;
+        if (this.codexWorkerLease?.active) {
+          await this.codexWorkerLease.stop('feature-disabled', () => undefined);
+        }
+        this.codexWorkerLease = undefined;
+        this.codexView = null;
+        this.codexInsights = emptyCodexScopedInsights();
+        this.codexAvailable = false;
+        this.codexHasData = false;
+        this.codexRefreshing = false;
+        this.codexProgress = null;
+        this.codexProgressLastRenderedAt = 0;
+        return;
+      }
+      this.codexAvailable = await this.codexProvider.isAvailable();
+      if (this.disposed) return;
+      if (!this.codexAvailable) {
+        // Availability can fail transiently. Keep the last verified subtotal
+        // until an explicit provider/configuration change replaces its owner.
+        if (this.codexView || trigger === 'manual') this.recordRefreshState('codex', true, trigger);
+        this.codexRefreshing = false;
+        this.codexProgress = null;
+        this.codexProgressLastRenderedAt = 0;
+        return;
+      }
+      this.codexRefreshing = true;
+      this.codexProgress = null;
+      this.codexProgressLastRenderedAt = 0;
+      this.syncProviderUiSafely(trigger);
+      this.codexCheckpointHydrationLastAttemptAt = Date.now();
+      const persisted = await provider.loadPersistedSnapshot();
+      if (this.disposed || provider !== this.codexProvider) {
+        return;
+      }
+      if (persisted) {
+        if (!this.codexView) this.applyCodexSnapshot(persisted);
+        if (this.codexBackgroundState.indexGeneration !== this.codexIndexGeneration(persisted)) {
+          this.codexBackgroundState = createBackgroundWorkState({
+            measurementVersion:
+              ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
+            reason: this.codexBackgroundReason(persisted),
+            now: Date.now(),
+            progress: this.codexBackgroundProgress(persisted),
+            indexGeneration: this.codexIndexGeneration(persisted),
+          });
+          await this.saveCodexBackgroundState();
+        }
+        this.syncProviderUiSafely(trigger);
+      }
+      if (!persisted && this.codexBackgroundState.status === 'complete') {
         this.codexBackgroundState = createBackgroundWorkState({
+          measurementVersion:
+            ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
+          reason: 'first-index',
+          now: Date.now(),
+          indexGeneration: null,
+        });
+        await this.saveCodexBackgroundState();
+      }
+      const historicalPending = this.codexHistoricalWorkPending(persisted);
+      let historicalAttempt = false;
+      if (historicalPending) {
+        const started = beginBackgroundWork(this.codexBackgroundState, {
+          trigger: trigger === 'manual' ? 'manual' : 'automatic',
+          now: Date.now(),
+          reason: this.codexBackgroundReason(persisted),
+        });
+        this.codexBackgroundState = started.state;
+        historicalAttempt = started.started;
+        try {
+          await this.saveCodexBackgroundState();
+        } catch (error) {
+          if (historicalAttempt && this.codexBackgroundState.status === 'running') {
+            this.codexBackgroundState = interruptBackgroundWork(
+              this.codexBackgroundState,
+              { now: Date.now() },
+            );
+            await this.saveCodexBackgroundState().catch(() => undefined);
+          }
+          throw error;
+        }
+        if (historicalAttempt) {
+          ownedBackfillLease = this.resourceOwnership.register({
+            kind: 'backfill',
+            capability: 'codex-history',
+            scope: 'codex',
+            creator: 'refresh-coordinator',
+            stopConditions: [
+              'settled',
+              'completed',
+              'cancelled',
+              'feature-disabled',
+              'extension-dispose',
+              'user-pause',
+              'settings-change',
+            ],
+            boundedException: persisted ? 'none' : 'first-codex-history',
+          });
+          this.codexBackfillLease = ownedBackfillLease;
+          this.codexFirstBackfillActive = !persisted;
+        }
+      } else if (
+        this.codexBackgroundState.status !== 'complete' &&
+        this.codexBackgroundState.pausedReason !== 'corrupt-state' &&
+        persisted
+      ) {
+        const fresh = createBackgroundWorkState({
           measurementVersion:
             ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
           reason: this.codexBackgroundReason(persisted),
@@ -2854,248 +3025,194 @@ export class ClaudeCodeUsageExtension {
           progress: this.codexBackgroundProgress(persisted),
           indexGeneration: this.codexIndexGeneration(persisted),
         });
-        await this.saveCodexBackgroundState();
+        const running = beginBackgroundWork(fresh, {
+          trigger: 'automatic',
+          now: Date.now(),
+        });
+        if (running.started) {
+          this.codexBackgroundState = recordBackgroundWorkProgress(running.state, {
+            now: Date.now(),
+            complete: true,
+            progress: this.codexBackgroundProgress(persisted),
+          });
+          await this.saveCodexBackgroundState();
+        }
       }
-      this.syncProviderUiSafely();
-    }
-    if (!persisted && this.codexBackgroundState.status === 'complete') {
-      this.codexBackgroundState = createBackgroundWorkState({
-        measurementVersion:
-          ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
-        reason: 'first-index',
-        now: Date.now(),
-        indexGeneration: null,
-      });
-      await this.saveCodexBackgroundState();
-    }
-    const historicalPending = this.codexHistoricalWorkPending(persisted);
-    let historicalAttempt = false;
-    if (historicalPending) {
-      const started = beginBackgroundWork(this.codexBackgroundState, {
-        trigger: trigger === 'manual' ? 'manual' : 'automatic',
-        now: Date.now(),
-        reason: this.codexBackgroundReason(persisted),
-      });
-      this.codexBackgroundState = started.state;
-      historicalAttempt = started.started;
+      // The trigger reason is visible while metadata discovery and the first
+      // worker progress event are still pending.
+      this.syncProviderUiSafely(trigger);
       try {
-        await this.saveCodexBackgroundState();
-      } catch (error) {
-        if (historicalAttempt && this.codexBackgroundState.status === 'running') {
-          this.codexBackgroundState = interruptBackgroundWork(
-            this.codexBackgroundState,
-            { now: Date.now() },
-          );
-          await this.saveCodexBackgroundState().catch(() => undefined);
+        if (!this.codexWorkerLease?.active) {
+          ownedWorkerLease = this.resourceOwnership.register({
+            kind: 'worker',
+            capability: 'codex-index',
+            scope: 'codex',
+            creator: 'codex-index-client',
+            stopConditions: [
+              'settled',
+              'cancelled',
+              'feature-disabled',
+              'extension-dispose',
+              'settings-change',
+            ],
+            boundedException: 'none',
+          });
+          this.codexWorkerLease = ownedWorkerLease;
+          this.codexWorkerCancellationRequested = false;
         }
-        throw error;
-      }
-      if (historicalAttempt) {
-        ownedBackfillLease = this.resourceOwnership.register({
-          kind: 'backfill',
-          capability: 'codex-history',
-          scope: 'codex',
-          creator: 'refresh-coordinator',
-          stopConditions: [
-            'settled',
-            'completed',
-            'cancelled',
-            'feature-disabled',
-            'extension-dispose',
-            'user-pause',
-            'settings-change',
-          ],
-          boundedException: persisted ? 'none' : 'first-codex-history',
-        });
-        this.codexBackfillLease = ownedBackfillLease;
-        this.codexFirstBackfillActive = !persisted;
-      }
-    } else if (
-      this.codexBackgroundState.status !== 'complete' &&
-      this.codexBackgroundState.pausedReason !== 'corrupt-state' &&
-      persisted
-    ) {
-      const fresh = createBackgroundWorkState({
-        measurementVersion:
-          ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
-        reason: this.codexBackgroundReason(persisted),
-        now: Date.now(),
-        progress: this.codexBackgroundProgress(persisted),
-        indexGeneration: this.codexIndexGeneration(persisted),
-      });
-      const running = beginBackgroundWork(fresh, {
-        trigger: 'automatic',
-        now: Date.now(),
-      });
-      if (running.started) {
-        this.codexBackgroundState = recordBackgroundWorkProgress(running.state, {
-          now: Date.now(),
-          complete: true,
-          progress: this.codexBackgroundProgress(persisted),
-        });
-        await this.saveCodexBackgroundState();
-      }
-    }
-    // The trigger reason is visible while metadata discovery and the first
-    // worker progress event are still pending.
-    this.syncProviderUiSafely();
-    try {
-      if (!this.codexWorkerLease?.active) {
-        ownedWorkerLease = this.resourceOwnership.register({
-          kind: 'worker',
-          capability: 'codex-index',
-          scope: 'codex',
-          creator: 'codex-index-client',
-          stopConditions: [
-            'settled',
-            'cancelled',
-            'feature-disabled',
-            'extension-dispose',
-            'settings-change',
-          ],
-          boundedException: 'none',
-        });
-        this.codexWorkerLease = ownedWorkerLease;
-        this.codexWorkerCancellationRequested = false;
-      }
-      const result = await provider.refresh(
-        workerMode,
-        (progress) => this.onCodexIndexProgress(progress),
-        historicalAttempt,
-      );
-      workerStoppedSafely = true;
-      if (this.disposed || provider !== this.codexProvider) {
-        return;
-      }
-      if (result.outcome === 'unavailable') {
-        this.codexView = null;
-        this.codexInsights = emptyCodexScopedInsights();
-        this.codexAvailable = false;
-        this.codexHasData = false;
-        return;
-      }
-
-      this.applyCodexSnapshot(result.snapshot);
-      if (this.codexBackgroundState.indexGeneration !== this.codexIndexGeneration(result.snapshot)) {
-        this.codexBackgroundState = createBackgroundWorkState({
-          measurementVersion:
-            ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
-          reason: this.codexBackgroundReason(result.snapshot),
-          now: Date.now(),
-          progress: this.codexBackgroundProgress(result.snapshot),
-          indexGeneration: this.codexIndexGeneration(result.snapshot),
-        });
-        await this.saveCodexBackgroundState();
-      }
-      if (historicalAttempt && this.codexBackgroundState.status === 'running') {
-        const complete = !this.codexHistoricalWorkPending(result.snapshot);
-        if (this.codexWorkerCancellationRequested || provider !== this.codexProvider) {
-          this.codexBackgroundState = interruptBackgroundWork(
-            this.codexBackgroundState,
-            { now: Date.now() },
-          );
-        } else if (result.outcome === 'error' || (result.diagnostic?.failedFiles ?? 0) > 0) {
-          this.codexBackgroundState = recordBackgroundWorkFailure(
-            this.codexBackgroundState,
-            { now: Date.now() },
-          );
-        } else {
-          this.codexBackgroundState = recordBackgroundWorkProgress(
-            this.codexBackgroundState,
-            {
-              now: Date.now(),
-              complete,
-              progress: this.codexBackgroundProgress(result.snapshot),
-            },
-          );
-          continueHistoricalWork = this.codexBackgroundState.status === 'eligible';
-        }
-        await this.saveCodexBackgroundState();
-      }
-      const diagnostic = result.diagnostic;
-      if (
-        !historicalAttempt &&
-        diagnostic?.indexRecovery &&
-        this.codexBackgroundState.status === 'complete' &&
-        this.codexHistoricalWorkPending(result.snapshot)
-      ) {
-        this.codexBackgroundState = createBackgroundWorkState({
-          measurementVersion:
-            ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
-          reason: this.codexBackgroundReason(result.snapshot),
-          now: Date.now(),
-          progress: this.codexBackgroundProgress(result.snapshot),
-          indexGeneration: this.codexIndexGeneration(result.snapshot),
-        });
-        await this.saveCodexBackgroundState();
-        continueHistoricalWork = true;
-      }
-      this.outputChannel.appendLine(
-        formatCodexIndexDiagnostic({
-          trigger,
-          outcome: result.outcome,
-          watcherEvents: diagnosticContext.watcherEvents,
-          coalescedTriggers: diagnosticContext.coalescedTriggers,
-          backfillMode: historicalAttempt ? 'historical' : 'steady',
+        const result = await provider.refresh(
           workerMode,
-          indexedFiles: result.snapshot.coverage.indexedFiles,
-          totalFiles: result.snapshot.coverage.totalFiles,
-          indexedBytes: result.snapshot.coverage.indexedBytes,
-          totalBytes: result.snapshot.coverage.totalBytes,
-          periodMigratedBytes:
-            result.snapshot.coverage.period.allTime.migratedBytes,
-          periodTotalBytes: result.snapshot.coverage.period.allTime.totalBytes,
-          migrationPending: diagnostic?.migrationPending ?? false,
-          indexRecovery: diagnostic?.indexRecovery?.reason,
-          bodyReads: diagnostic?.bodyReads ?? 0,
-          failedFiles: diagnostic?.failedFiles ?? 0,
-          metadataMs: diagnostic?.metadataMs ?? 0,
-          parseMs: diagnostic?.parseMs ?? 0,
-          qualityFlags: result.snapshot.qualityFlags,
-        }),
-      );
-    } finally {
-      this.stopFirstBackfillBlurDeadline('cancelled');
-      if (historicalAttempt && this.codexBackgroundState.status === 'running') {
-        this.codexBackgroundState =
-          this.codexWorkerCancellationRequested || provider !== this.codexProvider
-          ? interruptBackgroundWork(this.codexBackgroundState, { now: Date.now() })
-          : recordBackgroundWorkFailure(
+          (progress) => this.onCodexIndexProgress(progress, trigger),
+          historicalAttempt,
+        );
+        workerStoppedSafely = true;
+        if (this.disposed || provider !== this.codexProvider) {
+          return;
+        }
+        if (result.outcome === 'unavailable') {
+          this.codexAvailable = false;
+          if (this.codexView || trigger === 'manual') this.recordRefreshState('codex', true, trigger);
+          return;
+        }
+
+        const refreshFailed = result.outcome === 'error' || (result.diagnostic?.failedFiles ?? 0) > 0;
+        if (!refreshFailed || (!this.codexView && result.snapshot.coverage.totalFiles > 0)) {
+          this.applyCodexSnapshot(result.snapshot);
+        }
+        if (!refreshFailed &&
+          this.codexBackgroundState.indexGeneration !== this.codexIndexGeneration(result.snapshot)) {
+          this.codexBackgroundState = createBackgroundWorkState({
+            measurementVersion:
+              ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
+            reason: this.codexBackgroundReason(result.snapshot),
+            now: Date.now(),
+            progress: this.codexBackgroundProgress(result.snapshot),
+            indexGeneration: this.codexIndexGeneration(result.snapshot),
+          });
+          await this.saveCodexBackgroundState();
+        }
+        if (historicalAttempt && this.codexBackgroundState.status === 'running') {
+          const complete = !this.codexHistoricalWorkPending(result.snapshot);
+          if (this.codexWorkerCancellationRequested || provider !== this.codexProvider) {
+            this.codexBackgroundState = interruptBackgroundWork(
               this.codexBackgroundState,
               { now: Date.now() },
             );
-        await this.saveCodexBackgroundState();
-      }
-      if (workerStoppedSafely && ownedBackfillLease?.active) {
-        const condition = this.codexBackgroundState.status === 'complete'
-          ? 'completed'
-          : 'settled';
-        await ownedBackfillLease.stop(condition, () => undefined);
-      }
-      if (
-        workerStoppedSafely &&
-        this.codexBackfillLease === ownedBackfillLease
-      ) {
-        this.codexBackfillLease = undefined;
-      }
-      if (workerStoppedSafely && ownedWorkerLease?.active) {
-        await ownedWorkerLease.stop(
-          this.codexWorkerCancellationRequested || provider !== this.codexProvider
-            ? 'cancelled'
-            : 'settled',
-          () => undefined,
+          } else if (refreshFailed) {
+            this.codexBackgroundState = recordBackgroundWorkFailure(
+              this.codexBackgroundState,
+              { now: Date.now() },
+            );
+          } else {
+            this.codexBackgroundState = recordBackgroundWorkProgress(
+              this.codexBackgroundState,
+              {
+                now: Date.now(),
+                complete,
+                progress: this.codexBackgroundProgress(result.snapshot),
+              },
+            );
+            continueHistoricalWork = this.codexBackgroundState.status === 'eligible';
+          }
+          await this.saveCodexBackgroundState();
+        }
+        if (refreshFailed) {
+          this.recordRefreshState('codex', true, trigger);
+        } else if (this.codexBackgroundState.pausedReason !== 'failure-backoff' ||
+          !this.codexHistoricalWorkPending(result.snapshot)) {
+          // A steady metadata-only pass during failed-history cooldown returns
+          // its checkpoint too. It is not evidence that the failed work resumed
+          // or succeeded, and cannot clear the stale-data marker/time.
+          this.recordRefreshState('codex', false, trigger);
+        } else {
+          this.recordRefreshState('codex', true, trigger);
+        }
+        const diagnostic = result.diagnostic;
+        if (
+          !historicalAttempt &&
+          diagnostic?.indexRecovery &&
+          this.codexBackgroundState.status === 'complete' &&
+          this.codexHistoricalWorkPending(result.snapshot)
+        ) {
+          this.codexBackgroundState = createBackgroundWorkState({
+            measurementVersion:
+              ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
+            reason: this.codexBackgroundReason(result.snapshot),
+            now: Date.now(),
+            progress: this.codexBackgroundProgress(result.snapshot),
+            indexGeneration: this.codexIndexGeneration(result.snapshot),
+          });
+          await this.saveCodexBackgroundState();
+          continueHistoricalWork = true;
+        }
+        this.outputChannel.appendLine(
+          formatCodexIndexDiagnostic({
+            trigger,
+            outcome: result.outcome,
+            watcherEvents: diagnosticContext.watcherEvents,
+            coalescedTriggers: diagnosticContext.coalescedTriggers,
+            backfillMode: historicalAttempt ? 'historical' : 'steady',
+            workerMode,
+            indexedFiles: result.snapshot.coverage.indexedFiles,
+            totalFiles: result.snapshot.coverage.totalFiles,
+            indexedBytes: result.snapshot.coverage.indexedBytes,
+            totalBytes: result.snapshot.coverage.totalBytes,
+            periodMigratedBytes:
+              result.snapshot.coverage.period.allTime.migratedBytes,
+            periodTotalBytes: result.snapshot.coverage.period.allTime.totalBytes,
+            migrationPending: diagnostic?.migrationPending ?? false,
+            indexRecovery: diagnostic?.indexRecovery?.reason,
+            bodyReads: diagnostic?.bodyReads ?? 0,
+            failedFiles: diagnostic?.failedFiles ?? 0,
+            metadataMs: diagnostic?.metadataMs ?? 0,
+            parseMs: diagnostic?.parseMs ?? 0,
+            qualityFlags: result.snapshot.qualityFlags,
+          }),
         );
+      } finally {
+        this.stopFirstBackfillBlurDeadline('cancelled');
+        if (historicalAttempt && this.codexBackgroundState.status === 'running') {
+          this.codexBackgroundState =
+            this.codexWorkerCancellationRequested || provider !== this.codexProvider
+            ? interruptBackgroundWork(this.codexBackgroundState, { now: Date.now() })
+            : recordBackgroundWorkFailure(
+                this.codexBackgroundState,
+                { now: Date.now() },
+              );
+          await this.saveCodexBackgroundState();
+        }
+        if (workerStoppedSafely && ownedBackfillLease?.active) {
+          const condition = this.codexBackgroundState.status === 'complete'
+            ? 'completed'
+            : 'settled';
+          await ownedBackfillLease.stop(condition, () => undefined);
+        }
+        if (
+          workerStoppedSafely &&
+          this.codexBackfillLease === ownedBackfillLease
+        ) {
+          this.codexBackfillLease = undefined;
+        }
+        if (workerStoppedSafely && ownedWorkerLease?.active) {
+          await ownedWorkerLease.stop(
+            this.codexWorkerCancellationRequested || provider !== this.codexProvider
+              ? 'cancelled'
+              : 'settled',
+            () => undefined,
+          );
+        }
+        if (workerStoppedSafely && this.codexWorkerLease === ownedWorkerLease) {
+          this.codexWorkerLease = undefined;
+        }
+        if (workerStoppedSafely && ownedBackfillLease) {
+          this.codexFirstBackfillActive = false;
+        }
       }
-      if (workerStoppedSafely && this.codexWorkerLease === ownedWorkerLease) {
-        this.codexWorkerLease = undefined;
-      }
-      if (workerStoppedSafely && ownedBackfillLease) {
-        this.codexFirstBackfillActive = false;
-      }
+    } finally {
       this.codexRefreshing = false;
       this.codexProgress = null;
       this.codexProgressLastRenderedAt = 0;
-      if (!this.disposed) this.syncProviderUiSafely();
+      if (!this.disposed) this.syncProviderUiSafely(trigger);
       if (
         !this.disposed &&
         continueHistoricalWork &&
@@ -3103,27 +3220,27 @@ export class ClaudeCodeUsageExtension {
         this.getConfiguration().codexEnabled &&
         this.windowActivity.focused
       ) {
-        queueMicrotask(() => void this.refreshCodexData(trigger));
+        // Continuing a successful user pass is automatic work, not another
+        // explicit permission to deliver panels on a paused dashboard.
+        const continuationTrigger = trigger === 'manual' || trigger === 'settings' || trigger === 'pricing'
+          ? 'poll' : trigger;
+        queueMicrotask(() => void this.refreshCodexData(continuationTrigger));
       }
     }
   }
 
-  private onCodexIndexProgress(progress: CodexIndexProgress): void {
+  private onCodexIndexProgress(progress: CodexIndexProgress, trigger: RefreshTrigger = 'poll'): void {
     this.codexProgress = progress;
-    this.scheduleCodexCheckpointHydration();
+    this.scheduleCodexCheckpointHydration(trigger);
+    if (!this.shouldDeliverDashboard(trigger)) return;
     const now = Date.now();
     if (
       this.codexProgressLastRenderedAt === 0 ||
       now - this.codexProgressLastRenderedAt >= 250
     ) {
       this.codexProgressLastRenderedAt = now;
-      this.webviewProvider.updateCodexProgress({
-        scannedFiles: progress.scannedFiles,
-        totalFiles: progress.totalFiles,
-        indexedBytes: progress.indexedBytes,
-        totalBytes: progress.totalBytes,
-        reason: this.codexBackgroundState.reason,
-      });
+      const rendered = this.codexDashboardProgress();
+      if (rendered) this.tryProviderUiUpdate(() => this.webviewProvider.updateCodexProgress(rendered));
     }
   }
 
@@ -3162,7 +3279,7 @@ export class ClaudeCodeUsageExtension {
   }
 
   /** Adopt the first atomic checkpoint during a brand-new cold index. */
-  private scheduleCodexCheckpointHydration(): void {
+  private scheduleCodexCheckpointHydration(trigger: RefreshTrigger = 'poll'): void {
     if (
       this.codexView ||
       !this.codexRefreshing ||
@@ -3190,7 +3307,7 @@ export class ClaudeCodeUsageExtension {
           return;
         }
         this.applyCodexSnapshot(snapshot);
-        this.syncProviderUi();
+        this.syncProviderUiSafely(trigger);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -3214,6 +3331,7 @@ export class ClaudeCodeUsageExtension {
   // Presentation-only dashboard toggles must not restart watchers, recreate
   // providers, or trigger a corpus reindex.
   private static readonly DASHBOARD_ONLY_SETTINGS = new Set([
+    'dashboardAutoRefresh',
     'showWeeklyEquivalentValue',
     'showProjectUsageMatrix',
   ]);
@@ -4189,7 +4307,7 @@ export class ClaudeCodeUsageExtension {
       additions,
     );
     this.refreshQuotaObservationViews();
-    if (!this.disposed) this.syncProviderUi();
+    if (!this.disposed) this.syncProviderUiSafely('poll');
   }
 
   private async maybeFetchUsageLimits(config: ExtensionConfig): Promise<ClaudeApiUsageResponse | null> {
@@ -4323,7 +4441,25 @@ export class ClaudeCodeUsageExtension {
     await this.runRefresh(request);
   }
 
-  private handleColdRefreshFailure(updateWebview: boolean): void {
+  private handleColdRefreshFailure(updateWebview: boolean, trigger: RefreshTrigger = 'poll'): void {
+    this.recordRefreshState('claude', true, trigger);
+    if (this.cache.manifest !== null) {
+      // Preserve verified aggregates in both the host and status model. The
+      // webview receives only compact anonymous failure metadata, never a
+      // replacement error page or the exception that caused the failure.
+      this.tryProviderUiUpdate(() => {
+        const config = this.getConfiguration();
+        const materialized = claudeUsageDashboardSnapshot(this.cache.claudeIndex, {
+          workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+          projectGroupingMode: config.projectGroupingMode,
+          contextWindowOverride: config.contextWindowOverride,
+          now: new Date(Date.now()),
+        });
+        this.statusBar.updateUsageData(materialized.today, materialized.workspaceToday,
+          I18n.t.statusBar.refreshFailed, undefined, materialized.month);
+      });
+      return;
+    }
     reportColdRefreshFailure({
       hasLoadedManifest: this.cache.manifest !== null,
       updateWebview,
@@ -4333,7 +4469,7 @@ export class ClaudeCodeUsageExtension {
         this.statusBar.updateContext(null);
       },
       onWebviewError: (error) => {
-        this.webviewProvider.updateData(null, null, null, null, [], [], [], error, null);
+        this.tryProviderUiUpdate(() => this.webviewProvider.updateData(null, null, null, null, [], [], [], error, null));
       },
     });
   }
@@ -4352,7 +4488,8 @@ export class ClaudeCodeUsageExtension {
       if (this.disposed) return;
       const config = this.getConfiguration();
       const snapshotNow = new Date(Date.now());
-      updateWebview = updateWebview || config.dashboardAutoRefresh;
+      updateWebview = this.shouldDeliverDashboard(request.trigger) ||
+        (request.trigger === 'startup' && !this.claudeDashboardHydrated);
 
       // Account quota is independent from local JSONL. Do not let a slow OAuth
       // request delay the local usage refresh.
@@ -4371,12 +4508,7 @@ export class ClaudeCodeUsageExtension {
       );
       if (this.disposed) return;
       if (!dataDirectory) {
-        const error = 'Claude data directory not found. Please check your configuration.';
-        this.statusBar.updateUsageData(null, null, error);
-        this.statusBar.updateContext(null);
-        if (updateWebview) {
-          this.webviewProvider.updateData(null, null, null, null, [], [], [], error, null);
-        }
+        this.handleColdRefreshFailure(updateWebview, request.trigger);
         this.outputChannel.appendLine(formatRefreshDiagnostic({
           trigger: request.trigger,
           filesDiscovered: 0,
@@ -4424,7 +4556,7 @@ export class ClaudeCodeUsageExtension {
         const dayRolledOver =
           this.cache.lastUpdate.getTime() > 0 &&
           publishedDay !== snapshotDay;
-        if (dayRolledOver && this.cache.records.length > 0) {
+        if (this.cache.records.length > 0) {
           this.statusBar.updateUsageData(
             materialized.today,
             materialized.workspaceToday,
@@ -4433,32 +4565,36 @@ export class ClaudeCodeUsageExtension {
             materialized.month,
           );
           if (updateWebview) {
-            this.webviewProvider.updateData(
-              materialized.session,
-              materialized.today,
-              materialized.last30Days,
-              materialized.allTime,
-              materialized.dailyForLast30Days,
-              materialized.monthlyForAllTime,
-              materialized.hourlyForToday,
-              undefined,
-              dataDirectory,
-              this.cache.records,
-              materialized.sessions,
-              materialized.projects,
-              this.cache.contentAnalysis,
-              materialized.branches,
-              materialized.workflows,
-              materialized.costliestMessages,
-              materialized.hourlyForLast30DaysByDay,
-              materialized.projectUsageMatrix,
-              materialized.dailyForAllTime,
-            );
+            this.tryProviderUiUpdate(() => {
+              this.webviewProvider.updateData(
+                materialized.session,
+                materialized.today,
+                materialized.last30Days,
+                materialized.allTime,
+                materialized.dailyForLast30Days,
+                materialized.monthlyForAllTime,
+                materialized.hourlyForToday,
+                undefined,
+                dataDirectory,
+                this.cache.records,
+                materialized.sessions,
+                materialized.projects,
+                this.cache.contentAnalysis,
+                materialized.branches,
+                materialized.workflows,
+                materialized.costliestMessages,
+                materialized.hourlyForLast30DaysByDay,
+                materialized.projectUsageMatrix,
+                materialized.dailyForAllTime,
+              );
+              this.claudeDashboardHydrated = true;
+            });
           }
-          this.cache.lastUpdate = new Date(snapshotNow.getTime());
+          if (dayRolledOver) this.cache.lastUpdate = new Date(snapshotNow.getTime());
         }
         this.cache.manifest = manifest;
         this.cache.dataDirectory = dataDirectory;
+        this.recordRefreshState('claude', false, request.trigger);
         this.outputChannel.appendLine(formatRefreshDiagnostic({
           trigger: request.trigger,
           filesDiscovered: manifest.entries.size,
@@ -4484,7 +4620,7 @@ export class ClaudeCodeUsageExtension {
       if (this.cache.manifest === null) {
         this.statusBar.setLoading(true);
         if (updateWebview) {
-          this.webviewProvider.setLoading(true);
+          this.tryProviderUiUpdate(() => this.webviewProvider.setLoading(true));
         }
       }
 
@@ -4500,7 +4636,7 @@ export class ClaudeCodeUsageExtension {
         ),
       });
       if (!shouldCommitUsageLoad(loaded.diagnostics.filesFailed)) {
-        this.handleColdRefreshFailure(updateWebview);
+        this.handleColdRefreshFailure(updateWebview, request.trigger);
         this.outputChannel.appendLine(formatRefreshDiagnostic({
           trigger: request.trigger,
           filesDiscovered: manifest.entries.size,
@@ -4532,7 +4668,10 @@ export class ClaudeCodeUsageExtension {
         this.statusBar.updateUsageData(null, null, error);
         this.statusBar.updateContext(null);
         if (updateWebview) {
-          this.tryProviderUiUpdate(() => this.webviewProvider.updateData(null, null, null, null, [], [], [], error, dataDirectory));
+          this.tryProviderUiUpdate(() => {
+            this.webviewProvider.updateData(null, null, null, null, [], [], [], error, dataDirectory);
+            this.claudeDashboardHydrated = true;
+          });
         }
       } else {
         const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -4564,7 +4703,10 @@ export class ClaudeCodeUsageExtension {
         this.statusBar.updateUsageData(todayData, workspaceTodayData, undefined, undefined, calendarMonthData);
         this.statusBar.updateContext(materialized.context);
         if (updateWebview) {
-          this.tryProviderUiUpdate(() => this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime));
+          this.tryProviderUiUpdate(() => {
+            this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime);
+            this.claudeDashboardHydrated = true;
+          });
         }
       }
 
@@ -4582,6 +4724,7 @@ export class ClaudeCodeUsageExtension {
           this.cache.lastUpdate = new Date(snapshotNow.getTime());
         }
       );
+      this.recordRefreshState('claude', false, request.trigger);
       this.outputChannel.appendLine(formatRefreshDiagnostic({
         trigger: request.trigger,
         filesDiscovered: manifest.entries.size,
@@ -4604,7 +4747,7 @@ export class ClaudeCodeUsageExtension {
     } catch {
       // Keep the previous records and manifest authoritative. The next trigger
       // retries scanner/reconciliation failures instead of presenting no data.
-      this.handleColdRefreshFailure(updateWebview);
+      this.handleColdRefreshFailure(updateWebview, request.trigger);
       this.outputChannel.appendLine(formatRefreshDiagnostic({
         trigger: request.trigger,
         filesDiscovered: 0,
@@ -4623,7 +4766,7 @@ export class ClaudeCodeUsageExtension {
         totalMs: performance.now() - totalStarted,
       }));
     } finally {
-      if (!this.disposed) this.syncProviderUiSafely();
+      if (!this.disposed) this.syncProviderUiSafely(request.trigger);
       const next = this.refreshGate.complete();
       if (!this.disposed && next !== null) {
         queueMicrotask(() => void this.runRefresh(next));

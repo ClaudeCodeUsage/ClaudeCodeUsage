@@ -320,7 +320,7 @@ export const SETTINGS: SettingDef[] = [
     group: 'providers',
     label: 'Custom Codex data directory',
     help: 'Empty = CODEX_HOME, then ~/.codex. Authentication files are never read.',
-    providers: ['codex'],
+    providers: ['claude', 'codex'],
   },
   {
     key: 'codex.fileWatchSeconds',
@@ -681,7 +681,7 @@ export const SETTINGS: SettingDef[] = [
   {
     key: 'advice.apiFormat',
     type: 'enum',
-    default: 'anthropic',
+    default: 'openai',
     storage: 'state',
     group: 'advice',
     label: 'API format',

@@ -57,7 +57,7 @@ test('Codex dashboard HTML uses only classes already rendered by the Claude dash
   const originalNow = Date.now;
   (Module as any)._load = function(request: string, parent: unknown, isMain: boolean) {
     if (request === 'vscode') {
-      return { workspace: { workspaceFolders: [] } };
+      return { workspace: { workspaceFolders: [] }, window: { activeColorTheme: { kind: 1 } } };
     }
     return originalLoad.call(this, request, parent, isMain);
   };
@@ -497,7 +497,14 @@ test('Codex settings and charts use the shared dashboard renderers', () => {
   assert.match(extension, /codexOptimizationEnabled:/);
   assert.match(extension, /private codexInsights: CodexScopedInsights/);
   assert.match(extension, /buildScopedCodexInsights\(this\.codexView\)/);
-  assert.match(extension, /catch \{\s+this\.codexView = null;\s+this\.codexInsights = emptyCodexScopedInsights\(\);\s+this\.codexHasData = false;/);
+  // A transient refresh failure must retain the verified provider snapshot.
+  // Runtime coordinator tests also exercise exceptions and failed-file results.
+  const refreshFailureBoundary = extension.slice(
+    extension.indexOf('private async refreshCodexData('),
+    extension.indexOf('private async cancelCodexProviderAndWait('),
+  );
+  assert.match(refreshFailureBoundary, /this\.recordRefreshState\('codex', true, trigger\)/);
+  assert.doesNotMatch(refreshFailureBoundary, /this\.codexView = null|this\.codexHasData = false/);
   assert.match(webview, /private codexInsights: CodexScopedInsights/);
   assert.match(webview, /this\.codexInsights = codexView \? insights : emptyCodexScopedInsights\(\);/);
 });
