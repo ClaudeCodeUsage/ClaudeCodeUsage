@@ -146,6 +146,7 @@ function coordinatorHarness(dashboardAutoRefresh = false): {
   deliveries: Array<{ kind: string; value: any }>;
   statuses: Array<{ kind: string; value: any; error?: string }>;
   config: any;
+  snapshot: ReturnType<typeof completeCoordinatorSnapshot>;
 } {
   const extension = bareExtension();
   const deliveries: Array<{ kind: string; value: any }> = [];
@@ -208,7 +209,7 @@ function coordinatorHarness(dashboardAutoRefresh = false): {
     },
     cancel: () => undefined,
   };
-  return { extension, deliveries, statuses, config };
+  return { extension, deliveries, statuses, config, snapshot };
 }
 
 test('coordinator paused refresh still invalidates prepared advice source revisions without delivering panels', () => {
@@ -243,7 +244,8 @@ test('coordinator dashboard pause suppresses automatic Codex data, insights and 
 });
 
 test('coordinator manual and settings feedback deliver Codex dashboards while paused', async () => {
-  const { extension, deliveries } = coordinatorHarness();
+  const { extension, deliveries, snapshot } = coordinatorHarness();
+  Object.assign(snapshot.hourlyCoverage!, { indexedFiles: 1, indexedBytes: 300, complete: false });
   await extension.runCodexRefresh('manual');
   assert.ok(deliveries.some(value => value.kind === 'provider'));
   assert.ok(deliveries.some(value => value.kind === 'progress'));
@@ -321,7 +323,8 @@ test('coordinator paused startup permits one verified Codex hydration without re
 });
 
 test('coordinator automatic Codex delivery remains active when dashboard refresh is enabled', async () => {
-  const { extension, deliveries } = coordinatorHarness(true);
+  const { extension, deliveries, snapshot } = coordinatorHarness(true);
+  Object.assign(snapshot.hourlyCoverage!, { indexedFiles: 1, indexedBytes: 300, complete: false });
   await extension.runCodexRefresh('watch');
   assert.ok(deliveries.some(value => value.kind === 'provider'));
   assert.ok(deliveries.some(value => value.kind === 'advice-state'));
@@ -411,6 +414,142 @@ test('coordinator warm Codex exceptions preserve verified view and manual failur
     [{ failed: true, lastSuccessfulAt: 1_234 }]);
   assert.equal(JSON.stringify(deliveries).includes('/private/fixture'), false);
   assert.equal(extension.codexRefreshDrain, null);
+});
+
+test('coordinator same-home unavailability keeps verified Codex data navigable', async () => {
+  for (const source of ['discovery', 'worker']) {
+    const { extension, deliveries, config } = coordinatorHarness(true);
+    config.codexDataDirectory = '/synthetic/home-a';
+    extension.applyCodexSnapshot(completeCoordinatorSnapshot());
+    const verified = extension.codexView;
+    if (source === 'discovery') extension.codexProvider.isAvailable = async () => false;
+    else extension.codexProvider.refresh = async () => ({ outcome: 'unavailable' });
+    await extension.runCodexRefresh('manual');
+    assert.equal(extension.codexView, verified);
+    assert.equal(extension.codexAvailable, true, source);
+    assert.equal(deliveries.filter(value => value.kind === 'provider').slice(-1)[0]?.value.codex, true, source);
+  }
+});
+
+test('coordinator different-home failure cannot retain the old view, insights or success timestamp', async () => {
+  for (const source of ['discovery', 'worker']) {
+    const { extension, deliveries, config } = coordinatorHarness(true);
+    config.codexDataDirectory = '/synthetic/home-a';
+    extension.applyCodexSnapshot(completeCoordinatorSnapshot());
+    extension.providerRefreshStates.codex = { failed: false, lastSuccessfulAt: 1_234 };
+    const oldSnapshot = completeCoordinatorSnapshot();
+    let hydrationReads = 0;
+    let statusClears = 0;
+    extension.statusBar.clearCodex = () => { statusClears++; };
+    config.codexDataDirectory = '/synthetic/home-b';
+    extension.codexProvider = {
+      isAvailable: async () => source !== 'discovery',
+      loadPersistedSnapshot: async () => { hydrationReads++; return oldSnapshot; },
+      refresh: async () => ({ outcome: 'error', snapshot: oldSnapshot }),
+    };
+    await extension.runCodexRefresh('manual');
+    assert.equal(extension.codexView, null, source);
+    assert.equal(extension.codexHasData, false, source);
+    assert.notEqual(extension.codexInsights, undefined);
+    assert.equal(extension.providerRefreshStates.codex.lastSuccessfulAt, undefined, source);
+    assert.equal(hydrationReads, 0, 'the shared checkpoint is not proof of a new home');
+    assert.ok(statusClears >= 1, 'the old home cannot remain cached in the status bar');
+    assert.ok(deliveries.some(value => value.kind === 'provider'));
+  }
+});
+
+test('coordinator late discovery or failure from a retired provider cannot mutate a replacement', async () => {
+  for (const result of ['unavailable', 'reject']) {
+    const { extension, deliveries } = coordinatorHarness(true);
+    let resolve!: (value: boolean) => void;
+    let reject!: (error: Error) => void;
+    extension.codexProvider.isAvailable = () => new Promise<boolean>((yes, no) => { resolve = yes; reject = no; });
+    const pending = extension.refreshCodexData('manual');
+    await new Promise(done => setImmediate(done));
+    extension.configurationGeneration++;
+    extension.codexProvider = { isAvailable: async () => true };
+    extension.codexView = { owner: 'replacement' };
+    extension.codexAvailable = true;
+    extension.codexRefreshing = true;
+    extension.providerRefreshStates.codex = { failed: false, lastSuccessfulAt: 7_777 };
+    deliveries.length = 0;
+    if (result === 'reject') reject(new Error('retired source'));
+    else resolve(false);
+    await pending;
+    assert.deepEqual(extension.codexView, { owner: 'replacement' });
+    assert.equal(extension.codexAvailable, true, result);
+    assert.equal(extension.codexRefreshing, true, result);
+    assert.deepEqual(extension.providerRefreshStates.codex, { failed: false, lastSuccessfulAt: 7_777 });
+    assert.deepEqual(deliveries, [], result);
+  }
+});
+
+test('coordinator identical verified Codex snapshots retain view and insight identity', () => {
+  const { extension } = coordinatorHarness(true);
+  const snapshot = completeCoordinatorSnapshot();
+  extension.applyCodexSnapshot(snapshot);
+  const verified = extension.codexView;
+  const insights = extension.codexInsights;
+  extension.applyCodexSnapshot(structuredClone(snapshot));
+  assert.equal(extension.codexView, verified);
+  assert.equal(extension.codexInsights, insights);
+  const renamed = structuredClone(snapshot);
+  renamed.files[0].session.sessionTitle = 'A changed safe title';
+  extension.applyCodexSnapshot(renamed);
+  assert.notEqual(extension.codexView, verified, 'titles are part of the render revision');
+});
+
+test('coordinator retirement during preflight state persistence cannot start a retired worker', async () => {
+  const { extension, deliveries } = coordinatorHarness(true);
+  let resume!: () => void;
+  let workerStarts = 0;
+  extension.codexProvider.loadPersistedSnapshot = async () => null;
+  extension.codexProvider.refresh = async () => { workerStarts++; return { outcome: 'unavailable' }; };
+  extension.saveCodexBackgroundState = () => new Promise<void>(resolve => { resume = resolve; });
+  const pending = extension.refreshCodexData('manual');
+  await new Promise(done => setImmediate(done));
+  extension.configurationGeneration++;
+  extension.codexProvider = { isAvailable: async () => true };
+  extension.codexView = { owner: 'replacement' };
+  const replacementState = createBackgroundWorkState({ measurementVersion: 1, reason: 'first-index', now: 7_777 });
+  extension.codexBackgroundState = replacementState;
+  extension.codexRefreshing = true;
+  deliveries.length = 0;
+  resume();
+  await pending;
+  assert.equal(workerStarts, 0);
+  assert.equal(extension.codexBackgroundState, replacementState);
+  assert.equal(extension.codexRefreshing, true);
+  assert.deepEqual(deliveries, []);
+});
+
+test('coordinator repeated complete metadata polls retain verified render revisions without fake backfill', async () => {
+  const { extension } = coordinatorHarness(true);
+  await extension.runCodexRefresh('poll');
+  const view = extension.codexView;
+  const insights = extension.codexInsights;
+  assert.equal(extension.codexDashboardProgress(), null);
+  await extension.runCodexRefresh('poll');
+  assert.equal(extension.codexView, view);
+  assert.equal(extension.codexInsights, insights);
+  assert.equal(extension.codexDashboardProgress(), null);
+});
+
+test('coordinator checkpoint hydration cannot outlive disposal or its configuration generation', async () => {
+  for (const boundary of ['dispose', 'configuration']) {
+    const { extension, deliveries, snapshot } = coordinatorHarness(true);
+    let resolve!: (value: typeof snapshot) => void;
+    extension.codexRefreshing = true;
+    extension.codexProvider.loadPersistedSnapshot = () => new Promise<typeof snapshot>(done => { resolve = done; });
+    extension.scheduleCodexCheckpointHydration('manual');
+    const pending = extension.codexCheckpointHydration;
+    if (boundary === 'dispose') extension.disposed = true;
+    else extension.configurationGeneration++;
+    resolve(snapshot);
+    await pending;
+    assert.equal(extension.codexView, null, boundary);
+    assert.deepEqual(deliveries, [], boundary);
+  }
 });
 
 test('coordinator Codex worker errors and failed-file results cannot replace a warm verified subtotal', async () => {

@@ -496,7 +496,7 @@ test('Codex settings and charts use the shared dashboard renderers', () => {
   assert.doesNotMatch(webview, /ccu\.codex/);
   assert.match(extension, /codexOptimizationEnabled:/);
   assert.match(extension, /private codexInsights: CodexScopedInsights/);
-  assert.match(extension, /buildScopedCodexInsights\(this\.codexView\)/);
+  assert.match(extension, /buildScopedCodexInsights\(nextView\)/);
   // A transient refresh failure must retain the verified provider snapshot.
   // Runtime coordinator tests also exercise exceptions and failed-file results.
   const refreshFailureBoundary = extension.slice(

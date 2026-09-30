@@ -3,6 +3,7 @@ import * as https from 'https';
 import * as path from 'path';
 import * as os from 'os';
 import { createHash, randomBytes } from 'crypto';
+import { isDeepStrictEqual } from 'util';
 import { renderHeatmapSvg } from './heatmapSvg';
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
@@ -509,6 +510,9 @@ export class ClaudeCodeUsageExtension {
   private codexRefreshing = false;
   private codexProgress: CodexIndexProgress | null = null;
   private codexProgressLastRenderedAt = 0;
+  /** In-memory source ownership only; never written as a raw path. */
+  private codexSnapshotHome?: string;
+  private codexSkipPersistedHydration = false;
   private claudeDashboardHydrated = false;
   private codexDashboardHydrated = false;
   private providerRefreshStates: Record<'claude' | 'codex', ProviderRefreshState> = {
@@ -2210,13 +2214,14 @@ export class ClaudeCodeUsageExtension {
 
   private codexHome(config: ExtensionConfig): string {
     return resolveCodexHome(
-      config.codexDataDirectory,
+      config.codexDataDirectory ?? '',
       process.env,
       os.homedir(),
     );
   }
 
   private createCodexProvider(config: ExtensionConfig): CodexProvider {
+    this.selectCodexSnapshotHome(this.codexHome(config));
     return new CodexProvider({
       enabled: config.codexEnabled,
       codexHome: this.codexHome(config),
@@ -2226,6 +2231,32 @@ export class ClaudeCodeUsageExtension {
       ),
       salt: this.codexSalt,
       timeZone: resolveTimeZone(config.timezone),
+    });
+  }
+
+  private selectCodexSnapshotHome(home: string): void {
+    if (this.codexSnapshotHome === home) return;
+    const changed = this.codexSnapshotHome !== undefined;
+    this.codexSnapshotHome = home;
+    if (!changed) return;
+    // A shared index checkpoint is not proof that a newly selected home owns
+    // it. Wait for this provider's verified refresh before adopting it.
+    this.codexSkipPersistedHydration = true;
+    this.statusBar.clearCodex?.();
+    this.codexView = null;
+    this.codexInsights = emptyCodexScopedInsights();
+    this.codexHasData = false;
+    this.codexAvailable = false;
+    this.codexRefreshing = false;
+    this.codexProgress = null;
+    this.codexProgressLastRenderedAt = 0;
+    this.codexDashboardHydrated = false;
+    this.providerRefreshStates.codex = { failed: false };
+    delete this.deliveredRefreshStates.codex;
+    this.tryProviderUiUpdate(() => this.webviewProvider.updateRefreshState?.('codex', { failed: false }));
+    this.codexBackgroundState = createBackgroundWorkState({
+      measurementVersion: ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
+      reason: 'first-index', now: Date.now(),
     });
   }
 
@@ -2277,6 +2308,13 @@ export class ClaudeCodeUsageExtension {
     const live = this.codexProgress;
     const coverage = this.codexView?.coverage;
     const state = this.codexBackgroundState;
+    const fullyIndexed = coverage?.complete && coverage.identity.complete &&
+      coverage.period.allTime.complete && this.codexView?.hourlyCoverage.complete;
+    const unchangedCompletePass = !live || (live.scannedFiles === live.totalFiles &&
+      live.indexedBytes === live.totalBytes && live.totalFiles === coverage?.totalFiles &&
+      live.totalBytes === coverage?.totalBytes && live.period?.allTime.complete !== false &&
+      live.hourly?.complete !== false);
+    if (fullyIndexed && unchangedCompletePass && state.status === 'complete') return null;
     if (!live && !this.codexRefreshing &&
       (!coverage || (coverage.complete && coverage.identity.complete &&
         coverage.period.allTime.complete && this.codexView?.hourlyCoverage.complete &&
@@ -2339,6 +2377,8 @@ export class ClaudeCodeUsageExtension {
           config.codexStatusMetric,
           this.codexView.limit,
         );
+      } else {
+        this.statusBar.clearCodex?.();
       }
       this.statusBar.setProvider('codex');
     } else {
@@ -2842,15 +2882,17 @@ export class ClaudeCodeUsageExtension {
       generation !== this.configurationGeneration
     ) return;
     const diagnosticContext = this.takeCodexRefreshDiagnosticContext();
+    const provider = this.codexProvider;
     const operation = this.runCodexRefresh(trigger, diagnosticContext);
     this.activeCodexRefreshes.add(operation);
     try {
       await operation;
     } catch {
+      if (this.disposed || generation !== this.configurationGeneration ||
+        provider !== this.codexProvider) return;
       this.codexRefreshing = false;
       this.codexProgress = null;
       this.codexProgressLastRenderedAt = 0;
-      if (this.disposed) return;
       this.recordRefreshState('codex', true, trigger);
       this.outputChannel.appendLine(
         formatCodexIndexDiagnostic({
@@ -2905,15 +2947,22 @@ export class ClaudeCodeUsageExtension {
     const workerMode = codexRefreshProfileForTrigger(trigger);
     const config = this.getConfiguration();
     const provider = this.codexProvider;
+    const generation = this.configurationGeneration;
+    const ownsCurrentSource = () => !this.disposed && provider === this.codexProvider &&
+      generation === this.configurationGeneration;
+    this.selectCodexSnapshotHome(this.codexHome(config));
     try {
       if (!config.codexEnabled) {
-        await this.cancelCodexProviderAndWait();
+        await this.cancelCodexProviderAndWait(provider);
+        if (!ownsCurrentSource()) return;
         if (this.codexBackfillLease?.active) {
           await this.codexBackfillLease.stop('feature-disabled', () => undefined);
+          if (!ownsCurrentSource()) return;
         }
         this.codexBackfillLease = undefined;
         if (this.codexWorkerLease?.active) {
           await this.codexWorkerLease.stop('feature-disabled', () => undefined);
+          if (!ownsCurrentSource()) return;
         }
         this.codexWorkerLease = undefined;
         this.codexView = null;
@@ -2925,9 +2974,10 @@ export class ClaudeCodeUsageExtension {
         this.codexProgressLastRenderedAt = 0;
         return;
       }
-      this.codexAvailable = await this.codexProvider.isAvailable();
-      if (this.disposed) return;
-      if (!this.codexAvailable) {
+      const available = await provider.isAvailable();
+      if (!ownsCurrentSource()) return;
+      this.codexAvailable = available || Boolean(this.codexView);
+      if (!available) {
         // Availability can fail transiently. Keep the last verified subtotal
         // until an explicit provider/configuration change replaces its owner.
         if (this.codexView || trigger === 'manual') this.recordRefreshState('codex', true, trigger);
@@ -2941,8 +2991,8 @@ export class ClaudeCodeUsageExtension {
       this.codexProgressLastRenderedAt = 0;
       this.syncProviderUiSafely(trigger);
       this.codexCheckpointHydrationLastAttemptAt = Date.now();
-      const persisted = await provider.loadPersistedSnapshot();
-      if (this.disposed || provider !== this.codexProvider) {
+      const persisted = this.codexSkipPersistedHydration ? null : await provider.loadPersistedSnapshot();
+      if (!ownsCurrentSource()) {
         return;
       }
       if (persisted) {
@@ -2957,6 +3007,7 @@ export class ClaudeCodeUsageExtension {
             indexGeneration: this.codexIndexGeneration(persisted),
           });
           await this.saveCodexBackgroundState();
+          if (!ownsCurrentSource()) return;
         }
         this.syncProviderUiSafely(trigger);
       }
@@ -2969,6 +3020,7 @@ export class ClaudeCodeUsageExtension {
           indexGeneration: null,
         });
         await this.saveCodexBackgroundState();
+        if (!ownsCurrentSource()) return;
       }
       const historicalPending = this.codexHistoricalWorkPending(persisted);
       let historicalAttempt = false;
@@ -2982,7 +3034,9 @@ export class ClaudeCodeUsageExtension {
         historicalAttempt = started.started;
         try {
           await this.saveCodexBackgroundState();
+          if (!ownsCurrentSource()) return;
         } catch (error) {
+          if (!ownsCurrentSource()) return;
           if (historicalAttempt && this.codexBackgroundState.status === 'running') {
             this.codexBackgroundState = interruptBackgroundWork(
               this.codexBackgroundState,
@@ -3036,6 +3090,7 @@ export class ClaudeCodeUsageExtension {
             progress: this.codexBackgroundProgress(persisted),
           });
           await this.saveCodexBackgroundState();
+          if (!ownsCurrentSource()) return;
         }
       }
       // The trigger reason is visible while metadata discovery and the first
@@ -3062,21 +3117,21 @@ export class ClaudeCodeUsageExtension {
         }
         const result = await provider.refresh(
           workerMode,
-          (progress) => this.onCodexIndexProgress(progress, trigger),
+          (progress) => { if (ownsCurrentSource()) this.onCodexIndexProgress(progress, trigger); },
           historicalAttempt,
         );
         workerStoppedSafely = true;
-        if (this.disposed || provider !== this.codexProvider) {
+        if (!ownsCurrentSource()) {
           return;
         }
         if (result.outcome === 'unavailable') {
-          this.codexAvailable = false;
+          this.codexAvailable = Boolean(this.codexView);
           if (this.codexView || trigger === 'manual') this.recordRefreshState('codex', true, trigger);
           return;
         }
 
         const refreshFailed = result.outcome === 'error' || (result.diagnostic?.failedFiles ?? 0) > 0;
-        if (!refreshFailed || (!this.codexView && result.snapshot.coverage.totalFiles > 0)) {
+        if (!refreshFailed || (!this.codexSkipPersistedHydration && !this.codexView && result.snapshot.coverage.totalFiles > 0)) {
           this.applyCodexSnapshot(result.snapshot);
         }
         if (!refreshFailed &&
@@ -3090,6 +3145,7 @@ export class ClaudeCodeUsageExtension {
             indexGeneration: this.codexIndexGeneration(result.snapshot),
           });
           await this.saveCodexBackgroundState();
+          if (!ownsCurrentSource()) return;
         }
         if (historicalAttempt && this.codexBackgroundState.status === 'running') {
           const complete = !this.codexHistoricalWorkPending(result.snapshot);
@@ -3115,6 +3171,7 @@ export class ClaudeCodeUsageExtension {
             continueHistoricalWork = this.codexBackgroundState.status === 'eligible';
           }
           await this.saveCodexBackgroundState();
+          if (!ownsCurrentSource()) return;
         }
         if (refreshFailed) {
           this.recordRefreshState('codex', true, trigger);
@@ -3143,6 +3200,7 @@ export class ClaudeCodeUsageExtension {
             indexGeneration: this.codexIndexGeneration(result.snapshot),
           });
           await this.saveCodexBackgroundState();
+          if (!ownsCurrentSource()) return;
           continueHistoricalWork = true;
         }
         this.outputChannel.appendLine(
@@ -3170,8 +3228,8 @@ export class ClaudeCodeUsageExtension {
           }),
         );
       } finally {
-        this.stopFirstBackfillBlurDeadline('cancelled');
-        if (historicalAttempt && this.codexBackgroundState.status === 'running') {
+        if (ownsCurrentSource()) this.stopFirstBackfillBlurDeadline('cancelled');
+        if (ownsCurrentSource() && historicalAttempt && this.codexBackgroundState.status === 'running') {
           this.codexBackgroundState =
             this.codexWorkerCancellationRequested || provider !== this.codexProvider
             ? interruptBackgroundWork(this.codexBackgroundState, { now: Date.now() })
@@ -3204,17 +3262,19 @@ export class ClaudeCodeUsageExtension {
         if (workerStoppedSafely && this.codexWorkerLease === ownedWorkerLease) {
           this.codexWorkerLease = undefined;
         }
-        if (workerStoppedSafely && ownedBackfillLease) {
+        if (ownsCurrentSource() && workerStoppedSafely && ownedBackfillLease) {
           this.codexFirstBackfillActive = false;
         }
       }
     } finally {
-      this.codexRefreshing = false;
-      this.codexProgress = null;
-      this.codexProgressLastRenderedAt = 0;
-      if (!this.disposed) this.syncProviderUiSafely(trigger);
+      if (ownsCurrentSource()) {
+        this.codexRefreshing = false;
+        this.codexProgress = null;
+        this.codexProgressLastRenderedAt = 0;
+        this.syncProviderUiSafely(trigger);
+      }
       if (
-        !this.disposed &&
+        ownsCurrentSource() &&
         continueHistoricalWork &&
         provider === this.codexProvider &&
         this.getConfiguration().codexEnabled &&
@@ -3245,7 +3305,8 @@ export class ClaudeCodeUsageExtension {
   }
 
   private applyCodexSnapshot(snapshot: CodexProviderSnapshot): void {
-    this.codexView = buildCodexUsageView(snapshot);
+    this.selectCodexSnapshotHome(this.codexHome(this.getConfiguration()));
+    const nextView = buildCodexUsageView(snapshot);
     const capturedObservations = snapshot.weeklyValueInputs?.observations ?? [];
     const capturedQuotaFacts = codexQuotaCapturesFromWeeklyObservations(
       capturedObservations,
@@ -3263,13 +3324,19 @@ export class ClaudeCodeUsageExtension {
       previewStore,
       'codex',
     );
-    if (storedCodexObservations.length > 0 && this.codexView.weeklyValueInputs) {
-      this.codexView.weeklyValueInputs = {
-        ...this.codexView.weeklyValueInputs,
+    if (storedCodexObservations.length > 0 && nextView.weeklyValueInputs) {
+      nextView.weeklyValueInputs = {
+        ...nextView.weeklyValueInputs,
         observations: storedCodexObservations,
       };
     }
-    this.codexInsights = buildScopedCodexInsights(this.codexView);
+    // Compare the complete render contract, not merely token totals or body
+    // read counts: titles, pricing, coverage, quotas and periods also matter.
+    if (!isDeepStrictEqual(this.codexView, nextView)) {
+      this.codexView = nextView;
+      this.codexInsights = buildScopedCodexInsights(nextView);
+    }
+    this.codexSkipPersistedHydration = false;
     this.codexAvailable = true;
     this.codexHasData = snapshot.coverage.totalFiles > 0;
     void this.recordCodexQuotaObservations(capturedObservations).catch(() => {
@@ -3281,6 +3348,8 @@ export class ClaudeCodeUsageExtension {
   /** Adopt the first atomic checkpoint during a brand-new cold index. */
   private scheduleCodexCheckpointHydration(trigger: RefreshTrigger = 'poll'): void {
     if (
+      this.disposed ||
+      this.codexSkipPersistedHydration ||
       this.codexView ||
       !this.codexRefreshing ||
       this.codexCheckpointHydration
@@ -3296,10 +3365,14 @@ export class ClaudeCodeUsageExtension {
     }
     this.codexCheckpointHydrationLastAttemptAt = now;
     const provider = this.codexProvider;
+    const generation = this.configurationGeneration;
     const pending = provider.loadPersistedSnapshot()
       .then((snapshot) => {
         if (
           !snapshot ||
+          this.disposed ||
+          generation !== this.configurationGeneration ||
+          this.codexSkipPersistedHydration ||
           provider !== this.codexProvider ||
           !this.codexRefreshing ||
           this.codexView
@@ -3420,6 +3493,7 @@ export class ClaudeCodeUsageExtension {
     void this.cancelQuotaNetworks('settings-change');
     const config = this.getConfiguration();
     const pricingBackendChanged = this.activePricingBackend !== config.pricingBackend;
+    this.selectCodexSnapshotHome(this.codexHome(config));
     this.activePricingBackend = config.pricingBackend;
     setPricingBackend(config.pricingBackend);
     if (pricingBackendChanged) {
@@ -3442,6 +3516,7 @@ export class ClaudeCodeUsageExtension {
     retiringCodexProvider.cancel();
     this.trackCodexProviderRetirement(retiringCodexProvider);
     this.codexProvider = this.createCodexProvider(config);
+    this.syncProviderUiSafely('settings');
     if (!this.windowActivity.focused) {
       return;
     }

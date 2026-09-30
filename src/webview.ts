@@ -3518,7 +3518,8 @@ export class UsageWebviewProvider {
   private cachedDataPanel(name: string, provider: SettingProvider, render: () => string): string {
     const now = new Date(Date.now());
     const refs: unknown[] = provider === 'codex'
-      ? [this.codexView, this.codexInsights, this.codexLoading, this.codexProgress]
+      ? [this.codexView, this.codexInsights,
+          this.codexView ? this.codexLoading && Boolean(this.codexProgress) : this.codexLoading]
       : [this.currentSessionData, this.todayData, this.rolling30DayData, this.allTimeData,
           this.dailyDataForRolling30Days, this.dailyDataForAllTime, this.dailyDataForEveryDay,
           this.hourlyDataForToday, this.hourlyDataForRolling30DaysByDay, this.allRecords,
@@ -3537,6 +3538,7 @@ export class UsageWebviewProvider {
       // Quota reset expiry must not wait for an ordinary data mutation.
       normalizeQuotaWindows(this.usageLimits).map((w) => Date.parse(w.resetsAt) > now.getTime()),
       this.codexView?.limits.map((w) => Boolean(w.resetsAt && w.resetsAt > now.getTime())),
+      provider === 'codex' ? this.codexProgress : null,
       this.settings?.snapshot?.().map((s) => [s.key, s.value]),
       this.providerAvailability, this.sharingTemplate, this.sharingWorkspaceRequested,
       this.lastShareCardConfig,

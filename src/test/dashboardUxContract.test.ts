@@ -147,6 +147,19 @@ test('panel caching expires today countdowns by minute while retaining unchanged
   } finally { Date.now = originalNow; }
 });
 
+test('steady Codex refresh loading without backfill does not recalculate hidden verified panels', () => {
+  const p = provider();
+  p.codexView = { limits: [] };
+  let renders = 0;
+  const render = () => p.cachedDataPanel('all', 'codex', () => String(++renders));
+  render();
+  p.codexLoading = true;
+  render();
+  p.codexLoading = false;
+  render();
+  assert.equal(renders, 1);
+});
+
 test('display, pricing, calendar and expired quota boundaries invalidate cached panels', () => {
   const p = provider();
   const originalNow = Date.now;
