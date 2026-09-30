@@ -1111,6 +1111,7 @@ export class ClaudeCodeUsageExtension {
         'ccu.codex.backgroundWork.v1',
         'ccu.migrated.dashboardAutoRefresh',
         'ccu.migrated.showScopedWeekly',
+        'ccu.migrated.adviceDefaultFormat.v2.4.1',
         LOCAL_DATA_PENDING_CLIENT_RESET_KEY,
         'ccu.quota.migratedCodexIndex.v2',
         'ccu.settingsMigrated.v1',

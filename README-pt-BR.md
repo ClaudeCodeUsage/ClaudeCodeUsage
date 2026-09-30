@@ -24,6 +24,11 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
   Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol e GPT-6 Luna. Campos de modelo inválidos não
   interrompem todo o índice; agregados são copiados uma vez por atualização. Resultados
   em segundo plano e consultas de preços têm limites. IDs Codex desconhecidos ficam sem preço.
+- **Atualização segura:** consultas sem mudanças mantêm prévias aceitas; mudar o diretório
+  Claude limpa dados antigos mesmo com atualização pausada. Chaves existentes sem formato
+  explícito mantêm Anthropic. Em caso de incompatibilidade, escolha formato e URL nas
+  configurações e revise a prévia. Novas instalações usam o padrão OpenAI-compatible,
+  sem redirecionar silenciosamente chaves antigas para outro host.
 - **Claude Code:** custos estimados a partir de tokens e, quando a conta está
   autenticada, limites oficiais de 5 horas e semanais do perfil ativo.
 - **Codex:** tokens processados hoje e saldo semanal restante da última

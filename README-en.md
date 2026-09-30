@@ -84,6 +84,11 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
   protocol and model without silently changing providers. Share Card export
   writes the accepted SVG; edited controls require a new preview. Default reset
   preserves the API key, and Codex directory recovery stays visible on both pages.
+- **Upgrade safety** — unchanged polls keep accepted previews; changing Claude
+  directories clears old data even while updates are paused. Existing API keys
+  without an explicit protocol keep the prior Anthropic format. If preview
+  reports a mismatch, select the intended format and URL in Settings and preview
+  again before sending. New installs use the matching OpenAI-compatible default.
 - **Codex status and scrolling** — today's processed tokens are the default
   compact metric, while weekly quota shows remaining capacity. Live panel
   updates briefly defer during scrolling, with a bounded delay.

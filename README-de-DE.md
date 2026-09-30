@@ -25,6 +25,11 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
   blockieren nicht den gesamten Index; Aggregate werden nur einmal pro Aktualisierung
   kopiert. Hintergrundresultate und Preisabrufe sind begrenzt. Unbekannte Codex-IDs
   bleiben ohne geschätzten Preis.
+- **Sicheres Upgrade:** unveränderte Abfragen erhalten bestätigte Vorschauen; ein Wechsel
+  des Claude-Verzeichnisses verwirft alte Daten auch bei pausierter Aktualisierung. Bestehende
+  API-Schlüssel ohne explizites Format behalten Anthropic. Bei einem Konflikt Format und URL
+  in den Einstellungen bewusst wählen und erneut prüfen. Neue Installationen verwenden
+  OpenAI-kompatible Vorgaben, ohne alte Schlüssel still an einen anderen Host umzuleiten.
 - **Claude Code:** geschätzte Token-Kosten und, bei gültiger Anmeldung, die
   offiziellen 5-Stunden- und Wochenquoten des aktiven Claude-Profils.
 - **Codex:** heute verarbeitete Token und die zuletzt beobachtete

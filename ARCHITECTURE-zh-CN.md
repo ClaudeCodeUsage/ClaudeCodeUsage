@@ -209,6 +209,13 @@ v2.3.0 不读 Codex credential，也不发网络请求刷新它。
 
 ## 隐私与持久化
 
+AI 密钥初始化在激活前完成一次协议兼容迁移。已有密钥而没有明确的 state／旧配置协议时，
+保留旧 Anthropic 默认；明确的协议不变，新安装无密钥时采用 OpenAI 兼容默认。
+`ccu.migrated.adviceDefaultFormat.v2.4.1` 只保存兼容协议枚举，不保存密钥、账户或地址，
+普通恢复默认不会移除它；匿名库存及确认式「清除全部派生数据」的精确 allowlist 包含它。
+不匹配的地址在准备请求前拒绝，不更换主机。迁移写入失败会清空本次激活已加载的密钥，
+保留可恢复的 SecretStorage 内容，且不阻断用量页面。
+
 Codex 发现仅限：
 
 - `$CODEX_HOME/sessions/**/*.jsonl`

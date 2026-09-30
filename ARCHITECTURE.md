@@ -315,10 +315,23 @@ query parameters and fragments are rejected before preview to prevent secret
 disclosure. A private WeakMap seal binds all metadata and the original byte object;
 public hash recomputation cannot authorize rerouting. Ordinary settings reset
 preserves SecretStorage; separately confirmed clear-key controls own deletion.
+Secret initialization also completes a one-time advice-format migration before
+activation can expose the key. An existing key without an explicit state/legacy
+configuration format pins the prior Anthropic default; explicit formats are
+preserved and new keyless installs use OpenAI-compatible defaults. The bounded
+`ccu.migrated.adviceDefaultFormat.v2.4.1` enum stores only this compatibility
+default, not a key, account or endpoint, and survives ordinary defaults reset.
+Incompatible endpoints fail before preparation; a failed migration clears loaded
+keys for that activation, retaining the recoverable SecretStorage value. The
+explicit clear-all allowlist and value-free inventory include the enum marker.
 
 中文：AI 预览包含最终地址、API 格式和模型，地址规范化不更换主机或代理前缀。
 不匹配的协议及含凭据、查询参数或片段的 URL 在预览前拒绝；私有完整性快照绑定
 目标信息和原始请求字节。恢复默认设置不删除 SecretStorage 中的密钥。
+激活前完成协议兼容迁移：已有密钥且未明确设置协议时保留旧 Anthropic 默认，显式设置
+不变，新安装采用 OpenAI 兼容默认。枚举迁移标记只保存兼容协议，不含密钥、账户或地址；
+普通恢复默认保留它，确认清除全部派生数据才清除。迁移失败使本次 AI 功能无可用密钥，
+不删除可恢复的 SecretStorage 密钥，也不阻断用量页面。
 
 Advice consent changes invalidate prepared handles immediately. A host-side
 pending-write counter blocks new previews and sends until every queued consent

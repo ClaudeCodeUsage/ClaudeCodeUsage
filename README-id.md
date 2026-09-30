@@ -79,6 +79,11 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
   Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol, dan GPT-6 Luna. Metadata model yang tidak valid
   tidak menggagalkan seluruh indeks; agregat disalin sekali per pembaruan. Hasil latar
   belakang dan pembaruan harga dibatasi kapasitasnya. ID Codex tak dikenal tetap tanpa harga.
+- **Keamanan peningkatan** — polling tanpa perubahan mempertahankan pratinjau yang diterima;
+  mengganti direktori Claude menghapus data lama meskipun pembaruan dijeda. Kunci lama tanpa
+  format eksplisit tetap memakai format Anthropic. Jika tidak cocok, pilih format API dan URL
+  di Pengaturan lalu tinjau kembali. Instalasi baru memakai OpenAI-compatible tanpa mengalihkan
+  kunci lama ke host lain secara diam-diam.
 - **Status Codex dan pengguliran** — metrik ringkas bawaan menampilkan token
   yang diproses hari ini, sedangkan jatah mingguan menampilkan sisanya.
   Pembaruan panel ditunda sebentar saat menggulir, dengan batas waktu tunggu.

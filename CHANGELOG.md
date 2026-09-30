@@ -67,6 +67,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   URLs, and supports DeepSeek's explicit Anthropic-compatible prefix. Previews
   disclose endpoint, format and model alongside canonical bytes; private integrity
   seals bind destination metadata to the exact prepared request.
+  Before advice activation, an existing BYOK key without an explicit format
+  retains its prior Anthropic protocol. Explicit formats remain unchanged;
+  new installs use the matching OpenAI-compatible default. Incompatible legacy
+  endpoints require an explicit format/URL correction, never a silent host switch.
+  Migration failure disables advice for that activation without losing the
+  stored key or disabling usage views. Ordinary reset retains this compatibility
+  default; separately confirmed clear-all also clears the non-secret enum marker.
 - **Share Card preview/export mismatch** — editing range, theme, number format
   or visible sections disables export until a matching preview is accepted.
   Stale preview replies cannot enable a newer draft. Export writes that immutable

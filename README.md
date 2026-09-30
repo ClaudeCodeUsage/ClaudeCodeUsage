@@ -207,6 +207,13 @@ real account or an installed-VSIX capture.*
   host. Share Card export writes the accepted SVG and requires a new preview
   after control changes. Ordinary defaults reset preserves the API key, and
   the Codex directory remains editable even when provider detection fails.
+- **Upgrade safety** — unchanged polls retain accepted sharing previews; changing
+  the Claude data directory clears the old source even while updates are paused.
+  Existing API keys without an explicit protocol retain the prior Anthropic
+  format. If preview reports a mismatch, choose the intended API format and URL
+  in Settings, then preview again before sending. Upgrade/default reset never
+  silently reroutes that key to the new DeepSeek default; new installs use the
+  matching OpenAI-compatible format.
 - **Codex status and scrolling** — the default compact Token item shows today's
   processed amount; the separate weekly indicator shows remaining capacity.
   Live panel updates wait briefly for scrolling to pause, with a bounded delay.
