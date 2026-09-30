@@ -1221,6 +1221,80 @@ test('content analysis ages out records later on the same configured-zone day', 
   }
 });
 
+test('a new transcript does not re-tag the files discovered after it', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-discovery-rank-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-discovery-rank');
+  await mkdir(project, { recursive: true });
+  try {
+    const established: string[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      const file = path.join(project, `session-${String(index).padStart(2, '0')}.jsonl`);
+      established.push(file);
+      const minute = String(index).padStart(2, '0');
+      await writeFile(file, [
+        usageLine(`rank-${index}-a`, 10 + index, 2, { timestamp: `2026-09-10T08:${minute}:00.000Z` }),
+        usageLine(`rank-${index}-b`, 20 + index, 3, { timestamp: `2026-09-10T09:${minute}:00.000Z` }),
+        analysisTextLine(`rank-uuid-${index}`, `text ${index}`, `2026-09-10T09:${minute}:30.000Z`),
+        '',
+      ].join('\n'), 'utf8');
+    }
+    // The new transcript lands in the middle of discovery order and ties with
+    // the file it pushes right: same first timestamp and the same message, so
+    // only discovery order decides which copy is counted.
+    const inserted = path.join(project, 'session-04-inserted.jsonl');
+    await writeFile(inserted, [
+      usageLine('rank-4-a', 14, 2, { timestamp: '2026-09-10T08:04:00.000Z' }),
+      usageLine('rank-inserted', 7, 1, { timestamp: '2026-09-10T10:00:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+
+    const coldManifest = await manifestInOrder(established);
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { manifest: coldManifest });
+
+    const withInserted = [...established.slice(0, 4), inserted, ...established.slice(4)];
+    const warmManifest = await manifestInOrder(withInserted);
+    const warm = await updateClaudeUsageIndex(cold.index, root, { manifest: warmManifest });
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      manifest: warmManifest,
+    });
+
+    assert.equal(warm.diagnostics.bodyReads, 1);
+    // Re-tagging the eight later files removed and re-added all 16 of their
+    // records (32+ mutations); now only the new file's own records move.
+    assert.ok(
+      warm.diagnostics.aggregateMutations <= 4,
+      `later files were re-tagged: ${warm.diagnostics.aggregateMutations} mutations`,
+    );
+    // The tie is real: the full loader counts the shared message for the new
+    // file, which comes first in discovery order.
+    const sharedOwners = full.records
+      .filter((record) => record.message.id === 'message-rank-4-a')
+      .map((record) => record._sessionId);
+    assert.deepEqual(sharedOwners, ['session-04-inserted']);
+    assert.deepEqual(normalized(warm.records), normalized(full.records));
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+
+    // Known files changing their relative order falls back to manifest
+    // positions and still matches the full loader.
+    const reordered = [...withInserted];
+    [reordered[1], reordered[2]] = [reordered[2], reordered[1]];
+    const reorderedManifest = await manifestInOrder(reordered);
+    const swapped = await updateClaudeUsageIndex(warm.index, root, { manifest: reorderedManifest });
+    const swappedFull = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      manifest: reorderedManifest,
+    });
+    assert.deepEqual(normalized(swapped.records), normalized(swappedFull.records));
+    assert.deepEqual(swapped.contentAnalysis, swappedFull.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('a newly discovered earlier file takes global content UUID ownership', async () => {
   const previousNow = Date.now;
   Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
