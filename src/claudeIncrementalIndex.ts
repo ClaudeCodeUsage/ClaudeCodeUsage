@@ -1248,7 +1248,14 @@ function rebaseFileAnalysisCutoff(
   const last = prior.analysisLastTimestampMs;
   if (cutoffMs < prior.analysis.cutoffMs) {
     if (first !== undefined && first < prior.analysis.cutoffMs) return null;
-  } else if (last !== undefined && last < cutoffMs && !prior.analysisHasUnboundedTimestamp) {
+  } else if (last !== undefined && last < cutoffMs && last >= prior.analysis.cutoffMs &&
+    !prior.analysisHasUnboundedTimestamp) {
+    // The last event has just left the window, so the contribution empties.
+    // A file whose last event was already outside the previous cutoff is empty
+    // already and falls through to the metadata-only rebase below: handing it
+    // fresh collections on every refresh made each such file look changed,
+    // which kept the append fast path off for good on any history older than
+    // the window.
     return {
       ...prior,
       path: entry.path,
