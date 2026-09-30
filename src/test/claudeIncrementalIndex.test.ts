@@ -670,6 +670,63 @@ test('the window drifting past an old event keeps the refresh incremental', asyn
   }
 });
 
+test('a file already outside the window keeps its empty contribution as the window drifts', async () => {
+  const previousNow = Date.now;
+  let now = Date.parse('2026-09-10T12:00:00.000Z');
+  Date.now = () => now;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-window-expired-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-window-expired');
+  await mkdir(project, { recursive: true });
+  try {
+    // Every event of this file is older than the window: its analysis
+    // contribution is empty from the first refresh on.
+    const expired = path.join(project, 'session-expired.jsonl');
+    await writeFile(expired, `${analysisTextLine(
+      'expired-seed', 'long gone', '2026-08-01T08:00:00.000Z',
+    )}
+`, 'utf8');
+    const active = path.join(project, 'session-active.jsonl');
+    await writeFile(active, `${analysisTextLine(
+      'active-seed', 'recent', '2026-09-10T11:00:00.000Z',
+    )}
+`, 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { windowDays: 30 });
+    const expiredOf = (index: typeof cold.index) =>
+      [...index.files.values()].find((file) => file.path === expired);
+    const coldExpired = expiredOf(cold.index);
+    assert.ok(coldExpired?.analysis);
+
+    // The window moves on by a minute on every refresh while another session
+    // appends. The expired file stays empty; handing it fresh collections each
+    // time made it read as a changed payload and kept the append fast path off
+    // for good on any history older than the window.
+    let previous = cold;
+    for (let step = 1; step <= 3; step += 1) {
+      now += 60_000;
+      await appendFile(active, `${analysisTextLine(
+        `active-tail-${step}`, `tail ${step}`, new Date(now - 1_000).toISOString(),
+      )}
+`, 'utf8');
+      const warm = await updateClaudeUsageIndex(previous.index, root, { windowDays: 30 });
+      const full = await ClaudeDataLoader.loadUsageRecords(root, {
+        analyzeContent: true,
+        windowDays: 30,
+      });
+      assert.equal(warm.diagnostics.bodyReads, 1);
+      assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+      const warmExpired = expiredOf(warm.index);
+      assert.ok(warmExpired?.analysis);
+      assert.equal(warmExpired.analysis.seenUuids, coldExpired.analysis.seenUuids);
+      assert.equal(warmExpired.analysis.cat, coldExpired.analysis.cat);
+      previous = warm;
+    }
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('a file that is appended to while losing an event to the window stays incremental', async (t) => {
   const previousNow = Date.now;
   let now = Date.parse('2026-09-10T12:00:00.000Z');
