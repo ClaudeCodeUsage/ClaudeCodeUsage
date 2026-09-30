@@ -538,6 +538,74 @@ test('a newly started session file does not rebuild the established corpus', asy
   }
 });
 
+test('the exact analysis cutoff reads a boundary file only when an event expires', async () => {
+  const previousNow = Date.now;
+  let now = Date.parse('2026-09-10T12:05:00.000Z');
+  Date.now = () => now;
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-window-step-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture-window-step');
+  await mkdir(project, { recursive: true });
+  try {
+    // A session that was busy 30 days ago at this time of day: events every few
+    // minutes right at the edge of the window.
+    const boundary = path.join(project, 'session-boundary.jsonl');
+    const lines: string[] = [];
+    for (let minute = 10; minute < 60; minute += 5) {
+      lines.push(analysisTextLine(
+        `boundary-${minute}`, `edge ${minute}`, `2026-08-11T12:${String(minute).padStart(2, '0')}:00.000Z`,
+      ));
+    }
+    await writeFile(boundary, `${lines.join('\n')}\n`, 'utf8');
+    const active = path.join(project, 'session-active.jsonl');
+    await writeFile(active, `${analysisTextLine('active', 'recent', '2026-09-10T12:00:00.000Z')}\n`, 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { windowDays: 30 });
+    assert.equal(cold.index.analysisCutoffMs, Date.parse('2026-08-11T12:05:00.000Z'));
+
+    // Moving the exact cutoff between admitted-event frontiers requires no
+    // body read. Equality still admits the event; one millisecond later it
+    // expires immediately rather than lingering until the next whole hour.
+    let previous = cold;
+    for (const [time, expectedReads, expectedCount] of [
+      ['12:09:59.999', 0, 11],
+      ['12:10:00.000', 0, 11],
+      ['12:10:00.001', 1, 10],
+      ['12:10:30.000', 0, 10],
+      ['12:15:00.001', 1, 9],
+    ] as const) {
+      now = Date.parse(`2026-09-10T${time}Z`);
+      const warm = await updateClaudeUsageIndex(previous.index, root, { windowDays: 30 });
+      const full = await ClaudeDataLoader.loadUsageRecords(root, {
+        analyzeContent: true,
+        windowDays: 30,
+      });
+      assert.equal(warm.diagnostics.bodyReads, expectedReads);
+      assert.equal(warm.index.analysisCutoffMs, now - 30 * 24 * 60 * 60 * 1000);
+      assert.equal(
+        warm.contentAnalysis?.categories.find((slice) => slice.key === 'assistantText')?.count,
+        expectedCount,
+      );
+      assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+      previous = warm;
+    }
+
+    // Once all boundary events are outside the exact window, metadata alone
+    // expires the entire contribution; the full loader still agrees.
+    now = Date.parse('2026-09-10T13:00:00.000Z');
+    const stepped = await updateClaudeUsageIndex(previous.index, root, { windowDays: 30 });
+    const steppedFull = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.equal(stepped.index.analysisCutoffMs, Date.parse('2026-08-11T13:00:00.000Z'));
+    assert.equal(stepped.diagnostics.bodyReads, 0);
+    assert.deepEqual(stepped.contentAnalysis, steppedFull.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('the window drifting past an old event keeps the refresh incremental', async (t) => {
   const previousNow = Date.now;
   let now = Date.parse('2026-09-10T12:00:00.000Z');

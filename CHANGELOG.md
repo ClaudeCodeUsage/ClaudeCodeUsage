@@ -59,6 +59,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   hidden Share Card and heatmap artifacts are not rebuilt on every refresh.
   Materialized daily aggregates are reused while their input and pricing
   identity is unchanged.
+- **Shared exact content-analysis cutoff (#99)** — the full loader and
+  incremental index now use one rolling-cutoff helper. The full loader captures
+  it once for both content analysis and calibration, keeping those windows
+  aligned even if parsing crosses an expiry boundary. Millisecond precision
+  remains unchanged; existing timestamp frontiers skip body reads between
+  actual expiries. The proposed hourly approximation is not applied.
 
 ### Fixed
 - **Claude all-time drill-down cost on large histories** — month → day uses a

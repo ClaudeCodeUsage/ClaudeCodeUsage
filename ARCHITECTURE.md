@@ -333,7 +333,10 @@ files and aggregate groups. Content-analysis contributions and the established
 cross-file response-identity rules are updated through the same atomic path.
 Content analysis keeps a process-local materialized accumulator. Its cutoff is
 the same continuously rolling millisecond cutoff used by `ClaudeDataLoader`, not
-a local-midnight approximation. Per-file oldest-admitted timestamps and the
+a local-midnight approximation. Both loaders use the shared exact-cutoff helper;
+the full loader captures it once for content analysis and calibration, so a
+clock advance during parsing cannot give those contributions different windows.
+Per-file oldest-admitted timestamps and the
 oldest calibration record act as frontiers: moving the cutoff between frontiers
 changes no result and needs no body read, while whole retained or expired files
 can be rebased from metadata. Crossing a frontier reparses the affected boundary
