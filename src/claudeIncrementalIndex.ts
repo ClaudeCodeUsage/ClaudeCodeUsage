@@ -11,6 +11,7 @@ import {
   AnalysisAcc,
   AnalysisBucket,
   AnalysisStructuralEvent,
+  analysisWindowCutoffMs,
   analyzeLine,
   ClaudeDataLoader,
   compactUsageRecord,
@@ -2470,10 +2471,10 @@ export async function updateClaudeUsageIndex(
   const nowMs = Date.now();
   const analysisAsOfDay = dayKeyInZone(new Date(nowMs), configuredTimeZone);
   const previousAnalysisRuntime = analysisRuntimeByIndex.get(previous);
-  // ClaudeDataLoader uses a continuously rolling millisecond cutoff. Keep the
-  // same contract here; timestamp frontiers below avoid reparsing when moving
-  // the cutoff cannot yet change any materialized contribution.
-  const analysisCutoffMs = nowMs - windowDays * 24 * 60 * 60 * 1000;
+  // Share ClaudeDataLoader's exact rolling cutoff. Timestamp frontiers below
+  // avoid reparsing between actual expiries without rounding or widening the
+  // established content-analysis window.
+  const analysisCutoffMs = analysisWindowCutoffMs(nowMs, windowDays);
   const manifest = options.manifest ?? await scanUsageManifest([root]);
   const currentEntries = [...manifest.entries.values()];
   const previousByPath = new Map([...previous.files.values()].map((file) => [file.path, file]));

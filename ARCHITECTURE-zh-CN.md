@@ -310,7 +310,9 @@ Claude polling 始终遵守 `refreshInterval`，file watcher 使用配置的 qui
 append 只读已验证 tail，truncate/replace/move/delete 只重建受影响文件和 aggregate group。
 内容分析 contribution 与既有跨文件 response-identity 规则通过同一原子路径更新。内容分析维护
 process-local 的已物化 accumulator，其 cutoff 与 `ClaudeDataLoader` 一样按毫秒连续滚动，而不是
-用本地午夜近似。每个文件记录“已纳入 contribution 的最早时间戳”，校准也记录最早 record，二者
+用本地午夜近似。两个 loader 共用精确截止点 helper；完整 loader 只采样一次截止点，同时用于内容
+分析与校准，避免解析期间时钟前移导致两者的窗口不一致。每个文件记录“已纳入 contribution 的最早
+时间戳”，校准也记录最早 record，二者
 作为 frontier：cutoff 在 frontier 之间移动不会改变结果，也无需读取正文；可证明整文件保留或
 整文件过期时同样只用元数据 rebase。cutoff 跨过 frontier 时，只重读受影响的边界文件，以及
 first-owner 可能变化的 UUID claimant。

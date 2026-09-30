@@ -223,6 +223,17 @@ export function newAnalysisAcc(cutoffMs: number, captureStructuralEvents = false
   };
 }
 
+/**
+ * Exact rolling content-analysis cutoff shared by the full loader and the
+ * incremental index. Keep millisecond precision: rounding could retain expired
+ * content, prompt samples and calibration contributions. The full loader also
+ * reuses this single captured cutoff for analysis and calibration, so a clock
+ * advance during parsing cannot give them different windows.
+ */
+export function analysisWindowCutoffMs(nowMs: number, windowDays: number): number {
+  return nowMs - windowDays * 24 * 60 * 60 * 1000;
+}
+
 const MAX_SKILL_USES = 5000;
 
 // Session-management slash commands: invoking them says nothing about what
@@ -792,7 +803,7 @@ export class ClaudeDataLoader {
     // How many days back the content analysis (and its prompt sample) looks.
     // Configurable via advice.promptWindowDays; defaults to 30.
     const windowDays = Math.min(365, Math.max(1, Math.round(options?.windowDays ?? 30)));
-    const windowMs = windowDays * 24 * 60 * 60 * 1000;
+    const analysisCutoffMs = analysisWindowCutoffMs(Date.now(), windowDays);
     const log = options?.log;
     const readParseStarted = performance.now();
     let filesDiscovered = 0;
@@ -828,7 +839,7 @@ export class ClaudeDataLoader {
       const customTitleBySession: Record<string, string> = Object.create(null);
       // Content analysis (last `windowDays` days, default 30) is optional —
       // skipped when the user disables it via claudeCodeUsage.enableContentAnalysis.
-      const analysis = analyzeContent ? newAnalysisAcc(Date.now() - windowMs) : null;
+      const analysis = analyzeContent ? newAnalysisAcc(analysisCutoffMs) : null;
       // Per-refresh caches for sub-agent attribution lookups: agent type from
       // agent-*.meta.json (keyed by meta path) and workflow display name from
       // the session's workflows/scripts dir (keyed by workflow id).
@@ -1165,7 +1176,7 @@ export class ClaudeDataLoader {
         // Calibration anchors (Phase 8): exact billed token totals over the
         // analysis window (same cutoff the analyzer used), so the text-length
         // category estimates can be scaled to billing reality.
-        const calibrationCutoff = Date.now() - windowMs;
+        const calibrationCutoff = analysisCutoffMs;
         let realOutputTokens = 0;
         let realInputSideTokens = 0;
         for (const r of records) {
