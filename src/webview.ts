@@ -2613,6 +2613,16 @@ export class UsageWebviewProvider {
     this.show();
   }
 
+  /** Drop every source-owned artifact before a replacement source is verified. */
+  clearClaudeSource(): void {
+    this.usageLimits = null;
+    this.claudeWeeklyQuotaHistory = [];
+    this.invalidatePreparedAiRequests();
+    this.weeklyUsageCache = undefined;
+    this.invalidateSharingCaches();
+    this.updateData(null, null, null, null, [], [], [], undefined, null, []);
+  }
+
   updateData(
     sessionData: SessionData | null,
     todayData: UsageData | null,
@@ -2801,6 +2811,7 @@ export class UsageWebviewProvider {
       return;
     }
     const changed = JSON.stringify(usageLimits) !== JSON.stringify(this.usageLimits);
+    if (!changed) return;
     this.usageLimits = usageLimits;
     // Re-render only on change so the cheap quota poll doesn't redraw the
     // dashboard (and reset scroll position) every tick.
@@ -2813,6 +2824,7 @@ export class UsageWebviewProvider {
    * extension host. No OAuth data or account identity enters the webview. */
   updateWeeklyQuotaHistory(history: WeeklyQuotaObservation[]): void {
     const changed = JSON.stringify(history) !== JSON.stringify(this.claudeWeeklyQuotaHistory);
+    if (!changed) return;
     this.claudeWeeklyQuotaHistory = history.map((item) => ({ ...item }));
     if (changed && this.panel && !this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)) {
       this.updateWebview();

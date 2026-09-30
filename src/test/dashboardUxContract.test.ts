@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import Module = require('node:module');
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 let handler: (message: Record<string, unknown>) => Promise<void>;
 let saveDialogs = 0;
@@ -42,6 +45,9 @@ const { UsageWebviewProvider } = require('../webview') as typeof import('../webv
 const { SETTINGS, settingAppliesToProvider } = require('../settings') as typeof import('../settings');
 const { I18n } = require('../i18n') as typeof import('../i18n');
 const { getPricingBackend, setPricingBackend } = require('../pricing') as typeof import('../pricing');
+const { ClaudeCodeUsageExtension } = require('../extension') as typeof import('../extension');
+const { createClaudeUsageIndex } = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+const { RefreshSingleFlight } = require('../refreshPolicy') as typeof import('../refreshPolicy');
 (Module as any)._load = originalLoad;
 
 function provider(): any {
@@ -114,6 +120,104 @@ test('unchanged dashboard renders reuse hidden data panels, but record and displ
   p.settings = { get: (_k: string, fallback: unknown) => fallback, snapshot: () => [{ key: 'displayCurrency', value: 'EUR' }] };
   p.getMainContent();
   assert.equal(allTimeRenders, 3);
+});
+
+test('identical quota observations preserve cache references instead of invalidating hidden panels', () => {
+  const p = provider();
+  p.panel = undefined;
+  const quota = { seven_day: { utilization: 25, resets_at: '2026-10-07T12:00:00Z' } };
+  const history = [{ provider: 'claude', observedAt: 1_000, usedFraction: 0.25, resetsAt: 2_000 }];
+  p.updateQuota(quota);
+  p.updateWeeklyQuotaHistory(history);
+  const quotaReference = p.usageLimits;
+  const historyReference = p.claudeWeeklyQuotaHistory;
+  let renders = 0;
+  p.cachedDataPanel('all', 'claude', () => String(++renders));
+  p.updateQuota(structuredClone(quota));
+  p.updateWeeklyQuotaHistory(structuredClone(history));
+  p.cachedDataPanel('all', 'claude', () => String(++renders));
+  assert.equal(p.usageLimits, quotaReference);
+  assert.equal(p.claudeWeeklyQuotaHistory, historyReference);
+  assert.equal(renders, 1);
+  p.updateQuota({ seven_day: { ...quota.seven_day, utilization: 30 } });
+  p.cachedDataPanel('all', 'claude', () => String(++renders));
+  assert.equal(renders, 2, 'changed quota still invalidates the render contract');
+});
+
+test('production coordinator polls preserve accepted previews and never patch unchanged Claude panels', async (t) => {
+  const p = provider();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-production-preview-'));
+  const originalNow = Date.now;
+  const now = Date.parse('2026-09-30T12:00:20Z');
+  Date.now = () => now;
+  t.after(() => { Date.now = originalNow; fs.rmSync(root, { recursive: true, force: true }); });
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date(now).toISOString(), requestId: 'preview', message: { id: 'preview',
+      model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 1 } } }) + '\n');
+  const e = Object.create(ClaudeCodeUsageExtension.prototype) as any;
+  Object.assign(e, {
+    configurationGeneration: 0, disposed: false, quotaColdRetryDone: true,
+    settings: { get: () => false }, refreshGate: new RefreshSingleFlight(),
+    providerRefreshStates: { claude: { failed: false }, codex: { failed: false } }, deliveredRefreshStates: {},
+    cache: { records: [], contentAnalysis: null, manifest: null, claudeIndex: createClaudeUsageIndex(),
+      lastUpdate: new Date(0), dataDirectory: null, usageLimits: null },
+    webviewProvider: p, outputChannel: { appendLine: () => undefined },
+    statusBar: { updateContext() {}, updateUsageData() {}, updateQuota() {}, setProvider() {}, setLoading() {} },
+    getConfiguration: () => ({ dataDirectory: root, dashboardAutoRefresh: true, statusBarProvider: 'claude',
+      enableContentAnalysis: false, advicePromptWindowDays: 30, projectGroupingMode: 'flat', contextWindowOverride: 0 }),
+    maybeFetchUsageLimits: async () => null, refreshCodexData: async () => undefined,
+  });
+  await e.refreshData(true, 'manual');
+  const cfg = { range: 'last30', scope: 'all', sections: { projectName: false } };
+  await handler({ command: 'buildShareCard', ...cfg });
+  const preview = posted.find((m) => m.command === 'shareCardResult')!;
+  assert.ok(preview.previewId);
+  const methods = ['renderTodayData', 'renderMonthData', 'renderAllTimeData',
+    'renderSessionData', 'renderProjectData', 'renderBranchData', 'renderWorkflowData', 'buildShareCardSvgFor'];
+  let renders = 0;
+  for (const name of methods) {
+    const original = p[name];
+    p[name] = function (...args: unknown[]) { renders++; return original.apply(this, args); };
+  }
+  p.updateWebview(); // Prime the default presentation after the explicit preview.
+  renders = 0;
+  posted.length = 0;
+  for (const trigger of ['poll', 'poll', 'poll', 'focus'] as const) await e.refreshData(false, trigger);
+  assert.equal(renders, 0, 'no hidden panel or artifact rebuild');
+  assert.equal(posted.filter((m) => m.command === 'dashboardDataPatch').length, 0);
+  assert.equal(p.shareCardPreviewCache.previewId, preview.previewId);
+  await handler({ command: 'exportShareCard', previewId: preview.previewId, ...cfg });
+  assert.deepEqual(writes, [preview.svg], 'the accepted artifact remains exportable after unchanged polls');
+});
+
+test('Claude source revocation clears previews and source-owned data without clearing Codex', async () => {
+  const p = provider();
+  p.panel = undefined;
+  const codexView = { limits: [] };
+  p.codexView = codexView;
+  p.usageLimits = { seven_day: { utilization: 20 } };
+  p.claudeWeeklyQuotaHistory = [{ observedAt: 1 }];
+  p.weeklyUsageCache = { records: p.allRecords };
+  p.shareCardPreviewCache = { previewId: 'retired', svg: '<svg>retired</svg>' };
+  p.preparedOptimizerRequests.set('retired', {});
+  p.todayData = { totalInputTokens: 100 };
+  p.sessionBreakdown = [{}];
+  p.projectBreakdown = [{}];
+  p.contentAnalysis = {};
+  p.clearClaudeSource();
+  assert.equal(p.codexView, codexView);
+  assert.equal(p.todayData, null);
+  assert.deepEqual(p.allRecords, []);
+  assert.deepEqual(p.sessionBreakdown, []);
+  assert.deepEqual(p.projectBreakdown, []);
+  assert.equal(p.contentAnalysis, null);
+  assert.equal(p.usageLimits, null);
+  assert.deepEqual(p.claudeWeeklyQuotaHistory, []);
+  assert.equal(p.weeklyUsageCache, undefined);
+  assert.equal(p.shareCardPreviewCache, undefined);
+  assert.equal(p.preparedOptimizerRequests.size, 0);
 });
 
 test('progress distinguishes hourly backfill and waiting from completed primary log coverage', () => {

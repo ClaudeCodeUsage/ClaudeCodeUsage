@@ -184,6 +184,7 @@ function coordinatorHarness(dashboardAutoRefresh = false): {
   };
   extension.webviewProvider = {
     setLoading: () => deliveries.push({ kind: 'loading', value: true }),
+    clearClaudeSource: () => deliveries.push({ kind: 'claude', value: { today: null, allTime: null } }),
     updateQuota: () => undefined,
     updateWeeklyQuotaHistory: () => undefined,
     updateAdviceEffectivenessData: (value: unknown) => deliveries.push({ kind: 'advice-state', value }),
@@ -685,6 +686,192 @@ test('coordinator Claude warm manual failures retain data, disclose anonymous st
   assert.ok(extension.providerRefreshStates.claude.lastSuccessfulAt >= previousSuccess);
   assert.equal(deliveries.filter(value => value.kind === 'refresh:claude').slice(-1)[0]?.value.failed, false);
   assert.ok(deliveries.some(value => value.kind === 'claude'));
+});
+
+test('production Claude polls retain all dashboard references until the render contract changes', async (t) => {
+  const { extension, config } = coordinatorHarness(true);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-render-revision-'));
+  const originalNow = Date.now;
+  let now = Date.parse('2026-09-30T12:00:20Z');
+  Date.now = () => now;
+  t.after(() => { Date.now = originalNow; fs.rmSync(root, { recursive: true, force: true }); });
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  const file = path.join(project, 'session.jsonl');
+  const row = (id: string) => JSON.stringify({ type: 'assistant', timestamp: new Date(now).toISOString(),
+    requestId: id, message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 1 } } });
+  fs.writeFileSync(file, row('first') + '\n');
+  config.dataDirectory = root;
+  extension.refreshCodexData = async () => undefined;
+  const payloads: unknown[][] = [];
+  extension.webviewProvider.updateData = (...args: unknown[]) => payloads.push(args);
+  await extension.refreshData(true, 'manual');
+  const first = payloads[0];
+  for (const trigger of ['poll', 'poll', 'poll', 'focus', 'manual'] as const) {
+    await extension.refreshData(false, trigger);
+    const current = payloads[payloads.length - 1];
+    for (const index of [0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]) {
+      assert.equal(current[index], first[index], `${trigger}: dashboard argument ${index} must stay stable`);
+    }
+  }
+  fs.appendFileSync(file, row('next') + '\n');
+  await extension.refreshData(false, 'watch');
+  const appended = payloads[payloads.length - 1];
+  assert.notEqual(appended[3], first[3]);
+  assert.equal((appended[3] as any).totalInputTokens, 20);
+  now += 6 * 3_600_000;
+  await extension.refreshData(false, 'poll');
+  assert.equal(payloads[payloads.length - 1][0], null, 'five-hour session expiry still invalidates the snapshot');
+});
+
+test('Claude source replacement clears verified data even when the new source fails or presentation is paused', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-source-boundary-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sourceA = path.join(root, 'a');
+  const project = path.join(sourceA, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'a', message: { id: 'a', model: 'claude-opus-5-5',
+      usage: { input_tokens: 1234, output_tokens: 1 } } }) + '\n');
+  for (const paused of [false, true]) {
+    const { extension, config, deliveries, statuses } = coordinatorHarness(!paused);
+    config.dataDirectory = sourceA;
+    extension.refreshCodexData = async () => undefined;
+    await extension.refreshData(true, 'manual');
+    const oldIndex = extension.cache.claudeIndex;
+    config.dataDirectory = path.join(root, 'missing');
+    deliveries.length = 0; statuses.length = 0;
+    await extension.refreshData(false, 'poll');
+    assert.notEqual(extension.cache.claudeIndex, oldIndex);
+    assert.equal(extension.cache.records.length, 0);
+    assert.equal(extension.cache.dataDirectory, null);
+    assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
+    assert.ok(statuses.some((s) => s.kind === 'claude' && s.value === null));
+    assert.ok(deliveries.some((d) => d.kind === 'claude' && d.value.allTime === null));
+    assert.ok(deliveries.some((d) => d.kind === 'advice-state'));
+    config.dataDirectory = sourceA;
+    await extension.refreshData(false, 'manual');
+    assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 1234);
+    assert.equal(extension.providerRefreshStates.claude.failed, false);
+  }
+});
+
+test('a late Claude discovery from a retired source cannot restore its data or success time', async (t) => {
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  config.dataDirectory = '/synthetic/source-a';
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  let resume!: (value: string | null) => void;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = () => new Promise<string | null>((resolve) => { resume = resolve; });
+  t.after(() => { (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind; });
+  const pending = extension.refreshData(true, 'manual');
+  await new Promise((resolve) => setImmediate(resolve));
+  config.dataDirectory = '/synthetic/source-b';
+  extension.configurationGeneration++;
+  resume('/synthetic/source-a');
+  await pending;
+  assert.equal(extension.cache.manifest, null);
+  assert.equal(extension.cache.records.length, 0);
+  assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
+  assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false);
+});
+
+test('a Claude discovery finishing after disposal cannot clear or deliver source state', async (t) => {
+  const { extension, config, deliveries, statuses } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  config.dataDirectory = '/synthetic/source-a';
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  let resume!: (value: string | null) => void;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = () => new Promise<string | null>((resolve) => { resume = resolve; });
+  t.after(() => { (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind; });
+  const pending = extension.refreshData(true, 'manual');
+  await new Promise((resolve) => setImmediate(resolve));
+  extension.disposed = true;
+  config.dataDirectory = '/synthetic/source-b';
+  const index = extension.cache.claudeIndex;
+  const deliveryCount = deliveries.length;
+  const statusCount = statuses.length;
+  resume('/synthetic/source-a');
+  await pending;
+  assert.equal(extension.cache.claudeIndex, index);
+  assert.equal(deliveries.length, deliveryCount);
+  assert.equal(statuses.length, statusCount);
+});
+
+test('Claude replacement read failure cannot retain the old home, and verified replacement recovers', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-replacement-read-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sources = ['a', 'b'].map((name, i) => {
+    const home = path.join(root, name);
+    const project = path.join(home, 'projects', '-fixture');
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+      timestamp: new Date().toISOString(), requestId: name, message: { id: name, model: 'claude-opus-5-5',
+        usage: { input_tokens: (i + 1) * 100, output_tokens: 1 } } }) + '\n');
+    return home;
+  });
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let fail = true;
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    if (args[1] === sources[1] && fail) throw new Error('synthetic read failure');
+    return originalUpdate(...args);
+  };
+  t.after(() => { (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
+  const { extension, config } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  config.dataDirectory = sources[0];
+  await extension.refreshData(true, 'manual');
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 100);
+  config.dataDirectory = sources[1];
+  await extension.refreshData(false, 'poll');
+  assert.equal(extension.cache.records.length, 0);
+  assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
+  fail = false;
+  await extension.refreshData(false, 'manual');
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 200);
+  assert.equal(extension.cache.dataDirectory, sources[1]);
+  assert.equal(extension.providerRefreshStates.claude.failed, false);
+});
+
+test('a retired Claude index result cannot publish after an A to B to A configuration change', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-retired-index-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'a', message: { id: 'a', model: 'claude-opus-5-5',
+      usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n');
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let release!: () => void;
+  let ready!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    ready();
+    await blocked;
+    return result;
+  };
+  t.after(() => { (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  config.dataDirectory = root;
+  const pending = extension.refreshData(true, 'manual');
+  await started;
+  config.dataDirectory = path.join(root, 'replacement');
+  extension.configurationGeneration++;
+  extension.selectClaudeUsageSource(config.dataDirectory);
+  config.dataDirectory = root;
+  extension.configurationGeneration++;
+  extension.selectClaudeUsageSource(config.dataDirectory);
+  release();
+  await pending;
+  assert.equal(extension.cache.manifest, null);
+  assert.equal(extension.cache.records.length, 0);
+  assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
+  assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false);
 });
 
 function installManualTimers(): {

@@ -514,6 +514,8 @@ export class ClaudeCodeUsageExtension {
   private codexSnapshotHome?: string;
   private codexSkipPersistedHydration = false;
   private claudeDashboardHydrated = false;
+  private claudeRenderSnapshot?: ReturnType<typeof claudeUsageDashboardSnapshot>;
+  private claudeUsageSource?: string;
   private codexDashboardHydrated = false;
   private providerRefreshStates: Record<'claude' | 'codex', ProviderRefreshState> = {
     claude: { failed: false },
@@ -3493,6 +3495,7 @@ export class ClaudeCodeUsageExtension {
     void this.cancelQuotaNetworks('settings-change');
     const config = this.getConfiguration();
     const pricingBackendChanged = this.activePricingBackend !== config.pricingBackend;
+    this.selectClaudeUsageSource(config.dataDirectory);
     this.selectCodexSnapshotHome(this.codexHome(config));
     this.activePricingBackend = config.pricingBackend;
     setPricingBackend(config.pricingBackend);
@@ -3545,12 +3548,41 @@ export class ClaudeCodeUsageExtension {
    * leaving totalCost/modelBreakdown.cost at the old rates.
    */
   private invalidateClaudeUsagePricingCache(): void {
+    this.claudeRenderSnapshot = undefined;
     this.cache.claudeIndex = createClaudeUsageIndex();
     this.cache.records = [];
     this.cache.contentAnalysis = null;
     this.cache.manifest = null;
     this.cache.dataDirectory = null;
     this.cache.lastUpdate = new Date(0);
+  }
+
+  private claudeUsageSourceKey(directory?: string): string {
+    return directory ? path.resolve(directory) : '<auto>';
+  }
+
+  private selectClaudeUsageSource(directory?: string): void {
+    const next = this.claudeUsageSourceKey(directory);
+    const previous = this.claudeUsageSource;
+    this.claudeUsageSource = next;
+    if (previous !== undefined && previous !== next) this.clearClaudeUsageSource();
+  }
+
+  /** Failure recovery belongs to one source, never a previously selected home.
+   * Source revocation is immediate even while dashboard delivery is paused. */
+  private clearClaudeUsageSource(): void {
+    this.invalidateClaudeUsagePricingCache();
+    this.claudeDashboardHydrated = false;
+    this.providerRefreshStates.claude = { failed: false };
+    delete this.deliveredRefreshStates.claude;
+    this.cache.usageLimits = null;
+    this.claudeWeeklyQuotaHistory = [];
+    this.statusBar.updateUsageData(null, null);
+    this.statusBar.updateContext(null);
+    this.statusBar.updateQuota(null);
+    this.tryProviderUiUpdate(() => this.webviewProvider.clearClaudeSource());
+    this.tryProviderUiUpdate(() => this.webviewProvider.updateRefreshState?.('claude', { failed: false }));
+    this.syncProviderUiSafely('settings');
   }
 
   /** Keep quota credentials on the same Claude profile as this window's logs.
@@ -4524,12 +4556,7 @@ export class ClaudeCodeUsageExtension {
       // replacement error page or the exception that caused the failure.
       this.tryProviderUiUpdate(() => {
         const config = this.getConfiguration();
-        const materialized = claudeUsageDashboardSnapshot(this.cache.claudeIndex, {
-          workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-          projectGroupingMode: config.projectGroupingMode,
-          contextWindowOverride: config.contextWindowOverride,
-          now: new Date(Date.now()),
-        });
+        const materialized = this.materializeClaudeDashboard(this.cache.claudeIndex, config, new Date(Date.now()));
         this.statusBar.updateUsageData(materialized.today, materialized.workspaceToday,
           I18n.t.statusBar.refreshFailed, undefined, materialized.month);
       });
@@ -4549,6 +4576,21 @@ export class ClaudeCodeUsageExtension {
     });
   }
 
+  /** Compare the complete, time-aware render contract, not token totals alone.
+   * Keep only one snapshot; equivalent production polls reuse its references
+   * without expiring accepted previews or rebuilding every hidden panel. */
+  private materializeClaudeDashboard(index: ClaudeUsageIndex, config: ExtensionConfig, now: Date):
+    ReturnType<typeof claudeUsageDashboardSnapshot> {
+    const next = claudeUsageDashboardSnapshot(index, {
+      workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+      projectGroupingMode: config.projectGroupingMode,
+      contextWindowOverride: config.contextWindowOverride,
+      now,
+    });
+    if (!isDeepStrictEqual(this.claudeRenderSnapshot, next)) this.claudeRenderSnapshot = next;
+    return this.claudeRenderSnapshot!;
+  }
+
   private async runRefresh(request: RefreshRequest): Promise<void> {
     const totalStarted = performance.now();
     const watcherEvents = this.watcherEventsSinceRefresh ?? 0;
@@ -4559,9 +4601,15 @@ export class ClaudeCodeUsageExtension {
     this.coalescedTriggersSinceRefresh = 0;
     this.credentialsWatcherMissingFilenameEventsSinceRefresh = 0;
     let updateWebview = request.trigger === 'manual';
+    let current = () => !this.disposed;
     try {
       if (this.disposed) return;
       const config = this.getConfiguration();
+      this.selectClaudeUsageSource(config.dataDirectory);
+      const generation = this.configurationGeneration;
+      const source = this.claudeUsageSource;
+      current = () => !this.disposed && generation === this.configurationGeneration &&
+        source === this.claudeUsageSourceKey(this.getConfiguration().dataDirectory);
       const snapshotNow = new Date(Date.now());
       updateWebview = this.shouldDeliverDashboard(request.trigger) ||
         (request.trigger === 'startup' && !this.claudeDashboardHydrated);
@@ -4569,7 +4617,7 @@ export class ClaudeCodeUsageExtension {
       // Account quota is independent from local JSONL. Do not let a slow OAuth
       // request delay the local usage refresh.
       void this.maybeFetchUsageLimits(config).then((limits) => {
-        if (this.disposed) return;
+        if (!current()) return;
         this.statusBar.updateQuota(limits);
         this.webviewProvider.updateQuota(limits);
         if (!limits && !this.cache.usageLimits && !this.quotaColdRetryDone) {
@@ -4581,7 +4629,10 @@ export class ClaudeCodeUsageExtension {
       const dataDirectory = await ClaudeDataLoader.findClaudeDataDirectory(
         config.dataDirectory || undefined
       );
-      if (this.disposed) return;
+      if (!current()) {
+        if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
+        return;
+      }
       if (!dataDirectory) {
         this.handleColdRefreshFailure(updateWebview, request.trigger);
         this.outputChannel.appendLine(formatRefreshDiagnostic({
@@ -4605,7 +4656,13 @@ export class ClaudeCodeUsageExtension {
       }
 
       const manifestStarted = performance.now();
+      if (this.cache.dataDirectory !== null &&
+        path.resolve(this.cache.dataDirectory) !== path.resolve(dataDirectory)) this.clearClaudeUsageSource();
       const manifest = await scanUsageManifest([dataDirectory]);
+      if (!current()) {
+        if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
+        return;
+      }
       const delta = diffUsageManifests(this.cache.manifest, manifest);
       const manifestMs = performance.now() - manifestStarted;
       const directoryChanged = this.cache.dataDirectory !== dataDirectory;
@@ -4618,12 +4675,7 @@ export class ClaudeCodeUsageExtension {
       });
 
       if (!needFullRefresh) {
-        const materialized = claudeUsageDashboardSnapshot(this.cache.claudeIndex, {
-          workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-          projectGroupingMode: config.projectGroupingMode,
-          contextWindowOverride: config.contextWindowOverride,
-          now: snapshotNow,
-        });
+        const materialized = this.materializeClaudeDashboard(this.cache.claudeIndex, config, snapshotNow);
         this.statusBar.updateContext(materialized.context);
         const timeZone = this.cache.claudeIndex.timeZone;
         const publishedDay = dayKeyInZone(this.cache.lastUpdate, timeZone);
@@ -4710,6 +4762,10 @@ export class ClaudeCodeUsageExtension {
           `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${line}`
         ),
       });
+      if (!current()) {
+        if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
+        return;
+      }
       if (!shouldCommitUsageLoad(loaded.diagnostics.filesFailed)) {
         this.handleColdRefreshFailure(updateWebview, request.trigger);
         this.outputChannel.appendLine(formatRefreshDiagnostic({
@@ -4749,13 +4805,7 @@ export class ClaudeCodeUsageExtension {
           });
         }
       } else {
-        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        const materialized = claudeUsageDashboardSnapshot(loaded.index, {
-          workspacePath,
-          projectGroupingMode: config.projectGroupingMode,
-          contextWindowOverride: config.contextWindowOverride,
-          now: snapshotNow,
-        });
+        const materialized = this.materializeClaudeDashboard(loaded.index, config, snapshotNow);
         const sessionData = materialized.session;
         const todayData = materialized.today;
         const workspaceTodayData = materialized.workspaceToday;
@@ -4820,6 +4870,10 @@ export class ClaudeCodeUsageExtension {
         totalMs: performance.now() - totalStarted,
       }));
     } catch {
+      if (!current()) {
+        if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
+        return;
+      }
       // Keep the previous records and manifest authoritative. The next trigger
       // retries scanner/reconciliation failures instead of presenting no data.
       this.handleColdRefreshFailure(updateWebview, request.trigger);
@@ -4852,6 +4906,7 @@ export class ClaudeCodeUsageExtension {
   dispose(): Promise<void> {
     if (this.disposal) return this.disposal;
     this.disposed = true;
+    this.claudeRenderSnapshot = undefined;
     this.configurationGeneration += 1;
     this.disposal = (async () => {
       const failures: unknown[] = [];

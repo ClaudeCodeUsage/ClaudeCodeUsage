@@ -159,6 +159,17 @@ single-entry Claude weekly-input cache avoids rescanning unchanged records.
 Data references, settings, prices, locale, currency, calendar boundaries and
 quota expiry invalidate these caches. Today expires by minute; hidden history
 by hour. Disposal and source replacement release retained references.
+Claude materialization retains one structurally compared, time-aware render
+contract, so unchanged poll/focus delivery reuses its aggregate references.
+Identical quota/history observations also retain identity. The snapshot still
+recomputes session expiry, workspace scopes and calendar ranges before comparison;
+no token-total-only or fixed-hour key can conceal a changed render contract.
+Claude failure recovery is source-scoped: selecting another home immediately
+revokes its records, index, quota, advice handles, accepted sharing previews and
+last-success time, regardless of dashboard pause. Configuration generation and
+source checks after discovery, manifest scanning and index loading retire late
+results, including A → B → A switches; disposal cannot deliver a late clear.
+Failures within the same source still retain the verified snapshot.
 Codex retains a failed refresh's verified subtotal only within the same resolved
 data directory. A directory change clears its view, insights and success time,
 and suppresses shared checkpoint hydration until that provider refresh verifies
@@ -172,6 +183,9 @@ progress or invalidate hidden panels merely by toggling loading.
 已验证页面。主日志、周期迁移和小时回填显示各自计数及重试状态，不把主日志覆盖率
 冒充整体完成度。面板缓存按供应商／页签有界保存；记录、显示设置、价格与时间边界
 变化时失效。今日倒计时按分钟过期，历史不随每分钟刷新重复计算。
+Claude 切换来源立即撤销旧记录、索引、额度、建议句柄、分享预览及成功时间，页面暂停
+不阻止此隔离；异步发现、扫描和索引返回均核对来源及配置代次，包括 A → B → A。
+释放后不再交付迟到清空；同一来源的临时失败仍保留已验证统计。
 Codex 仅在同一数据目录内保留失败前的已验证统计；切换目录会清空旧视图、建议和成功
 时间，新来源验证前不采用共享旧检查点。异步返回后校验供应商及配置代次，过期任务
 不能改写新任务。已完成且未变化的轮询复用视图，不制造回填进度或重复渲染隐藏面板。

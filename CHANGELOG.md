@@ -84,12 +84,18 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Codex retains same-directory snapshots through temporary unavailability, but
   clears old data on a directory change. Retired asynchronous callbacks cannot
   mutate the replacement provider's state.
+  Claude source changes likewise immediately revoke old usage, quota, advice
+  and sharing previews even while presentation is paused; late discoveries or
+  index results cannot restore a retired source or its last-success timestamp.
 - **Repeated hidden-panel work** — unchanged panel HTML and Claude weekly usage
   inputs have provider-lifetime bounded caches. Data, configuration, prices,
   locale, configured calendar day and quota-reset boundaries invalidate them;
   Today's relative reset text expires by minute without recalculating history.
   Complete, unchanged Codex polls retain the verified view and insight revisions
   instead of generating false backfill progress and invalidating hidden panels.
+  Production Claude poll/focus refreshes also reuse the complete time-aware
+  dashboard contract; identical quota observations retain their references.
+  Unchanged polls no longer invalidate accepted Share Card previews.
 - **API key removed by ordinary defaults reset** — the dashboard and host exclude
   secret keys from that action. The separately confirmed clear-key command remains
   the explicit deletion route.
