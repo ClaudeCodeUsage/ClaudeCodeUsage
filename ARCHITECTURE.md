@@ -156,6 +156,9 @@ message rather than a replacement panel. Persistent Codex work state and actual
 main/period/hourly counters distinguish coverage from backfill and retry waits.
 Data-panel HTML caches hold at most one entry per provider/tab; a separate
 single-entry Claude weekly-input cache avoids rescanning unchanged records.
+Content attribution uses a separate single-entry data-section cache rather than
+caching the whole Content panel; advice/Optimizer controls remain live. It uses
+the same calendar, settings and source-revocation boundaries as data panels.
 Data references, settings, prices, locale, currency, calendar boundaries and
 quota expiry invalidate these caches. Today expires by minute; hidden history
 by hour. Disposal and source replacement release retained references.
@@ -168,7 +171,11 @@ Claude failure recovery is source-scoped: selecting another home immediately
 revokes its records, index, quota, advice handles, accepted sharing previews and
 last-success time, regardless of dashboard pause. Configuration generation and
 source checks after discovery, manifest scanning and index loading retire late
-results, including A → B → A switches; disposal cannot deliver a late clear.
+presentations. A distinct source/pricing generation rejects invalidated index
+results, including A → B → A switches and manual price-refresh races. A completed,
+verified same-source load may populate only the host index after a presentation
+change, so the queued settings refresh avoids repeating a cold read; it cannot
+publish the retired UI or bypass clear-all/disposal. Disposal cannot deliver a late clear.
 Failures within the same source still retain the verified snapshot.
 Codex retains a failed refresh's verified subtotal only within the same resolved
 data directory. A directory change clears its view, insights and success time,
@@ -317,8 +324,10 @@ public hash recomputation cannot authorize rerouting. Ordinary settings reset
 preserves SecretStorage; separately confirmed clear-key controls own deletion.
 Secret initialization also completes a one-time advice-format migration before
 activation can expose the key. An existing key without an explicit state/legacy
-configuration format pins the prior Anthropic default; explicit formats are
-preserved and new keyless installs use OpenAI-compatible defaults. The bounded
+configuration format pins the prior Anthropic default; legacy configuration is
+read only before the generic settings migration, never resurrected after reset.
+Explicit formats are preserved and new keyless installs use OpenAI-compatible
+defaults. The bounded
 `ccu.migrated.adviceDefaultFormat.v2.4.1` enum stores only this compatibility
 default, not a key, account or endpoint, and survives ordinary defaults reset.
 Incompatible endpoints fail before preparation; a failed migration clears loaded

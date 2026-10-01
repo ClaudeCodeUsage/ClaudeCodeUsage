@@ -25,6 +25,9 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
   blockieren nicht den gesamten Index; Aggregate werden nur einmal pro Aktualisierung
   kopiert. Hintergrundresultate und Preisabrufe sind begrenzt. Unbekannte Codex-IDs
   bleiben ohne geschätzten Preis.
+- **Große Historien:** unveränderte Inhaltszuordnung nutzt den Cache, KI-Steuerelemente
+  bleiben aktuell. Anzeigeänderungen wiederholen keinen abgeschlossenen Kaltaufbau;
+  verspätete Indexresultate können aktualisierte Preise nicht überschreiben.
 - **Sicheres Upgrade:** unveränderte Abfragen erhalten bestätigte Vorschauen; ein Wechsel
   des Claude-Verzeichnisses verwirft alte Daten auch bei pausierter Aktualisierung. Bestehende
   API-Schlüssel ohne explizites Format behalten Anthropic. Bei einem Konflikt Format und URL

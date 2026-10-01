@@ -207,6 +207,9 @@ real account or an installed-VSIX capture.*
   host. Share Card export writes the accepted SVG and requires a new preview
   after control changes. Ordinary defaults reset preserves the API key, and
   the Codex directory remains editable even when provider detection fails.
+- **Large-history refreshes** — unchanged Content attribution reuses its data
+  without freezing AI controls. Display settings no longer restart completed cold
+  reads, and late index results cannot restore superseded prices.
 - **Upgrade safety** — unchanged polls retain accepted sharing previews; changing
   the Claude data directory clears the old source even while updates are paused.
   Existing API keys without an explicit protocol retain the prior Anthropic

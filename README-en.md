@@ -84,6 +84,9 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
   protocol and model without silently changing providers. Share Card export
   writes the accepted SVG; edited controls require a new preview. Default reset
   preserves the API key, and Codex directory recovery stays visible on both pages.
+- **Large-history refreshes** — unchanged Content attribution is cached while AI
+  controls stay live. Display settings reuse completed index work, and old index
+  results cannot overwrite refreshed prices.
 - **Upgrade safety** — unchanged polls keep accepted previews; changing Claude
   directories clears old data even while updates are paused. Existing API keys
   without an explicit protocol keep the prior Anthropic format. If preview

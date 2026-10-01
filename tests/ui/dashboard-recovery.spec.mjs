@@ -15,6 +15,12 @@ async function buildReply(page, request, id = 'accepted-preview', svg = '<svg vi
   await dispatch(page, { command: 'shareCardResult', requestId: request.requestId, configKey: configKey(request), previewId: id, svg });
 }
 
+test('the synthetic calendar is consistent for nonzero Claude sharing previews', async ({ page }) => {
+  await openClaude(page, { fixture: 'combined-heatmap', commandTemplate: 'claudeShareCard', claudeOnly: true });
+  await expect(page.locator('#scPreview')).toContainText('1.2M');
+  await expect(page.locator('#scPreview')).not.toContainText('$0.00');
+});
+
 test('privacy, range and theme edits disable export until the exact new preview is accepted', async ({ page }) => {
   await openCompare(page, { fixture: 'combined-heatmap', commandTemplate: 'claudeShareCard' });
   const preview = page.locator('#scPreview');

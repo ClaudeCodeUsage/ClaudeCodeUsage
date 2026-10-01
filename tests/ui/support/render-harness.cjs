@@ -1,6 +1,7 @@
 'use strict';
 
 const Module = require('node:module');
+const { freezeClock } = require('./frozen-clock.cjs');
 const originalLoad = Module._load;
 
 let latestHarnessPanel;
@@ -464,9 +465,8 @@ exports.renderHarness = async function renderHarness({
   const displayCurrency = localCurrencyFixture ? 'EUR' : 'USD';
   I18n.setCurrencyDisplay(displayCurrency);
   vscodeHost.window.activeColorTheme.kind = theme === 'dark' ? 2 : 1;
-  const originalNow = Date.now;
+  const restoreClock = freezeClock(CODEX_WEBVIEW_NOW);
   try {
-    Date.now = () => CODEX_WEBVIEW_NOW;
     const baseSnapshot = fixture === 'rootless-cycle'
       ? rootlessCrossProjectCycleFixture()
       : fixture === 'root-over-limit'
@@ -594,6 +594,6 @@ exports.renderHarness = async function renderHarness({
       .replace('</head>', `<style id="test-vscode-theme">${THEMES[theme]}</style></head>`)
       .replace('<body class="', `<body class="${bodyClass}`);
   } finally {
-    Date.now = originalNow;
+    restoreClock();
   }
 };

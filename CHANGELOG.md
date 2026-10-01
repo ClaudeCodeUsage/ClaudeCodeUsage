@@ -80,6 +80,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Migration failure disables advice for that activation without losing the
   stored key or disabling usage views. Ordinary reset retains this compatibility
   default; separately confirmed clear-all also clears the non-secret enum marker.
+  Obsolete VS Code configuration is ignored after the generic settings migration,
+  so resetting a local override cannot resurrect an old API format.
 - **Share Card preview/export mismatch** — editing range, theme, number format
   or visible sections disables export until a matching preview is accepted.
   Stale preview replies cannot enable a newer draft. Export writes that immutable
@@ -109,6 +111,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Production Claude poll/focus refreshes also reuse the complete time-aware
   dashboard contract; identical quota observations retain their references.
   Unchanged polls no longer invalidate accepted Share Card previews.
+  Default-on Content attribution also reuses one bounded data section without
+  freezing live advice or Optimizer controls; it expires at calendar/settings
+  boundaries and releases retained records when the source is revoked.
+- **Cold-build interruption and price-refresh race** — display-only settings
+  changes retain completed, verified same-source index work without delivering
+  the retired presentation. A separate source/pricing generation rejects late
+  results after price refresh, source changes, clear-all or disposal, so an
+  old-priced index cannot overwrite the replacement and keep stale costs.
 - **API key removed by ordinary defaults reset** — the dashboard and host exclude
   secret keys from that action. The separately confirmed clear-key command remains
   the explicit deletion route.
