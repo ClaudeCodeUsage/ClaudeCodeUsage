@@ -322,6 +322,31 @@ test('BYOK protocol upgrade leaves fresh installs and subsequently added keys on
   assert.equal(prepareAdviceFromSettings(restarted).endpoint, 'https://api.deepseek.com/chat/completions');
 });
 
+test('BYOK protocol upgrade does not revive obsolete config after the generic migration or defaults reset', async (t) => {
+  for (const scope of ['globalValue', 'workspaceValue', 'workspaceFolderValue']) {
+    await t.test(scope, async () => {
+      activeConfiguration = fakeConfiguration();
+      activeWorkspaceFolders = [];
+      activeFolderConfigurations = new Map();
+      activeConfiguration.inspect = <T>(key: string) => key === 'advice.apiFormat'
+        ? { [scope]: 'openai' as T } : {};
+      const context = fakeContext({ state: new Map([['ccu.settingsMigrated.v1', true]]),
+        secrets: new Map([['claudeCodeUsage.secret.advice.apiKey', 'synthetic-reset-legacy-key']]) });
+      const store = new SettingsStore(context);
+      assert.equal(await store.initializeSecretsForActivation(), null);
+      await store.migrateOnce();
+      assert.equal(store.get('advice.apiFormat'), 'anthropic');
+      assert.equal(context._state.get(adviceFormatMigrationKey), 'anthropic');
+      assert.throws(() => prepareAdviceFromSettings(store), /incompatible/i);
+      await store.reset('advice.apiFormat');
+      const restarted = new SettingsStore(context);
+      assert.equal(await restarted.initializeSecretsForActivation(), null);
+      assert.equal(restarted.get('advice.apiFormat'), 'anthropic');
+      assert.doesNotMatch(JSON.stringify(restarted.snapshot()), /synthetic-reset-legacy-key/);
+    });
+  }
+});
+
 test('BYOK protocol upgrade fails closed on persistence failure without losing the recoverable secret', async (t) => {
   for (const failedKey of ['ccu.setting.advice.apiFormat', adviceFormatMigrationKey]) {
     await t.test(failedKey, async () => {

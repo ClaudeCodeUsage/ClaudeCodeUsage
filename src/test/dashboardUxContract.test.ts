@@ -48,6 +48,7 @@ const { getPricingBackend, setPricingBackend } = require('../pricing') as typeof
 const { ClaudeCodeUsageExtension } = require('../extension') as typeof import('../extension');
 const { createClaudeUsageIndex } = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
 const { RefreshSingleFlight } = require('../refreshPolicy') as typeof import('../refreshPolicy');
+const { ClaudeDataLoader } = require('../dataLoader') as typeof import('../dataLoader');
 (Module as any)._load = originalLoad;
 
 function provider(): any {
@@ -144,6 +145,45 @@ test('identical quota observations preserve cache references instead of invalida
   assert.equal(renders, 2, 'changed quota still invalidates the render contract');
 });
 
+test('unchanged Content attribution is cached without freezing dynamic advice or optimizer controls', () => {
+  const p = provider();
+  p.panel = undefined;
+  const original = ClaudeDataLoader.getUsageAttribution;
+  const originalNow = Date.now;
+  const timezone = I18n.getTimezone();
+  I18n.setTimezone('UTC');
+  let now = Date.parse('2026-09-30T23:59:40Z');
+  Date.now = () => now;
+  let calculations = 0, adviceRevision = 1;
+  (ClaudeDataLoader as any).getUsageAttribution = (...args: Parameters<typeof original>) => {
+    calculations++;
+    return original(...args);
+  };
+  p.renderAdviceCard = () => '<p>advice-' + adviceRevision + '</p>';
+  p.renderOptimizerCard = () => '<p>optimizer-' + adviceRevision + '</p>';
+  try {
+    p.renderContentData('claude');
+    adviceRevision++;
+    const changed = p.renderContentData('claude');
+    assert.match(changed, /advice-2/);
+    assert.match(changed, /optimizer-2/);
+    assert.equal(calculations, 1, 'unchanged records must not be rescanned');
+    p.allRecords = [...p.allRecords]; p.renderContentData('claude');
+    assert.equal(calculations, 2);
+    now += 60_000; p.renderContentData('claude');
+    assert.equal(calculations, 3, 'the calendar week/day scope must update at midnight');
+    I18n.setTimezone('America/New_York'); p.renderContentData('claude');
+    assert.equal(calculations, 4);
+    assert.ok(p.dataPanelCache.size <= 1, 'one attribution entry, not a history of records');
+    p.clearClaudeSource();
+    assert.equal(p.dataPanelCache.size, 0, 'revocation releases attribution references');
+  } finally {
+    (ClaudeDataLoader as any).getUsageAttribution = original;
+    Date.now = originalNow;
+    I18n.setTimezone(timezone);
+  }
+});
+
 test('production coordinator polls preserve accepted previews and never patch unchanged Claude panels', async (t) => {
   const p = provider();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-production-preview-'));
@@ -166,7 +206,7 @@ test('production coordinator polls preserve accepted previews and never patch un
     webviewProvider: p, outputChannel: { appendLine: () => undefined },
     statusBar: { updateContext() {}, updateUsageData() {}, updateQuota() {}, setProvider() {}, setLoading() {} },
     getConfiguration: () => ({ dataDirectory: root, dashboardAutoRefresh: true, statusBarProvider: 'claude',
-      enableContentAnalysis: false, advicePromptWindowDays: 30, projectGroupingMode: 'flat', contextWindowOverride: 0 }),
+      enableContentAnalysis: true, advicePromptWindowDays: 30, projectGroupingMode: 'flat', contextWindowOverride: 0 }),
     maybeFetchUsageLimits: async () => null, refreshCodexData: async () => undefined,
   });
   await e.refreshData(true, 'manual');
@@ -182,10 +222,18 @@ test('production coordinator polls preserve accepted previews and never patch un
     p[name] = function (...args: unknown[]) { renders++; return original.apply(this, args); };
   }
   p.updateWebview(); // Prime the default presentation after the explicit preview.
+  const originalAttribution = ClaudeDataLoader.getUsageAttribution;
+  let attributionCalculations = 0;
+  (ClaudeDataLoader as any).getUsageAttribution = (...args: Parameters<typeof originalAttribution>) => {
+    attributionCalculations++;
+    return originalAttribution(...args);
+  };
+  t.after(() => { (ClaudeDataLoader as any).getUsageAttribution = originalAttribution; });
   renders = 0;
   posted.length = 0;
   for (const trigger of ['poll', 'poll', 'poll', 'focus'] as const) await e.refreshData(false, trigger);
   assert.equal(renders, 0, 'no hidden panel or artifact rebuild');
+  assert.equal(attributionCalculations, 0, 'default content analysis must not scan records on warm polls');
   assert.equal(posted.filter((m) => m.command === 'dashboardDataPatch').length, 0);
   assert.equal(p.shareCardPreviewCache.previewId, preview.previewId);
   await handler({ command: 'exportShareCard', previewId: preview.previewId, ...cfg });

@@ -6531,6 +6531,12 @@ export class UsageWebviewProvider {
   /** Usage-attribution section for the Content tab: scope selector (Day /
    * Week / Month / one session / one project) + the panel, default Week. */
   private renderAttributionSection(): string {
+    // Cache only the data-derived section. Advice and Optimizer controls must
+    // still reflect their current prepared requests and consent on every render.
+    return this.cachedDataPanel('attribution', 'claude', () => this.renderAttributionSectionData());
+  }
+
+  private renderAttributionSectionData(): string {
     const t = I18n.t.popup;
     if (!this.allRecords || this.allRecords.length === 0) {
       return '';

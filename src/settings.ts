@@ -926,7 +926,7 @@ export class SettingsStore {
     if (isAdviceFormat(this.context.globalState.get(ADVICE_FORMAT_MIGRATION_KEY))) return;
     const stateKey = STATE_PREFIX + 'advice.apiFormat';
     let explicit = this.context.globalState.get<unknown>(stateKey);
-    if (explicit === undefined) {
+    if (explicit === undefined && !this.context.globalState.get<boolean>(MIGRATION_FLAG, false)) {
       const legacy = this.cfg().inspect<unknown>('advice.apiFormat');
       const configured = legacy?.globalValue ?? legacy?.workspaceFolderValue ?? legacy?.workspaceValue;
       if (isAdviceFormat(configured)) {
@@ -938,6 +938,8 @@ export class SettingsStore {
         explicit = this.context.globalState.get<unknown>(stateKey);
       }
     }
+    // Once settings have migrated, old VS Code configuration is no longer
+    // authoritative: removing a local override must not revive a stale format.
     const compatibleDefault = isAdviceFormat(explicit)
       ? explicit : this.secretValues.has('advice.apiKey') ? 'anthropic' : 'openai';
     if (explicit === undefined && this.secretValues.has('advice.apiKey')) {
