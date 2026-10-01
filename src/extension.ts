@@ -560,6 +560,8 @@ export class ClaudeCodeUsageExtension {
     }
   >();
   private configurationGeneration = 0;
+  /** Source/pricing invalidation is separate from presentation settings. */
+  private claudeIndexGeneration = 0;
   private fileWatcherGeneration = 0;
   private codexWatcherGeneration = 0;
   private credentialsWatcherGeneration = 0;
@@ -3549,6 +3551,7 @@ export class ClaudeCodeUsageExtension {
    * leaving totalCost/modelBreakdown.cost at the old rates.
    */
   private invalidateClaudeUsagePricingCache(): void {
+    this.claudeIndexGeneration = (this.claudeIndexGeneration ?? 0) + 1;
     this.claudeRenderSnapshot = undefined;
     this.cache.claudeIndex = createClaudeUsageIndex();
     this.cache.records = [];
@@ -4609,8 +4612,11 @@ export class ClaudeCodeUsageExtension {
       this.selectClaudeUsageSource(config.dataDirectory);
       const generation = this.configurationGeneration;
       const source = this.claudeUsageSource;
-      current = () => !this.disposed && generation === this.configurationGeneration &&
+      let indexGeneration = this.claudeIndexGeneration ?? 0;
+      const indexCurrent = () => !this.disposed && !this.clearingAllLocalData &&
+        !this.localDataClearedRequiresReload && indexGeneration === (this.claudeIndexGeneration ?? 0) &&
         source === this.claudeUsageSourceKey(this.getConfiguration().dataDirectory);
+      current = () => indexCurrent() && generation === this.configurationGeneration;
       const snapshotNow = new Date(Date.now());
       updateWebview = this.shouldDeliverDashboard(request.trigger) ||
         (request.trigger === 'startup' && !this.claudeDashboardHydrated);
@@ -4658,7 +4664,10 @@ export class ClaudeCodeUsageExtension {
 
       const manifestStarted = performance.now();
       if (this.cache.dataDirectory !== null &&
-        path.resolve(this.cache.dataDirectory) !== path.resolve(dataDirectory)) this.clearClaudeUsageSource();
+        path.resolve(this.cache.dataDirectory) !== path.resolve(dataDirectory)) {
+        this.clearClaudeUsageSource();
+        indexGeneration = this.claudeIndexGeneration;
+      }
       const manifest = await scanUsageManifest([dataDirectory]);
       if (!current()) {
         if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
@@ -4763,7 +4772,25 @@ export class ClaudeCodeUsageExtension {
           `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${line}`
         ),
       });
+      const commitLoadedIndex = () => commitRefreshSnapshot(
+        manifest,
+        { records: loaded.records, contentAnalysis: loaded.contentAnalysis },
+        loaded.diagnostics.filesFailed,
+        (nextManifest, snapshot) => {
+          this.cache.records = snapshot.records;
+          this.cache.contentAnalysis = snapshot.contentAnalysis;
+          this.cache.claudeIndex = loaded.index;
+          this.cache.manifest = nextManifest;
+          this.cache.dataDirectory = dataDirectory;
+          this.cache.lastUpdate = new Date(snapshotNow.getTime());
+        }
+      );
       if (!current()) {
+        // A language/interval/display change revokes UI delivery, not verified
+        // same-source work. The queued settings refresh can reconcile from this
+        // index without repeating a cold read. Source, prices, clear-all and
+        // disposal still revoke the index itself, including A -> B -> A changes.
+        if (indexCurrent()) commitLoadedIndex();
         if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
         return;
       }
@@ -4837,19 +4864,7 @@ export class ClaudeCodeUsageExtension {
       }
 
       const aggregateRenderMs = performance.now() - aggregateStarted;
-      commitRefreshSnapshot(
-        manifest,
-        { records, contentAnalysis },
-        loaded.diagnostics.filesFailed,
-        (nextManifest, snapshot) => {
-          this.cache.records = snapshot.records;
-          this.cache.contentAnalysis = snapshot.contentAnalysis;
-          this.cache.claudeIndex = loaded.index;
-          this.cache.manifest = nextManifest;
-          this.cache.dataDirectory = dataDirectory;
-          this.cache.lastUpdate = new Date(snapshotNow.getTime());
-        }
-      );
+      commitLoadedIndex();
       this.recordRefreshState('claude', false, request.trigger);
       this.outputChannel.appendLine(formatRefreshDiagnostic({
         trigger: request.trigger,

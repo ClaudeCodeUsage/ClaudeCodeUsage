@@ -24,6 +24,7 @@ import {
   mergeQuotaCaptures,
 } from '../quotaObservationStore';
 import { I18n } from '../i18n';
+import { getPricingBackend, setPricingBackend } from '../pricing';
 
 type ExtensionModule = typeof import('../extension');
 
@@ -73,6 +74,7 @@ function bareExtension(): any {
   extension.codexProviderRetirementFailure = null;
   extension.codexBackgroundStateWrite = Promise.resolve();
   extension.configurationGeneration = 0;
+  extension.claudeIndexGeneration = 0;
   extension.fileWatcherGeneration = 0;
   extension.codexWatcherGeneration = 0;
   extension.credentialsWatcherGeneration = 0;
@@ -872,6 +874,136 @@ test('a retired Claude index result cannot publish after an A to B to A configur
   assert.equal(extension.cache.records.length, 0);
   assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
   assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false);
+});
+
+test('unrelated settings retain completed Claude index work without publishing a retired presentation', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-settings-index-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  const row = JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(),
+    requestId: 'same-source', message: { id: 'same-source', model: 'claude-opus-5-5',
+      usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n';
+  fs.writeFileSync(path.join(project, 'session.jsonl'), row);
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let release!: () => void, ready!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  const reads: number[] = [];
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    reads.push(result.diagnostics.bytesRead);
+    if (reads.length === 1) { ready(); await blocked; }
+    return result;
+  };
+  t.after(() => { release(); (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  config.dataDirectory = root;
+  config.enableContentAnalysis = true;
+  extension.refreshCodexData = async () => undefined;
+  const pending = extension.refreshData(true, 'manual');
+  await started;
+  config.refreshInterval = 300;
+  extension.configurationGeneration++;
+  release();
+  await pending;
+  assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false,
+    'retired UI configuration must not deliver panels');
+  await extension.refreshData(true, 'settings');
+  assert.ok(reads[0] >= Buffer.byteLength(row), 'the cold usage/content passes read the fixture');
+  assert.deepEqual(reads.slice(1), [0], 'completed same-source work is reused, not read twice');
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 100);
+  assert.ok(deliveries.some((d) => d.kind === 'claude' && d.value.allTime?.totalInputTokens === 100));
+});
+
+test('price invalidation rejects an in-flight Claude index before the queued refresh prices unchanged files', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-price-epoch-'));
+  const backend = getPricingBackend();
+  setPricingBackend('anthropic');
+  t.after(() => { setPricingBackend(backend); fs.rmSync(root, { recursive: true, force: true }); });
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'prices', message: { id: 'prices', model: 'claude-opus-5-5',
+      usage: { input_tokens: 1_000_000, output_tokens: 10_000 } } }) + '\n');
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  config.dataDirectory = root;
+  extension.refreshCodexData = async () => undefined;
+  await extension.refreshData(true, 'manual');
+  const oldCost = extension.cache.claudeIndex.aggregates.allTime.totalCost;
+  deliveries.length = 0;
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let release!: () => void, ready!: () => void, first = true;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    if (first) { first = false; ready(); await blocked; }
+    return result;
+  };
+  t.after(() => { release(); (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
+  const pending = extension.refreshData(true, 'poll');
+  await started;
+  // A local table switch stands in for a successful price fetch; no network or
+  // configuration-generation change is needed by the production manual path.
+  setPricingBackend('aws-bedrock-in-region');
+  extension.invalidateClaudeUsagePricingCache();
+  await extension.refreshData(true, 'pricing');
+  release();
+  await pending;
+  const deadline = performance.now() + 3_000;
+  while (extension.refreshGate.active && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(extension.refreshGate.active, false, 'queued pricing refresh drained');
+  const truth = await originalUpdate(createClaudeUsageIndex(), root, { analyzeContent: false });
+  const expected = truth.index.aggregates.allTime.totalCost;
+  assert.notEqual(expected, oldCost);
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalCost, expected);
+  const published = deliveries.filter((d) => d.kind === 'claude' && d.value.allTime !== null);
+  assert.ok(published.length > 0);
+  assert.ok(published.every((d) => d.value.allTime.totalCost === expected), 'old-priced data never returned to the UI');
+});
+
+test('clear-all and disposal cannot retain a completed index through the presentation-only recovery path', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-index-revocation-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), message: { id: 'revoked', model: 'claude-opus-5-5',
+      usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n');
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  for (const flag of ['clearingAllLocalData', 'localDataClearedRequiresReload', 'disposed']) {
+    await t.test(flag, async () => {
+      let release!: () => void, ready!: () => void;
+      const blocked = new Promise<void>((resolve) => { release = resolve; });
+      const started = new Promise<void>((resolve) => { ready = resolve; });
+      (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+        const result = await originalUpdate(...args);
+        ready(); await blocked;
+        return result;
+      };
+      try {
+        const { extension, config, deliveries } = coordinatorHarness(true);
+        config.dataDirectory = root;
+        extension.refreshCodexData = async () => undefined;
+        const pending = extension.refreshData(true, 'manual');
+        await started;
+        extension.configurationGeneration++;
+        extension[flag] = true;
+        release(); await pending;
+        assert.equal(extension.cache.manifest, null);
+        assert.equal(extension.cache.records.length, 0);
+        assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false);
+      } finally {
+        release(); (indexModule as any).updateClaudeUsageIndex = originalUpdate;
+      }
+    });
+  }
 });
 
 function installManualTimers(): {
