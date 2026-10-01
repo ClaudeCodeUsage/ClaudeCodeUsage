@@ -28,6 +28,8 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 - **Große Historien:** unveränderte Inhaltszuordnung nutzt den Cache, KI-Steuerelemente
   bleiben aktuell. Anzeigeänderungen wiederholen keinen abgeschlossenen Kaltaufbau;
   verspätete Indexresultate können aktualisierte Preise nicht überschreiben.
+  Die heutige Zuordnung wird pro Kalendertag zwischengespeichert: unveränderte
+  Minutenabfragen aktualisieren den Countdown ohne die gesamte Historie zu durchlaufen.
 - **Sicheres Upgrade:** unveränderte Abfragen erhalten bestätigte Vorschauen; ein Wechsel
   des Claude-Verzeichnisses verwirft alte Daten auch bei pausierter Aktualisierung. Bestehende
   API-Schlüssel ohne explizites Format behalten Anthropic. Bei einem Konflikt Format und URL

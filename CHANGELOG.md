@@ -114,6 +114,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Default-on Content attribution also reuses one bounded data section without
   freezing live advice or Optimizer controls; it expires at calendar/settings
   boundaries and releases retained records when the source is revoked.
+- **Minute-spaced Today polling** — Today's numeric usage attribution now has
+  a single-entry calendar-day cache, independent from minute-sensitive quota
+  countdowns. Unchanged 60-second polls no longer traverse the full Claude
+  history. Record/analysis changes, configured midnight/timezone, pricing and
+  source revocation still invalidate it. Coordinator and scale regressions now
+  advance both Date.now() and new Date() between polls rather than testing only
+  repeated refreshes at one frozen instant.
 - **Cold-build interruption and price-refresh race** — display-only settings
   changes retain completed, verified same-source index work without delivering
   the retired presentation. A separate source/pricing generation rejects late

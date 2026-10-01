@@ -49,7 +49,8 @@ Module._load = load;
   const recordCount = Number(process.env.CCU_PERF_RECORDS ?? 120_000);
   assert.ok(Number.isInteger(recordCount) && recordCount >= 2_000 && recordCount <= 250_000);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-production-dashboard-'));
-  const restoreClock = freezeClock(CODEX_WEBVIEW_NOW);
+  let clockNow = CODEX_WEBVIEW_NOW;
+  let restoreClock = freezeClock(clockNow);
   const originalAttribution = ClaudeDataLoader.getUsageAttribution;
   I18n.setTimezone('UTC');
   I18n.setLanguage('en');
@@ -94,13 +95,16 @@ Module._load = load;
     let attributionCalculations = 0;
     ClaudeDataLoader.getUsageAttribution = (...args) => {
       attributionCalculations++;
-      return originalAttribution(...args);
+      return originalAttribution.call(ClaudeDataLoader, ...args);
     };
-    let renders = 0;
+    let renders = 0, todayRenders = 0;
     for (const name of ['renderTodayData', 'renderMonthData', 'renderAllTimeData',
       'renderSessionData', 'renderProjectData', 'renderBranchData', 'renderWorkflowData', 'buildShareCardSvgFor']) {
       const original = p[name];
-      p[name] = function (...args) { renders++; return original.apply(this, args); };
+      p[name] = function (...args) {
+        if (name === 'renderTodayData') todayRenders++; else renders++;
+        return original.apply(this, args);
+      };
     }
     let peakSampledRssBytes = process.memoryUsage().rss;
     async function unchangedPolls(mode) {
@@ -109,16 +113,19 @@ Module._load = load;
       p.updateWebview();
       const acceptedPreview = p.shareCardPreviewCache;
       assert.ok(acceptedPreview?.previewId);
-      posted.length = 0; diagnostics.length = 0; documentWrites = 0; renders = 0; attributionCalculations = 0;
+      posted.length = 0; diagnostics.length = 0; documentWrites = 0; renders = 0; todayRenders = 0; attributionCalculations = 0;
       const samples = [];
       for (let i = 0; i < 10; i++) {
+        restoreClock(); clockNow += 60_000; restoreClock = freezeClock(clockNow);
         const started = performance.now();
         await e.refreshData(false, i === 9 ? 'focus' : 'poll');
         samples.push(+(performance.now() - started).toFixed(2));
         peakSampledRssBytes = Math.max(peakSampledRssBytes, process.memoryUsage().rss);
       }
-      assert.equal(renders, 0, `${mode}: unchanged panels/artifacts must not be rebuilt`);
-      assert.equal(attributionCalculations, 0, `${mode}: unchanged Content must not traverse all records`);
+      assert.equal(renders, 0, `${mode}: unchanged history panels/artifacts must not be rebuilt`);
+      if (mode === 'claude') assert.ok(todayRenders >= 10, 'Today countdowns must still expire per minute');
+      else assert.equal(todayRenders, 0, `${mode}: no hidden Today rebuild`);
+      assert.equal(attributionCalculations, 0, `${mode}: minute-spaced polls must not traverse unchanged records`);
       assert.equal(documentWrites, 0, `${mode}: unchanged page must not be replaced`);
       assert.equal(posted.filter(m => m.command === 'dashboardDataPatch').length, 0);
       assert.equal(p.shareCardPreviewCache, acceptedPreview);
@@ -126,6 +133,7 @@ Module._load = load;
       assert.equal(io.length, 10);
       assert.ok(io.every(line => /io\(bytes=0 lines=0\)/.test(line)));
       return { mode, polls: samples.length, medianMs: [...samples].sort((a, b) => a - b)[5], samplesMs: samples,
+        intervalMs: 60_000, todayCountdownRenders: todayRenders,
         hiddenPanelOrArtifactRenders: renders, attributionCalculations, dataPatches: 0, documentReplacements: documentWrites,
         bodyBytesRead: 0, acceptedPreviewRetained: true };
     }

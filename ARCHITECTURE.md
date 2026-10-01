@@ -159,6 +159,10 @@ single-entry Claude weekly-input cache avoids rescanning unchanged records.
 Content attribution uses a separate single-entry data-section cache rather than
 caching the whole Content panel; advice/Optimizer controls remain live. It uses
 the same calendar, settings and source-revocation boundaries as data panels.
+Today's numeric attribution has its own single-entry cache keyed by records,
+analysis, configured day/timezone and pricing identity. Minute-spaced polls may
+refresh countdown HTML without walking the whole corpus; midnight, changed
+inputs, prices and source revocation still recompute, and disposal releases it.
 Data references, settings, prices, locale, currency, calendar boundaries and
 quota expiry invalidate these caches. Today expires by minute; hidden history
 by hour. Disposal and source replacement release retained references.
@@ -190,8 +194,12 @@ progress or invalidate hidden panels merely by toggling loading.
 已验证页面。主日志、周期迁移和小时回填显示各自计数及重试状态，不把主日志覆盖率
 冒充整体完成度。面板缓存按供应商／页签有界保存；记录、显示设置、价格与时间边界
 变化时失效。今日倒计时按分钟过期，历史不随每分钟刷新重复计算。
+内容归因只缓存数据区，AI 控件保持实时；今日数值归因另按记录、分析、自然日／时区
+及价格身份保存单份缓存，跨分钟倒计时不重复遍历历史，午夜或输入变化仍重新计算。
 Claude 切换来源立即撤销旧记录、索引、额度、建议句柄、分享预览及成功时间，页面暂停
 不阻止此隔离；异步发现、扫描和索引返回均核对来源及配置代次，包括 A → B → A。
+独立的来源／价格代次拒绝旧索引结果；仅显示设置变化时，同源的已验证构建可供宿主
+复用，但不得交付已退休页面或绕过清除／释放边界。
 释放后不再交付迟到清空；同一来源的临时失败仍保留已验证统计。
 Codex 仅在同一数据目录内保留失败前的已验证统计；切换目录会清空旧视图、建议和成功
 时间，新来源验证前不采用共享旧检查点。异步返回后校验供应商及配置代次，过期任务
@@ -339,6 +347,7 @@ explicit clear-all allowlist and value-free inventory include the enum marker.
 目标信息和原始请求字节。恢复默认设置不删除 SecretStorage 中的密钥。
 激活前完成协议兼容迁移：已有密钥且未明确设置协议时保留旧 Anthropic 默认，显式设置
 不变，新安装采用 OpenAI 兼容默认。枚举迁移标记只保存兼容协议，不含密钥、账户或地址；
+旧 VS Code 协议配置仅在首次通用迁移前读取，迁移后恢复默认不会重新导入过时设置。
 普通恢复默认保留它，确认清除全部派生数据才清除。迁移失败使本次 AI 功能无可用密钥，
 不删除可恢复的 SecretStorage 密钥，也不阻断用量页面。
 

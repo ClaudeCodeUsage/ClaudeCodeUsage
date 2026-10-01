@@ -5,6 +5,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+const { freezeClock } = require(path.resolve(__dirname, '../../tests/ui/support/frozen-clock.cjs')) as {
+  freezeClock: (now: number) => () => void;
+};
+
 let handler: (message: Record<string, unknown>) => Promise<void>;
 let saveDialogs = 0;
 const writes: string[] = [];
@@ -157,7 +161,7 @@ test('unchanged Content attribution is cached without freezing dynamic advice or
   let calculations = 0, adviceRevision = 1;
   (ClaudeDataLoader as any).getUsageAttribution = (...args: Parameters<typeof original>) => {
     calculations++;
-    return original(...args);
+    return original.call(ClaudeDataLoader, ...args);
   };
   p.renderAdviceCard = () => '<p>advice-' + adviceRevision + '</p>';
   p.renderOptimizerCard = () => '<p>optimizer-' + adviceRevision + '</p>';
@@ -184,13 +188,68 @@ test('unchanged Content attribution is cached without freezing dynamic advice or
   }
 });
 
-test('production coordinator polls preserve accepted previews and never patch unchanged Claude panels', async (t) => {
+test('Today attribution survives minute ticks but expires with its day, timezone, inputs and pricing', () => {
+  const p = provider();
+  p.panel = undefined;
+  const originalAttribution = ClaudeDataLoader.getUsageAttribution;
+  const timezone = I18n.getTimezone();
+  const backend = getPricingBackend();
+  let now = Date.parse('2026-09-30T23:57:20Z');
+  let restoreClock = freezeClock(now);
+  const advance = () => { restoreClock(); now += 60_000; restoreClock = freezeClock(now); };
+  I18n.setTimezone('UTC');
+  p.allRecords = [{ timestamp: new Date(now).toISOString(), _workflowId: 'synthetic-workflow',
+    message: { model: 'claude-opus-5-5', usage: { input_tokens: 200, output_tokens: 20 } } }];
+  let calculations = 0;
+  (ClaudeDataLoader as any).getUsageAttribution = (...args: Parameters<typeof originalAttribution>) => {
+    calculations++;
+    return originalAttribution.call(ClaudeDataLoader, ...args);
+  };
+  try {
+    const first = p.renderTodayInsights();
+    assert.ok(first.length > 0, 'the fixture must render real usage characteristics');
+    advance(); assert.equal(p.renderTodayInsights(), first);
+    advance(); assert.equal(p.renderTodayInsights(), first);
+    assert.equal(calculations, 1, 'minute ticks must not traverse unchanged records');
+    advance();
+    assert.equal(p.renderTodayInsights(), '', 'configured midnight excludes the previous day');
+    assert.equal(calculations, 2);
+    I18n.setTimezone('America/New_York');
+    assert.equal(p.renderTodayInsights(), first, 'a timezone change restores the matching civil day');
+    assert.equal(calculations, 3);
+    p.allRecords = [...p.allRecords]; p.renderTodayInsights();
+    assert.equal(calculations, 4, 'new record identity invalidates attribution');
+    p.contentAnalysis = { skillUses: [] }; p.renderTodayInsights();
+    assert.equal(calculations, 5, 'new analysis identity invalidates attribution');
+    setPricingBackend(backend === 'anthropic' ? 'aws-bedrock-in-region' : 'anthropic');
+    p.renderTodayInsights();
+    assert.equal(calculations, 6, 'pricing must never leave stale cost-weighted shares');
+    p.invalidateShareCardPreview(); p.renderTodayInsights();
+    assert.equal(calculations, 7, 'explicit price/display invalidation releases the cached result');
+    assert.equal(p.todayAttributionCache.records, p.allRecords, 'only one current source is retained');
+    p.clearClaudeSource();
+    assert.equal(p.todayAttributionCache, undefined, 'source revocation releases old references');
+    assert.equal(p.renderTodayInsights(), '');
+    assert.equal(calculations, 7, 'empty and Codex views do not scan Claude records');
+    assert.equal(p.renderTodayInsights('codex'), '');
+    p.allRecords = [{ timestamp: new Date(now).toISOString(), _workflowId: 'synthetic-replacement',
+      message: { model: 'claude-opus-5-5', usage: { input_tokens: 20, output_tokens: 2 } } }];
+    p.renderTodayInsights();
+    assert.ok(p.todayAttributionCache);
+    p.dispose();
+    assert.equal(p.todayAttributionCache, undefined, 'disposal releases the single cached attribution');
+  } finally {
+    (ClaudeDataLoader as any).getUsageAttribution = originalAttribution;
+    restoreClock(); I18n.setTimezone(timezone); setPricingBackend(backend);
+  }
+});
+
+test('production coordinator minute-spaced polls preserve accepted previews without rescanning unchanged attribution', async (t) => {
   const p = provider();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-production-preview-'));
-  const originalNow = Date.now;
-  const now = Date.parse('2026-09-30T12:00:20Z');
-  Date.now = () => now;
-  t.after(() => { Date.now = originalNow; fs.rmSync(root, { recursive: true, force: true }); });
+  let now = Date.parse('2026-09-30T12:00:20Z');
+  let restoreClock = freezeClock(now);
+  t.after(() => { restoreClock(); fs.rmSync(root, { recursive: true, force: true }); });
   const project = path.join(root, 'projects', '-fixture');
   fs.mkdirSync(project, { recursive: true });
   fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
@@ -216,24 +275,31 @@ test('production coordinator polls preserve accepted previews and never patch un
   assert.ok(preview.previewId);
   const methods = ['renderTodayData', 'renderMonthData', 'renderAllTimeData',
     'renderSessionData', 'renderProjectData', 'renderBranchData', 'renderWorkflowData', 'buildShareCardSvgFor'];
-  let renders = 0;
+  let renders = 0, todayRenders = 0;
   for (const name of methods) {
     const original = p[name];
-    p[name] = function (...args: unknown[]) { renders++; return original.apply(this, args); };
+    p[name] = function (...args: unknown[]) {
+      if (name === 'renderTodayData') todayRenders++; else renders++;
+      return original.apply(this, args);
+    };
   }
   p.updateWebview(); // Prime the default presentation after the explicit preview.
   const originalAttribution = ClaudeDataLoader.getUsageAttribution;
   let attributionCalculations = 0;
   (ClaudeDataLoader as any).getUsageAttribution = (...args: Parameters<typeof originalAttribution>) => {
     attributionCalculations++;
-    return originalAttribution(...args);
+    return originalAttribution.call(ClaudeDataLoader, ...args);
   };
   t.after(() => { (ClaudeDataLoader as any).getUsageAttribution = originalAttribution; });
-  renders = 0;
+  renders = 0; todayRenders = 0;
   posted.length = 0;
-  for (const trigger of ['poll', 'poll', 'poll', 'focus'] as const) await e.refreshData(false, trigger);
-  assert.equal(renders, 0, 'no hidden panel or artifact rebuild');
-  assert.equal(attributionCalculations, 0, 'default content analysis must not scan records on warm polls');
+  for (const trigger of ['poll', 'poll', 'poll', 'focus'] as const) {
+    restoreClock(); now += 60_000; restoreClock = freezeClock(now);
+    await e.refreshData(false, trigger);
+  }
+  assert.equal(renders, 0, 'no hidden history panel or artifact rebuild');
+  assert.ok(todayRenders >= 4, 'Today countdowns still expire each minute');
+  assert.equal(attributionCalculations, 0, 'default content analysis must not scan records on minute-spaced polls');
   assert.equal(posted.filter((m) => m.command === 'dashboardDataPatch').length, 0);
   assert.equal(p.shareCardPreviewCache.previewId, preview.previewId);
   await handler({ command: 'exportShareCard', previewId: preview.previewId, ...cfg });

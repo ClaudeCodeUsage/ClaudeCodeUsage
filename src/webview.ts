@@ -1016,6 +1016,12 @@ export class UsageWebviewProvider {
   // One entry per provider/tab: never a history of HTML snapshots. All data
   // references and display/time context must agree before reusing a panel.
   private readonly dataPanelCache = new Map<string, { refs: unknown[]; displayKey: string; html: string }>();
+  // Attribution is day-sensitive, not minute-sensitive like Today's countdowns.
+  // Retain one numeric result, while labels and quota presentation remain live.
+  private todayAttributionCache?: {
+    records: any[]; analysis: ContentAnalysis | null; day: string; timeZone: string;
+    pricing: unknown; backend: string; attribution: UsageAttribution;
+  };
   private weeklyUsageCache?: { records: any[]; pricing: unknown; backend: string; usage: ReturnType<typeof claudeWeeklyEquivalentUsage> };
   private readonly refreshStates: Partial<Record<SettingProvider, { failed: boolean; lastSuccessfulAt?: number }>> = {};
   private claudeHeatmapPreviewCache?: {
@@ -1697,6 +1703,7 @@ export class UsageWebviewProvider {
     this.claudeHeatmapPreviewCache = undefined;
     this.claudeDailyUsageCache = undefined;
     this.dataPanelCache.clear();
+    this.todayAttributionCache = undefined;
   }
 
   private async handleClearAdviceLocalDataMessage(): Promise<void> {
@@ -2672,6 +2679,7 @@ export class UsageWebviewProvider {
     this.sessionBreakdown = sessionBreakdown;
     this.projectBreakdown = projectBreakdown;
     this.claudeProjectUsageMatrix = projectUsageMatrix;
+    if (this.contentAnalysis !== contentAnalysis) this.todayAttributionCache = undefined;
     this.contentAnalysis = contentAnalysis;
     this.branchBreakdown = branchBreakdown;
     this.workflowBreakdown = workflowBreakdown;
@@ -6152,7 +6160,7 @@ export class UsageWebviewProvider {
     // Today's usage characteristics, ≥5% only (full sentence in the tooltip).
     // All cost-weighted from exact usage — no estimates in this card.
     if (this.allRecords && this.allRecords.length > 0) {
-      const attr = ClaudeDataLoader.getUsageAttribution(this.allRecords, this.contentAnalysis, { kind: 'day' });
+      const attr = this.getTodayAttribution();
       if (attr.totalCost > 0) {
         const add = (share: number, short: string, sentence: string, hint: string, color: string): void => {
           if (share < 0.05) {
@@ -6183,6 +6191,24 @@ export class UsageWebviewProvider {
       '<div class="cbar-list">' + rows.join('') + '</div>' +
       '</div>'
     );
+  }
+
+  private getTodayAttribution(): UsageAttribution {
+    const now = new Date(Date.now());
+    const timeZone = I18n.getTimezone();
+    const day = dayKeyInZone(now, timeZone);
+    const pricing = getPricingLastFetched();
+    const backend = getPricingBackend();
+    const previous = this.todayAttributionCache;
+    if (previous?.records === this.allRecords && previous.analysis === this.contentAnalysis &&
+        previous.day === day && previous.timeZone === timeZone &&
+        previous.pricing === pricing && previous.backend === backend) return previous.attribution;
+    const attribution = ClaudeDataLoader.getUsageAttribution(
+      this.allRecords, this.contentAnalysis, { kind: 'day' }, now,
+    );
+    this.todayAttributionCache = { records: this.allRecords, analysis: this.contentAnalysis,
+      day, timeZone, pricing, backend, attribution };
+    return attribution;
   }
 
   /** Cache hit rate of input-side tokens: cacheRead / (input + cacheWrite + cacheRead). */
@@ -14598,6 +14624,7 @@ function renderHourlyChart(hourlyData, metric) {
   }
 
   dispose(): void {
+    this.todayAttributionCache = undefined;
     if (this.panel) {
       this.panel.dispose();
     }

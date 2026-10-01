@@ -82,6 +82,8 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - **Riwayat besar** — atribusi konten tanpa perubahan memakai cache, sementara kontrol AI
   tetap diperbarui. Pengaturan tampilan memakai ulang indeks yang selesai; hasil indeks
   terlambat tidak dapat menimpa harga yang baru diperbarui.
+  Atribusi hari ini memakai cache per hari kalender: polling per menit tanpa perubahan
+  memperbarui hitung mundur tanpa memindai seluruh riwayat.
 - **Keamanan peningkatan** — polling tanpa perubahan mempertahankan pratinjau yang diterima;
   mengganti direktori Claude menghapus data lama meskipun pembaruan dijeda. Kunci lama tanpa
   format eksplisit tetap memakai format Anthropic. Jika tidak cocok, pilih format API dan URL

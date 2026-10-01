@@ -27,6 +27,8 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
 - **Históricos grandes:** a atribuição de conteúdo sem mudanças usa cache, mantendo os
   controles de IA atualizados. Opções de exibição reaproveitam a indexação concluída;
   resultados atrasados não sobrescrevem preços atualizados.
+  A atribuição de hoje usa cache por dia: consultas sem mudanças, espaçadas por minuto,
+  atualizam a contagem regressiva sem percorrer todo o histórico.
 - **Atualização segura:** consultas sem mudanças mantêm prévias aceitas; mudar o diretório
   Claude limpa dados antigos mesmo com atualização pausada. Chaves existentes sem formato
   explícito mantêm Anthropic. Em caso de incompatibilidade, escolha formato e URL nas
