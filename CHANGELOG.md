@@ -116,8 +116,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   boundaries and releases retained records when the source is revoked.
 - **Minute-spaced Today polling** — Today's numeric usage attribution now has
   a single-entry calendar-day cache, independent from minute-sensitive quota
-  countdowns. Unchanged 60-second polls no longer traverse the full Claude
-  history. Record/analysis changes, configured midnight/timezone, pricing and
+  countdowns. Unchanged minute polls within an hour avoid full-history scans;
+  the hourly hidden-panel refresh still computes Content attribution once.
+  Record/analysis changes, configured midnight/timezone, pricing and
   source revocation still invalidate it. Coordinator and scale regressions now
   advance both Date.now() and new Date() between polls rather than testing only
   repeated refreshes at one frozen instant.

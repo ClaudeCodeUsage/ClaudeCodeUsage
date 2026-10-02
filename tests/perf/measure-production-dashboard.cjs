@@ -93,8 +93,10 @@ Module._load = load;
     assert.equal(e.cache.records.length, recordCount);
     assert.ok(e.cache.contentAnalysis, 'default-on content analysis must participate');
     let attributionCalculations = 0;
+    const attributionScopes = [];
     ClaudeDataLoader.getUsageAttribution = (...args) => {
       attributionCalculations++;
+      attributionScopes.push(args[2].kind);
       return originalAttribution.call(ClaudeDataLoader, ...args);
     };
     let renders = 0, todayRenders = 0;
@@ -138,6 +140,31 @@ Module._load = load;
         bodyBytesRead: 0, acceptedPreviewRetained: true };
     }
     const claude = await unchangedPolls('claude');
+    restoreClock();
+    clockNow = Math.floor(clockNow / 3_600_000) * 3_600_000 + 3_600_000 - 40_000;
+    restoreClock = freezeClock(clockNow);
+    await e.refreshData(false, 'poll');
+    const hourlyPreview = p.shareCardPreviewCache;
+    posted.length = 0; diagnostics.length = 0; documentWrites = 0;
+    renders = 0; todayRenders = 0; attributionCalculations = 0; attributionScopes.length = 0;
+    const hourlySamples = [];
+    for (let minute = 0; minute < 2; minute++) {
+      restoreClock(); clockNow += 60_000; restoreClock = freezeClock(clockNow);
+      const started = performance.now();
+      await e.refreshData(false, 'poll');
+      hourlySamples.push(+(performance.now() - started).toFixed(2));
+      assert.equal(attributionCalculations, 1, 'hourly Content attribution must run only once');
+      assert.deepEqual(attributionScopes, ['week'], 'Today attribution stays cached across the hour');
+      assert.equal(renders, 6, 'hidden history refreshes only on the hour');
+      assert.equal(p.shareCardPreviewCache, hourlyPreview);
+      peakSampledRssBytes = Math.max(peakSampledRssBytes, process.memoryUsage().rss);
+    }
+    assert.equal(documentWrites, 0);
+    assert.equal(posted.filter(m => m.command === 'dashboardDataPatch').length, 0);
+    assert.ok(diagnostics.filter(line => line.startsWith('refresh:')).every(line => /io\(bytes=0 lines=0\)/.test(line)));
+    const hourBoundary = { polls: 2, samplesMs: hourlySamples, contentWeekCalculations: 1,
+      todayAttributionCalculations: 0, hiddenHistoryRenders: renders, bodyBytesRead: 0,
+      acceptedPreviewRetained: true, documentReplacements: 0, dataPatches: 0 };
     const fixture = codexWebviewFixture();
     e.codexView = buildCodexUsageView(fixture);
     e.codexInsights = buildScopedCodexInsights(e.codexView);
@@ -149,7 +176,7 @@ Module._load = load;
     assert.equal(e.cache.records.length, recordCount + 1);
     assert.ok(renders > 0, 'a real append still invalidates panels');
     process.stdout.write(JSON.stringify({ kind: 'synthetic-production-coordinator-plus-renderer-not-native-UI-or-OOM-proof',
-      records: recordCount, contentAnalysis: true, coldMs, claude, compare, appendInvalidates: true, peakSampledRssBytes }, null, 2) + '\n');
+      records: recordCount, contentAnalysis: true, coldMs, claude, hourBoundary, compare, appendInvalidates: true, peakSampledRssBytes }, null, 2) + '\n');
   } finally {
     ClaudeDataLoader.getUsageAttribution = originalAttribution;
     restoreClock();

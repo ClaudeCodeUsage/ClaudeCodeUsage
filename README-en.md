@@ -88,7 +88,8 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
   controls stay live. Display settings reuse completed index work, and old index
   results cannot overwrite refreshed prices.
   Today attribution is cached by calendar day: unchanged minute-spaced polls
-  update countdowns without rescanning the full history.
+  update countdowns without rescanning the full history within the hour. The
+  hourly hidden-panel refresh still recomputes Content attribution once.
 - **Upgrade safety** — unchanged polls keep accepted previews; changing Claude
   directories clears old data even while updates are paused. Existing API keys
   without an explicit protocol keep the prior Anthropic format. If preview

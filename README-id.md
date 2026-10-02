@@ -83,7 +83,8 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
   tetap diperbarui. Pengaturan tampilan memakai ulang indeks yang selesai; hasil indeks
   terlambat tidak dapat menimpa harga yang baru diperbarui.
   Atribusi hari ini memakai cache per hari kalender: polling per menit tanpa perubahan
-  memperbarui hitung mundur tanpa memindai seluruh riwayat.
+  memperbarui hitung mundur tanpa memindai seluruh riwayat dalam jam yang sama.
+  Pembaruan panel tersembunyi setiap jam tetap menghitung ulang atribusi konten sekali.
 - **Keamanan peningkatan** — polling tanpa perubahan mempertahankan pratinjau yang diterima;
   mengganti direktori Claude menghapus data lama meskipun pembaruan dijeda. Kunci lama tanpa
   format eksplisit tetap memakai format Anthropic. Jika tidak cocok, pilih format API dan URL

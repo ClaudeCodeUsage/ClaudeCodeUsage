@@ -211,7 +211,8 @@ real account or an installed-VSIX capture.*
   without freezing AI controls. Display settings no longer restart completed cold
   reads, and late index results cannot restore superseded prices.
   Today attribution is cached by calendar day: unchanged minute-spaced polls
-  update countdowns without rescanning the full history.
+  update countdowns without rescanning the full history within the hour. The
+  hourly hidden-panel refresh still recomputes Content attribution once.
 - **Upgrade safety** — unchanged polls retain accepted sharing previews; changing
   the Claude data directory clears the old source even while updates are paused.
   Existing API keys without an explicit protocol retain the prior Anthropic

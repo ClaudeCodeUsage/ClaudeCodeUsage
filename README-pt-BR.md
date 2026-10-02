@@ -28,7 +28,8 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
   controles de IA atualizados. Opções de exibição reaproveitam a indexação concluída;
   resultados atrasados não sobrescrevem preços atualizados.
   A atribuição de hoje usa cache por dia: consultas sem mudanças, espaçadas por minuto,
-  atualizam a contagem regressiva sem percorrer todo o histórico.
+  atualizam a contagem regressiva sem percorrer todo o histórico dentro da mesma hora.
+  A atualização horária dos painéis ocultos ainda recalcula a atribuição de conteúdo uma vez.
 - **Atualização segura:** consultas sem mudanças mantêm prévias aceitas; mudar o diretório
   Claude limpa dados antigos mesmo com atualização pausada. Chaves existentes sem formato
   explícito mantêm Anthropic. Em caso de incompatibilidade, escolha formato e URL nas

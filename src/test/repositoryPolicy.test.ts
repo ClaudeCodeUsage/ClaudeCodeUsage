@@ -7,6 +7,11 @@ import * as ts from 'typescript';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
+test('hotfix polling documentation retains the hourly Content boundary and cache release semantics', () => {
+  assert.match(repoFile('CHANGELOG.md'), /hourly hidden-panel refresh still computes Content attribution once/);
+  assert.match(repoFile('ARCHITECTURE.md'), /撤销来源和释放时清除旧引用/);
+});
+
 function repoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
 }

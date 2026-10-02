@@ -29,7 +29,9 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
   bleiben aktuell. Anzeigeänderungen wiederholen keinen abgeschlossenen Kaltaufbau;
   verspätete Indexresultate können aktualisierte Preise nicht überschreiben.
   Die heutige Zuordnung wird pro Kalendertag zwischengespeichert: unveränderte
-  Minutenabfragen aktualisieren den Countdown ohne die gesamte Historie zu durchlaufen.
+  Minutenabfragen innerhalb einer Stunde aktualisieren den Countdown ohne die gesamte
+  Historie zu durchlaufen. Die stündliche Aktualisierung verborgener Bereiche berechnet
+  die Inhaltszuordnung weiterhin einmal neu.
 - **Sicheres Upgrade:** unveränderte Abfragen erhalten bestätigte Vorschauen; ein Wechsel
   des Claude-Verzeichnisses verwirft alte Daten auch bei pausierter Aktualisierung. Bestehende
   API-Schlüssel ohne explizites Format behalten Anthropic. Bei einem Konflikt Format und URL

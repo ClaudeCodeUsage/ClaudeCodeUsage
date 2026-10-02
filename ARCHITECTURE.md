@@ -165,7 +165,8 @@ refresh countdown HTML without walking the whole corpus; midnight, changed
 inputs, prices and source revocation still recompute, and disposal releases it.
 Data references, settings, prices, locale, currency, calendar boundaries and
 quota expiry invalidate these caches. Today expires by minute; hidden history
-by hour. Disposal and source replacement release retained references.
+by hour, when Content week attribution recomputes once. Disposal and source
+replacement release retained references.
 Claude materialization retains one structurally compared, time-aware render
 contract, so unchanged poll/focus delivery reuses its aggregate references.
 Identical quota/history observations also retain identity. The snapshot still
@@ -195,7 +196,8 @@ progress or invalidate hidden panels merely by toggling loading.
 冒充整体完成度。面板缓存按供应商／页签有界保存；记录、显示设置、价格与时间边界
 变化时失效。今日倒计时按分钟过期，历史不随每分钟刷新重复计算。
 内容归因只缓存数据区，AI 控件保持实时；今日数值归因另按记录、分析、自然日／时区
-及价格身份保存单份缓存，跨分钟倒计时不重复遍历历史，午夜或输入变化仍重新计算。
+及价格身份保存单份缓存，跨分钟倒计时不重复遍历历史，午夜或输入变化仍重新计算；
+撤销来源和释放时清除旧引用。隐藏历史面板按小时过期，内容周归因在整点重新计算一次。
 Claude 切换来源立即撤销旧记录、索引、额度、建议句柄、分享预览及成功时间，页面暂停
 不阻止此隔离；异步发现、扫描和索引返回均核对来源及配置代次，包括 A → B → A。
 独立的来源／价格代次拒绝旧索引结果；仅显示设置变化时，同源的已验证构建可供宿主

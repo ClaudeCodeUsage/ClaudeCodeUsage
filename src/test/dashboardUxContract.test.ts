@@ -286,8 +286,10 @@ test('production coordinator minute-spaced polls preserve accepted previews with
   p.updateWebview(); // Prime the default presentation after the explicit preview.
   const originalAttribution = ClaudeDataLoader.getUsageAttribution;
   let attributionCalculations = 0;
+  const attributionScopes: string[] = [];
   (ClaudeDataLoader as any).getUsageAttribution = (...args: Parameters<typeof originalAttribution>) => {
     attributionCalculations++;
+    attributionScopes.push(args[2].kind);
     return originalAttribution.call(ClaudeDataLoader, ...args);
   };
   t.after(() => { (ClaudeDataLoader as any).getUsageAttribution = originalAttribution; });
@@ -302,6 +304,18 @@ test('production coordinator minute-spaced polls preserve accepted previews with
   assert.equal(attributionCalculations, 0, 'default content analysis must not scan records on minute-spaced polls');
   assert.equal(posted.filter((m) => m.command === 'dashboardDataPatch').length, 0);
   assert.equal(p.shareCardPreviewCache.previewId, preview.previewId);
+  restoreClock(); now = Date.parse('2026-09-30T12:59:20Z'); restoreClock = freezeClock(now);
+  await e.refreshData(false, 'poll');
+  renders = 0; todayRenders = 0; attributionCalculations = 0; attributionScopes.length = 0;
+  for (let minute = 0; minute < 2; minute++) {
+    restoreClock(); now += 60_000; restoreClock = freezeClock(now);
+    await e.refreshData(false, 'poll');
+    assert.equal(attributionCalculations, 1, 'hourly Content expiration runs once, not on every minute');
+    assert.deepEqual(attributionScopes, ['week'], 'Today attribution survives the hour boundary');
+    assert.equal(renders, 6, 'only the first poll after the hour rebuilds hidden history');
+    assert.equal(p.shareCardPreviewCache.previewId, preview.previewId);
+  }
+  assert.equal(posted.filter((m) => m.command === 'dashboardDataPatch').length, 0);
   await handler({ command: 'exportShareCard', previewId: preview.previewId, ...cfg });
   assert.deepEqual(writes, [preview.svg], 'the accepted artifact remains exportable after unchanged polls');
 });
