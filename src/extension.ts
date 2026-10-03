@@ -2313,17 +2313,14 @@ export class ClaudeCodeUsageExtension {
     const live = this.codexProgress;
     const coverage = this.codexView?.coverage;
     const state = this.codexBackgroundState;
-    const fullyIndexed = coverage?.complete && coverage.identity.complete &&
+    const historyComplete = coverage?.complete &&
       coverage.period.allTime.complete && this.codexView?.hourlyCoverage.complete;
-    const unchangedCompletePass = !live || (live.scannedFiles === live.totalFiles &&
-      live.indexedBytes === live.totalBytes && live.totalFiles === coverage?.totalFiles &&
-      live.totalBytes === coverage?.totalBytes && live.period?.allTime.complete !== false &&
-      live.hourly?.complete !== false);
-    if (fullyIndexed && unchangedCompletePass && state.status === 'complete') return null;
-    if (!live && !this.codexRefreshing &&
-      (!coverage || (coverage.complete && coverage.identity.complete &&
-        coverage.period.allTime.complete && this.codexView?.hourlyCoverage.complete &&
-        state.status !== 'cooldown' && state.status !== 'paused'))) return null;
+    // A completed history stays quiet while ordinary tails/new files arrive.
+    // Their counters need not match the last verified snapshot: that is new
+    // activity, not another history backfill. Before a historical attempt is
+    // classified, complete persisted coverage must also stay quiet.
+    if (historyComplete && (!live || state.status === 'complete')) return null;
+    if (!live && !this.codexRefreshing && !coverage) return null;
 
     let phase: CodexDashboardProgress['phase'] = 'main';
     let scannedFiles = live?.scannedFiles ?? coverage?.indexedFiles ?? 0;
@@ -2540,8 +2537,10 @@ export class ClaudeCodeUsageExtension {
   private codexHistoricalWorkPending(snapshot: CodexProviderSnapshot | null): boolean {
     if (!snapshot) return true;
     const coverage = snapshot.coverage;
+    // Identity completeness describes ambiguous duplicate groups, not a
+    // resumable cursor. Retrying cannot settle that quality warning; actual
+    // migration work is represented by main, period and hourly coverage.
     return !coverage.complete ||
-      !coverage.identity.complete ||
       !coverage.period.allTime.complete ||
       !snapshot.hourlyCoverage?.complete;
   }
