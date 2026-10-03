@@ -122,6 +122,15 @@ test('presentation selection swaps truthful previews and survives reload', async
   expect(cardLayout.previewWidth).toBeGreaterThanOrEqual(cardLayout.presentationWidth * 0.9);
   await page.evaluate(() => { window.__ccuPostedMessages = []; });
   await card.getByRole('button', { name: 'Update preview' }).click();
+  await expect(card.getByRole('button', { name: 'Export SVG…' })).toBeDisabled();
+  await page.evaluate(() => {
+    const request = window.__ccuPostedMessages.findLast((message) => message.command === 'buildShareCard');
+    const prev = document.getElementById('scPreview');
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      command: 'shareCardResult', requestId: request.requestId, previewId: 'test-preview',
+      configKey: prev.getAttribute('data-config-key'), svg: prev.innerHTML,
+    } }));
+  });
   await card.getByRole('button', { name: 'Export SVG…' }).click();
   const cardMessages = await page.evaluate(() => window.__ccuPostedMessages);
   expect(cardMessages.map(({ command }) => command)).toEqual(['buildShareCard', 'exportShareCard']);

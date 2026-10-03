@@ -8,6 +8,35 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 
 ## Auf einen Blick
 
+- **Ruhigere Aktualisierung und klare Wiederherstellung:** Die Pause gilt für beide
+  Seiten, nicht für Hintergrunderfassung und Statusleiste. Fehler behalten geprüfte
+  Daten; Nachindizierung und Wiederholungswartezeit sind getrennt. Unveränderte,
+  ausgeblendete Panels verwenden begrenzte Caches.
+- **Genaue Vorschauen und sichere Einstellungen:** KI-Ziel, Format und Modell sind
+  sichtbar, ohne stillen Anbieterwechsel. Share Cards exportieren das bestätigte SVG;
+  geänderte Optionen verlangen eine neue Vorschau. Zurücksetzen behält den API-Schlüssel,
+  und das Codex-Verzeichnis lässt sich auf beiden Einstellungsseiten korrigieren.
+- **Begrenzte Preisdiagnosen:** Warnungen zu unbekannten Modellen werden pro
+  Extension-Host-Lauf dedupliziert und insgesamt begrenzt ([#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122)).
+  Abgelaufene Analysebeiträge
+  bleiben leer, ohne laufende inkrementelle Aktualisierungen zu stören.
+- **Neue Modelle und sichere Aktualisierung:** eigene Standard-/Cachepreise für
+  Opus 5.5, Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol und GPT-6 Luna. Ungültige Modellfelder
+  blockieren nicht den gesamten Index; Aggregate werden nur einmal pro Aktualisierung
+  kopiert. Hintergrundresultate und Preisabrufe sind begrenzt. Unbekannte Codex-IDs
+  bleiben ohne geschätzten Preis.
+- **Große Historien:** unveränderte Inhaltszuordnung nutzt den Cache, KI-Steuerelemente
+  bleiben aktuell. Anzeigeänderungen wiederholen keinen abgeschlossenen Kaltaufbau;
+  verspätete Indexresultate können aktualisierte Preise nicht überschreiben.
+  Die heutige Zuordnung wird pro Kalendertag zwischengespeichert: unveränderte
+  Minutenabfragen innerhalb einer Stunde aktualisieren den Countdown ohne die gesamte
+  Historie zu durchlaufen. Die stündliche Aktualisierung verborgener Bereiche berechnet
+  die Inhaltszuordnung weiterhin einmal neu.
+- **Sicheres Upgrade:** unveränderte Abfragen erhalten bestätigte Vorschauen; ein Wechsel
+  des Claude-Verzeichnisses verwirft alte Daten auch bei pausierter Aktualisierung. Bestehende
+  API-Schlüssel ohne explizites Format behalten Anthropic. Bei einem Konflikt Format und URL
+  in den Einstellungen bewusst wählen und erneut prüfen. Neue Installationen verwenden
+  OpenAI-kompatible Vorgaben, ohne alte Schlüssel still an einen anderen Host umzuleiten.
 - **Claude Code:** geschätzte Token-Kosten und, bei gültiger Anmeldung, die
   offiziellen 5-Stunden- und Wochenquoten des aktiven Claude-Profils.
 - **Codex:** heute verarbeitete Token und die zuletzt beobachtete

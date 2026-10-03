@@ -24,6 +24,7 @@ import {
   mergeQuotaCaptures,
 } from '../quotaObservationStore';
 import { I18n } from '../i18n';
+import { getPricingBackend, setPricingBackend } from '../pricing';
 
 type ExtensionModule = typeof import('../extension');
 
@@ -73,6 +74,7 @@ function bareExtension(): any {
   extension.codexProviderRetirementFailure = null;
   extension.codexBackgroundStateWrite = Promise.resolve();
   extension.configurationGeneration = 0;
+  extension.claudeIndexGeneration = 0;
   extension.fileWatcherGeneration = 0;
   extension.codexWatcherGeneration = 0;
   extension.credentialsWatcherGeneration = 0;
@@ -91,12 +93,17 @@ function bareExtension(): any {
   });
   extension.codexFirstBackfillActive = false;
   extension.codexWorkerCancellationRequested = false;
+  extension.providerRefreshStates = { claude: { failed: false }, codex: { failed: false } };
+  extension.deliveredRefreshStates = {};
+  extension.claudeDashboardHydrated = false;
+  extension.codexDashboardHydrated = false;
   extension.context = {
     globalState: {
       update: async () => undefined,
     },
   };
   extension.outputChannel = { appendLine: () => undefined };
+  extension.settings = { get: () => undefined };
   extension.quotaFingerprintSalt = quotaSalt;
   extension.quotaObservationStore = createEmptyQuotaObservationStore();
   extension.quotaObservationRepository = {
@@ -115,6 +122,889 @@ function bareExtension(): any {
   };
   return extension;
 }
+
+function completeCoordinatorSnapshot(): ReturnType<typeof snapshotFixture> {
+  const snapshot = snapshotFixture();
+  snapshot.coverage.complete = true;
+  snapshot.coverage.indexedFiles = snapshot.coverage.totalFiles;
+  snapshot.coverage.indexedBytes = snapshot.coverage.totalBytes;
+  for (const range of Object.values(snapshot.coverage.period).filter(
+    (value): value is typeof snapshot.coverage.period.allTime => typeof value === 'object',
+  )) {
+    Object.assign(range, { migratedFiles: 5, totalFiles: 5, migratedBytes: 1_500,
+      totalBytes: 1_500, complete: true });
+  }
+  snapshot.hourlyCoverage = {
+    timeZone: 'UTC', asOfDay: '2026-07-20', windowDays: 30,
+    indexedFiles: 3, totalFiles: 3, indexedBytes: 900, totalBytes: 900,
+    complete: true, days: {},
+  };
+  snapshot.coverage.hourly = snapshot.hourlyCoverage;
+  return snapshot;
+}
+
+function coordinatorHarness(dashboardAutoRefresh = false): {
+  extension: any;
+  deliveries: Array<{ kind: string; value: any }>;
+  statuses: Array<{ kind: string; value: any; error?: string }>;
+  config: any;
+  snapshot: ReturnType<typeof completeCoordinatorSnapshot>;
+} {
+  const extension = bareExtension();
+  const deliveries: Array<{ kind: string; value: any }> = [];
+  const statuses: Array<{ kind: string; value: any; error?: string }> = [];
+  const config = {
+    dashboardAutoRefresh, codexEnabled: true, statusBarProvider: 'codex',
+    codexStatusMetric: 'processed', enableContentAnalysis: false,
+    advicePromptWindowDays: 30, projectGroupingMode: 'flat', contextWindowOverride: 0,
+    dataDirectory: '',
+  };
+  extension.getConfiguration = () => config;
+  extension.settings = { get: () => false };
+  extension.windowActivity = new WindowActivityGate(false);
+  extension.refreshGate = new RefreshSingleFlight();
+  extension.cache = { records: [], contentAnalysis: null, manifest: null,
+    claudeIndex: createClaudeUsageIndex(), lastUpdate: new Date(0), dataDirectory: null,
+    usageLimits: null };
+  extension.quotaColdRetryDone = true;
+  extension.maybeFetchUsageLimits = async () => null;
+  extension.codexView = null;
+  extension.codexAvailable = true;
+  extension.codexHasData = false;
+  extension.codexInsights = {};
+  extension.codexRefreshing = false;
+  extension.codexProgress = null;
+  extension.codexProgressLastRenderedAt = 0;
+  extension.statusBar = {
+    setLoading: () => statuses.push({ kind: 'loading', value: true }),
+    setProvider: (value: unknown) => statuses.push({ kind: 'provider', value }),
+    updateQuota: () => undefined,
+    updateContext: () => undefined,
+    updateCodex: (value: unknown) => statuses.push({ kind: 'codex', value }),
+    updateUsageData: (value: unknown, _workspace: unknown, error?: string) =>
+      statuses.push({ kind: 'claude', value, error }),
+  };
+  extension.webviewProvider = {
+    setLoading: () => deliveries.push({ kind: 'loading', value: true }),
+    clearClaudeSource: () => deliveries.push({ kind: 'claude', value: { today: null, allTime: null } }),
+    updateQuota: () => undefined,
+    updateWeeklyQuotaHistory: () => undefined,
+    updateAdviceEffectivenessData: (value: unknown) => deliveries.push({ kind: 'advice-state', value }),
+    updateProviderData: (_view: unknown, _insights: unknown, value: unknown) =>
+      deliveries.push({ kind: 'provider', value }),
+    updateCodexProgress: (value: unknown) => deliveries.push({ kind: 'progress', value }),
+    updateRefreshState: (provider: string, value: unknown) =>
+      deliveries.push({ kind: `refresh:${provider}`, value }),
+    updateData: (_session: unknown, today: unknown, _month: unknown, allTime: unknown,
+      _daily: unknown, _monthly: unknown, _hourly: unknown, error?: string) =>
+      deliveries.push({ kind: 'claude', value: { today, allTime, error } }),
+  };
+  const snapshot = completeCoordinatorSnapshot();
+  extension.codexProvider = {
+    isAvailable: async () => true,
+    loadPersistedSnapshot: async () => snapshot,
+    refresh: async (_profile: unknown, onProgress: (value: unknown) => void) => {
+      onProgress({ scannedFiles: snapshot.coverage.indexedFiles,
+        totalFiles: snapshot.coverage.totalFiles, indexedBytes: snapshot.coverage.indexedBytes,
+        totalBytes: snapshot.coverage.totalBytes, period: snapshot.coverage.period,
+        hourly: snapshot.hourlyCoverage });
+      return { outcome: 'success', snapshot };
+    },
+    cancel: () => undefined,
+  };
+  return { extension, deliveries, statuses, config, snapshot };
+}
+
+test('coordinator paused refresh still invalidates prepared advice source revisions without delivering panels', () => {
+  const { extension, deliveries } = coordinatorHarness();
+  const sourceRevision = 'current-verified-source';
+  let preparedHandleValid = true;
+  extension.buildAdviceEffectivenessProviderStates = () => ({ codex: { sourceRevision } });
+  extension.webviewProvider.updateAdviceEffectivenessData = (states: any) => {
+    if (states.codex.sourceRevision !== 'previous-verified-source') preparedHandleValid = false;
+  };
+  extension.syncProviderUi('watch');
+  assert.equal(preparedHandleValid, false);
+  assert.equal(deliveries.filter(value => value.kind === 'provider').length, 0);
+});
+
+test('coordinator dashboard pause suppresses automatic Codex data, insights and progress but keeps indexing and status', async () => {
+  for (const trigger of ['watch', 'poll', 'focus', 'workspace', 'credentials'] as const) {
+    const { extension, deliveries, statuses } = coordinatorHarness();
+    let refreshes = 0;
+    const originalRefresh = extension.codexProvider.refresh;
+    extension.codexProvider.refresh = (...args: unknown[]) => {
+      refreshes += 1;
+      return originalRefresh(...args);
+    };
+    await extension.runCodexRefresh(trigger);
+    assert.equal(refreshes, 1, trigger);
+    assert.ok(extension.codexView.allTime.total.processed > 0, trigger);
+    assert.ok(statuses.some(value => value.kind === 'codex'), trigger);
+    assert.deepEqual(deliveries.filter(value => ['provider', 'progress', 'claude', 'loading'].includes(value.kind)), [], trigger);
+    assert.ok(deliveries.some(value => value.kind === 'advice-state'), trigger);
+  }
+});
+
+test('coordinator manual and settings feedback deliver Codex dashboards while paused', async () => {
+  const { extension, deliveries, snapshot } = coordinatorHarness();
+  Object.assign(snapshot.hourlyCoverage!, { indexedFiles: 1, indexedBytes: 300, complete: false });
+  await extension.runCodexRefresh('manual');
+  assert.ok(deliveries.some(value => value.kind === 'provider'));
+  assert.ok(deliveries.some(value => value.kind === 'progress'));
+  deliveries.length = 0;
+  extension.onSettingsChangedFromPanel('showWeeklyEquivalentValue');
+  assert.ok(deliveries.some(value => value.kind === 'provider'));
+  deliveries.length = 0;
+  await extension.runCodexRefresh('settings');
+  assert.ok(deliveries.some(value => value.kind === 'provider'));
+});
+
+test('coordinator dashboard pause control updates presentation without retiring providers or restarting background work', () => {
+  const { extension, deliveries } = coordinatorHarness();
+  let lifecycleRestarts = 0;
+  extension.onConfigurationChanged = () => { lifecycleRestarts += 1; };
+  extension.onSettingsChangedFromPanel('dashboardAutoRefresh');
+  assert.equal(lifecycleRestarts, 0);
+  assert.ok(deliveries.some(value => value.kind === 'provider'));
+});
+
+test('coordinator a manual historical pass continues as background work so a paused dashboard does not keep repainting', async () => {
+  const { extension, deliveries } = coordinatorHarness();
+  const snapshot = completeCoordinatorSnapshot();
+  Object.assign(snapshot.hourlyCoverage!, { indexedFiles: 1, indexedBytes: 300, complete: false });
+  extension.windowActivity = new WindowActivityGate(true);
+  extension.codexProvider.loadPersistedSnapshot = async () => snapshot;
+  extension.codexProvider.refresh = async () => ({ outcome: 'partial', snapshot,
+    diagnostic: { bodyReads: 1, failedFiles: 0 } });
+  const continuations: string[] = [];
+  extension.refreshCodexData = async (trigger: string) => { continuations.push(trigger); };
+  await extension.runCodexRefresh('manual');
+  await Promise.resolve();
+  assert.ok(deliveries.some(value => value.kind === 'provider'));
+  assert.deepEqual(continuations, ['poll']);
+});
+
+test('coordinator a restored failed-history cooldown cannot be mistaken for a fresh successful checkpoint', async () => {
+  const { extension, deliveries } = coordinatorHarness(true);
+  const snapshot = completeCoordinatorSnapshot();
+  Object.assign(snapshot.hourlyCoverage!, { indexedFiles: 1, indexedBytes: 300, complete: false });
+  const seed = createBackgroundWorkState({ measurementVersion: 1, reason: 'hourly-history',
+    now: Date.now(), progress: extension.codexBackgroundProgress(snapshot) });
+  extension.codexBackgroundState = recordBackgroundWorkFailure(beginBackgroundWork(seed,
+    { trigger: 'automatic', now: Date.now() }).state, { now: Date.now() });
+  extension.codexProvider.loadPersistedSnapshot = async () => snapshot;
+  extension.codexProvider.refresh = async () => ({ outcome: 'partial', snapshot,
+    diagnostic: { bodyReads: 0, failedFiles: 0 } });
+  await extension.runCodexRefresh('poll');
+  assert.deepEqual(extension.providerRefreshStates.codex, { failed: true });
+  assert.deepEqual(deliveries.filter(value => value.kind === 'refresh:codex').map(value => value.value),
+    [{ failed: true }]);
+});
+
+test('coordinator manual refresh reports a failed provider retirement without losing data or wedging the drain', async () => {
+  const { extension, deliveries } = coordinatorHarness();
+  extension.applyCodexSnapshot(completeCoordinatorSnapshot());
+  const verified = extension.codexView;
+  extension.waitForCodexProviderRetirements = async () => { throw new Error('/private/fixture/retirement'); };
+  await assert.doesNotReject(extension.refreshCodexData('manual'));
+  assert.equal(extension.codexView, verified);
+  assert.deepEqual(deliveries.filter(value => value.kind === 'refresh:codex').map(value => value.value),
+    [{ failed: true }]);
+  assert.equal(extension.codexRefreshDrain, null);
+});
+
+test('coordinator paused startup permits one verified Codex hydration without repeated background panels', async () => {
+  const { extension, deliveries } = coordinatorHarness();
+  await extension.runCodexRefresh('startup');
+  assert.equal(deliveries.filter(value => value.kind === 'provider').length, 1);
+  assert.equal(deliveries.filter(value => value.kind === 'progress').length, 0);
+  deliveries.length = 0;
+  await extension.runCodexRefresh('startup');
+  await extension.runCodexRefresh('watch');
+  assert.equal(deliveries.filter(value => ['provider', 'progress'].includes(value.kind)).length, 0);
+});
+
+test('coordinator automatic Codex delivery remains active when dashboard refresh is enabled', async () => {
+  const { extension, deliveries, snapshot } = coordinatorHarness(true);
+  Object.assign(snapshot.hourlyCoverage!, { indexedFiles: 1, indexedBytes: 300, complete: false });
+  await extension.runCodexRefresh('watch');
+  assert.ok(deliveries.some(value => value.kind === 'provider'));
+  assert.ok(deliveries.some(value => value.kind === 'advice-state'));
+  assert.ok(deliveries.some(value => value.kind === 'progress'));
+});
+
+test('coordinator Codex progress selects actual main, period and hourly counters with anonymous work state', () => {
+  const { extension, deliveries } = coordinatorHarness(true);
+  const snapshot = completeCoordinatorSnapshot();
+  extension.codexBackgroundState = beginBackgroundWork(extension.codexBackgroundState,
+    { trigger: 'automatic', now: Date.now() }).state;
+  const progress: any = { scannedFiles: 4, totalFiles: 5, indexedBytes: 1_200, totalBytes: 1_500,
+    period: structuredClone(snapshot.coverage.period), hourly: structuredClone(snapshot.hourlyCoverage),
+    rawError: '/private/fixture/not-for-webview' };
+  Object.assign(progress.period.allTime, { migratedFiles: 2, migratedBytes: 600, complete: false });
+  Object.assign(progress.hourly, { indexedFiles: 1, indexedBytes: 300, complete: false });
+  const publish = () => {
+    extension.codexProgressLastRenderedAt = 0;
+    extension.onCodexIndexProgress(progress);
+    return deliveries.filter(value => value.kind === 'progress').slice(-1)[0]?.value;
+  };
+  const main = publish();
+  assert.deepEqual([main.phase, main.scannedFiles, main.totalFiles, main.indexedBytes, main.totalBytes],
+    ['main', 4, 5, 1_200, 1_500]);
+  progress.scannedFiles = 5;
+  progress.indexedBytes = 1_500;
+  const period = publish();
+  assert.deepEqual([period.phase, period.scannedFiles, period.totalFiles, period.indexedBytes, period.totalBytes],
+    ['period', 2, 5, 600, 1_500]);
+  Object.assign(progress.period.allTime, { migratedFiles: 5, migratedBytes: 1_500, complete: true });
+  const hourly = publish();
+  assert.deepEqual([hourly.phase, hourly.scannedFiles, hourly.totalFiles, hourly.indexedBytes, hourly.totalBytes],
+    ['hourly', 1, 3, 300, 900]);
+  assert.deepEqual(hourly.workState, { status: 'running', pausedReason: null, nextEligibleAt: null });
+  assert.equal(JSON.stringify(deliveries).includes('/private/fixture'), false);
+});
+
+test('coordinator Codex cooldown and user pause retain exact hourly phase after the worker settles', async () => {
+  for (const pausedReason of ['failure-backoff', 'user'] as const) {
+    const { extension, deliveries } = coordinatorHarness(true);
+    const snapshot = completeCoordinatorSnapshot();
+    Object.assign(snapshot.hourlyCoverage!, { indexedFiles: 1, indexedBytes: 300, complete: false });
+    const seed = createBackgroundWorkState({ measurementVersion: 1, reason: 'hourly-history',
+      now: Date.now(), progress: extension.codexBackgroundProgress(snapshot) });
+    extension.codexBackgroundState = pausedReason === 'user'
+      ? pauseBackgroundWork(seed, { now: Date.now() })
+      : recordBackgroundWorkFailure(beginBackgroundWork(seed,
+        { trigger: 'automatic', now: Date.now() }).state, { now: Date.now() });
+    extension.codexProvider.loadPersistedSnapshot = async () => snapshot;
+    extension.codexProvider.refresh = async (_profile: unknown, _progress: unknown, allowed: boolean) => {
+      assert.equal(allowed, false);
+      return { outcome: 'partial', snapshot, diagnostic: { failedFiles: 0, bodyReads: 0 } };
+    };
+    await extension.runCodexRefresh('poll');
+    const value = deliveries.filter(value => value.kind === 'provider').slice(-1)[0]?.value;
+    assert.equal(value.codexLoading, false);
+    assert.equal(value.codexProgress?.phase, 'hourly');
+    assert.equal(value.codexProgress.scannedFiles, 1);
+    assert.equal(value.codexProgress.totalFiles, 3);
+    assert.deepEqual(value.codexProgress.workState, {
+      status: pausedReason === 'user' ? 'paused' : 'cooldown', pausedReason,
+      nextEligibleAt: extension.codexBackgroundState.nextEligibleAt,
+    });
+  }
+});
+
+test('coordinator warm Codex exceptions preserve verified view and manual failures always send compact state', async () => {
+  const { extension, deliveries } = coordinatorHarness();
+  extension.applyCodexSnapshot(completeCoordinatorSnapshot());
+  extension.providerRefreshStates.codex = { failed: false, lastSuccessfulAt: 1_234 };
+  const verifiedView = extension.codexView;
+  const verifiedInsights = extension.codexInsights;
+  extension.codexProvider.isAvailable = async () => { throw new Error('/private/fixture/raw failure'); };
+  await extension.refreshCodexData('manual');
+  assert.equal(extension.codexView, verifiedView);
+  assert.equal(extension.codexInsights, verifiedInsights);
+  assert.equal(extension.codexHasData, true);
+  assert.deepEqual(deliveries.filter(value => value.kind === 'refresh:codex').map(value => value.value),
+    [{ failed: true, lastSuccessfulAt: 1_234 }]);
+  deliveries.length = 0;
+  await extension.refreshCodexData('poll');
+  await extension.refreshCodexData('watch');
+  assert.equal(deliveries.filter(value => value.kind !== 'advice-state').length, 0,
+    'paused automatic retries cannot replace panels or repeat notifications');
+  await extension.refreshCodexData('manual');
+  assert.deepEqual(deliveries.filter(value => value.kind === 'refresh:codex').map(value => value.value),
+    [{ failed: true, lastSuccessfulAt: 1_234 }]);
+  assert.equal(JSON.stringify(deliveries).includes('/private/fixture'), false);
+  assert.equal(extension.codexRefreshDrain, null);
+});
+
+test('coordinator same-home unavailability keeps verified Codex data navigable', async () => {
+  for (const source of ['discovery', 'worker']) {
+    const { extension, deliveries, config } = coordinatorHarness(true);
+    config.codexDataDirectory = '/synthetic/home-a';
+    extension.applyCodexSnapshot(completeCoordinatorSnapshot());
+    const verified = extension.codexView;
+    if (source === 'discovery') extension.codexProvider.isAvailable = async () => false;
+    else extension.codexProvider.refresh = async () => ({ outcome: 'unavailable' });
+    await extension.runCodexRefresh('manual');
+    assert.equal(extension.codexView, verified);
+    assert.equal(extension.codexAvailable, true, source);
+    assert.equal(deliveries.filter(value => value.kind === 'provider').slice(-1)[0]?.value.codex, true, source);
+  }
+});
+
+test('coordinator different-home failure cannot retain the old view, insights or success timestamp', async () => {
+  for (const source of ['discovery', 'worker']) {
+    const { extension, deliveries, config } = coordinatorHarness(true);
+    config.codexDataDirectory = '/synthetic/home-a';
+    extension.applyCodexSnapshot(completeCoordinatorSnapshot());
+    extension.providerRefreshStates.codex = { failed: false, lastSuccessfulAt: 1_234 };
+    const oldSnapshot = completeCoordinatorSnapshot();
+    let hydrationReads = 0;
+    let statusClears = 0;
+    extension.statusBar.clearCodex = () => { statusClears++; };
+    config.codexDataDirectory = '/synthetic/home-b';
+    extension.codexProvider = {
+      isAvailable: async () => source !== 'discovery',
+      loadPersistedSnapshot: async () => { hydrationReads++; return oldSnapshot; },
+      refresh: async () => ({ outcome: 'error', snapshot: oldSnapshot }),
+    };
+    await extension.runCodexRefresh('manual');
+    assert.equal(extension.codexView, null, source);
+    assert.equal(extension.codexHasData, false, source);
+    assert.notEqual(extension.codexInsights, undefined);
+    assert.equal(extension.providerRefreshStates.codex.lastSuccessfulAt, undefined, source);
+    assert.equal(hydrationReads, 0, 'the shared checkpoint is not proof of a new home');
+    assert.ok(statusClears >= 1, 'the old home cannot remain cached in the status bar');
+    assert.ok(deliveries.some(value => value.kind === 'provider'));
+  }
+});
+
+test('coordinator late discovery or failure from a retired provider cannot mutate a replacement', async () => {
+  for (const result of ['unavailable', 'reject']) {
+    const { extension, deliveries } = coordinatorHarness(true);
+    let resolve!: (value: boolean) => void;
+    let reject!: (error: Error) => void;
+    extension.codexProvider.isAvailable = () => new Promise<boolean>((yes, no) => { resolve = yes; reject = no; });
+    const pending = extension.refreshCodexData('manual');
+    await new Promise(done => setImmediate(done));
+    extension.configurationGeneration++;
+    extension.codexProvider = { isAvailable: async () => true };
+    extension.codexView = { owner: 'replacement' };
+    extension.codexAvailable = true;
+    extension.codexRefreshing = true;
+    extension.providerRefreshStates.codex = { failed: false, lastSuccessfulAt: 7_777 };
+    deliveries.length = 0;
+    if (result === 'reject') reject(new Error('retired source'));
+    else resolve(false);
+    await pending;
+    assert.deepEqual(extension.codexView, { owner: 'replacement' });
+    assert.equal(extension.codexAvailable, true, result);
+    assert.equal(extension.codexRefreshing, true, result);
+    assert.deepEqual(extension.providerRefreshStates.codex, { failed: false, lastSuccessfulAt: 7_777 });
+    assert.deepEqual(deliveries, [], result);
+  }
+});
+
+test('coordinator identical verified Codex snapshots retain view and insight identity', () => {
+  const { extension } = coordinatorHarness(true);
+  const snapshot = completeCoordinatorSnapshot();
+  extension.applyCodexSnapshot(snapshot);
+  const verified = extension.codexView;
+  const insights = extension.codexInsights;
+  extension.applyCodexSnapshot(structuredClone(snapshot));
+  assert.equal(extension.codexView, verified);
+  assert.equal(extension.codexInsights, insights);
+  const renamed = structuredClone(snapshot);
+  renamed.files[0].session.sessionTitle = 'A changed safe title';
+  extension.applyCodexSnapshot(renamed);
+  assert.notEqual(extension.codexView, verified, 'titles are part of the render revision');
+});
+
+test('coordinator retirement during preflight state persistence cannot start a retired worker', async () => {
+  const { extension, deliveries } = coordinatorHarness(true);
+  let resume!: () => void;
+  let workerStarts = 0;
+  extension.codexProvider.loadPersistedSnapshot = async () => null;
+  extension.codexProvider.refresh = async () => { workerStarts++; return { outcome: 'unavailable' }; };
+  extension.saveCodexBackgroundState = () => new Promise<void>(resolve => { resume = resolve; });
+  const pending = extension.refreshCodexData('manual');
+  await new Promise(done => setImmediate(done));
+  extension.configurationGeneration++;
+  extension.codexProvider = { isAvailable: async () => true };
+  extension.codexView = { owner: 'replacement' };
+  const replacementState = createBackgroundWorkState({ measurementVersion: 1, reason: 'first-index', now: 7_777 });
+  extension.codexBackgroundState = replacementState;
+  extension.codexRefreshing = true;
+  deliveries.length = 0;
+  resume();
+  await pending;
+  assert.equal(workerStarts, 0);
+  assert.equal(extension.codexBackgroundState, replacementState);
+  assert.equal(extension.codexRefreshing, true);
+  assert.deepEqual(deliveries, []);
+});
+
+test('coordinator repeated complete metadata polls retain verified render revisions without fake backfill', async () => {
+  const { extension } = coordinatorHarness(true);
+  await extension.runCodexRefresh('poll');
+  const view = extension.codexView;
+  const insights = extension.codexInsights;
+  assert.equal(extension.codexDashboardProgress(), null);
+  await extension.runCodexRefresh('poll');
+  assert.equal(extension.codexView, view);
+  assert.equal(extension.codexInsights, insights);
+  assert.equal(extension.codexDashboardProgress(), null);
+});
+
+test('coordinator checkpoint hydration cannot outlive disposal or its configuration generation', async () => {
+  for (const boundary of ['dispose', 'configuration']) {
+    const { extension, deliveries, snapshot } = coordinatorHarness(true);
+    let resolve!: (value: typeof snapshot) => void;
+    extension.codexRefreshing = true;
+    extension.codexProvider.loadPersistedSnapshot = () => new Promise<typeof snapshot>(done => { resolve = done; });
+    extension.scheduleCodexCheckpointHydration('manual');
+    const pending = extension.codexCheckpointHydration;
+    if (boundary === 'dispose') extension.disposed = true;
+    else extension.configurationGeneration++;
+    resolve(snapshot);
+    await pending;
+    assert.equal(extension.codexView, null, boundary);
+    assert.deepEqual(deliveries, [], boundary);
+  }
+});
+
+test('coordinator Codex worker errors and failed-file results cannot replace a warm verified subtotal', async () => {
+  for (const outcome of ['error', 'partial']) {
+    const { extension, deliveries } = coordinatorHarness();
+    const verified = completeCoordinatorSnapshot();
+    extension.applyCodexSnapshot(verified);
+    const verifiedView = extension.codexView;
+    extension.providerRefreshStates.codex = { failed: false, lastSuccessfulAt: 1_234 };
+    const failed = completeCoordinatorSnapshot();
+    failed.total.inputTotal = 999_999;
+    extension.codexProvider.refresh = async () => ({ outcome, snapshot: failed,
+      diagnostic: { failedFiles: 1, bodyReads: 1 } });
+    extension.codexProvider.loadPersistedSnapshot = async () => null;
+    await extension.runCodexRefresh('manual');
+    assert.equal(extension.codexView, verifiedView, outcome);
+    assert.deepEqual(deliveries.filter(value => value.kind === 'refresh:codex').slice(-1)[0]?.value,
+      { failed: true, lastSuccessfulAt: 1_234 }, outcome);
+  }
+});
+
+test('coordinator a resumed failure cooldown is not a successful checkpoint but clean manual progress clears failure', async () => {
+  const { extension, deliveries } = coordinatorHarness();
+  const snapshot = completeCoordinatorSnapshot();
+  Object.assign(snapshot.hourlyCoverage!, { indexedFiles: 1, indexedBytes: 300, complete: false });
+  extension.applyCodexSnapshot(snapshot);
+  extension.providerRefreshStates.codex = { failed: true, lastSuccessfulAt: 1_234 };
+  const seed = createBackgroundWorkState({ measurementVersion: 1, reason: 'hourly-history',
+    now: Date.now(), progress: extension.codexBackgroundProgress(snapshot) });
+  extension.codexBackgroundState = recordBackgroundWorkFailure(beginBackgroundWork(seed,
+    { trigger: 'automatic', now: Date.now() }).state, { now: Date.now() });
+  extension.codexProvider.loadPersistedSnapshot = async () => snapshot;
+  extension.codexProvider.refresh = async () => ({ outcome: 'partial', snapshot,
+    diagnostic: { failedFiles: 0, bodyReads: 0 } });
+  await extension.runCodexRefresh('poll');
+  assert.deepEqual(extension.providerRefreshStates.codex, { failed: true, lastSuccessfulAt: 1_234 });
+  assert.deepEqual(deliveries.filter(value => value.kind === 'refresh:codex'), []);
+  const advanced = structuredClone(snapshot);
+  Object.assign(advanced.hourlyCoverage!, { indexedFiles: 2, indexedBytes: 600 });
+  extension.codexProvider.refresh = async () => ({ outcome: 'partial', snapshot: advanced,
+    diagnostic: { failedFiles: 0, bodyReads: 1 } });
+  await extension.runCodexRefresh('manual');
+  assert.equal(extension.providerRefreshStates.codex.failed, false);
+  assert.ok(extension.providerRefreshStates.codex.lastSuccessfulAt > 1_234);
+  assert.equal(deliveries.filter(value => value.kind === 'refresh:codex').slice(-1)[0]?.value.failed, false);
+});
+
+test('coordinator refresh-state UI exceptions cannot strand Codex provider work or its single-flight drain', async () => {
+  const { extension } = coordinatorHarness();
+  const diagnostics: string[] = [];
+  let refreshes = 0;
+  extension.outputChannel.appendLine = (value: string) => diagnostics.push(value);
+  extension.webviewProvider.updateRefreshState = () => { throw new Error('/private/fixture/renderer'); };
+  extension.codexProvider.refresh = async () => { refreshes += 1; throw new Error('/private/fixture/worker'); };
+  await assert.doesNotReject(extension.refreshCodexData('manual'));
+  await assert.doesNotReject(extension.refreshCodexData('manual'));
+  assert.equal(refreshes, 2);
+  assert.equal(extension.activeCodexRefreshes.size, 0);
+  assert.equal(extension.codexRefreshDrain, null);
+  assert.equal(extension.codexRefreshing, false);
+  assert.equal(diagnostics.filter(value => value.includes('provider-ui-sync-failed')).length, 1);
+  assert.equal(diagnostics.join('\n').includes('/private/fixture'), false);
+});
+
+test('coordinator Claude pause keeps append indexing and status active while manual unchanged-manifest refresh delivers current data', async (t) => {
+  const { extension, deliveries, statuses, config } = coordinatorHarness();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-coordinator-claude-pause-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  const file = path.join(project, 'session.jsonl');
+  const row = (id: string) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(),
+    requestId: id, message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 1 } } });
+  fs.writeFileSync(file, row('cold') + '\n');
+  config.dataDirectory = root;
+  config.statusBarProvider = 'claude';
+  extension.refreshCodexData = async () => undefined;
+  await extension.refreshData(true, 'manual');
+  deliveries.length = 0;
+  statuses.length = 0;
+  fs.appendFileSync(file, row('tail') + '\n');
+  await extension.refreshData(false, 'watch');
+  await extension.refreshData(false, 'poll');
+  assert.equal(extension.cache.records.length, 2);
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 20);
+  assert.ok(statuses.some(value => value.kind === 'claude'));
+  assert.deepEqual(deliveries.filter(value => ['provider', 'progress', 'claude', 'loading'].includes(value.kind)), []);
+  await extension.refreshData(false, 'manual');
+  assert.equal(deliveries.filter(value => value.kind === 'claude').slice(-1)[0]?.value.allTime.totalInputTokens, 20);
+});
+
+test('coordinator Claude warm manual failures retain data, disclose anonymous state, and clear it on unchanged success', async (t) => {
+  const { extension, deliveries, statuses, config } = coordinatorHarness();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-coordinator-claude-failure-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'warm', message: { id: 'warm', model: 'claude-opus-5-5',
+      usage: { input_tokens: 10, output_tokens: 1 } } }) + '\n');
+  config.dataDirectory = root;
+  config.statusBarProvider = 'claude';
+  extension.refreshCodexData = async () => undefined;
+  await extension.refreshData(true, 'manual');
+  const verifiedManifest = extension.cache.manifest;
+  const verifiedIndex = extension.cache.claudeIndex;
+  const previousSuccess = extension.providerRefreshStates.claude.lastSuccessfulAt;
+  assert.ok(previousSuccess > 0);
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  deliveries.length = 0;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = async () => { throw new Error('/private/fixture/raw secret'); };
+  try {
+    await extension.refreshData(false, 'manual');
+    assert.equal(extension.cache.manifest, verifiedManifest);
+    assert.equal(extension.cache.claudeIndex, verifiedIndex);
+    assert.equal(deliveries.filter(value => value.kind === 'claude').length, 0);
+    assert.deepEqual(deliveries.filter(value => value.kind === 'refresh:claude').map(value => value.value),
+      [{ failed: true, lastSuccessfulAt: previousSuccess }]);
+    assert.ok(statuses.some(value => value.kind === 'claude' && value.error === I18n.t.statusBar.refreshFailed));
+    deliveries.length = 0;
+    await extension.refreshData(false, 'watch');
+    await extension.refreshData(false, 'poll');
+    assert.equal(deliveries.filter(value => value.kind !== 'advice-state').length, 0);
+    await extension.refreshData(false, 'manual');
+    assert.equal(deliveries.filter(value => value.kind === 'refresh:claude').length, 1);
+    assert.equal(JSON.stringify(deliveries).includes('/private/fixture'), false);
+  } finally {
+    (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind;
+  }
+  deliveries.length = 0;
+  await extension.refreshData(false, 'manual');
+  assert.equal(extension.providerRefreshStates.claude.failed, false);
+  assert.ok(extension.providerRefreshStates.claude.lastSuccessfulAt >= previousSuccess);
+  assert.equal(deliveries.filter(value => value.kind === 'refresh:claude').slice(-1)[0]?.value.failed, false);
+  assert.ok(deliveries.some(value => value.kind === 'claude'));
+});
+
+test('production Claude polls retain all dashboard references until the render contract changes', async (t) => {
+  const { extension, config } = coordinatorHarness(true);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-render-revision-'));
+  const originalNow = Date.now;
+  let now = Date.parse('2026-09-30T12:00:20Z');
+  Date.now = () => now;
+  t.after(() => { Date.now = originalNow; fs.rmSync(root, { recursive: true, force: true }); });
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  const file = path.join(project, 'session.jsonl');
+  const row = (id: string) => JSON.stringify({ type: 'assistant', timestamp: new Date(now).toISOString(),
+    requestId: id, message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 1 } } });
+  fs.writeFileSync(file, row('first') + '\n');
+  config.dataDirectory = root;
+  extension.refreshCodexData = async () => undefined;
+  const payloads: unknown[][] = [];
+  extension.webviewProvider.updateData = (...args: unknown[]) => payloads.push(args);
+  await extension.refreshData(true, 'manual');
+  const first = payloads[0];
+  for (const trigger of ['poll', 'poll', 'poll', 'focus', 'manual'] as const) {
+    await extension.refreshData(false, trigger);
+    const current = payloads[payloads.length - 1];
+    for (const index of [0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]) {
+      assert.equal(current[index], first[index], `${trigger}: dashboard argument ${index} must stay stable`);
+    }
+  }
+  fs.appendFileSync(file, row('next') + '\n');
+  await extension.refreshData(false, 'watch');
+  const appended = payloads[payloads.length - 1];
+  assert.notEqual(appended[3], first[3]);
+  assert.equal((appended[3] as any).totalInputTokens, 20);
+  now += 6 * 3_600_000;
+  await extension.refreshData(false, 'poll');
+  assert.equal(payloads[payloads.length - 1][0], null, 'five-hour session expiry still invalidates the snapshot');
+});
+
+test('Claude source replacement clears verified data even when the new source fails or presentation is paused', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-source-boundary-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sourceA = path.join(root, 'a');
+  const project = path.join(sourceA, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'a', message: { id: 'a', model: 'claude-opus-5-5',
+      usage: { input_tokens: 1234, output_tokens: 1 } } }) + '\n');
+  for (const paused of [false, true]) {
+    const { extension, config, deliveries, statuses } = coordinatorHarness(!paused);
+    config.dataDirectory = sourceA;
+    extension.refreshCodexData = async () => undefined;
+    await extension.refreshData(true, 'manual');
+    const oldIndex = extension.cache.claudeIndex;
+    config.dataDirectory = path.join(root, 'missing');
+    deliveries.length = 0; statuses.length = 0;
+    await extension.refreshData(false, 'poll');
+    assert.notEqual(extension.cache.claudeIndex, oldIndex);
+    assert.equal(extension.cache.records.length, 0);
+    assert.equal(extension.cache.dataDirectory, null);
+    assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
+    assert.ok(statuses.some((s) => s.kind === 'claude' && s.value === null));
+    assert.ok(deliveries.some((d) => d.kind === 'claude' && d.value.allTime === null));
+    assert.ok(deliveries.some((d) => d.kind === 'advice-state'));
+    config.dataDirectory = sourceA;
+    await extension.refreshData(false, 'manual');
+    assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 1234);
+    assert.equal(extension.providerRefreshStates.claude.failed, false);
+  }
+});
+
+test('a late Claude discovery from a retired source cannot restore its data or success time', async (t) => {
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  config.dataDirectory = '/synthetic/source-a';
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  let resume!: (value: string | null) => void;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = () => new Promise<string | null>((resolve) => { resume = resolve; });
+  t.after(() => { (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind; });
+  const pending = extension.refreshData(true, 'manual');
+  await new Promise((resolve) => setImmediate(resolve));
+  config.dataDirectory = '/synthetic/source-b';
+  extension.configurationGeneration++;
+  resume('/synthetic/source-a');
+  await pending;
+  assert.equal(extension.cache.manifest, null);
+  assert.equal(extension.cache.records.length, 0);
+  assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
+  assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false);
+});
+
+test('a Claude discovery finishing after disposal cannot clear or deliver source state', async (t) => {
+  const { extension, config, deliveries, statuses } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  config.dataDirectory = '/synthetic/source-a';
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  let resume!: (value: string | null) => void;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = () => new Promise<string | null>((resolve) => { resume = resolve; });
+  t.after(() => { (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind; });
+  const pending = extension.refreshData(true, 'manual');
+  await new Promise((resolve) => setImmediate(resolve));
+  extension.disposed = true;
+  config.dataDirectory = '/synthetic/source-b';
+  const index = extension.cache.claudeIndex;
+  const deliveryCount = deliveries.length;
+  const statusCount = statuses.length;
+  resume('/synthetic/source-a');
+  await pending;
+  assert.equal(extension.cache.claudeIndex, index);
+  assert.equal(deliveries.length, deliveryCount);
+  assert.equal(statuses.length, statusCount);
+});
+
+test('Claude replacement read failure cannot retain the old home, and verified replacement recovers', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-replacement-read-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sources = ['a', 'b'].map((name, i) => {
+    const home = path.join(root, name);
+    const project = path.join(home, 'projects', '-fixture');
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+      timestamp: new Date().toISOString(), requestId: name, message: { id: name, model: 'claude-opus-5-5',
+        usage: { input_tokens: (i + 1) * 100, output_tokens: 1 } } }) + '\n');
+    return home;
+  });
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let fail = true;
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    if (args[1] === sources[1] && fail) throw new Error('synthetic read failure');
+    return originalUpdate(...args);
+  };
+  t.after(() => { (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
+  const { extension, config } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  config.dataDirectory = sources[0];
+  await extension.refreshData(true, 'manual');
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 100);
+  config.dataDirectory = sources[1];
+  await extension.refreshData(false, 'poll');
+  assert.equal(extension.cache.records.length, 0);
+  assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
+  fail = false;
+  await extension.refreshData(false, 'manual');
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 200);
+  assert.equal(extension.cache.dataDirectory, sources[1]);
+  assert.equal(extension.providerRefreshStates.claude.failed, false);
+});
+
+test('a retired Claude index result cannot publish after an A to B to A configuration change', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-retired-index-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'a', message: { id: 'a', model: 'claude-opus-5-5',
+      usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n');
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let release!: () => void;
+  let ready!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    ready();
+    await blocked;
+    return result;
+  };
+  t.after(() => { (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  config.dataDirectory = root;
+  const pending = extension.refreshData(true, 'manual');
+  await started;
+  config.dataDirectory = path.join(root, 'replacement');
+  extension.configurationGeneration++;
+  extension.selectClaudeUsageSource(config.dataDirectory);
+  config.dataDirectory = root;
+  extension.configurationGeneration++;
+  extension.selectClaudeUsageSource(config.dataDirectory);
+  release();
+  await pending;
+  assert.equal(extension.cache.manifest, null);
+  assert.equal(extension.cache.records.length, 0);
+  assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
+  assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false);
+});
+
+test('unrelated settings retain completed Claude index work without publishing a retired presentation', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-settings-index-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  const row = JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(),
+    requestId: 'same-source', message: { id: 'same-source', model: 'claude-opus-5-5',
+      usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n';
+  fs.writeFileSync(path.join(project, 'session.jsonl'), row);
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let release!: () => void, ready!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  const reads: number[] = [];
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    reads.push(result.diagnostics.bytesRead);
+    if (reads.length === 1) { ready(); await blocked; }
+    return result;
+  };
+  t.after(() => { release(); (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  config.dataDirectory = root;
+  config.enableContentAnalysis = true;
+  extension.refreshCodexData = async () => undefined;
+  const pending = extension.refreshData(true, 'manual');
+  await started;
+  config.refreshInterval = 300;
+  extension.configurationGeneration++;
+  release();
+  await pending;
+  assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false,
+    'retired UI configuration must not deliver panels');
+  await extension.refreshData(true, 'settings');
+  assert.ok(reads[0] >= Buffer.byteLength(row), 'the cold usage/content passes read the fixture');
+  assert.deepEqual(reads.slice(1), [0], 'completed same-source work is reused, not read twice');
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 100);
+  assert.ok(deliveries.some((d) => d.kind === 'claude' && d.value.allTime?.totalInputTokens === 100));
+});
+
+test('price invalidation rejects an in-flight Claude index before the queued refresh prices unchanged files', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-price-epoch-'));
+  const backend = getPricingBackend();
+  setPricingBackend('anthropic');
+  t.after(() => { setPricingBackend(backend); fs.rmSync(root, { recursive: true, force: true }); });
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'prices', message: { id: 'prices', model: 'claude-opus-5-5',
+      usage: { input_tokens: 1_000_000, output_tokens: 10_000 } } }) + '\n');
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  config.dataDirectory = root;
+  extension.refreshCodexData = async () => undefined;
+  await extension.refreshData(true, 'manual');
+  const oldCost = extension.cache.claudeIndex.aggregates.allTime.totalCost;
+  deliveries.length = 0;
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let release!: () => void, ready!: () => void, first = true;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { ready = resolve; });
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    if (first) { first = false; ready(); await blocked; }
+    return result;
+  };
+  t.after(() => { release(); (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
+  const pending = extension.refreshData(true, 'poll');
+  await started;
+  // A local table switch stands in for a successful price fetch; no network or
+  // configuration-generation change is needed by the production manual path.
+  setPricingBackend('aws-bedrock-in-region');
+  extension.invalidateClaudeUsagePricingCache();
+  await extension.refreshData(true, 'pricing');
+  release();
+  await pending;
+  const deadline = performance.now() + 3_000;
+  while (extension.refreshGate.active && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(extension.refreshGate.active, false, 'queued pricing refresh drained');
+  const truth = await originalUpdate(createClaudeUsageIndex(), root, { analyzeContent: false });
+  const expected = truth.index.aggregates.allTime.totalCost;
+  assert.notEqual(expected, oldCost);
+  assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalCost, expected);
+  const published = deliveries.filter((d) => d.kind === 'claude' && d.value.allTime !== null);
+  assert.ok(published.length > 0);
+  assert.ok(published.every((d) => d.value.allTime.totalCost === expected), 'old-priced data never returned to the UI');
+});
+
+test('clear-all and disposal cannot retain a completed index through the presentation-only recovery path', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-index-revocation-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), message: { id: 'revoked', model: 'claude-opus-5-5',
+      usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n');
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  for (const flag of ['clearingAllLocalData', 'localDataClearedRequiresReload', 'disposed']) {
+    await t.test(flag, async () => {
+      let release!: () => void, ready!: () => void;
+      const blocked = new Promise<void>((resolve) => { release = resolve; });
+      const started = new Promise<void>((resolve) => { ready = resolve; });
+      (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+        const result = await originalUpdate(...args);
+        ready(); await blocked;
+        return result;
+      };
+      try {
+        const { extension, config, deliveries } = coordinatorHarness(true);
+        config.dataDirectory = root;
+        extension.refreshCodexData = async () => undefined;
+        const pending = extension.refreshData(true, 'manual');
+        await started;
+        extension.configurationGeneration++;
+        extension[flag] = true;
+        release(); await pending;
+        assert.equal(extension.cache.manifest, null);
+        assert.equal(extension.cache.records.length, 0);
+        assert.equal(deliveries.some((d) => d.kind === 'claude' && d.value.allTime !== null), false);
+      } finally {
+        release(); (indexModule as any).updateClaudeUsageIndex = originalUpdate;
+      }
+    });
+  }
+});
 
 function installManualTimers(): {
   scheduled: Array<{ id: number; callback: () => void; delayMs: number }>;
@@ -2325,6 +3215,109 @@ test('Claude refresh diagnostics drain the unnamed quota-watcher event count', a
   assert.match(diagnostics.join('\n'), /refresh: trigger=credentials/);
   assert.match(diagnostics.join('\n'), /events\(watcher=0 coalesced=0 quota-unnamed=3\)/);
   assert.equal(extension.credentialsWatcherMissingFilenameEventsSinceRefresh, 0);
+});
+
+test('a failing provider UI cannot reject refreshes or strand the pending refresh gate', async () => {
+  const extension = bareExtension();
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  let scans = 0;
+  let release!: () => void;
+  const wait = new Promise<void>(resolve => { release = resolve; });
+  extension.refreshGate = new RefreshSingleFlight();
+  extension.cache = { manifest: null, usageLimits: {} };
+  extension.getConfiguration = () => ({ dashboardAutoRefresh: false });
+  extension.maybeFetchUsageLimits = async () => ({});
+  extension.refreshCodexData = async () => undefined;
+  extension.statusBar = { updateQuota: () => undefined, updateUsageData: () => undefined, updateContext: () => undefined };
+  extension.webviewProvider.updateData = () => undefined;
+  extension.syncProviderUi = () => { throw new Error('synthetic-only UI failure'); };
+  (ClaudeDataLoader as any).findClaudeDataDirectory = async () => {
+    scans += 1;
+    if (scans === 1) await wait;
+    return null;
+  };
+  try {
+    const first = extension.refreshData(false, 'poll');
+    await extension.refreshData(false, 'watch');
+    release();
+    await assert.doesNotReject(first);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(scans, 2, 'the coalesced pending request must still run');
+    await extension.refreshData(false, 'manual');
+    assert.equal(scans, 3, 'subsequent refreshes must not remain permanently busy');
+  } finally {
+    release();
+    (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind;
+  }
+});
+
+test('Codex refreshes keep provider work and the drain alive despite persistent UI exceptions', async () => {
+  const extension = bareExtension();
+  const diagnostics: string[] = [];
+  let refreshes = 0;
+  extension.getConfiguration = () => ({ codexEnabled: true });
+  extension.syncProviderUi = () => { throw new Error('synthetic-only renderer failure'); };
+  extension.outputChannel = { appendLine: (line: string) => diagnostics.push(line) };
+  extension.codexProvider = {
+    isAvailable: async () => true,
+    loadPersistedSnapshot: async () => null,
+    refresh: async () => { refreshes += 1; return { outcome: 'unavailable' }; },
+  };
+  await assert.doesNotReject(extension.refreshCodexData('watch'));
+  await assert.doesNotReject(extension.refreshCodexData('manual'));
+  assert.equal(refreshes, 2, 'UI errors must not prevent provider work');
+  assert.equal(extension.activeCodexRefreshes.size, 0);
+  assert.equal(extension.codexRefreshing, false);
+  assert.equal(diagnostics.filter(line => line.includes('provider-ui-sync-failed')).length, 1);
+  assert.ok(diagnostics.every(line => !line.includes('synthetic-only')));
+});
+
+test('Codex provider errors plus a failing error UI cannot create an unhandled rejection', async () => {
+  const extension = bareExtension();
+  extension.getConfiguration = () => ({ codexEnabled: true });
+  extension.syncProviderUi = () => { throw new Error('synthetic-only renderer failure'); };
+  extension.codexProvider = { isAvailable: async () => { throw new Error('synthetic-only provider failure'); } };
+  await assert.doesNotReject(extension.refreshCodexData('watch'));
+  await assert.doesNotReject(extension.refreshCodexData('manual'));
+  assert.equal(extension.activeCodexRefreshes.size, 0);
+  assert.equal(extension.codexRefreshDrain, null);
+});
+
+test('Claude commits a verified index even when rendering its new snapshot throws', async () => {
+  const extension = bareExtension();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-render-fault-'));
+  const project = path.join(root, 'projects', '-fixture');
+  const file = path.join(project, 'session.jsonl');
+  const row = (id: string) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(),
+    requestId: id, message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 1 } } });
+  const diagnostics: string[] = [];
+  extension.refreshGate = new RefreshSingleFlight();
+  extension.cache = { records: [], contentAnalysis: null, manifest: null, claudeIndex: createClaudeUsageIndex(),
+    lastUpdate: new Date(0), dataDirectory: null, usageLimits: null };
+  extension.quotaColdRetryDone = true;
+  extension.getConfiguration = () => ({ dataDirectory: root, dashboardAutoRefresh: true,
+    enableContentAnalysis: false, advicePromptWindowDays: 30, projectGroupingMode: 'flat', contextWindowOverride: 0 });
+  extension.maybeFetchUsageLimits = async () => null;
+  extension.refreshCodexData = async () => undefined;
+  extension.syncProviderUi = () => { throw new Error('synthetic-only renderer failure'); };
+  extension.statusBar = { setLoading: () => undefined, updateQuota: () => undefined,
+    updateUsageData: () => undefined, updateContext: () => undefined };
+  extension.webviewProvider = { setLoading: () => undefined, updateQuota: () => undefined,
+    updateData: () => { throw new Error('synthetic-only new-snapshot render failure'); } };
+  extension.outputChannel = { appendLine: (line: string) => diagnostics.push(line) };
+  try {
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(file, row('cold') + '\n');
+    await assert.doesNotReject(extension.refreshData(false, 'watch'));
+    assert.equal(extension.cache.records.length, 1);
+    fs.appendFileSync(file, row('tail') + '\n');
+    await assert.doesNotReject(extension.refreshData(false, 'watch'));
+    assert.equal(extension.cache.records.length, 2);
+    assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 20);
+    await assert.doesNotReject(extension.refreshData(false, 'watch'));
+    assert.match(diagnostics[diagnostics.length - 1] ?? '', /bytes=0/);
+    assert.equal(diagnostics.filter(line => line.includes('provider-ui-sync-failed')).length, 1);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('real Claude filesystem events flow through manifest, index, and dashboard refresh', {

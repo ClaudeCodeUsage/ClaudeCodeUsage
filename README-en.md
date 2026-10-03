@@ -65,7 +65,36 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 <details open>
 <summary>Current release: status bar, smoother scrolling, and one sharing workspace</summary>
 
-
+- **Bounded pricing diagnostics** — unknown-model warnings are deduplicated
+  and capped per Extension Host lifetime, addressing the warning flood in
+  [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
+  Already-expired analysis files
+  keep their empty contribution without disrupting live-tail refreshes.
+- **Current model prices** — dedicated Standard/cache rates for Opus 5.5,
+  Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna. Unknown Codex IDs remain
+  unpriced; fallback estimates do not become exact-price coverage.
+- **Defensive refreshes** — malformed model metadata cannot abort a whole index
+  or mutate shared prototypes. Aggregate buckets are copied once per update;
+  worker results and manual price refreshes have explicit capacity limits.
+- **Quieter updates and recovery** — auto-refresh pause applies to both pages,
+  not background collection or the status bar. Manual refresh still works;
+  failures retain verified data, and backfill/retry phases are clearly labelled.
+  Unchanged hidden panels and weekly aggregates reuse bounded caches.
+- **Exact previews and safe settings** — AI previews include the endpoint,
+  protocol and model without silently changing providers. Share Card export
+  writes the accepted SVG; edited controls require a new preview. Default reset
+  preserves the API key, and Codex directory recovery stays visible on both pages.
+- **Large-history refreshes** — unchanged Content attribution is cached while AI
+  controls stay live. Display settings reuse completed index work, and old index
+  results cannot overwrite refreshed prices.
+  Today attribution is cached by calendar day: unchanged minute-spaced polls
+  update countdowns without rescanning the full history within the hour. The
+  hourly hidden-panel refresh still recomputes Content attribution once.
+- **Upgrade safety** — unchanged polls keep accepted previews; changing Claude
+  directories clears old data even while updates are paused. Existing API keys
+  without an explicit protocol keep the prior Anthropic format. If preview
+  reports a mismatch, select the intended format and URL in Settings and preview
+  again before sending. New installs use the matching OpenAI-compatible default.
 - **Codex status and scrolling** — today's processed tokens are the default
   compact metric, while weekly quota shows remaining capacity. Live panel
   updates briefly defer during scrolling, with a bounded delay.

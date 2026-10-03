@@ -27,6 +27,11 @@ const targetGiB = option('--gib', 2.4);
 const fileCount = option('--files', 645);
 const analyzeContent = process.argv.includes('--analyze-content');
 const assistantPayload = process.argv.includes('--assistant-payload');
+const modelOption = process.argv.indexOf('--model');
+const model = modelOption < 0 ? 'claude-sonnet-4-5' : process.argv[modelOption + 1];
+if (!model || model.length > 160 || !/^[a-z0-9][a-z0-9._-]*$/i.test(model)) {
+  throw new Error('--model needs a bounded synthetic model ID');
+}
 if (analyzeContent && typeof global.gc !== 'function') {
   throw new Error('Content-analysis memory gate requires node --expose-gc');
 }
@@ -39,7 +44,7 @@ const payload = 'synthetic-only-'.repeat(17_000); // ~255 KiB; safely below the 
 const fillerLine = `${JSON.stringify(assistantPayload ? {
   type: 'assistant', timestamp, cwd: '/fixture/large-history',
   message: {
-    role: 'assistant', model: 'claude-sonnet-4-5', content: [{ type: 'text', text: payload }],
+    role: 'assistant', model, content: [{ type: 'text', text: payload }],
     usage: { input_tokens: 10, output_tokens: 1 },
   },
 } : {
@@ -51,7 +56,7 @@ const seedLine = (index) => `${JSON.stringify({
   type: 'assistant', timestamp, cwd: '/fixture/large-history',
   requestId: `synthetic-request-${index}`,
   message: {
-    id: `synthetic-message-${index}`, model: 'claude-sonnet-4-5',
+    id: `synthetic-message-${index}`, model,
     content: [{ type: 'text', text: 'synthetic response' }],
     usage: { input_tokens: 10, output_tokens: 1, cache_creation_input_tokens: 2, cache_read_input_tokens: 3 },
   },
@@ -63,6 +68,10 @@ const root = await mkdtemp(join(tmpdir(), 'ccu-v240-large-synthetic-'));
 const project = join(root, 'projects', '-fixture-large-history');
 const files = [];
 let peakRss = process.memoryUsage().rss;
+let warningCalls = 0;
+const originalWarn = console.warn;
+// Never reproduce the warning flood in a real renderer while benchmarking.
+console.warn = () => { warningCalls += 1; };
 const sampler = setInterval(() => {
   peakRss = Math.max(peakRss, process.memoryUsage().rss);
 }, 50);
@@ -174,6 +183,8 @@ try {
     coldRecords,
     contentAnalysis: analyzeContent,
     assistantPayload,
+    model,
+    warningCalls,
     peakRssBytes: peakRss,
     phases: [
       { label: generated.label, elapsedMs: generated.elapsedMs,
@@ -190,6 +201,7 @@ try {
     ],
   })}\n`);
 } finally {
+  console.warn = originalWarn;
   clearInterval(sampler);
   await rm(root, { recursive: true, force: true });
 }

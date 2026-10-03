@@ -8,6 +8,33 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
 
 ## O essencial
 
+- **Atualização e recuperação mais claras:** a pausa vale para as duas páginas,
+  não para a coleta em segundo plano nem a barra de status. Falhas mantêm dados
+  verificados; preenchimento de histórico e espera de nova tentativa são separados.
+  Painéis ocultos sem mudanças reutilizam caches limitados.
+- **Prévias exatas e configurações seguras:** destino, formato e modelo de IA ficam
+  visíveis, sem trocar de provedor silenciosamente. Share Cards exportam o SVG aprovado;
+  controles alterados exigem nova prévia. Restaurar padrões preserva a chave de API,
+  e o diretório Codex pode ser corrigido nas duas páginas de configurações.
+- **Diagnósticos de preço limitados:** avisos de modelos desconhecidos são
+  deduplicados e limitados por execução do Extension Host ([#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122)).
+  Contribuições de
+  análise já expiradas permanecem vazias sem atrapalhar a atualização incremental.
+- **Novos modelos e atualização segura:** preços padrão/cache próprios para Opus 5.5,
+  Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol e GPT-6 Luna. Campos de modelo inválidos não
+  interrompem todo o índice; agregados são copiados uma vez por atualização. Resultados
+  em segundo plano e consultas de preços têm limites. IDs Codex desconhecidos ficam sem preço.
+- **Históricos grandes:** a atribuição de conteúdo sem mudanças usa cache, mantendo os
+  controles de IA atualizados. Opções de exibição reaproveitam a indexação concluída;
+  resultados atrasados não sobrescrevem preços atualizados.
+  A atribuição de hoje usa cache por dia: consultas sem mudanças, espaçadas por minuto,
+  atualizam a contagem regressiva sem percorrer todo o histórico dentro da mesma hora.
+  A atualização horária dos painéis ocultos ainda recalcula a atribuição de conteúdo uma vez.
+- **Atualização segura:** consultas sem mudanças mantêm prévias aceitas; mudar o diretório
+  Claude limpa dados antigos mesmo com atualização pausada. Chaves existentes sem formato
+  explícito mantêm Anthropic. Em caso de incompatibilidade, escolha formato e URL nas
+  configurações e revise a prévia. Novas instalações usam o padrão OpenAI-compatible,
+  sem redirecionar silenciosamente chaves antigas para outro host.
 - **Claude Code:** custos estimados a partir de tokens e, quando a conta está
   autenticada, limites oficiais de 5 horas e semanais do perfil ativo.
 - **Codex:** tokens processados hoje e saldo semanal restante da última

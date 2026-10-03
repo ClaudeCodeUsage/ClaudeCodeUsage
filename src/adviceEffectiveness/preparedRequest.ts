@@ -50,6 +50,9 @@ export interface PreparedAiInvocation {
 
 export interface AiInvocationPreview {
   kind: AiInvocationKind;
+  endpoint: string;
+  apiFormat: AdviceFormat;
+  model: string;
   dataMode: AiInvocationDataMode;
   contentType: 'application/json';
   body: string;
@@ -78,21 +81,56 @@ export interface PreparedAiTransportRequest {
 
 export type PreparedAiTransport<T> = (request: PreparedAiTransportRequest) => Promise<T>;
 
-function normalizeOpenAiUrl(value: string): string {
-  let url = value.trim().replace(/\/+$/, '');
-  if (url === '') return 'https://api.deepseek.com/chat/completions';
-  if (/api\.deepseek\.com\/v1(?:\/chat\/completions)?$/.test(url)) {
-    url = url.replace('/v1', '');
-  }
-  return url.endsWith('/chat/completions') ? url : `${url}/chat/completions`;
-}
+// The public SHA-256 identifies body bytes only. This private snapshot also binds
+// destination/format/model and consent metadata to the original host-owned
+// invocation, so changing public fields or recomputing its hash cannot reseal it.
+const preparedInvocationSeals = new WeakMap<PreparedAiInvocation, PreparedAiInvocation>();
 
-function normalizeAnthropicUrl(value: string): string {
-  const url = value.trim().replace(/\/+$/, '');
-  if (url === '' || /api\.anthropic\.com$/.test(url) || /chat\/completions$/.test(url)) {
-    return 'https://api.anthropic.com/v1/messages';
+function normalizeAiEndpoint(value: string, apiFormat: AdviceFormat): string {
+  if (typeof value !== 'string') {
+    throw new Error('AI endpoint must be an absolute HTTP(S) URL');
   }
-  return url.endsWith('/v1/messages') ? url : `${url}/v1/messages`;
+  const configured = value.trim();
+  if (!/^https?:\/\/[^/?#]+/i.test(configured) || /[\u0000-\u0020\u007f\\]/.test(configured)) {
+    throw new Error('AI endpoint must be an absolute HTTP(S) URL');
+  }
+  let url: URL;
+  try {
+    url = new URL(configured);
+  } catch {
+    // URL parser errors can include the input, which may contain credentials.
+    throw new Error('AI endpoint must be an absolute HTTP(S) URL');
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || !url.hostname) {
+    throw new Error('AI endpoint must be an absolute HTTP(S) URL');
+  }
+  // Arbitrary query/fragment values may be proxy credentials. Reject them
+  // rather than leak them in the exact endpoint preview or silently strip them.
+  // BYOK authorization belongs in the separately supplied API-key header.
+  if (url.username || url.password || configured.includes('?') || configured.includes('#')) {
+    throw new Error('AI endpoint URL must not include credentials, query parameters, or fragments');
+  }
+  const path = url.pathname.replace(/\/+$/, '');
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+  const messages = path.endsWith('/messages');
+  const chatCompletions = path.endsWith('/chat/completions');
+  // DeepSeek exposes an explicit Anthropic-compatible prefix. Do not reject
+  // that documented route or invent it for a Chat Completions configuration.
+  const deepSeekAnthropic = hostname === 'api.deepseek.com' &&
+    (path === '/anthropic' || path.startsWith('/anthropic/'));
+  if (
+    (apiFormat === 'anthropic' && (chatCompletions ||
+      (hostname === 'api.deepseek.com' && !deepSeekAnthropic) || hostname === 'api.openai.com')) ||
+    (apiFormat === 'openai' && (messages || deepSeekAnthropic || hostname === 'api.anthropic.com'))
+  ) {
+    throw new Error('AI endpoint is incompatible with the configured API format');
+  }
+  // Only protocol paths are appended. Keep the configured origin and any proxy
+  // prefix, including a supplied /v1, instead of guessing a different provider.
+  url.pathname = apiFormat === 'anthropic'
+    ? messages ? path : `${path}${path.endsWith('/v1') ? '' : '/v1'}/messages`
+    : chatCompletions ? path : `${path}/chat/completions`;
+  return url.toString();
 }
 
 function requireBoundedText(value: string, label: string, maxChars: number): string {
@@ -111,17 +149,17 @@ function requireOpaqueRevision(value: string): string {
   return value;
 }
 
-function requestBody(input: PrepareAiInvocationInput): Record<string, unknown> {
+function requestBody(input: PrepareAiInvocationInput, model: string): Record<string, unknown> {
   if (input.apiFormat === 'anthropic') {
     return {
-      model: requireBoundedText(input.model, 'model', 256),
+      model,
       max_tokens: AI_MAX_TOKENS,
       system: requireBoundedText(input.systemPrompt, 'systemPrompt', 40_000),
       messages: [{ role: 'user', content: requireBoundedText(input.userContent, 'userContent', 200_000) }],
     };
   }
   const body: Record<string, unknown> = {
-    model: requireBoundedText(input.model, 'model', 256),
+    model,
     stream: false,
     messages: [
       { role: 'system', content: requireBoundedText(input.systemPrompt, 'systemPrompt', 40_000) },
@@ -156,17 +194,17 @@ export function prepareAiInvocation(input: PrepareAiInvocationInput): PreparedAi
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 10 * 60_000) {
     throw new Error('timeoutMs is outside the supported range');
   }
-  const serializedBody = stableAdvicePayloadStringify(requestBody(input));
+  const endpoint = normalizeAiEndpoint(input.apiUrl, input.apiFormat);
+  const model = requireBoundedText(input.model, 'model', 256).trim();
+  const serializedBody = stableAdvicePayloadStringify(requestBody(input, model));
   const canonicalBytes = Buffer.from(serializedBody, 'utf8');
   const sha256 = createHash('sha256').update(canonicalBytes).digest('hex');
-  return {
+  const prepared: PreparedAiInvocation = {
     schemaVersion: AI_INVOCATION_SCHEMA_VERSION,
     kind: input.kind,
     apiFormat: input.apiFormat,
-    endpoint: input.apiFormat === 'anthropic'
-      ? normalizeAnthropicUrl(input.apiUrl)
-      : normalizeOpenAiUrl(input.apiUrl),
-    model: input.model.trim(),
+    endpoint,
+    model,
     dataMode: input.dataMode,
     sourceRevision: requireOpaqueRevision(input.sourceRevision),
     consentGeneration: input.consentGeneration,
@@ -177,10 +215,18 @@ export function prepareAiInvocation(input: PrepareAiInvocationInput): PreparedAi
     canonicalBytes,
     sha256,
   };
+  preparedInvocationSeals.set(prepared, { ...prepared });
+  return prepared;
 }
 
 export function assertPreparedAiInvocationIntegrity(prepared: PreparedAiInvocation): void {
+  const sealed = preparedInvocationSeals.get(prepared);
   if (
+    !sealed ||
+    (Object.keys(sealed) as (keyof PreparedAiInvocation)[]).some((key) => {
+      const property = Object.getOwnPropertyDescriptor(prepared, key);
+      return !property || !('value' in property) || property.value !== sealed[key];
+    }) ||
     prepared.schemaVersion !== AI_INVOCATION_SCHEMA_VERSION ||
     !(prepared.canonicalBytes instanceof Uint8Array) ||
     prepared.contentType !== 'application/json'
@@ -196,13 +242,17 @@ export function assertPreparedAiInvocationIntegrity(prepared: PreparedAiInvocati
 
 export function previewAiInvocation(prepared: PreparedAiInvocation): AiInvocationPreview {
   assertPreparedAiInvocationIntegrity(prepared);
+  const sealed = preparedInvocationSeals.get(prepared)!;
   return {
-    kind: prepared.kind,
-    dataMode: prepared.dataMode,
-    contentType: prepared.contentType,
-    body: Buffer.from(prepared.canonicalBytes).toString('utf8'),
-    utf8Bytes: prepared.canonicalBytes.byteLength,
-    sha256: prepared.sha256,
+    kind: sealed.kind,
+    endpoint: sealed.endpoint,
+    apiFormat: sealed.apiFormat,
+    model: sealed.model,
+    dataMode: sealed.dataMode,
+    contentType: sealed.contentType,
+    body: Buffer.from(sealed.canonicalBytes).toString('utf8'),
+    utf8Bytes: sealed.canonicalBytes.byteLength,
+    sha256: sealed.sha256,
   };
 }
 
@@ -216,39 +266,46 @@ export async function sendPreparedAiInvocation<T>(
   transport: PreparedAiTransport<T>,
 ): Promise<T> {
   assertPreparedAiInvocationIntegrity(prepared);
+  const sealed = preparedInvocationSeals.get(prepared)!;
   if (!authorization || authorization.backend !== 'api') {
     throw new Error('Only the configured BYOK API backend may send AI requests');
   }
   const apiKey = authorization.apiKey?.trim();
   if (!apiKey) throw new Error('A user-configured API key is required');
+  const { expectedSourceRevision, expectedConsentGeneration, signal } = authorization;
   if (
-    (authorization.expectedSourceRevision !== undefined &&
-      authorization.expectedSourceRevision !== prepared.sourceRevision) ||
-    (authorization.expectedConsentGeneration !== undefined &&
-      authorization.expectedConsentGeneration !== prepared.consentGeneration)
+    (expectedSourceRevision !== undefined && expectedSourceRevision !== sealed.sourceRevision) ||
+    (expectedConsentGeneration !== undefined && expectedConsentGeneration !== sealed.consentGeneration)
   ) {
     throw new Error('The prepared AI invocation is stale');
   }
-  if (authorization.signal?.aborted) {
+  if (signal?.aborted) {
     throw new Error('The prepared AI invocation was cancelled');
   }
-  const headers: Record<string, string> = prepared.apiFormat === 'anthropic'
+  // Authorization is a caller-supplied object. Recheck after reading it and use
+  // only the private snapshot to prevent mutation between validation and dispatch.
+  assertPreparedAiInvocationIntegrity(prepared);
+  const headers: Record<string, string> = sealed.apiFormat === 'anthropic'
     ? {
-        'Content-Type': prepared.contentType,
+        'Content-Type': sealed.contentType,
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       }
     : {
-        'Content-Type': prepared.contentType,
+        'Content-Type': sealed.contentType,
         Authorization: `Bearer ${apiKey}`,
       };
-  return transport({
-    endpoint: prepared.endpoint,
-    apiFormat: prepared.apiFormat,
-    contentType: prepared.contentType,
+  const result = await transport({
+    endpoint: sealed.endpoint,
+    apiFormat: sealed.apiFormat,
+    contentType: sealed.contentType,
     headers,
-    canonicalBytes: prepared.canonicalBytes,
-    timeoutMs: prepared.timeoutMs,
-    ...(authorization.signal ? { signal: authorization.signal } : {}),
+    canonicalBytes: sealed.canonicalBytes,
+    timeoutMs: sealed.timeoutMs,
+    ...(signal ? { signal } : {}),
   });
+  // The production response parser also relies on apiFormat after awaiting the
+  // transport. Detect in-flight mutation before that parser can use changed data.
+  assertPreparedAiInvocationIntegrity(prepared);
+  return result;
 }

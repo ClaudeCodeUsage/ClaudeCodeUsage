@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { prepareAiInvocation } from '../adviceEffectiveness/preparedRequest';
 
 type SettingsModule = typeof import('../settings');
 
@@ -240,6 +241,167 @@ test('activation loads an existing SecretStorage key when no legacy plaintext re
   assert.equal(await store.initializeSecretsForActivation(), null);
   assert.equal(store.get('advice.apiKey'), 'sk-existing-canary');
   assert.equal(store.snapshot().find((entry) => entry.key === 'advice.apiKey')?.configured, true);
+});
+
+const adviceFormatMigrationKey = 'ccu.migrated.adviceDefaultFormat.v2.4.1';
+
+function prepareAdviceFromSettings(store: InstanceType<typeof SettingsStore>, apiUrl = store.get<string>('advice.apiUrl')) {
+  return prepareAiInvocation({ kind: 'advice', apiFormat: store.get('advice.apiFormat'), apiUrl,
+    model: 'synthetic-model', systemPrompt: 'Return JSON.', userContent: '{}', dataMode: 'aggregates-only',
+    sourceRevision: 'migration-fixture', consentGeneration: 0, createdAtEpochMs: 1_000 });
+}
+
+test('BYOK protocol upgrade pins the old implicit format before advice can prepare a request', async () => {
+  activeConfiguration = fakeConfiguration();
+  activeWorkspaceFolders = [];
+  activeFolderConfigurations = new Map();
+  const context = fakeContext({ secrets: new Map([['claudeCodeUsage.secret.advice.apiKey', 'synthetic-old-key']]) });
+  let secretReads = 0;
+  const readSecret = context.secrets.get;
+  context.secrets.get = async (key: string) => { secretReads++; return readSecret(key); };
+  const store = new SettingsStore(context);
+  assert.equal(await store.initializeSecretsForActivation(), null);
+  assert.equal(store.get('advice.apiFormat'), 'anthropic');
+  assert.equal(context._state.get(adviceFormatMigrationKey), 'anthropic');
+  assert.equal(secretReads, 1, 'migration uses the already-loaded key presence, not another credential read');
+  assert.throws(() => prepareAdviceFromSettings(store), /incompatible/i,
+    'old Anthropic key cannot silently move to the default DeepSeek host');
+  const prepared = prepareAdviceFromSettings(store, 'https://proxy.example.invalid/base');
+  assert.equal(prepared.endpoint, 'https://proxy.example.invalid/base/v1/messages');
+  assert.doesNotMatch(JSON.stringify(store.snapshot()), /synthetic-old-key/);
+  await store.initializeSecretsForActivation();
+  assert.equal(store.get('advice.apiFormat'), 'anthropic', 'repeated activation is idempotent');
+});
+
+test('BYOK protocol upgrade preserves explicit persisted formats', async (t) => {
+  for (const format of ['openai', 'anthropic']) {
+    await t.test(format, async () => {
+      activeConfiguration = fakeConfiguration();
+      activeWorkspaceFolders = [];
+      activeFolderConfigurations = new Map();
+      const context = fakeContext({ state: new Map([['ccu.setting.advice.apiFormat', format]]),
+        secrets: new Map([['claudeCodeUsage.secret.advice.apiKey', 'synthetic-explicit-key']]) });
+      const store = new SettingsStore(context);
+      assert.equal(await store.initializeSecretsForActivation(), null);
+      assert.equal(store.get('advice.apiFormat'), format);
+      assert.equal(context._state.get(adviceFormatMigrationKey), format);
+    });
+  }
+});
+
+test('BYOK protocol upgrade preserves explicit legacy configuration before the queued settings migration', async (t) => {
+  for (const format of ['openai', 'anthropic']) {
+    await t.test(format, async () => {
+      activeConfiguration = fakeConfiguration();
+      activeWorkspaceFolders = [];
+      activeFolderConfigurations = new Map();
+      activeConfiguration.inspect = <T>(key: string) => key === 'advice.apiFormat' ? { globalValue: format as T } : {};
+      const context = fakeContext({ secrets: new Map([['claudeCodeUsage.secret.advice.apiKey', 'synthetic-legacy-key']]) });
+      const store = new SettingsStore(context);
+      assert.equal(await store.initializeSecretsForActivation(), null);
+      assert.equal(store.get('advice.apiFormat'), format);
+      assert.equal(context._state.get('ccu.setting.advice.apiFormat'), format);
+      assert.equal(activeConfiguration.updates.length, 0, 'no unregistered configuration writes');
+    });
+  }
+});
+
+test('BYOK protocol upgrade leaves fresh installs and subsequently added keys on OpenAI-compatible defaults', async () => {
+  activeConfiguration = fakeConfiguration();
+  activeWorkspaceFolders = [];
+  activeFolderConfigurations = new Map();
+  const context = fakeContext();
+  const store = new SettingsStore(context);
+  assert.equal(await store.initializeSecretsForActivation(), null);
+  assert.equal(store.get('advice.apiFormat'), 'openai');
+  assert.equal(context._state.get(adviceFormatMigrationKey), 'openai');
+  await store.set('advice.apiKey', 'synthetic-new-key');
+  const restarted = new SettingsStore(context);
+  assert.equal(await restarted.initializeSecretsForActivation(), null);
+  assert.equal(restarted.get('advice.apiFormat'), 'openai');
+  assert.equal(prepareAdviceFromSettings(restarted).endpoint, 'https://api.deepseek.com/chat/completions');
+});
+
+test('BYOK protocol upgrade does not revive obsolete config after the generic migration or defaults reset', async (t) => {
+  for (const scope of ['globalValue', 'workspaceValue', 'workspaceFolderValue']) {
+    await t.test(scope, async () => {
+      activeConfiguration = fakeConfiguration();
+      activeWorkspaceFolders = [];
+      activeFolderConfigurations = new Map();
+      activeConfiguration.inspect = <T>(key: string) => key === 'advice.apiFormat'
+        ? { [scope]: 'openai' as T } : {};
+      const context = fakeContext({ state: new Map([['ccu.settingsMigrated.v1', true]]),
+        secrets: new Map([['claudeCodeUsage.secret.advice.apiKey', 'synthetic-reset-legacy-key']]) });
+      const store = new SettingsStore(context);
+      assert.equal(await store.initializeSecretsForActivation(), null);
+      await store.migrateOnce();
+      assert.equal(store.get('advice.apiFormat'), 'anthropic');
+      assert.equal(context._state.get(adviceFormatMigrationKey), 'anthropic');
+      assert.throws(() => prepareAdviceFromSettings(store), /incompatible/i);
+      await store.reset('advice.apiFormat');
+      const restarted = new SettingsStore(context);
+      assert.equal(await restarted.initializeSecretsForActivation(), null);
+      assert.equal(restarted.get('advice.apiFormat'), 'anthropic');
+      assert.doesNotMatch(JSON.stringify(restarted.snapshot()), /synthetic-reset-legacy-key/);
+    });
+  }
+});
+
+test('BYOK protocol upgrade fails closed on persistence failure without losing the recoverable secret', async (t) => {
+  for (const failedKey of ['ccu.setting.advice.apiFormat', adviceFormatMigrationKey]) {
+    await t.test(failedKey, async () => {
+      activeConfiguration = fakeConfiguration();
+      activeWorkspaceFolders = [];
+      activeFolderConfigurations = new Map();
+      const context = fakeContext({ secrets: new Map([['claudeCodeUsage.secret.advice.apiKey', 'synthetic-recoverable-key']]) });
+      const update = context.globalState.update;
+      let fail = true;
+      context.globalState.update = async (key: string, value: unknown) => {
+        if (key === failedKey && fail) throw new Error('synthetic private migration error');
+        await update(key, value);
+      };
+      const store = new SettingsStore(context);
+      assert.equal(await store.initializeSecretsForActivation(), 'secret-storage-failed');
+      assert.equal(store.get('advice.apiKey'), '');
+      assert.equal(store.snapshot().find((entry) => entry.key === 'advice.apiKey')?.configured, false);
+      assert.equal(context._secrets.get('claudeCodeUsage.secret.advice.apiKey'), 'synthetic-recoverable-key');
+      assert.equal(context._state.has(adviceFormatMigrationKey), false);
+      fail = false;
+      assert.equal(await store.initializeSecretsForActivation(), null);
+      assert.equal(store.get('advice.apiFormat'), 'anthropic');
+      assert.equal(store.get('advice.apiKey'), 'synthetic-recoverable-key');
+    });
+  }
+});
+
+test('BYOK protocol upgrade never promotes invalid explicit state to a sendable format', async () => {
+  activeConfiguration = fakeConfiguration();
+  activeWorkspaceFolders = [];
+  activeFolderConfigurations = new Map();
+  const context = fakeContext({ state: new Map([['ccu.setting.advice.apiFormat', 'invalid-format']]),
+    secrets: new Map([['claudeCodeUsage.secret.advice.apiKey', 'synthetic-invalid-format-key']]) });
+  const store = new SettingsStore(context);
+  assert.equal(await store.initializeSecretsForActivation(), null);
+  assert.equal(store.get('advice.apiFormat'), 'invalid-format');
+  assert.throws(() => prepareAdviceFromSettings(store), /format is invalid/i);
+  await store.reset('advice.apiFormat');
+  assert.equal(store.get('advice.apiFormat'), 'anthropic');
+  assert.throws(() => prepareAdviceFromSettings(store), /incompatible/i);
+});
+
+test('BYOK protocol upgrade keeps the compatibility default through ordinary resets but allows explicit change', async () => {
+  activeConfiguration = fakeConfiguration();
+  activeWorkspaceFolders = [];
+  activeFolderConfigurations = new Map();
+  const context = fakeContext({ secrets: new Map([['claudeCodeUsage.secret.advice.apiKey', 'synthetic-reset-key']]) });
+  const store = new SettingsStore(context);
+  await store.initializeSecretsForActivation();
+  await store.reset('advice.apiFormat');
+  assert.equal(store.get('advice.apiFormat'), 'anthropic');
+  assert.throws(() => prepareAdviceFromSettings(store), /incompatible/i);
+  assert.equal(store.get('advice.apiKey'), 'synthetic-reset-key');
+  await store.set('advice.apiFormat', 'openai');
+  assert.equal(prepareAdviceFromSettings(store).endpoint, 'https://api.deepseek.com/chat/completions');
 });
 
 test('activation continues when SecretStorage is unavailable', async () => {

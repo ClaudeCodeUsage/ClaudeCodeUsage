@@ -231,6 +231,32 @@ test('GPT-6 Astra contributes exact Standard short-context API-equivalent value'
   assert.equal(astra.totalTokens, 3_000_000);
 });
 
+test('new Sol/Luna models preserve Codex cache/output semantics and exact pricing coverage', () => {
+  for (const [model, input, cached, output] of [
+    ['gpt-6.1-sol', 2, 0.1, 10],
+    ['gpt-6-sol', 2, 0.2, 10],
+    ['gpt-6-luna', 0.1, 0.01, 0.5],
+  ] as const) {
+    const priced = equivalentCostBreakdownFromProviderTokens(model, {
+      inputTotal: 2_000_000, cachedInput: 1_000_000,
+      outputTotal: 1_000_000, reasoningOutput: 750_000,
+    });
+    assert.equal(priced.equivalentUsd, input + cached + output, model);
+    assert.equal(priced.freshInputUsd, input, model);
+    assert.equal(priced.cachedInputUsd, cached, model);
+    assert.equal(priced.outputUsd, output, model);
+    assert.equal(priced.totalTokens, 3_000_000, model);
+    assert.equal(priced.pricedTokens, 3_000_000, model);
+    assert.equal(priced.pricingCoverage, 1, model);
+  }
+  const unknown = equivalentUsageFromProviderTokens(RESET, 'gpt-6.1-sol-20990101', {
+    inputTotal: 2_000_000, cachedInput: 1_000_000, outputTotal: 1_000_000,
+  });
+  assert.equal(unknown.equivalentUsd, 0);
+  assert.equal(unknown.pricedTokens, 0);
+  assert.equal(unknown.totalTokens, 3_000_000);
+});
+
 test('Codex API-equivalent cost breakdown prices fresh cache-read and output buckets without charging reasoning twice', () => {
   const tokens = {
     inputTotal: 2_000_000,

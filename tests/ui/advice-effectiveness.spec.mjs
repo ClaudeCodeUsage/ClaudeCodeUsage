@@ -309,6 +309,11 @@ test('sealed preview renders the exact canonical body, UTF-8 size, and SHA-256',
   await expect(preview.locator('[data-advice-preview-digest]')).toHaveText(
     `SHA-256 ${fixture.snapshotMessages.aggregateOnly.sha256}`,
   );
+  await expect(preview.locator('[data-advice-preview-destination]')).toContainText(
+    fixture.snapshotMessages.aggregateOnly.endpoint,
+  );
+  await expect(preview.locator('[data-advice-preview-destination]')).toContainText('openai');
+  await expect(preview.locator('[data-advice-preview-destination]')).toContainText('safe-model');
   expect(Buffer.byteLength(fixture.snapshotMessages.aggregateOnly.body, 'utf8')).toBe(
     fixture.snapshotMessages.aggregateOnly.utf8Bytes,
   );
@@ -372,6 +377,25 @@ test('sealed preview renders the exact canonical body, UTF-8 size, and SHA-256',
     snapshotId: fixture.snapshotMessages.withPromptSamples.snapshotId,
   });
   expect(networkAfterLoad).toEqual([]);
+});
+
+test('preview rejects missing, credential-bearing or inconsistent destination metadata without sending', async ({ page }) => {
+  const fixture = buildAdviceEffectivenessFixture({ locale: 'en' });
+  await openCandidate(page, 'claude');
+  await grantAggregateConsent(page);
+  const valid = fixture.snapshotMessages.aggregateOnly;
+  for (const override of [
+    { endpoint: undefined },
+    { endpoint: 'https://secret@example.invalid/v1/chat/completions' },
+    { endpoint: 'https://example.invalid/v1/chat/completions?key=secret' },
+    { apiFormat: 'unknown' },
+    { model: 'unpreviewed-model' },
+  ]) {
+    await dispatchHostMessage(page, { ...valid, ...override });
+    await expect(page.locator('[data-advice-provider="claude"] [data-advice-action="send"]')).toBeDisabled();
+  }
+  await expectPostedCount(page, 'sendAdviceSnapshot', 0);
+  expect(await page.content()).not.toContain('secret@');
 });
 
 test('withdrawing consent cancels a preview whose digest validation is pending', async ({ page }) => {
@@ -469,6 +493,9 @@ test('a live dashboard patch preserves vertical position inside the advice paylo
 
   const body = page.locator('[data-advice-preview="claude"] [data-advice-preview-body]');
   await expect(body).toBeVisible();
+  const destination = page.locator('[data-advice-preview="claude"] [data-advice-preview-destination]');
+  await expect(destination).toContainText(snapshotMessage.endpoint);
+  const destinationBefore = await destination.textContent();
   const before = await body.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
     return {
@@ -503,8 +530,27 @@ test('a live dashboard patch preserves vertical position inside the advice paylo
 
   const refreshed = page.locator('[data-advice-preview="claude"] [data-advice-preview-body]');
   await expect(refreshed).toBeVisible();
+  await expect(destination).toHaveText(destinationBefore);
+  await expect(destination).toContainText(snapshotMessage.apiFormat);
+  await expect(destination).toContainText(snapshotMessage.model);
+  await expect(page.locator('[data-advice-provider="claude"] [data-advice-action="send"]')).toBeEnabled();
   await expect.poll(() => refreshed.evaluate((element) => element.scrollTop))
     .toBe(before.scrollTop);
+});
+
+test('a live dashboard patch discards a preview with missing destination metadata', async ({ page }) => {
+  const fixture = buildAdviceEffectivenessFixture({ locale: 'en' });
+  const root = await openCandidate(page, 'claude');
+  await grantAggregateConsent(page);
+  await dispatchHostMessage(page, fixture.snapshotMessages.aggregateOnly);
+  await expect(root.locator('[data-advice-action="send"]')).toBeEnabled();
+  await root.locator('[data-advice-preview]').evaluate((preview) => preview.removeAttribute('data-preview-endpoint'));
+  await dispatchDashboardDataPatch(page, 'claude', {
+    adviceSnapshotIds: { claude: fixture.snapshotMessages.aggregateOnly.snapshotId },
+  });
+  await expectPostedCount(page, 'dashboardDataPatchAck', 1);
+  await expect(root.locator('[data-advice-action="send"]')).toBeDisabled();
+  await expect(root.locator('[data-advice-preview]')).toBeHidden();
 });
 
 test('a live dashboard patch cannot restore a snapshot the host invalidated', async ({ page }) => {
@@ -684,9 +730,10 @@ test('optimizer exact preview fails closed before enabling the shared explicit s
     command: 'optimizePreviewResult',
     ok: true,
     snapshotId: 'optimizer-0123456789abcdef01234567',
-    body: '{"safe":true}',
-    sha256: createHash('sha256').update('{"safe":true}', 'utf8').digest('hex'),
-    utf8Bytes: Buffer.byteLength('{"safe":true}', 'utf8'),
+    body: '{"model":"safe-model","safe":true}',
+    sha256: createHash('sha256').update('{"model":"safe-model","safe":true}', 'utf8').digest('hex'),
+    utf8Bytes: Buffer.byteLength('{"model":"safe-model","safe":true}', 'utf8'),
+    endpoint: 'https://example.invalid/v1/chat/completions', apiFormat: 'openai', model: 'safe-model',
     dataMode: 'user-draft-only',
   };
   await dispatchHostMessage(page, base);

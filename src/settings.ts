@@ -84,6 +84,14 @@ const SCOPED_WEEKLY_MIGRATION_FLAG = 'ccu.migrated.showScopedWeekly';
 // The early 2.3.2 test build exposed a free-form label and manual USD
 // multiplier. The release candidate replaces both with one fixed preset.
 const CURRENCY_PRESET_MIGRATION_FLAG = 'ccu.migrated.currencyPreset.v2.3.2';
+// Enum only, never a credential: preserves the pre-upgrade effective protocol
+// when an existing BYOK key had no explicit format. Also protects ordinary
+// defaults reset, which intentionally retains the user's secret.
+const ADVICE_FORMAT_MIGRATION_KEY = 'ccu.migrated.adviceDefaultFormat.v2.4.1';
+
+function isAdviceFormat(value: unknown): value is 'anthropic' | 'openai' {
+  return value === 'anthropic' || value === 'openai';
+}
 
 // Exact configuration/globalState names used by released predecessors but no
 // longer present in SETTINGS. They are migration inputs, never a prefix-based
@@ -320,7 +328,7 @@ export const SETTINGS: SettingDef[] = [
     group: 'providers',
     label: 'Custom Codex data directory',
     help: 'Empty = CODEX_HOME, then ~/.codex. Authentication files are never read.',
-    providers: ['codex'],
+    providers: ['claude', 'codex'],
   },
   {
     key: 'codex.fileWatchSeconds',
@@ -681,7 +689,7 @@ export const SETTINGS: SettingDef[] = [
   {
     key: 'advice.apiFormat',
     type: 'enum',
-    default: 'anthropic',
+    default: 'openai',
     storage: 'state',
     group: 'advice',
     label: 'API format',
@@ -901,12 +909,45 @@ export class SettingsStore {
           this.secretValues.set(def.key, value);
         }
       }
+      await this.migrateAdviceDefaultFormat();
     } catch (error) {
+      this.secretValues.clear();
       if (error instanceof SettingsSecretMigrationError) {
         throw error;
       }
       throw new SettingsSecretMigrationError('secret-storage-failed');
     }
+  }
+
+  /** Runs before activation exposes a key to advice/Optimizer. New installs use
+   * the matching OpenAI-compatible default; existing keys retain the old
+   * Anthropic default rather than silently moving to a different host. */
+  private async migrateAdviceDefaultFormat(): Promise<void> {
+    if (isAdviceFormat(this.context.globalState.get(ADVICE_FORMAT_MIGRATION_KEY))) return;
+    const stateKey = STATE_PREFIX + 'advice.apiFormat';
+    let explicit = this.context.globalState.get<unknown>(stateKey);
+    if (explicit === undefined && !this.context.globalState.get<boolean>(MIGRATION_FLAG, false)) {
+      const legacy = this.cfg().inspect<unknown>('advice.apiFormat');
+      const configured = legacy?.globalValue ?? legacy?.workspaceFolderValue ?? legacy?.workspaceValue;
+      if (isAdviceFormat(configured)) {
+        // The generic settings migration is queued later. Preserve this
+        // explicit choice now, without updating an unregistered config key.
+        if (this.context.globalState.get(stateKey) === undefined) {
+          await this.context.globalState.update(stateKey, configured);
+        }
+        explicit = this.context.globalState.get<unknown>(stateKey);
+      }
+    }
+    // Once settings have migrated, old VS Code configuration is no longer
+    // authoritative: removing a local override must not revive a stale format.
+    const compatibleDefault = isAdviceFormat(explicit)
+      ? explicit : this.secretValues.has('advice.apiKey') ? 'anthropic' : 'openai';
+    if (explicit === undefined && this.secretValues.has('advice.apiKey')) {
+      await this.context.globalState.update(stateKey, compatibleDefault);
+    }
+    // A failed write leaves advice keyless for this activation; a retry can
+    // finish from the already-pinned format without losing the stored secret.
+    await this.context.globalState.update(ADVICE_FORMAT_MIGRATION_KEY, compatibleDefault);
   }
 
   /** Secret migration is advice-only; a failure must not disable usage views. */
@@ -938,9 +979,12 @@ export class SettingsStore {
     if (def.storage === 'secret') {
       return (this.secretValues.get(def.key) ?? def.default) as unknown as T;
     }
+    const compatibleFormat = def.key === 'advice.apiFormat'
+      ? this.context.globalState.get<unknown>(ADVICE_FORMAT_MIGRATION_KEY) : undefined;
+    const defaultValue = isAdviceFormat(compatibleFormat) ? compatibleFormat : def.default;
     const value = this.context.globalState.get<T>(
       STATE_PREFIX + def.key,
-      def.default as unknown as T,
+      defaultValue as unknown as T,
     );
     return (def.key === 'displayCurrency'
       ? normalizeDisplayCurrencyCode(value)

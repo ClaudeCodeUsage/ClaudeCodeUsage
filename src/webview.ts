@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import { I18n } from './i18n';
-import { getModelRatesPerMillion } from './pricing';
+import { getModelRatesPerMillion, getPricingBackend, getPricingLastFetched } from './pricing';
 import {
   SETTINGS,
   SettingsStore,
@@ -96,7 +96,7 @@ import type {
 import type { StructuredAdviceReferences } from './adviceEffectiveness/structuredOutput';
 import { AdviceRecommendation, createAdviceContract } from './adviceEffectiveness/contract';
 import type { PreparedOptimizerResult } from './optimizerRequest';
-import type { BackgroundWorkReason } from './backgroundWorkState';
+import type { BackgroundWorkReason, BackgroundWorkStatus, BackgroundWorkPausedReason } from './backgroundWorkState';
 import {
   AdviceLocalState,
   AdviceLocalStateStorage,
@@ -161,6 +161,22 @@ interface CodexRenderProgress {
   indexedBytes: number;
   totalBytes: number;
   reason?: BackgroundWorkReason;
+  workState?: { status: BackgroundWorkStatus; pausedReason: BackgroundWorkPausedReason | null; nextEligibleAt: number | null };
+  phase?: 'main' | 'period' | 'hourly';
+}
+
+interface ShareCardConfig {
+  range: string; scope: string; theme: ShareCardTheme;
+  fullNumbers: boolean; sections: Record<string, boolean>;
+}
+
+function shareCardConfig(value: Record<string, unknown>): ShareCardConfig {
+  const range = typeof value.range === 'string' && /^(last30|week|month|year|today|month:\d{4}-\d{2})$/.test(value.range) ? value.range : 'last30';
+  const scope = typeof value.scope === 'string' && value.scope.length <= 4096 ? value.scope : 'all';
+  const theme = ['claudeClassic', 'claudeCream', 'auroraDark', 'auto'].includes(String(value.theme)) ? value.theme as ShareCardTheme : 'claudeClassic';
+  const input = value.sections && typeof value.sections === 'object' ? value.sections as Record<string, unknown> : {};
+  const sections = Object.fromEntries(Object.entries(DEFAULT_SECTIONS).sort(([a], [b]) => a.localeCompare(b)).map(([key, fallback]) => [key, typeof input[key] === 'boolean' ? input[key] : fallback]));
+  return { range, scope, theme, fullNumbers: value.fullNumbers === true, sections };
 }
 
 const OPTIMIZER_FEEDBACK_RECOMMENDATION_ID = 'recommendation-optimizer-result-v1';
@@ -995,7 +1011,19 @@ export class UsageWebviewProvider {
   // remain unchanged. Config is retained independently from a generated SVG.
   private shareCardPreviewCache?: {
     records: any[]; day: string; timeZone: string; locale: string; themeKind?: number; svg: string;
+    configKey: string; previewId: string; currency: string;
   };
+  // One entry per provider/tab: never a history of HTML snapshots. All data
+  // references and display/time context must agree before reusing a panel.
+  private readonly dataPanelCache = new Map<string, { refs: unknown[]; displayKey: string; html: string }>();
+  // Attribution is day-sensitive, not minute-sensitive like Today's countdowns.
+  // Retain one numeric result, while labels and quota presentation remain live.
+  private todayAttributionCache?: {
+    records: any[]; analysis: ContentAnalysis | null; day: string; timeZone: string;
+    pricing: unknown; backend: string; attribution: UsageAttribution;
+  };
+  private weeklyUsageCache?: { records: any[]; pricing: unknown; backend: string; usage: ReturnType<typeof claudeWeeklyEquivalentUsage> };
+  private readonly refreshStates: Partial<Record<SettingProvider, { failed: boolean; lastSuccessfulAt?: number }>> = {};
   private claudeHeatmapPreviewCache?: {
     dailyRows: { date: string; data: UsageData }[];
     day: string;
@@ -1082,6 +1110,9 @@ export class UsageWebviewProvider {
     previewBody?: string;
     previewSha256?: string;
     previewBytes?: number;
+    previewEndpoint?: string;
+    previewApiFormat?: string;
+    previewModel?: string;
     /** Random opaque run ID; never derived from the draft or model output. */
     adviceId?: string;
   } | null = null;
@@ -1420,7 +1451,7 @@ export class UsageWebviewProvider {
         command: 'adviceSnapshotResult',
         ok: false,
         provider: providerState.provider,
-        reason: 'invalid-evidence',
+        reason: 'invalid-endpoint',
       });
       return;
     }
@@ -1443,6 +1474,9 @@ export class UsageWebviewProvider {
       ok: true,
       snapshotId,
       provider: providerState.provider,
+      endpoint: preview.endpoint,
+      apiFormat: preview.apiFormat,
+      model: preview.model,
       contentType: preview.contentType,
       dataMode: preview.dataMode,
       promptSampleCount: result.value.preview.promptSampleCount,
@@ -1668,6 +1702,8 @@ export class UsageWebviewProvider {
     this.shareCardPreviewCache = undefined;
     this.claudeHeatmapPreviewCache = undefined;
     this.claudeDailyUsageCache = undefined;
+    this.dataPanelCache.clear();
+    this.todayAttributionCache = undefined;
   }
 
   private async handleClearAdviceLocalDataMessage(): Promise<void> {
@@ -1920,10 +1956,16 @@ export class UsageWebviewProvider {
       previewBody: preview.body,
       previewSha256: preview.sha256,
       previewBytes: preview.utf8Bytes,
+      previewEndpoint: preview.endpoint,
+      previewApiFormat: preview.apiFormat,
+      previewModel: preview.model,
     };
     this.postAdviceMessage({
       command: 'optimizePreviewResult',
       ok: true,
+      endpoint: preview.endpoint,
+      apiFormat: preview.apiFormat,
+      model: preview.model,
       snapshotId,
       contentType: preview.contentType,
       dataMode: preview.dataMode,
@@ -2023,6 +2065,9 @@ export class UsageWebviewProvider {
       this.pendingDashboardLivePatch = undefined;
       this.scheduledDashboardLivePatch = undefined;
       this.lastLivePatchStructureKey = undefined;
+      this.dataPanelCache.clear();
+      this.weeklyUsageCache = undefined;
+      this.invalidateSharingCaches();
       for (const requestId of [...this.localDataClientActionRequests.keys()]) {
         this.settleLocalDataClientAction(requestId, false);
       }
@@ -2267,12 +2312,10 @@ export class UsageWebviewProvider {
           // Preview is a pure local render using only the indexed usage data.
           if (this.panel && this.allRecords && this.allRecords.length > 0) {
             try {
-              const range = String(message.range || 'last30');
-              const scope = String(message.scope || 'all');
-              const sections = (message.sections || {}) as Record<string, boolean>;
-              const theme = (message.theme as ShareCardTheme) || 'claudeClassic';
+              const cfg = shareCardConfig(message);
+              const { range, scope, sections, theme } = cfg;
               const svg = this.buildShareCardSvgFor(range, scope, sections as Partial<ShareSections>, {
-                fullNumbers: !!message.fullNumbers,
+                fullNumbers: cfg.fullNumbers,
                 theme,
               });
               // Remember it so a re-render restores the preview + picks.
@@ -2283,18 +2326,18 @@ export class UsageWebviewProvider {
                 locale: I18n.getLocale(),
                 themeKind: vscode.window.activeColorTheme?.kind,
                 svg,
+                configKey: JSON.stringify(cfg),
+                previewId: randomBytes(12).toString('hex'),
+                currency: JSON.stringify(I18n.getCurrencyDisplay()),
               };
-              this.lastShareCardConfig = {
-                range,
-                scope,
-                sections,
-                fullNumbers: !!message.fullNumbers,
-                theme,
-              };
-              this.panel.webview.postMessage({ command: 'shareCardResult', svg });
+              this.lastShareCardConfig = cfg;
+              this.dataPanelCache.clear();
+              this.panel.webview.postMessage({ command: 'shareCardResult', svg, previewId: this.shareCardPreviewCache.previewId, configKey: this.shareCardPreviewCache.configKey, requestId: message.requestId });
             } catch (e) {
-              this.panel.webview.postMessage({ command: 'shareCardResult', error: (e as Error).message });
+              this.panel.webview.postMessage({ command: 'shareCardResult', error: I18n.sharingWorkspace.cardBuildFailed, requestId: message.requestId });
             }
+          } else {
+            this.panel?.webview.postMessage({ command: 'shareCardResult', error: I18n.sharingWorkspace.previewPending, requestId: message.requestId });
           }
           break;
         }
@@ -2304,11 +2347,16 @@ export class UsageWebviewProvider {
             vscode.window.showWarningMessage(I18n.t.popup.noDataMessage);
             break;
           }
-          const range = String(message.range || 'last30');
-          const svg = this.buildShareCardSvgFor(range, String(message.scope || 'all'), (message.sections || {}) as Partial<ShareSections>, {
-            fullNumbers: !!message.fullNumbers,
-            theme: (message.theme as ShareCardTheme) || 'claudeClassic',
-          });
+          const cfg = shareCardConfig(message);
+          const preview = this.shareCardPreviewCache;
+          if (!preview || message.previewId !== preview.previewId || JSON.stringify(cfg) !== preview.configKey) {
+            this.panel?.webview.postMessage({ command: 'shareCardExportResult', ok: false, error: I18n.dashboardFeedback.previewDirty });
+            break;
+          }
+          const { range } = cfg;
+          // Freeze the artifact before awaiting the dialog. Later refreshes or
+          // edits cannot alter what the user explicitly chose to export.
+          const svg = preview.svg;
           const defaultName = shareCardFilename(range).replace(/\.png$/, '.svg');
           const uri = await vscode.window.showSaveDialog({
             defaultUri: vscode.Uri.file(path.join(os.homedir(), defaultName)),
@@ -2465,6 +2513,9 @@ export class UsageWebviewProvider {
               ? new Set(message.keys.filter((key: unknown) => typeof key === 'string'))
               : null;
             for (const d of SETTINGS) {
+              // Ordinary preference reset never destroys a credential, even
+              // if an old/malformed client includes its key in the request.
+              if (d.secret || d.storage === 'secret') continue;
               if (requested && !requested.has(d.key)) {
                 continue;
               }
@@ -2569,6 +2620,16 @@ export class UsageWebviewProvider {
     this.show();
   }
 
+  /** Drop every source-owned artifact before a replacement source is verified. */
+  clearClaudeSource(): void {
+    this.usageLimits = null;
+    this.claudeWeeklyQuotaHistory = [];
+    this.invalidatePreparedAiRequests();
+    this.weeklyUsageCache = undefined;
+    this.invalidateSharingCaches();
+    this.updateData(null, null, null, null, [], [], [], undefined, null, []);
+  }
+
   updateData(
     sessionData: SessionData | null,
     todayData: UsageData | null,
@@ -2610,6 +2671,7 @@ export class UsageWebviewProvider {
     this.isLoading = false;
     if (allRecords) {
       if (this.allRecords !== allRecords) {
+        this.weeklyUsageCache = undefined;
         this.invalidateSharingCaches();
       }
       this.allRecords = allRecords;
@@ -2617,6 +2679,7 @@ export class UsageWebviewProvider {
     this.sessionBreakdown = sessionBreakdown;
     this.projectBreakdown = projectBreakdown;
     this.claudeProjectUsageMatrix = projectUsageMatrix;
+    if (this.contentAnalysis !== contentAnalysis) this.todayAttributionCache = undefined;
     this.contentAnalysis = contentAnalysis;
     this.branchBreakdown = branchBreakdown;
     this.workflowBreakdown = workflowBreakdown;
@@ -2683,6 +2746,32 @@ export class UsageWebviewProvider {
     }
   }
 
+  updateRefreshState(provider: SettingProvider, state: { failed: boolean; lastSuccessfulAt?: number }): void {
+    const previous = this.refreshStates[provider];
+    if (previous?.failed === state.failed && previous?.lastSuccessfulAt === state.lastSuccessfulAt) return;
+    this.refreshStates[provider] = { ...state };
+    if (this.panel) void this.panel.webview.postMessage({
+      command: 'dashboardRefreshState', provider, text: this.refreshStateText(provider),
+    });
+  }
+
+  private refreshStateText(provider: SettingProvider): string {
+    const state = this.refreshStates[provider];
+    if (!state?.failed) return '';
+    const copy = I18n.dashboardFeedback;
+    const at = state.lastSuccessfulAt;
+    return copy.refreshFailed + (typeof at === 'number' && Number.isFinite(at)
+      ? ' ' + copy.lastSuccess + ': ' + new Date(at).toLocaleString(I18n.getLocale(), { timeZone: resolveTimeZone(I18n.getTimezone()) }) : '');
+  }
+
+  private renderRefreshState(): string {
+    return '<div class="dashboard-refresh-feedback" aria-live="polite">' + (['claude', 'codex'] as const).map((provider) => {
+      const text = this.refreshStateText(provider);
+      return '<p class="table-hint" data-refresh-feedback="' + provider + '"' + (text ? '' : ' hidden') + '>' +
+        this.escapeHtml(provider === 'codex' ? 'Codex · ' : 'Claude · ') + this.escapeHtml(text) + '</p>';
+    }).join('') + '</div>';
+  }
+
   /**
    * Receive privacy-reviewed provider contracts from the extension host. This
    * deliberately does not trigger a render: syncProviderUi immediately follows
@@ -2730,10 +2819,11 @@ export class UsageWebviewProvider {
       return;
     }
     const changed = JSON.stringify(usageLimits) !== JSON.stringify(this.usageLimits);
+    if (!changed) return;
     this.usageLimits = usageLimits;
     // Re-render only on change so the cheap quota poll doesn't redraw the
     // dashboard (and reset scroll position) every tick.
-    if (changed && this.panel && !this.isLoading) {
+    if (changed && this.panel && !this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)) {
       this.updateWebview();
     }
   }
@@ -2742,8 +2832,9 @@ export class UsageWebviewProvider {
    * extension host. No OAuth data or account identity enters the webview. */
   updateWeeklyQuotaHistory(history: WeeklyQuotaObservation[]): void {
     const changed = JSON.stringify(history) !== JSON.stringify(this.claudeWeeklyQuotaHistory);
+    if (!changed) return;
     this.claudeWeeklyQuotaHistory = history.map((item) => ({ ...item }));
-    if (changed && this.panel && !this.isLoading) {
+    if (changed && this.panel && !this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)) {
       this.updateWebview();
     }
   }
@@ -3291,6 +3382,7 @@ export class UsageWebviewProvider {
         <div class="container">
           <header><h1>${this.escapeHtml(title)}</h1><div class="actions"><button onclick="refresh()" class="btn-secondary">↻ ${this.escapeHtml(I18n.t.popup.refresh)}</button></div></header>
           ${this.renderProviderTabs()}
+          ${this.renderRefreshState()}
           <div id="provider-panel" role="tabpanel" aria-labelledby="provider-tab-${this.currentProvider}">
             ${this.renderCodexCompare()}
           </div>
@@ -3305,6 +3397,7 @@ export class UsageWebviewProvider {
       return this.getAlternateProviderContent();
     }
     const provider: SettingProvider = this.currentProvider;
+    const cached = (name: string, render: () => string): string => this.cachedDataPanel(name, provider, render);
     const codexCopy = I18n.t.providers.codex;
     // Pre-resolve I18n values to avoid template literal issues
     const title = provider === 'codex' ? codexCopy.title : I18n.t.popup.title;
@@ -3400,6 +3493,7 @@ export class UsageWebviewProvider {
             </div>
           </header>` +
       this.renderProviderTabs() +
+      this.renderRefreshState() +
       `<div id="provider-panel" role="tabpanel" aria-labelledby="provider-tab-${this.currentProvider}">` +
       LIVE_PATCH_PANEL_START +
       this.renderQuotaBanner(provider) +
@@ -3418,15 +3512,15 @@ export class UsageWebviewProvider {
       dashboardTab('settings', settingsTab, settingsActive) + `
           </div>
 
-          ` + dashboardPanel('today', todayActive, this.renderTodayData(provider)) +
-      dashboardPanel('month', rolling30Active, this.renderMonthData(provider)) +
-      dashboardPanel('all', allActive, this.renderAllTimeData(provider)) +
-      dashboardPanel('sessions', sessionsActive, this.renderSessionData(provider)) +
-      dashboardPanel('projects', projectsActive, this.renderProjectData(provider)) +
+          ` + dashboardPanel('today', todayActive, cached('today', () => this.renderTodayData(provider))) +
+      dashboardPanel('month', rolling30Active, cached('month', () => this.renderMonthData(provider))) +
+      dashboardPanel('all', allActive, cached('all', () => this.renderAllTimeData(provider))) +
+      dashboardPanel('sessions', sessionsActive, cached('sessions', () => this.renderSessionData(provider))) +
+      dashboardPanel('projects', projectsActive, cached('projects', () => this.renderProjectData(provider))) +
       contentTabContent +
       (provider === 'claude'
-        ? dashboardPanel('branches', branchesActive, this.renderBranchData()) +
-          dashboardPanel('workflows', workflowsActive, this.renderWorkflowData())
+        ? dashboardPanel('branches', branchesActive, cached('branches', () => this.renderBranchData())) +
+          dashboardPanel('workflows', workflowsActive, cached('workflows', () => this.renderWorkflowData()))
         : '') +
       dashboardPanel('settings', settingsActive, this.renderSettingsPanel(provider)) +
       LIVE_PATCH_PANEL_END + `
@@ -3439,6 +3533,43 @@ export class UsageWebviewProvider {
       </html>
     `
     );
+  }
+
+  private cachedDataPanel(name: string, provider: SettingProvider, render: () => string): string {
+    const now = new Date(Date.now());
+    const refs: unknown[] = provider === 'codex'
+      ? [this.codexView, this.codexInsights,
+          this.codexView ? this.codexLoading && Boolean(this.codexProgress) : this.codexLoading]
+      : [this.currentSessionData, this.todayData, this.rolling30DayData, this.allTimeData,
+          this.dailyDataForRolling30Days, this.dailyDataForAllTime, this.dailyDataForEveryDay,
+          this.hourlyDataForToday, this.hourlyDataForRolling30DaysByDay, this.allRecords,
+          this.sessionBreakdown, this.projectBreakdown, this.claudeProjectUsageMatrix,
+          this.contentAnalysis, this.branchBreakdown, this.workflowBreakdown, this.costliestMessages,
+          this.usageLimits, this.claudeWeeklyQuotaHistory];
+    refs.push(getPricingLastFetched());
+    const displayKey = JSON.stringify([
+      I18n.getLocale(), I18n.getTimezone(), I18n.getCurrencyDisplay(),
+      I18n.formatNumber(1234567.89), I18n.getDecimalPlaces(), getPricingBackend(),
+      vscode.window.activeColorTheme?.kind,
+      dayKeyInZone(now, I18n.getTimezone()),
+      // Only Today contains a minute-sensitive quota countdown. Do not make
+      // an ordinary minute tick re-render unrelated hidden history panels.
+      Math.floor(now.getTime() / (name === 'today' ? 60_000 : 3_600_000)),
+      // Quota reset expiry must not wait for an ordinary data mutation.
+      normalizeQuotaWindows(this.usageLimits).map((w) => Date.parse(w.resetsAt) > now.getTime()),
+      this.codexView?.limits.map((w) => Boolean(w.resetsAt && w.resetsAt > now.getTime())),
+      provider === 'codex' ? this.codexProgress : null,
+      this.settings?.snapshot?.().map((s) => [s.key, s.value]),
+      this.providerAvailability, this.sharingTemplate, this.sharingWorkspaceRequested,
+      this.lastShareCardConfig,
+    ]);
+    const key = provider + ':' + name;
+    const previous = this.dataPanelCache.get(key);
+    if (previous?.displayKey === displayKey && refs.length === previous.refs.length &&
+      refs.every((ref, index) => ref === previous.refs[index])) return previous.html;
+    const html = render();
+    this.dataPanelCache.set(key, { refs, displayKey, html });
+    return html;
   }
 
   /**
@@ -3466,10 +3597,10 @@ export class UsageWebviewProvider {
     html +=
       '<div class="settings-toolbar">' +
       '<button class="btn-secondary btn-small" onclick="resetAllSettings(' +
-      this.escapeHtml(JSON.stringify(visible.map((setting) => setting.key))) +
+      this.escapeHtml(JSON.stringify(visible.filter((setting) => !setting.secret && setting.storage !== 'secret').map((setting) => setting.key))) +
       ')">' +
       t.settingsResetAll +
-      '</button></div>';
+      '</button><span class="table-hint">' + this.escapeHtml(I18n.dashboardFeedback.resetPreservesKey) + '</span></div>';
     for (const g of groups) {
       const items = visible.filter((s) => s.group === g.key);
       if (items.length === 0) {
@@ -3986,7 +4117,7 @@ export class UsageWebviewProvider {
     const copy = I18n.t.providers.codex;
     const coverage = this.codexView?.coverage;
     const progress: CodexRenderProgress | null =
-      this.codexLoading && this.codexProgress
+      this.codexProgress
         ? this.codexProgress
         : coverage
           ? {
@@ -4004,7 +4135,7 @@ export class UsageWebviewProvider {
       ? '<strong>' + this.escapeHtml(copy.indexedSubtotal) + '</strong> · '
       : '';
     return '<p class="model-details">' + subtotal +
-      this.escapeHtml(copy.indexingInProgress) + details + '</p>';
+      (progress ? details.replace(/^ · /, '') : this.escapeHtml(copy.indexingInProgress)) + '</p>';
   }
 
   private renderCodexEmptyState(): string {
@@ -4044,7 +4175,23 @@ export class UsageWebviewProvider {
     const reason = progress.reason
       ? copy.indexingReasons[progress.reason] + ' · '
       : '';
-    return reason + copy.indexedLogEntries + ': ' +
+    const work = progress.workState;
+    const feedback = I18n.dashboardFeedback;
+    const state = work?.status === 'paused' ? feedback.paused
+      : work?.status === 'cooldown' ? (work.pausedReason === 'no-progress' ? feedback.stalled : feedback.waiting)
+        : '';
+    const retry = state && work?.nextEligibleAt && work.nextEligibleAt > Date.now()
+      ? ' · ' + new Date(work.nextEligibleAt).toLocaleString(I18n.getLocale(), { timeZone: resolveTimeZone(I18n.getTimezone()) }) : '';
+    const phase = progress.phase;
+    const secondary = phase === 'period' || phase === 'hourly' ||
+      (!phase && (progress.reason === 'hourly-history' || progress.reason === 'period-migration'));
+    if (secondary) {
+      // File counters describe this phase only when explicitly projected by
+      // the coordinator. Never pass primary 100% off as total completion.
+      return (state ? state + retry + ' · ' : '') + reason.replace(/ · $/, '') +
+        (phase ? ' · ' + exactCount.format(progress.scannedFiles) + '/' + exactCount.format(progress.totalFiles) : ' · ' + feedback.logsComplete);
+    }
+    return (state ? state + retry + ' · ' : '') + reason + copy.indexedLogEntries + ': ' +
       exactCount.format(progress.scannedFiles) + '/' +
       exactCount.format(progress.totalFiles) +
       (progress.totalFiles > 0 ? ' (' + completedPercent + '%)' : '') + ' · ' +
@@ -4789,11 +4936,15 @@ export class UsageWebviewProvider {
 
   private weeklyValuePoints(provider: SettingProvider): WeeklyValuePoint[] {
     const now = Date.now();
+    if (provider === 'claude' && (this.weeklyUsageCache?.records !== this.allRecords ||
+      this.weeklyUsageCache.pricing !== getPricingLastFetched() || this.weeklyUsageCache.backend !== getPricingBackend())) {
+      this.weeklyUsageCache = { records: this.allRecords, pricing: getPricingLastFetched(), backend: getPricingBackend(), usage: claudeWeeklyEquivalentUsage(this.allRecords) };
+    }
     const inputs = provider === 'codex'
       ? this.codexView?.weeklyValueInputs
       : {
           observations: this.claudeWeeklyQuotaHistory,
-          usage: claudeWeeklyEquivalentUsage(this.allRecords),
+          usage: this.weeklyUsageCache!.usage,
         };
     if (!inputs) {
       return [];
@@ -5056,11 +5207,15 @@ export class UsageWebviewProvider {
       projectName: secOn('projectName', false),
     };
     const day = dayKeyInZone(now, I18n.getTimezone());
+    const normalizedConfig = shareCardConfig({ range: curRange, scope: curScope, sections, theme: curTheme, fullNumbers: cfg?.fullNumbers });
+    const configKey = JSON.stringify(normalizedConfig);
+    const currency = JSON.stringify(I18n.getCurrencyDisplay());
     const cachedPreview = this.shareCardPreviewCache;
     let preview = cachedPreview?.records === this.allRecords &&
       cachedPreview.day === day && cachedPreview.timeZone === I18n.getTimezone() &&
       cachedPreview.locale === I18n.getLocale() &&
-      cachedPreview.themeKind === vscode.window.activeColorTheme?.kind
+      cachedPreview.themeKind === vscode.window.activeColorTheme?.kind &&
+      cachedPreview.configKey === configKey && cachedPreview.currency === currency
       ? cachedPreview.svg : undefined;
     if (!preview) {
       try {
@@ -5075,8 +5230,12 @@ export class UsageWebviewProvider {
           locale: I18n.getLocale(),
           themeKind: vscode.window.activeColorTheme?.kind,
           svg: preview,
+          configKey,
+          previewId: randomBytes(12).toString('hex'),
+          currency,
         };
       } catch {
+        this.shareCardPreviewCache = undefined;
         preview = '<p class="table-hint">' + esc(copy.previewPending) + '</p>';
       }
     }
@@ -5087,7 +5246,7 @@ export class UsageWebviewProvider {
       '<h3 id="claudeShareCardHeading" class="sharing-presentation-title">' + esc(copy.claudeCardPresentation) + '</h3>' +
       '<p class="sharing-presentation-description">' + esc(copy.claudeCardPresentationDescription) + '</p>' +
       '<div class="combined-preview-toolbar"><strong>' + esc(combinedCopy.previewLabel) + '</strong></div>' +
-      '<div class="share-preview sharing-artifact-preview" id="scPreview" role="region" tabindex="0" aria-label="' +
+      '<div class="share-preview sharing-artifact-preview" id="scPreview" data-preview-id="' + esc(this.shareCardPreviewCache?.previewId ?? '') + '" data-config-key="' + esc(configKey) + '" role="region" tabindex="0" aria-label="' +
       esc(copy.claudeCardPresentation + ' · ' + combinedCopy.previewLabel) + '">' + preview + '</div>' +
       '<div class="sc-config sharing-controls-panel" aria-label="' + esc(combinedCopy.settingsLabel) + '">' +
       '<h4>' + esc(combinedCopy.settingsLabel) + '</h4>' +
@@ -5101,8 +5260,8 @@ export class UsageWebviewProvider {
       '</fieldset>' +
       '<div class="share-actions">' +
       '<button class="btn-primary btn-small" onclick="generateShareCard()">' + esc(combinedCopy.updatePreview) + '</button>' +
-      '<button class="btn-secondary btn-small" onclick="exportShareCardConfigured()">' + esc(combinedCopy.exportSvg) + '</button>' +
-      '</div></div></section>'
+      '<button id="scExportBtn" class="btn-secondary btn-small" onclick="exportShareCardConfigured()">' + esc(combinedCopy.exportSvg) + '</button>' +
+      '</div><p id="scPreviewStatus" class="table-hint" role="status" hidden></p></div></section>'
     );
   }
 
@@ -6001,7 +6160,7 @@ export class UsageWebviewProvider {
     // Today's usage characteristics, ≥5% only (full sentence in the tooltip).
     // All cost-weighted from exact usage — no estimates in this card.
     if (this.allRecords && this.allRecords.length > 0) {
-      const attr = ClaudeDataLoader.getUsageAttribution(this.allRecords, this.contentAnalysis, { kind: 'day' });
+      const attr = this.getTodayAttribution();
       if (attr.totalCost > 0) {
         const add = (share: number, short: string, sentence: string, hint: string, color: string): void => {
           if (share < 0.05) {
@@ -6032,6 +6191,24 @@ export class UsageWebviewProvider {
       '<div class="cbar-list">' + rows.join('') + '</div>' +
       '</div>'
     );
+  }
+
+  private getTodayAttribution(): UsageAttribution {
+    const now = new Date(Date.now());
+    const timeZone = I18n.getTimezone();
+    const day = dayKeyInZone(now, timeZone);
+    const pricing = getPricingLastFetched();
+    const backend = getPricingBackend();
+    const previous = this.todayAttributionCache;
+    if (previous?.records === this.allRecords && previous.analysis === this.contentAnalysis &&
+        previous.day === day && previous.timeZone === timeZone &&
+        previous.pricing === pricing && previous.backend === backend) return previous.attribution;
+    const attribution = ClaudeDataLoader.getUsageAttribution(
+      this.allRecords, this.contentAnalysis, { kind: 'day' }, now,
+    );
+    this.todayAttributionCache = { records: this.allRecords, analysis: this.contentAnalysis,
+      day, timeZone, pricing, backend, attribution };
+    return attribution;
   }
 
   /** Cache hit rate of input-side tokens: cacheRead / (input + cacheWrite + cacheRead). */
@@ -6380,6 +6557,12 @@ export class UsageWebviewProvider {
   /** Usage-attribution section for the Content tab: scope selector (Day /
    * Week / Month / one session / one project) + the panel, default Week. */
   private renderAttributionSection(): string {
+    // Cache only the data-derived section. Advice and Optimizer controls must
+    // still reflect their current prepared requests and consent on every render.
+    return this.cachedDataPanel('attribution', 'claude', () => this.renderAttributionSectionData());
+  }
+
+  private renderAttributionSectionData(): string {
     const t = I18n.t.popup;
     if (!this.allRecords || this.allRecords.length === 0) {
       return '';
@@ -7029,6 +7212,7 @@ export class UsageWebviewProvider {
         '<div class="advice-payload-meta" aria-live="polite">' +
         '<span data-advice-preview-content-type></span><span data-advice-preview-mode></span><span data-advice-preview-bytes></span>' +
         '<span data-advice-preview-count></span><code data-advice-preview-digest></code></div>' +
+        '<p class="table-hint" data-advice-preview-destination></p>' +
         '<pre tabindex="0" data-advice-preview-body aria-label="' + html(t.payloadTitle) + '"></pre>' +
         '<div class="advice-payload-actions"><button type="button" class="btn-primary btn-small"' +
         ' data-advice-action="send" data-provider="' + provider + '" disabled>' +
@@ -7116,7 +7300,8 @@ export class UsageWebviewProvider {
     const hasResult = !!(st && (st.prompt || st.settings));
     const hasErr = !!(st && st.error);
     const hasPreview = !!(
-      st && st.snapshotId && st.previewBody && st.previewSha256 && st.previewBytes !== undefined
+      st && st.snapshotId && st.previewBody && st.previewSha256 && st.previewBytes !== undefined &&
+      st.previewEndpoint && st.previewApiFormat && st.previewModel
     );
     const optimizerAdviceId = st?.adviceId ?? '';
     const optimizerFeedback = optimizerAdviceId
@@ -7208,7 +7393,9 @@ export class UsageWebviewProvider {
         (hasPreview ? this.escapeHtml(ai.payloadBytes.replace('{bytes}', String(st!.previewBytes))) : '') +
         '</span><code id="optPreviewDigest">' +
         (hasPreview ? this.escapeHtml(`SHA-256 ${st!.previewSha256}`) : '') +
-        '</code></div><pre id="optPreviewBody" tabindex="0">' +
+        '</code></div><p id="optPreviewDestination" class="table-hint">' +
+        (hasPreview ? this.escapeHtml(I18n.dashboardFeedback.destination + ': ' + st!.previewEndpoint + ' · ' + I18n.dashboardFeedback.protocol + ': ' + st!.previewApiFormat + ' · ' + I18n.dashboardFeedback.model + ': ' + st!.previewModel) : '') +
+        '</p><pre id="optPreviewBody" tabindex="0">' +
         (hasPreview ? this.escapeHtml(st!.previewBody as string) : '') +
         '</pre><div class="advice-payload-actions"><button type="button" class="btn-primary btn-small"' +
         ' id="optSendBtn" onclick="sendOptimizer()"' + (hasPreview ? '' : ' disabled') + '>' +
@@ -11101,6 +11288,25 @@ export class UsageWebviewProvider {
 // Get VSCode API
 const vscode = acquireVsCodeApi();
 const __adviceCopy = ${JSON.stringify(I18n.t.popup.adviceEffectiveness)};
+const __dashboardFeedbackCopy = ${JSON.stringify(I18n.dashboardFeedback)};
+const __shareCardDefaults = ${JSON.stringify(DEFAULT_SECTIONS)};
+
+function ccuVerifyRequestDestination(message) {
+  try {
+    var url = new URL(message.endpoint);
+    return (url.protocol === 'https:' || url.protocol === 'http:') &&
+      !url.username && !url.password && !url.search && !url.hash &&
+      (message.apiFormat === 'openai' || message.apiFormat === 'anthropic') &&
+      typeof message.model === 'string' && message.model.length > 0 && message.model.length <= 256 &&
+      JSON.parse(message.body).model === message.model;
+  } catch (error) { return false; }
+}
+
+function ccuRequestDestinationText(message) {
+  return __dashboardFeedbackCopy.destination + ': ' + message.endpoint + ' · ' +
+    __dashboardFeedbackCopy.protocol + ': ' + message.apiFormat + ' · ' +
+    __dashboardFeedbackCopy.model + ': ' + message.model;
+}
 let __claudeLast30HoursByDay = ${LIVE_PATCH_HOURS_START}${inlineScriptJson(
       claudeHourlyDisplayDto(this.hourlyDataForRolling30DaysByDay),
     )}${LIVE_PATCH_HOURS_END};
@@ -11278,6 +11484,9 @@ function adviceClearPreview(provider) {
   elements.preview.hidden = true;
   elements.preview.open = false;
   elements.preview.removeAttribute('data-snapshot-id');
+  ['data-preview-endpoint', 'data-preview-api-format', 'data-preview-model'].forEach(function(attribute) {
+    elements.preview.removeAttribute(attribute);
+  });
   if (elements.sendButton) {
     elements.sendButton.disabled = true;
     elements.sendButton.textContent = __adviceCopy.sendPreparedRequest;
@@ -11288,12 +11497,14 @@ function adviceClearPreview(provider) {
   var contentType = elements.preview.querySelector('[data-advice-preview-content-type]');
   var bytes = elements.preview.querySelector('[data-advice-preview-bytes]');
   var count = elements.preview.querySelector('[data-advice-preview-count]');
+  var destination = elements.preview.querySelector('[data-advice-preview-destination]');
   if (body) { body.textContent = ''; }
   if (digest) { digest.textContent = ''; }
   if (mode) { mode.textContent = ''; }
   if (contentType) { contentType.textContent = ''; }
   if (bytes) { bytes.textContent = ''; }
   if (count) { count.textContent = ''; }
+  if (destination) { destination.textContent = ''; }
 }
 function adviceSetConsentPending(provider, pending) {
   var elements = adviceConsentElements(provider);
@@ -11605,6 +11816,28 @@ function scReadConfig() {
 // must not become durable UI preferences. Keep the full draft only for the
 // lifetime of this Webview and persist the non-identifying controls.
 var __ccuShareCardDraft = null;
+var __ccuShareCardRequest = 0;
+var __ccuShareCardPending = false;
+function scConfigKey(cfg) {
+  var sections = {};
+  Object.keys(__shareCardDefaults).sort().forEach(function(key) {
+    sections[key] = typeof cfg.sections[key] === 'boolean' ? cfg.sections[key] : __shareCardDefaults[key];
+  });
+  return JSON.stringify({ range: cfg.range, scope: cfg.scope, theme: cfg.theme, fullNumbers: cfg.fullNumbers, sections: sections });
+}
+function scSyncPreviewStatus() {
+  var prev = document.getElementById('scPreview');
+  var status = document.getElementById('scPreviewStatus');
+  var button = document.getElementById('scExportBtn');
+  var dirty = __ccuShareCardPending || !prev || !prev.getAttribute('data-preview-id') ||
+    prev.getAttribute('data-config-key') !== scConfigKey(scReadConfig());
+  if (button) { button.disabled = dirty; }
+  if (status) {
+    status.hidden = !dirty;
+    status.textContent = __ccuShareCardPending ? __sharingWorkspaceCopy.generating : __dashboardFeedbackCopy.previewDirty;
+  }
+  return !dirty;
+}
 function scPersistentDraftConfig(cfg) {
   return {
     range: cfg && cfg.range,
@@ -11625,6 +11858,7 @@ function scWritePersistentDraft(cfg) {
 function scSaveDraft() {
   __ccuShareCardDraft = scReadConfig();
   scWritePersistentDraft(__ccuShareCardDraft);
+  scSyncPreviewStatus();
 }
 function scSetSelectValue(id, value) {
   var select = document.getElementById(id);
@@ -11641,7 +11875,7 @@ function restoreShareCardDraft() {
     var cfg = __ccuShareCardDraft;
     if (!cfg) {
       var raw = localStorage.getItem('ccu.sharing.shareCardDraft');
-      if (!raw || raw.length > 4096) { return; }
+      if (!raw || raw.length > 4096) { scSyncPreviewStatus(); return; }
       cfg = JSON.parse(raw);
       // Migrate older drafts that persisted a raw project path or session ID.
       __ccuShareCardDraft = cfg;
@@ -11660,6 +11894,7 @@ function restoreShareCardDraft() {
       });
     }
   } catch (e) {}
+  scSyncPreviewStatus();
 }
 function scApplyDefaultControls() {
   scSetSelectValue('scRange', 'last30');
@@ -11675,14 +11910,16 @@ function scApplyDefaultControls() {
 function generateShareCard() {
   var cfg = scReadConfig();
   scSaveDraft();
-  var prev = document.getElementById('scPreview');
-  if (prev) { prev.innerHTML = '<p class="table-hint">' + __sharingWorkspaceCopy.generating + '</p>'; }
-  vscode.postMessage({ command: 'buildShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+  __ccuShareCardPending = true;
+  scSyncPreviewStatus();
+  vscode.postMessage({ command: 'buildShareCard', requestId: ++__ccuShareCardRequest, range: cfg.range, scope: cfg.scope, theme: cfg.theme, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportShareCardConfigured() {
   var cfg = scReadConfig();
   scSaveDraft();
-  vscode.postMessage({ command: 'exportShareCard', range: cfg.range, scope: cfg.scope, theme: cfg.theme, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
+  if (!scSyncPreviewStatus()) { return; }
+  var prev = document.getElementById('scPreview');
+  vscode.postMessage({ command: 'exportShareCard', previewId: prev.getAttribute('data-preview-id'), range: cfg.range, scope: cfg.scope, theme: cfg.theme, fullNumbers: cfg.fullNumbers, sections: cfg.sections });
 }
 function exportHeatmap() {
   vscode.postMessage({ command: 'exportHeatmap' });
@@ -12089,6 +12326,7 @@ async function showOptimizerPreview(msg) {
     Number.isInteger(msg.utf8Bytes) && msg.utf8Bytes >= 0 &&
     msg.contentType === 'application/json' &&
     msg.dataMode === 'user-draft-only';
+  valid = valid && ccuVerifyRequestDestination(msg);
   if (valid) {
     valid = await ccuVerifyCanonicalPreview(msg.body, msg.sha256, msg.utf8Bytes);
   }
@@ -12109,6 +12347,8 @@ async function showOptimizerPreview(msg) {
   if (body) { body.textContent = msg.body; }
   if (digest) { digest.textContent = 'SHA-256 ' + msg.sha256; }
   if (bytes) { bytes.textContent = __adviceCopy.payloadBytes.replace('{bytes}', String(msg.utf8Bytes)); }
+  var destination = document.getElementById('optPreviewDestination');
+  if (destination) { destination.textContent = ccuRequestDestinationText(msg); }
   if (send) { send.disabled = false; send.textContent = __adviceCopy.sendPreparedRequest; }
 }
 
@@ -13291,6 +13531,7 @@ window.addEventListener('message', async function(event) {
       (message.dataMode === 'aggregates-only' ||
         message.dataMode === 'aggregates-with-personalization' ||
         message.dataMode === 'aggregates-with-prompt-samples');
+    validSnapshot = validSnapshot && ccuVerifyRequestDestination(message);
     if (validSnapshot) {
       validSnapshot = await ccuVerifyCanonicalPreview(
         message.body,
@@ -13318,7 +13559,7 @@ window.addEventListener('message', async function(event) {
     }
     if (!validSnapshot || !snapshotElements.preview) {
       if (snapshotElements.consentStatus) {
-        snapshotElements.consentStatus.textContent = __adviceCopy.strictOutputRejected;
+        snapshotElements.consentStatus.textContent = message.reason === 'invalid-endpoint' ? __dashboardFeedbackCopy.invalidEndpoint : __adviceCopy.strictOutputRejected;
       }
     } else {
       var preview = snapshotElements.preview;
@@ -13328,6 +13569,8 @@ window.addEventListener('message', async function(event) {
       var previewContentType = preview.querySelector('[data-advice-preview-content-type]');
       var previewBytes = preview.querySelector('[data-advice-preview-bytes]');
       var previewCount = preview.querySelector('[data-advice-preview-count]');
+      var previewDestination = preview.querySelector('[data-advice-preview-destination]');
+      if (previewDestination) { previewDestination.textContent = ccuRequestDestinationText(message); }
       if (previewBody) { previewBody.textContent = message.body; }
       if (previewDigest) { previewDigest.textContent = 'SHA-256 ' + message.sha256; }
       if (previewContentType) { previewContentType.textContent = message.contentType; }
@@ -13348,6 +13591,9 @@ window.addEventListener('message', async function(event) {
         );
       }
       preview.setAttribute('data-snapshot-id', message.snapshotId);
+      preview.setAttribute('data-preview-endpoint', message.endpoint);
+      preview.setAttribute('data-preview-api-format', message.apiFormat);
+      preview.setAttribute('data-preview-model', message.model);
       preview.hidden = false;
       preview.open = true;
       if (snapshotElements.sendButton) {
@@ -13446,17 +13692,37 @@ window.addEventListener('message', async function(event) {
   }
 
   if (message.command === 'shareCardResult') {
+    if (message.requestId !== __ccuShareCardRequest) { return; }
+    __ccuShareCardPending = false;
     const prev = document.getElementById('scPreview');
     if (prev) {
       if (message.error) {
+        prev.removeAttribute('data-preview-id');
         var shareCardError = document.createElement('p');
         shareCardError.className = 'table-hint';
         shareCardError.textContent = __sharingWorkspaceCopy.cardBuildFailed + ' ' + String(message.error);
         prev.replaceChildren(shareCardError);
       } else {
         prev.innerHTML = message.svg || '';
+        prev.setAttribute('data-preview-id', message.previewId || '');
+        prev.setAttribute('data-config-key', message.configKey || '');
       }
     }
+    scSyncPreviewStatus();
+  }
+
+  if (message.command === 'shareCardExportResult' && message.ok !== true) {
+    var shareStatus = document.getElementById('scPreviewStatus');
+    var shareButton = document.getElementById('scExportBtn');
+    if (shareButton) { shareButton.disabled = true; }
+    if (shareStatus) { shareStatus.hidden = false; shareStatus.textContent = __dashboardFeedbackCopy.previewDirty; }
+  }
+
+  if (message.command === 'dashboardRefreshState' && (message.provider === 'claude' || message.provider === 'codex')) {
+    document.querySelectorAll('[data-refresh-feedback="' + message.provider + '"]').forEach(function(element) {
+      element.textContent = message.text ? (message.provider === 'codex' ? 'Codex · ' : 'Claude · ') + String(message.text) : '';
+      element.hidden = !message.text;
+    });
   }
 
   if (message.command === 'combinedHeatmapResult') {
@@ -14358,6 +14624,7 @@ function renderHourlyChart(hourlyData, metric) {
   }
 
   dispose(): void {
+    this.todayAttributionCache = undefined;
     if (this.panel) {
       this.panel.dispose();
     }

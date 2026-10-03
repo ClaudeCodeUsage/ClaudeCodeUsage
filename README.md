@@ -185,7 +185,41 @@ real account or an installed-VSIX capture.*
 <details open>
 <summary>Current release · status bar, smooth scrolling, and one sharing workspace</summary>
 
-
+- **Bounded pricing diagnostics** — unknown-model warnings are deduplicated
+  and capped for each Extension Host lifetime, removing the per-record warning
+  flood reported in [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
+  Already-expired content-analysis
+  files retain their empty contribution rather than disrupting live-tail refreshes.
+- **Current model prices** — dedicated Standard/cache rates for Opus 5.5,
+  Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna. Unknown Codex IDs remain
+  unpriced; family fallback estimates are not promoted to exact-price coverage.
+- **Defensive refreshes** — malformed model metadata no longer aborts a whole
+  index. Unsafe object keys cannot mutate shared prototypes; aggregate buckets
+  are copied once per update, worker results have a bounded apply window, and
+  manual price refreshes have byte, catalog-size, concurrency and time limits.
+- **Less disruptive dashboard updates** — pausing auto-refresh freezes both
+  provider pages, not background indexing or the status bar. Manual refresh
+  remains available; failures retain verified data and show a compact recovery
+  message. Primary-log coverage, hourly backfill and retry waits are separate.
+  Unchanged hidden panels and weekly usage aggregates reuse bounded caches.
+- **Predictable preview and settings** — AI previews show the actual endpoint,
+  protocol and model; incompatible settings fail without redirecting to another
+  host. Share Card export writes the accepted SVG and requires a new preview
+  after control changes. Ordinary defaults reset preserves the API key, and
+  the Codex directory remains editable even when provider detection fails.
+- **Large-history refreshes** — unchanged Content attribution reuses its data
+  without freezing AI controls. Display settings no longer restart completed cold
+  reads, and late index results cannot restore superseded prices.
+  Today attribution is cached by calendar day: unchanged minute-spaced polls
+  update countdowns without rescanning the full history within the hour. The
+  hourly hidden-panel refresh still recomputes Content attribution once.
+- **Upgrade safety** — unchanged polls retain accepted sharing previews; changing
+  the Claude data directory clears the old source even while updates are paused.
+  Existing API keys without an explicit protocol retain the prior Anthropic
+  format. If preview reports a mismatch, choose the intended API format and URL
+  in Settings, then preview again before sending. Upgrade/default reset never
+  silently reroutes that key to the new DeepSeek default; new installs use the
+  matching OpenAI-compatible format.
 - **Codex status and scrolling** — the default compact Token item shows today's
   processed amount; the separate weekly indicator shows remaining capacity.
   Live panel updates wait briefly for scrolling to pause, with a bounded delay.
@@ -661,9 +695,12 @@ remote boundaries are in [Local data and privacy](LOCAL-DATA.md) ([简体中文]
   item is never substituted for a selected custom profile.
 
 **`Get AI Usage Advice` returns 404**
-- DeepSeek's current endpoint does **not** use a `/v1` prefix. Use
-  `https://api.deepseek.com/chat/completions`. The extension auto-strips
-  `/v1` if present.
+- Match the API format, address and model. For DeepSeek's OpenAI-compatible
+  format use `https://api.deepseek.com/chat/completions`; its explicit Anthropic
+  compatibility base is `https://api.deepseek.com/anthropic`
+  ([official documentation](https://api-docs.deepseek.com/guides/anthropic_api/)).
+  The request preview shows the resolved destination; the extension does not
+  silently switch providers or remove a configured proxy prefix.
 
 **`Send this exact request` is unavailable**
 - Enable the default-off advice-effectiveness setting, allow aggregate data,
@@ -749,6 +786,7 @@ is not a claim that every proposed line shipped. See
 <details>
 <summary>Issue reporters (including issue-only contributors)</summary>
 
+- [@jordanvalnet](https://github.com/jordanvalnet) — [unknown-model warning flood and Windows OOM evidence](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
 - [@dreamerhyde](https://github.com/dreamerhyde) [#1](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/1) · [@skyprawngo](https://github.com/skyprawngo) [#2](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/2) · [@tjx666](https://github.com/tjx666) [#3](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/3)
 - [@andrew-west-empromptu](https://github.com/andrew-west-empromptu) [#7](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/7) · [@faangbait](https://github.com/faangbait) [#10](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/10) · [@leisn](https://github.com/leisn) [#11](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/11) · [@dmathisen](https://github.com/dmathisen) [#13](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/13)
 - [@Rissew](https://github.com/Rissew) [#17](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/17) · [@zhaoxiao9302](https://github.com/zhaoxiao9302) [#18](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/18), [#105](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/105)

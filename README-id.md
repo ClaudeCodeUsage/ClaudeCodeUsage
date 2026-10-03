@@ -62,7 +62,34 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 <details open>
 <summary>Perubahan utama rilis terbaru</summary>
 
-
+- **Penyegaran dan pemulihan lebih jelas** — jeda otomatis berlaku pada kedua
+  halaman, bukan pengumpulan latar atau status bar. Kegagalan mempertahankan
+  data terverifikasi; pengisian riwayat dan tunggu ulang dibedakan. Panel tersembunyi
+  yang tidak berubah memakai cache terbatas.
+- **Pratinjau tepat dan pengaturan aman** — tujuan, format, dan model AI terlihat
+  tanpa berpindah penyedia diam-diam. Share Card mengekspor SVG yang disetujui;
+  perubahan kontrol perlu pratinjau baru. Reset biasa mempertahankan API key,
+  dan direktori Codex dapat diperbaiki di kedua halaman pengaturan.
+- **Diagnostik harga dibatasi** — peringatan model tidak dikenal dideduplikasi
+  dan dibatasi per masa hidup Extension Host, mengatasi banjir peringatan
+  [#122](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/122).
+  Berkas analisis yang sudah
+  kedaluwarsa mempertahankan kontribusi kosong agar penyegaran inkremental tetap ringan.
+- **Model baru dan pembaruan aman** — tarif standar/cache tersendiri untuk Opus 5.5,
+  Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol, dan GPT-6 Luna. Metadata model yang tidak valid
+  tidak menggagalkan seluruh indeks; agregat disalin sekali per pembaruan. Hasil latar
+  belakang dan pembaruan harga dibatasi kapasitasnya. ID Codex tak dikenal tetap tanpa harga.
+- **Riwayat besar** — atribusi konten tanpa perubahan memakai cache, sementara kontrol AI
+  tetap diperbarui. Pengaturan tampilan memakai ulang indeks yang selesai; hasil indeks
+  terlambat tidak dapat menimpa harga yang baru diperbarui.
+  Atribusi hari ini memakai cache per hari kalender: polling per menit tanpa perubahan
+  memperbarui hitung mundur tanpa memindai seluruh riwayat dalam jam yang sama.
+  Pembaruan panel tersembunyi setiap jam tetap menghitung ulang atribusi konten sekali.
+- **Keamanan peningkatan** — polling tanpa perubahan mempertahankan pratinjau yang diterima;
+  mengganti direktori Claude menghapus data lama meskipun pembaruan dijeda. Kunci lama tanpa
+  format eksplisit tetap memakai format Anthropic. Jika tidak cocok, pilih format API dan URL
+  di Pengaturan lalu tinjau kembali. Instalasi baru memakai OpenAI-compatible tanpa mengalihkan
+  kunci lama ke host lain secara diam-diam.
 - **Status Codex dan pengguliran** — metrik ringkas bawaan menampilkan token
   yang diproses hari ini, sedangkan jatah mingguan menampilkan sisanya.
   Pembaruan panel ditunda sebentar saat menggulir, dengan batas waktu tunggu.

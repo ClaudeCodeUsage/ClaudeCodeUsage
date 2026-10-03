@@ -67,6 +67,104 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   actual expiries. The proposed hourly approximation is not applied.
 
 ### Fixed
+- **AI destination mismatch** — the initial DeepSeek configuration now selects
+  its matching OpenAI-compatible format. Request normalization preserves the
+  configured host and proxy prefix, rejects protocol conflicts and secret-bearing
+  URLs, and supports DeepSeek's explicit Anthropic-compatible prefix. Previews
+  disclose endpoint, format and model alongside canonical bytes; private integrity
+  seals bind destination metadata to the exact prepared request.
+  Before advice activation, an existing BYOK key without an explicit format
+  retains its prior Anthropic protocol. Explicit formats remain unchanged;
+  new installs use the matching OpenAI-compatible default. Incompatible legacy
+  endpoints require an explicit format/URL correction, never a silent host switch.
+  Migration failure disables advice for that activation without losing the
+  stored key or disabling usage views. Ordinary reset retains this compatibility
+  default; separately confirmed clear-all also clears the non-secret enum marker.
+  Obsolete VS Code configuration is ignored after the generic settings migration,
+  so resetting a local override cannot resurrect an old API format.
+- **Share Card preview/export mismatch** — editing range, theme, number format
+  or visible sections disables export until a matching preview is accepted.
+  Stale preview replies cannot enable a newer draft. Export writes that immutable
+  SVG rather than recalculating a different artifact when opening the save dialog.
+- **Auto-refresh pause across providers** — both Claude and Codex pages respect
+  the switch while indexing and status items continue. Manual/settings updates
+  remain available. Source revisions still invalidate stale advice handles while
+  paused; privacy revocation is never gated by presentation pause.
+- **Misleading indexing completion** — primary logs, period migration and hourly
+  history use their own counters; cooldown, no-progress and user-pause states
+  show recovery/wait text rather than treating primary 100% as full completion.
+- **Warm refresh failures without feedback** — verified data remains displayed
+  with a coalesced, anonymous inline failure/last-success indicator. Retry success
+  clears it without replacing charts, scroll or focus merely to report status.
+  Codex retains same-directory snapshots through temporary unavailability, but
+  clears old data on a directory change. Retired asynchronous callbacks cannot
+  mutate the replacement provider's state.
+  Claude source changes likewise immediately revoke old usage, quota, advice
+  and sharing previews even while presentation is paused; late discoveries or
+  index results cannot restore a retired source or its last-success timestamp.
+- **Repeated hidden-panel work** — unchanged panel HTML and Claude weekly usage
+  inputs have provider-lifetime bounded caches. Data, configuration, prices,
+  locale, configured calendar day and quota-reset boundaries invalidate them;
+  Today's relative reset text expires by minute without recalculating history.
+  Complete, unchanged Codex polls retain the verified view and insight revisions
+  instead of generating false backfill progress and invalidating hidden panels.
+  Production Claude poll/focus refreshes also reuse the complete time-aware
+  dashboard contract; identical quota observations retain their references.
+  Unchanged polls no longer invalidate accepted Share Card previews.
+  Default-on Content attribution also reuses one bounded data section without
+  freezing live advice or Optimizer controls; it expires at calendar/settings
+  boundaries and releases retained records when the source is revoked.
+- **Minute-spaced Today polling** — Today's numeric usage attribution now has
+  a single-entry calendar-day cache, independent from minute-sensitive quota
+  countdowns. Unchanged minute polls within an hour avoid full-history scans;
+  the hourly hidden-panel refresh still computes Content attribution once.
+  Record/analysis changes, configured midnight/timezone, pricing and
+  source revocation still invalidate it. Coordinator and scale regressions now
+  advance both Date.now() and new Date() between polls rather than testing only
+  repeated refreshes at one frozen instant.
+- **Cold-build interruption and price-refresh race** — display-only settings
+  changes retain completed, verified same-source index work without delivering
+  the retired presentation. A separate source/pricing generation rejects late
+  results after price refresh, source changes, clear-all or disposal, so an
+  old-priced index cannot overwrite the replacement and keep stale costs.
+- **API key removed by ordinary defaults reset** — the dashboard and host exclude
+  secret keys from that action. The separately confirmed clear-key command remains
+  the explicit deletion route.
+- **Codex directory recovery hidden after fallback** — its existing directory
+  field is available on both providers' settings pages, including when Codex is
+  unavailable and the dashboard falls back to Claude. No additional setting is added.
+- **Unknown-model warning flood and Opus 5.5 pricing (#122, #120)** — pricing
+  diagnostics are emitted once per bounded model label, with a hard limit of
+  128 labels plus one suppression message per Extension Host lifetime. The
+  deduplication set cannot grow without bound; oversized or non-model labels
+  are neither retained nor echoed. This removes the per-record console/IPC
+  amplification reported by @jordanvalnet, building on @rsyuzyov's #120.
+  Opus 5.5 now has its own verified standard and cache-write/read prices,
+  including the explicit Bedrock regional backend, instead of inheriting
+  Opus 5 rates. Codex and weekly-value exact-price coverage still exclude
+  family/default fallback rates; Claude's main cost retains its existing
+  estimated fallback behavior.
+- **Current exact model prices** — GPT-6.1 Sol, GPT-6 Sol, GPT-6 Luna, and
+  Sonnet 5.5 now use dedicated, officially verified Standard/cache rates.
+  Sol generations retain their distinct cache-read rates; Sonnet 5.5 retains
+  its separate 1-hour cache-write price and explicit Bedrock regional premium.
+  Unknown dated labels do not acquire fabricated exact-price coverage.
+- **Malformed metadata and related refresh hazards** — non-string, oversized,
+  control-character, and prototype-named model labels become a fixed unpriced
+  label without dropping their valid numeric usage. Model/tool/session object
+  keys cannot mutate shared prototypes. Each aggregate bucket is copied only
+  once per transaction, including model-label churn, while old snapshots stay
+  immutable. Failed provider UI synchronization cannot strand either refresh
+  gate, stop Codex provider work, or repeatedly emit diagnostic messages;
+  a failed Claude new-snapshot render does not discard its verified index.
+- **Bounded background results and pricing downloads** — a slow first Codex
+  file or checkpoint no longer accumulates the entire batch of later results:
+  dispatch is limited to twice the worker count ahead of ordered application.
+  Manual price refreshes share one request, have a 16 MiB response cap,
+  16,384-entry catalog cap and 15-second absolute deadline, and replace the
+  runtime catalog atomically only after validation. Failed downloads preserve
+  the previous catalog. The compatibility loader reports anonymous counts
+  instead of per-line/file console errors or arbitrary diagnostic labels.
 - **Claude all-time drill-down cost on large histories** — month → day uses a
   materialized configured-timezone daily aggregate built by the incremental
   index, rather than rescanning retained records when a month is opened.

@@ -115,6 +115,32 @@ function codexScope(): any {
   };
 }
 
+test('clearing Codex source data removes cached totals and quota without erasing Claude state', () => {
+  const manager = bareStatusBar();
+  manager.statusBarItem = statusItem();
+  manager.quotaItem = statusItem();
+  manager.contextItem = statusItem();
+  manager.showCost = true;
+  manager.usageLimitTracking = true;
+  manager.provider = 'codex';
+  const claudeState = { owner: 'claude' };
+  manager.lastClaudeUsage = claudeState;
+  manager.updateCodex(codexScope(), 'processed', null);
+  manager.quotaItem.text = 'wk 64%';
+  manager.quotaItem.tooltip = 'previous-source-quota';
+  manager.quotaItem.show();
+  assert.notEqual(manager.statusBarItem.text, 'CX —');
+  manager.clearCodex();
+  assert.equal(manager.lastCodex, null);
+  assert.equal(manager.statusBarItem.text, 'CX —');
+  assert.equal(manager.quotaItem.visible, false);
+  assert.equal(manager.quotaItem.text, '');
+  assert.equal(manager.quotaItem.tooltip, undefined);
+  assert.equal(manager.lastClaudeUsage, claudeState);
+  manager.setProvider('codex');
+  assert.equal(manager.statusBarItem.text, 'CX —', 'provider switching cannot restore stale source values');
+});
+
 /** The fill colour the bar paints, read back off the rendered spans. The inner
  * span carries the fill; the outer track is always #bbbbbb. */
 function barColor(pct: number, thresholds?: unknown): string {

@@ -10,6 +10,7 @@ const {
 const {
   buildAdviceAggregateSnapshot,
 } = require('../../../out/adviceEffectiveness/payload.js');
+const { prepareAiInvocation, previewAiInvocation } = require('../../../out/adviceEffectiveness/preparedRequest.js');
 
 const PROMPT_SENTINEL = 'SAFE_PROMPT_SENTINEL_測試_🚦';
 const USER_CONTEXT_SENTINEL = 'SAFE_USER_CONTEXT_SENTINEL_私人_🔒';
@@ -65,6 +66,11 @@ function requireSnapshot(result, mode) {
 }
 
 function snapshotMessage(snapshot, suffix) {
+  const preview = previewAiInvocation(prepareAiInvocation({
+    kind: 'advice', apiFormat: 'openai', apiUrl: 'https://example.invalid/v1', model: 'safe-model',
+    systemPrompt: 'Return strict JSON.', userContent: snapshot.preview.body, dataMode: snapshot.preview.dataMode,
+    sourceRevision: 'fixture', consentGeneration: 0, createdAtEpochMs: Date.parse(GENERATED_AT),
+  }));
   return {
     command: 'adviceSnapshotResult',
     ok: true,
@@ -73,9 +79,10 @@ function snapshotMessage(snapshot, suffix) {
     contentType: snapshot.preview.contentType,
     dataMode: snapshot.preview.dataMode,
     promptSampleCount: snapshot.preview.promptSampleCount,
-    utf8Bytes: snapshot.preview.utf8Bytes,
-    sha256: snapshot.preview.sha256,
-    body: snapshot.preview.body,
+    endpoint: preview.endpoint, apiFormat: preview.apiFormat, model: preview.model,
+    utf8Bytes: preview.utf8Bytes,
+    sha256: preview.sha256,
+    body: preview.body,
   };
 }
 

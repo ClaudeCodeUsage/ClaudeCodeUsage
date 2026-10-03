@@ -118,6 +118,7 @@ export const LOCAL_DATA_GLOBAL_STATE_KEYS = [
   LOCAL_DATA_PENDING_CLIENT_RESET_KEY,
   'ccu.migrated.dashboardAutoRefresh',
   'ccu.migrated.showScopedWeekly',
+  'ccu.migrated.adviceDefaultFormat.v2.4.1',
   'ccu.quota.fingerprintSalt.v1',
   'ccu.quota.migratedCodexIndex.v2',
   'ccu.settingsMigrated.v1',

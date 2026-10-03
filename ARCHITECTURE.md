@@ -147,6 +147,66 @@ patches until a 120 ms quiet interval, with a 500 ms upper bound. The newest
 revision alone is applied and acknowledged; the live data queue stays in
 memory and never reads source logs or persists scroll state per frame.
 
+`dashboardAutoRefresh` controls dashboard delivery, not background collection or
+status items, for both providers. Startup may hydrate one verified snapshot;
+manual/settings/pricing triggers remain explicit delivery paths. Source-revision
+handoff to advice is non-rendering and remains active while paused. Refresh
+failure state retains the last verified view and sends a coalesced inline status
+message rather than a replacement panel. Persistent Codex work state and actual
+main/period/hourly counters distinguish coverage from backfill and retry waits.
+Data-panel HTML caches hold at most one entry per provider/tab; a separate
+single-entry Claude weekly-input cache avoids rescanning unchanged records.
+Content attribution uses a separate single-entry data-section cache rather than
+caching the whole Content panel; advice/Optimizer controls remain live. It uses
+the same calendar, settings and source-revocation boundaries as data panels.
+Today's numeric attribution has its own single-entry cache keyed by records,
+analysis, configured day/timezone and pricing identity. Minute-spaced polls may
+refresh countdown HTML without walking the whole corpus; midnight, changed
+inputs, prices and source revocation still recompute, and disposal releases it.
+Data references, settings, prices, locale, currency, calendar boundaries and
+quota expiry invalidate these caches. Today expires by minute; hidden history
+by hour, when Content week attribution recomputes once. Disposal and source
+replacement release retained references.
+Claude materialization retains one structurally compared, time-aware render
+contract, so unchanged poll/focus delivery reuses its aggregate references.
+Identical quota/history observations also retain identity. The snapshot still
+recomputes session expiry, workspace scopes and calendar ranges before comparison;
+no token-total-only or fixed-hour key can conceal a changed render contract.
+Claude failure recovery is source-scoped: selecting another home immediately
+revokes its records, index, quota, advice handles, accepted sharing previews and
+last-success time, regardless of dashboard pause. Configuration generation and
+source checks after discovery, manifest scanning and index loading retire late
+presentations. A distinct source/pricing generation rejects invalidated index
+results, including A → B → A switches and manual price-refresh races. A completed,
+verified same-source load may populate only the host index after a presentation
+change, so the queued settings refresh avoids repeating a cold read; it cannot
+publish the retired UI or bypass clear-all/disposal. Disposal cannot deliver a late clear.
+Failures within the same source still retain the verified snapshot.
+Codex retains a failed refresh's verified subtotal only within the same resolved
+data directory. A directory change clears its view, insights and success time,
+and suppresses shared checkpoint hydration until that provider refresh verifies
+the source. Provider/generation checks after asynchronous boundaries prevent
+retired work from updating its replacement. Unchanged complete render contracts
+retain view/insight identity; completed steady polls do not fabricate backfill
+progress or invalidate hidden panels merely by toggling loading.
+
+中文：`dashboardAutoRefresh` 仅控制两个供应商的页面交付，不停止后台收集和状态栏。
+手动更新仍可用，暂停期间也会撤销来源已过期的 AI 请求。失败提示单独轻量更新，保留
+已验证页面。主日志、周期迁移和小时回填显示各自计数及重试状态，不把主日志覆盖率
+冒充整体完成度。面板缓存按供应商／页签有界保存；记录、显示设置、价格与时间边界
+变化时失效。今日倒计时按分钟过期，历史不随每分钟刷新重复计算。
+内容归因只缓存数据区，AI 控件保持实时；今日数值归因另按记录、分析、自然日／时区
+及价格身份保存单份缓存，跨分钟倒计时不重复遍历历史，午夜或输入变化仍重新计算；
+撤销来源和释放时清除旧引用。隐藏历史面板按小时过期，内容周归因在整点重新计算一次。
+Claude 切换来源立即撤销旧记录、索引、额度、建议句柄、分享预览及成功时间，页面暂停
+不阻止此隔离；异步发现、扫描和索引返回均核对来源及配置代次，包括 A → B → A。
+独立的来源／价格代次拒绝旧索引结果；仅显示设置变化时，同源的已验证构建可供宿主
+复用，但不得交付已退休页面或绕过清除／释放边界。
+释放后不再交付迟到清空；同一来源的临时失败仍保留已验证统计。
+Codex 仅在同一数据目录内保留失败前的已验证统计；切换目录会清空旧视图、建议和成功
+时间，新来源验证前不采用共享旧检查点。异步返回后校验供应商及配置代次，过期任务
+不能改写新任务。已完成且未变化的轮询复用视图，不制造回填进度或重复渲染隐藏面板。
+
 The sharing workspace is rendered once: in Compare when both providers have
 data, otherwise as a Claude All-time fallback. `enableShareCard` is the only
 visible sharing on/off control. The public command IDs `exportShareCard`,
@@ -176,6 +236,40 @@ the complete artifact remains inside the surrounding Axe scan.
 Claude records carry Anthropic's four token buckets. The extension validates,
 deduplicates, sums, and prices them by model. Claude cost remains an estimate
 from the configured rate table; it is not an invoice.
+
+Pricing diagnostics are bounded for the entire Extension Host lifetime. A
+previously unknown model-shaped label can produce one warning, with at most 128
+retained labels (160 characters each) and one suppression summary. Malformed,
+oversized, or path-shaped labels share an anonymous placeholder. Refreshes and
+label churn never reset the budget; fallback pricing remains active after the
+budget is exhausted. Recognized Opus 5.5, Sonnet 5.5, GPT-6.1 Sol, GPT-6 Sol,
+and GPT-6 Luna aliases use their own verified Standard/cache rates without
+producing unknown-model warnings. Sol generations have different cache-read
+rates. Aggregate data does not establish request-specific Fast/Batch/Flex,
+long-context or regional OpenAI surcharges, so none is invented. Exact-price
+coverage for Codex/weekly value excludes family/default fallback rates; Claude's
+main cost retains its existing estimated fallback behavior, not a coverage flag.
+
+Malformed model metadata (non-string, oversized, control-character or
+prototype-named labels) is normalized to `<unknown>` before retention. Its
+numeric usage remains counted and its price is zero/unattributed. Missing/null
+model fields retain the existing skip behavior. Optional arbitrary objects
+are not coerced to strings. Tool/session analysis maps use own-property reads
+and setter-free own-property writes, preserving normal snapshot object shapes
+without modifying shared prototypes. Internal render-time session, workflow,
+project and attribution grouping tables have no inherited keys; public rows and
+snapshots retain their ordinary-object shape. The compatibility full loader emits
+anonymous summaries, not per-line/file console errors, and retains at most 12
+bounded model names for optional diagnostic detail.
+
+Manual runtime-price refreshes are single-flight. The HTTPS response is capped
+at 16 MiB and 16,384 catalog entries with a 15-second absolute deadline as well
+as an idle timeout. Valid finite non-negative fields build a fresh prototype-safe
+catalog, atomically replacing the prior one only on success. Failures preserve
+the previous catalog and fetched-time metadata; repeated refreshes do not retain
+stale model IDs. Future model additions must verify official exact IDs/rates,
+include repeated-pass diagnostic and cache/output reconciliation regressions,
+and never promote family inference into exact coverage.
 
 Codex uses these rules:
 
@@ -231,6 +325,34 @@ same byte object to the configured BYOK endpoint. Feedback, comparable pairs,
 and comparison envelopes remain local and accept no prompt, response, path,
 session, title, endpoint, or credential field.
 
+The preview includes the resolved HTTP(S) destination, API format and model.
+Normalization may append a protocol path but never changes the configured host
+or proxy prefix; incompatible direct-provider paths fail closed. URL credentials,
+query parameters and fragments are rejected before preview to prevent secret
+disclosure. A private WeakMap seal binds all metadata and the original byte object;
+public hash recomputation cannot authorize rerouting. Ordinary settings reset
+preserves SecretStorage; separately confirmed clear-key controls own deletion.
+Secret initialization also completes a one-time advice-format migration before
+activation can expose the key. An existing key without an explicit state/legacy
+configuration format pins the prior Anthropic default; legacy configuration is
+read only before the generic settings migration, never resurrected after reset.
+Explicit formats are preserved and new keyless installs use OpenAI-compatible
+defaults. The bounded
+`ccu.migrated.adviceDefaultFormat.v2.4.1` enum stores only this compatibility
+default, not a key, account or endpoint, and survives ordinary defaults reset.
+Incompatible endpoints fail before preparation; a failed migration clears loaded
+keys for that activation, retaining the recoverable SecretStorage value. The
+explicit clear-all allowlist and value-free inventory include the enum marker.
+
+中文：AI 预览包含最终地址、API 格式和模型，地址规范化不更换主机或代理前缀。
+不匹配的协议及含凭据、查询参数或片段的 URL 在预览前拒绝；私有完整性快照绑定
+目标信息和原始请求字节。恢复默认设置不删除 SecretStorage 中的密钥。
+激活前完成协议兼容迁移：已有密钥且未明确设置协议时保留旧 Anthropic 默认，显式设置
+不变，新安装采用 OpenAI 兼容默认。枚举迁移标记只保存兼容协议，不含密钥、账户或地址；
+旧 VS Code 协议配置仅在首次通用迁移前读取，迁移后恢复默认不会重新导入过时设置。
+普通恢复默认保留它，确认清除全部派生数据才清除。迁移失败使本次 AI 功能无可用密钥，
+不删除可恢复的 SecretStorage 密钥，也不阻断用量页面。
+
 Advice consent changes invalidate prepared handles immediately. A host-side
 pending-write counter blocks new previews and sends until every queued consent
 write settles; failed persistence stays closed. Aggregate/prompt revocation also
@@ -246,8 +368,18 @@ the actual refresh trigger, watcher/debounce counts, historical-backfill mode,
 and foreground/background worker profile; generic failure paths use `unknown`
 rather than infer a mode that was not observed.
 
-Sharing previews are produced from already materialized aggregates. Combined
-activity adds Claude processed volume to Codex processed volume only for the
+Sharing previews are produced from already materialized aggregates.
+Share Card preview/export uses one provider-lifetime immutable SVG plus an opaque
+preview ID and canonical allowlisted configuration key. Control changes require
+a new accepted preview; stale replies cannot accept a newer draft. Export captures
+the exact accepted SVG before opening the asynchronous save dialog. This cache
+does not retain a history of artifacts or perform network/log reads.
+
+中文：分享卡在运行期仅保留一份已接受的 SVG、匿名预览 ID 与允许字段配置摘要。
+修改控制项后须重新预览；过期回复不会恢复导出权限。导出在保存对话框之前捕获已确认
+的 SVG，不重新生成不同内容，也不保留产物历史。
+
+Combined activity adds Claude processed volume to Codex processed volume only for the
 explicit activity visualization; Codex cached input and reasoning subsets are
 not added twice, and no cost, quota, capability, or productivity equivalence is
 claimed. The Claude Share Card and Claude heatmap remain Claude-only. Local
@@ -354,6 +486,12 @@ zone.
 
 An ordinary single-file append first reads only the verified tail, applies the
 changed-file delta, and recalibrates only affected canonical response identities.
+Aggregate buckets use transaction-local copy-on-write ownership: each touched
+bucket is copied once, not once per record/model label. Previously published
+snapshots remain immutable. Provider UI synchronization failures are reported
+at most once per Extension Host lifetime. They cannot stop Codex provider work
+or reject its refresh drain, prevent Claude from committing an otherwise
+verified index after a failed new-snapshot render, or strand either refresh gate.
 Numeric-only structural summaries preserve the legacy accumulator's global
 `tool_use` → `tool_result` map and Skill-preamble attribution across file
 boundaries; warm appends replay only touched tool IDs. Duplicate UUID membership
@@ -399,6 +537,10 @@ Codex history is designed for multi-gigabyte local corpora:
   backfill uses up to half of the available logical CPUs, capped at six local
   file-pass workers, while completed indexes return to the single low-power
   coordinator path;
+- the ordered file-pass apply frontier admits at most twice the worker count
+  of in-flight, buffered and applying results together (at most 12 for six
+  workers). A slow file/checkpoint backpressures idle workers instead of
+  retaining the entire batch; ordering, cancellation and resume stay intact;
 - unchanged warm refresh reads no JSONL body;
 - a first non-empty index or incomplete legacy migration gets one bounded
   16,384 file passes / 64 GiB streaming ceiling; this is not an up-front memory

@@ -384,6 +384,17 @@ export class StatusBarManager {
     }
   }
 
+  /** A replaced/cleared source owns neither the old totals nor its quota. */
+  clearCodex(): void {
+    const hadSnapshot = this.lastCodex !== null;
+    this.lastCodex = null;
+    if (this.provider !== 'codex' || !hadSnapshot) return;
+    this.quotaItem.text = '';
+    this.quotaItem.tooltip = undefined;
+    this.quotaItem.backgroundColor = undefined;
+    this.setProvider('codex');
+  }
+
   private renderCodex(
     scope: CodexUsageScopeView,
     metric: CodexStatusMetric,

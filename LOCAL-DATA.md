@@ -73,6 +73,12 @@ Webview closes. Browser storage keeps only non-identifying presentation
 controls such as range, theme, visible sections, number format, and the
 selected presentation.
 
+Share Card export uses the exact accepted SVG. Changing visible sections or
+other controls requires a new preview; a single runtime artifact and opaque
+preview ID are retained, not an export history. Resetting ordinary dashboard
+settings preserves the BYOK key. Its separately confirmed clear-key command
+remains the explicit removal route.
+
 ```text
 Claude processed = input + cache creation + cache read + output
 Codex processed  = input total + output total
