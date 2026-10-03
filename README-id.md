@@ -43,6 +43,7 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - Codex menampilkan **token terpakai hari ini** dan **sisa kuota** secara terpisah: penggunaan mingguan 36% berarti `wk 64%`. Tooltip tetap menampilkan bilah penggunaan, waktu reset, dan catatan berbaris. Kuota berasal dari pengamatan lokal terakhir, bukan saldo langsung.
 - Detail periode tertutup secara default; pengaturan berbagi berada di bawah pratinjau. Berbagi aktif secara default dan dapat dimatikan, dengan intensitas kuantil, logaritmik, atau linear.
 - Panggilan CLI dihitung hanya jika sesi persisten menyimpan log dengan usage. Panggilan tanpa log tidak dapat dipulihkan; Hari ini dan 30 hari terakhir memakai zona waktu yang dikonfigurasi.
+- Setelah indeks riwayat Codex selesai, tambahan log atau file baru tidak lagi memunculkan pemberitahuan pengisian berulang. Identitas sesi ambigu tetap menjadi peringatan kualitas tanpa mengulang pekerjaan yang tidak dapat menyelesaikannya. Progres indeks yang benar-benar belum selesai dan percobaan ulang tetap terlihat.
 - Projects menambahkan heatmap Token 30/90 hari “proyek × tanggal” dan tren harian bertumpuk untuk kedua penyedia, dengan tooltip presisi, cakupan eksplisit, baris terbatas, dan ekor “Proyek lain”.
 
 ## Fitur

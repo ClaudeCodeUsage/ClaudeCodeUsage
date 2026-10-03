@@ -67,6 +67,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   actual expiries. The proposed hourly approximation is not applied.
 
 ### Fixed
+- **Quiet completed Codex history** — normal log appends and new files no longer
+  flash a completed history-backfill banner. Ambiguous session identities remain
+  visible as data-quality evidence, without restarting history work that cannot
+  resolve them. Actual main-log, date and hourly backfills, pauses and retry
+  failures keep their progress and recovery feedback.
 - **AI destination mismatch** — the initial DeepSeek configuration now selects
   its matching OpenAI-compatible format. Request normalization preserves the
   configured host and proxy prefix, rejects protocol conflicts and secret-bearing

@@ -79,6 +79,8 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 - **Quieter updates and recovery** — auto-refresh pause applies to both pages,
   not background collection or the status bar. Manual refresh still works;
   failures retain verified data, and backfill/retry phases are clearly labelled.
+  Completed Codex history stays quiet during normal appends/new files; identity
+  ambiguity remains a quality warning, not a repeating backfill attempt.
   Unchanged hidden panels and weekly aggregates reuse bounded caches.
 - **Exact previews and safe settings** — AI previews include the endpoint,
   protocol and model without silently changing providers. Share Card export

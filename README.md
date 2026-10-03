@@ -201,6 +201,8 @@ real account or an installed-VSIX capture.*
   provider pages, not background indexing or the status bar. Manual refresh
   remains available; failures retain verified data and show a compact recovery
   message. Primary-log coverage, hourly backfill and retry waits are separate.
+  Completed Codex history stays quiet during normal appends/new files; identity
+  ambiguity remains a quality warning, not a repeating backfill attempt.
   Unchanged hidden panels and weekly usage aggregates reuse bounded caches.
 - **Predictable preview and settings** — AI previews show the actual endpoint,
   protocol and model; incompatible settings fail without redirecting to another

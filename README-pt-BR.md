@@ -12,6 +12,8 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
   não para a coleta em segundo plano nem a barra de status. Falhas mantêm dados
   verificados; preenchimento de histórico e espera de nova tentativa são separados.
   Painéis ocultos sem mudanças reutilizam caches limitados.
+  Históricos Codex concluídos não exibem avisos a cada novo registro; identidades
+  ambíguas continuam como aviso de qualidade, sem repetir o preenchimento.
 - **Prévias exatas e configurações seguras:** destino, formato e modelo de IA ficam
   visíveis, sem trocar de provedor silenciosamente. Share Cards exportam o SVG aprovado;
   controles alterados exigem nova prévia. Restaurar padrões preserva a chave de API,

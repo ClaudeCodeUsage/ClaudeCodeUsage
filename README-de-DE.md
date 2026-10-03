@@ -12,6 +12,8 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
   Seiten, nicht für Hintergrunderfassung und Statusleiste. Fehler behalten geprüfte
   Daten; Nachindizierung und Wiederholungswartezeit sind getrennt. Unveränderte,
   ausgeblendete Panels verwenden begrenzte Caches.
+  Vollständig indizierte Codex-Historien bleiben bei neuen Protokolldaten ruhig;
+  mehrdeutige Sitzungen bleiben ein Qualitätshinweis, kein wiederholter Nachlauf.
 - **Genaue Vorschauen und sichere Einstellungen:** KI-Ziel, Format und Modell sind
   sichtbar, ohne stillen Anbieterwechsel. Share Cards exportieren das bestätigte SVG;
   geänderte Optionen verlangen eine neue Vorschau. Zurücksetzen behält den API-Schlüssel,
