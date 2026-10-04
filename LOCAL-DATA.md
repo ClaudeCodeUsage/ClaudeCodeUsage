@@ -115,6 +115,16 @@ maintenance actions stay out of the dashboard Settings tab so it remains
 concise. None of them deletes Claude or Codex source logs or provider-owned
 credentials.
 
+Codex indexes are isolated by log directory, profile-local salt, and data
+timezone, even when VS Code profiles share extension storage. An owned legacy
+checkpoint can be adopted using metadata alone; unprovable, malformed, or
+oversized legacy data is left untouched. Rebuild affects the active index only
+and leaves an empty checkpoint to prevent legacy resurrection. Clear All removes
+all exact legacy/scoped index families in this extension storage, never locks,
+lookalike files, or provider logs. Other running instances are not stopped and
+may later recreate their own derived data. A separate test window or profile
+does not by itself prove that its persistent writes are isolated.
+
 Clearing all quota history atomically replaces the quota store with one valid
 empty schema-2 document and removes only its exact quarantine/interrupted-write
 siblings under the same cross-process lease. A provider/account-only clear
