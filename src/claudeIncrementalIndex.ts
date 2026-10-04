@@ -446,6 +446,60 @@ function stableFileId(entry: UsageFileFingerprint): string {
     : `path:${entry.path}`;
 }
 
+/**
+ * Discovery order only breaks ties, so what matters is the relative order of
+ * files, not the positions themselves. A manifest numbers files by position,
+ * and a transcript appearing or disappearing shifts the position of every file
+ * after it: each of those was re-tagged, which removed and re-added all of its
+ * records. On a live history that was 15-40 s of CPU for every new session or
+ * sub-agent transcript.
+ *
+ * Files the index already holds keep their stored rank as long as their
+ * relative order is unchanged, and a new file takes a rank between its
+ * neighbours. The order equals the manifest's, so every comparison agrees with
+ * the full loader. When the order of known files changed, or the gap between
+ * two neighbours is exhausted, the manifest positions are used as before.
+ */
+function stableDiscoveryRanks(
+  previous: ClaudeUsageIndex,
+  entries: readonly UsageFileFingerprint[],
+): UsageFileFingerprint[] {
+  if (previous.files.size === 0) return [...entries];
+  const ordered = [...entries].sort((left, right) => left.discoveryIndex - right.discoveryIndex);
+  const priorRanks = ordered.map((entry) => previous.files.get(stableFileId(entry))?.fingerprint.discoveryIndex);
+  let lastPriorRank = -Infinity;
+  for (const rank of priorRanks) {
+    if (rank === undefined) continue;
+    if (!(rank > lastPriorRank)) return [...entries];
+    lastPriorRank = rank;
+  }
+  const ranks: number[] = new Array(ordered.length);
+  let position = 0;
+  while (position < ordered.length) {
+    const priorRank = priorRanks[position];
+    if (priorRank !== undefined) {
+      ranks[position] = priorRank;
+      position += 1;
+      continue;
+    }
+    let runEnd = position;
+    while (runEnd < ordered.length && priorRanks[runEnd] === undefined) runEnd += 1;
+    const runLength = runEnd - position;
+    const upper = runEnd < ordered.length ? priorRanks[runEnd]! : undefined;
+    const lower = position > 0 ? ranks[position - 1] : (upper ?? 0) - runLength - 1;
+    const step = upper === undefined ? 1 : (upper - lower) / (runLength + 1);
+    for (let offset = 1; offset <= runLength; offset += 1) {
+      ranks[position + offset - 1] = lower + step * offset;
+    }
+    position = runEnd;
+  }
+  for (let index = 1; index < ranks.length; index += 1) {
+    if (!(ranks[index] > ranks[index - 1])) return [...entries];
+  }
+  return ordered.map((entry, index) =>
+    entry.discoveryIndex === ranks[index] ? entry : { ...entry, discoveryIndex: ranks[index] });
+}
+
 function runtimeEntry(entry: UsageFileFingerprint, fileId: string): CodexRuntimeManifestEntry {
   return {
     fileKey: fileId,
@@ -2476,7 +2530,7 @@ export async function updateClaudeUsageIndex(
   // established content-analysis window.
   const analysisCutoffMs = analysisWindowCutoffMs(nowMs, windowDays);
   const manifest = options.manifest ?? await scanUsageManifest([root]);
-  const currentEntries = [...manifest.entries.values()];
+  const currentEntries = stableDiscoveryRanks(previous, [...manifest.entries.values()]);
   const previousByPath = new Map([...previous.files.values()].map((file) => [file.path, file]));
   const seenPrevious = new Set<string>();
   const plans: FilePlan[] = [];

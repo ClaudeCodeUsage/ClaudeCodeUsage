@@ -238,6 +238,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   kept the fast path off for good. Such a file now keeps its empty
   contribution. On a 979-file history, 53 spurious payload rebases per refresh
   became none.
+- **Every new transcript re-tagged all files discovered after it (#99)** — a new
+  session or sub-agent log shifted the stored discovery position of every later
+  file, and each of those had all of its records removed and re-added. Known
+  files now keep their rank while their order is unchanged, and a new file takes
+  a rank between its neighbours, so tie-breaks still match the full loader. On
+  a 1,043-file history one new transcript went from 20.7 s of CPU and 116k
+  aggregate mutations to 2.2 s and 19.
 - **One-shot sharing command intent** — command-opened previews now override a
   previously saved Claude tab and presentation exactly once. A provider-local
   monotonic revision history is separate from the live intent; the Webview ACK
