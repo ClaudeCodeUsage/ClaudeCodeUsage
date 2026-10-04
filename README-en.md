@@ -196,6 +196,9 @@ retention, migration, clearing, and remote-interaction contract.
 | UI/share state | Filters plus optional title/range and GitHub destination strings | Publish only after exact explicit confirmation |
 | Advice state/key | Bounded aggregate evidence; key only in SecretStorage | Exact previewed request only after a separate Send action |
 
+A timezone switch can reuse a complete, proven same-source checkpoint read-only;
+only date/hour buckets migrate, without restarting primary history.
+
 A reset absent from official/local structured evidence cannot be reconstructed.
 Ambiguous multi-login Codex history uses the latest real observation for a
 low-confidence current-period blend; ambiguous completed periods remain used-only. API-equivalent values

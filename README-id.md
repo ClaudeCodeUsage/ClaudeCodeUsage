@@ -177,6 +177,9 @@ retensi, migrasi, penghapusan, dan batas interaksi jarak jauh.
 | UI/berbagi | Filter serta judul/rentang/tujuan GitHub opsional | Publikasi hanya setelah konfirmasi tepat |
 | Saran/kunci | Bukti agregat terbatas; kunci hanya di SecretStorage | Hanya permintaan yang dipratinjau persis setelah tindakan Kirim terpisah |
 
+Perubahan zona waktu dapat memakai checkpoint lengkap yang terbukti berasal dari sumber yang sama secara hanya-baca.
+Hanya bucket tanggal/jam yang dimigrasikan, tanpa membangun ulang riwayat utama dari nol.
+
 Reset tanpa bukti terstruktur tidak dapat direkonstruksi. Riwayat beberapa login
 yang ambigu memakai pengamatan nyata terbaru untuk estimasi gabungan periode berjalan
 berkeyakinan rendah; periode selesai tetap hanya menampilkan nilai terpakai. Nilai ekuivalen API bukan

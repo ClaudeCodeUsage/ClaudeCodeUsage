@@ -633,6 +633,9 @@ remote boundaries are in [Local data and privacy](LOCAL-DATA.md) ([简体中文]
 | UI/share preferences | Tab/filter state plus optional title/range and GitHub destination strings | Publish only after exact explicit confirmation | Reset UI or sharing preferences independently |
 | Advice data/key | Bounded aggregate evidence; key only in SecretStorage | Exact previewed request only after separate Send | Clear advice data and key independently |
 
+A timezone switch can reuse a complete, proven same-source checkpoint read-only;
+only date/hour buckets migrate, without restarting primary history.
+
 - All **Claude** token / cost / session analysis runs locally by reading your
   `~/.claude/projects/**/*.jsonl` files.
 - Codex usage records are discovered only from `sessions/**/*.jsonl` and

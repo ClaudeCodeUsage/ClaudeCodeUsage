@@ -113,7 +113,8 @@ export async function runCodexWorkerRefresh(
       ]);
       const previous = request.legacyIndexPath && runtime.adoptLegacyCodexIndex
         ? await runtime.adoptLegacyCodexIndex(request.indexPath, request.legacyIndexPath,
-          manifest, request.timeZone, runtime.isCancelled) ?? loaded
+          manifest, request.timeZone, runtime.isCancelled,
+          { codexHome: request.codexHome, salt: request.salt }) ?? loaded
         : loaded;
       const metadataMs = now() - metadataStarted;
       const parseStarted = now();

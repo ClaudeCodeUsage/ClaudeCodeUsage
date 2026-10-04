@@ -124,6 +124,9 @@ all exact legacy/scoped index families in this extension storage, never locks,
 lookalike files, or provider logs. Other running instances are not stopped and
 may later recreate their own derived data. A separate test window or profile
 does not by itself prove that its persistent writes are isolated.
+When switching timezone with no target checkpoint, a complete, proven same-source
+checkpoint may be reused read-only; date/hour buckets migrate without restarting
+primary history. Optional reads have a shared 256 MiB / 16-candidate limit.
 
 Clearing all quota history atomically replaces the quota store with one valid
 empty schema-2 document and removes only its exact quarantine/interrupted-write

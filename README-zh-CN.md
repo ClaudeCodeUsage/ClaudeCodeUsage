@@ -296,6 +296,8 @@ ext install GrowthJack.claude-code-usage
 | UI/分享状态 | 筛选及可选标题/范围/GitHub 目标字符串 | 仅精确确认后发布 |
 | 建议状态/密钥 | 有界聚合证据；密钥仅在 SecretStorage | 另行点击发送后才传输精确预览过的请求 |
 
+切换时区可只读沿用能证明同一来源的完整检查点，只迁移日期／小时，不从零重建主历史。
+
 - 所有 token / 成本 / session 分析都在**本地**进行，只读取你的 `~/.claude/projects/**/*.jsonl` 文件。
 - 配额指示器用 Claude Code 现有的 OAuth token 调用 **`api.anthropic.com/api/oauth/usage`**。如 token 已过期，插件会将现有 refresh token 发送至 **`console.anthropic.com/v1/oauth/token`**，并把刷新后的凭证写回选中的 Claude 凭证文件或 macOS 钥匙串。详见[本地数据与隐私](LOCAL-DATA.zh-CN.md)。
 - **AI 建议**和**用量优化器**是仅有的会调用模型的功能，而且只在你查看完整请求后再次主动点击「发送」时调用。AI 建议默认只发送聚合证据；提示样本与用户上下文需要独立同意，并完整出现在预览中。优化器只包含你粘贴的文字。两者仅使用 `advice.apiUrl` 与自备 `advice.apiKey`；密钥只进入请求头，插件不使用订阅凭据，也没有后台请求。

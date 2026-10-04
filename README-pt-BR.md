@@ -73,6 +73,9 @@ localmente; o índice do Codex guarda agregados pseudônimos, não o conteúdo
 das conversas. Os índices são separados por diretório de registros, salt do perfil
 e fuso horário. Reconstruir afeta só o índice ativo; Apagar Tudo inclui todas as
 famílias exatas de arquivos de índice nesse armazenamento da extensão.
+Ao mudar de fuso horário, um checkpoint completo e comprovado da mesma origem
+pode ser reutilizado em modo somente leitura; apenas os períodos de data/hora
+são migrados, sem reconstruir o histórico principal do zero.
 A orientação por IA é opcional: só envia uma solicitação após
 prévia e envio explícito, com sua própria chave de API. Detalhes e formas de
 apagar dados derivados: [Dados locais e privacidade](LOCAL-DATA.md).

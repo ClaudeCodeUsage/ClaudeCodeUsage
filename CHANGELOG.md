@@ -13,6 +13,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   unchanged logs; unprovable legacy data remains untouched. Rebuild and clear
   controls include the exact scoped file families. A completed backfill can
   resume after coverage regresses, and failures retain only privacy-safe codes.
+  A first switch to another timezone can reuse a complete, proven same-source
+  checkpoint for targeted date/hour migration rather than restart primary
+  history. Optional checkpoint reads are bounded and leave their inputs intact.
 
 ### Added
 - **Documentation in every supported UI language** — German and Brazilian

@@ -404,6 +404,14 @@ legacy input fail closed without modifying the old file. Root quota history in
 that formerly shared container is not trusted; only proven per-file observations
 are adopted. Already migrated P2 history stays independent.
 
+When a timezone-scoped target is absent, the worker can read a complete sibling
+checkpoint proven by both its source/salt filename and the current manifest.
+It examines at most 16 recent candidates within a shared 256 MiB read budget,
+pins each atomic file through an open handle, and never locks or modifies a
+sibling. Primary usage stays indexed; existing targeted period/hour migration
+handles timezone-sensitive buckets. Existing targets, even empty rebuild
+checkpoints, take precedence; otherwise fixed legacy adoption remains the fallback.
+
 Rebuild clears only the active scoped family and installs an empty schema-3
 checkpoint to prevent legacy resurrection. Inventory and explicitly confirmed
 Clear All cover exact canonical, recovery, and interrupted-write families in
@@ -415,6 +423,10 @@ VS Code 配置可能共用扩展存储目录，写入锁不能替代来源隔离
 迁移输入；当前白名单元数据清单须证明每个文件键归属，才在双锁内沿用，不重读未变
 日志。无法证明归属、已删除的键、损坏或超大旧输入不沿用，也不修改旧文件。旧共享
 容器的顶层额度历史不可信，只接收已证明归属的逐文件观测，独立 P2 历史不清除。
+新时区目标不存在时，可只读沿用文件名与当前清单均证明属于同一目录／盐的完整
+兄弟检查点。最多检查 16 个较新候选，共享 256 MiB 读取预算，通过打开句柄固定原子
+文件，不锁定或修改兄弟输入。主用量保持已索引，日期／小时由现有定向迁移补算。
+已有目标（包括空重建检查点）优先；否则仍回退为旧单文件迁移。
 重建只清理当前文件族并写入空检查点防止旧缓存复活；清单与明确确认的全部清除覆盖
 当前扩展存储中的精确索引文件族，不处理锁、相似文件或源日志。不外传路径、盐或来源指纹。
 

@@ -78,6 +78,9 @@ speichert abgeleitete, pseudonyme Nutzungsdaten statt Gesprächsinhalten.
 Die Indizes sind nach Protokollverzeichnis, Profil-Salt und Zeitzone getrennt.
 Ein Neuaufbau betrifft nur den aktiven Index; „Alle löschen“ umfasst alle exakt
 zugehörigen Indexdateien in diesem Erweiterungsspeicher.
+Ein Zeitzonenwechsel kann einen vollständigen, nachweislich quellengleichen
+Checkpoint schreibgeschützt wiederverwenden; nur Tages-/Stundenwerte werden
+migriert, ohne die Haupthistorie neu aufzubauen.
 KI-Beratung ist optional und sendet erst nach Vorschau und ausdrücklichem
 Senden mit einem eigenen API-Schlüssel. Einzelheiten und Löschwege:
 [Lokale Daten und Datenschutz](LOCAL-DATA.md).
