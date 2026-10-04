@@ -5,9 +5,17 @@ import {
   CodexIndexV1,
 } from './codexIndex';
 
+export type CodexIndexErrorCode = 'busy' | 'cancelled' | 'disposed' | 'worker-failed' | 'refresh-failed';
+export function safeCodexIndexErrorCode(value: unknown): CodexIndexErrorCode {
+  return value === 'busy' || value === 'cancelled' || value === 'disposed' || value === 'worker-failed'
+    ? value : 'refresh-failed';
+}
+
 export interface CodexWorkerRefreshInput {
   codexHome: string;
   indexPath: string;
+  /** Read-only compatibility input, adopted only after manifest ownership proof. */
+  legacyIndexPath?: string;
   salt: string;
   timeZone: string;
   /** Controls the steady-state budget after any first-time/migration backfill. */

@@ -88,11 +88,13 @@ import {
 } from './providers/codex/codexProvider';
 import {
   CodexIndexProgress,
-  loadCodexIndex,
+  createEmptyCodexIndex,
+  saveCodexIndexAtomic,
 } from './providers/codex/codexIndex';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import { weeklyQuotaObservationsFromCodexHistory } from './providers/codex/codexQuotaHistory';
-import { resolveCodexHome } from './providers/codex/codexManifest';
+import { resolveCodexHome, scanCodexManifest } from './providers/codex/codexManifest';
+import { codexIndexStoragePath, codexIndexCanonicalName, readOwnedLegacyCodexIndex } from './providers/codex/codexIndexStorage';
 import { buildCodexUsageView, CodexUsageView } from './providers/codex/codexUsage';
 import {
   buildScopedCodexInsights,
@@ -363,13 +365,19 @@ export async function initializeQuotaObservationRuntime(
 
   if (!codexLegacyMigrationReady) {
     try {
-      const index = await loadCodexIndex(
-        path.join(context.globalStorageUri.fsPath, 'codex-index-v1.json'),
-        resolveTimeZone(settings.get<string>('timezone')),
-      );
+      const codexSalt = context.globalState.get<string>('ccu.codex.machineSalt');
+      const legacyPath = path.join(context.globalStorageUri.fsPath, 'codex-index-v1.json');
+      const home = resolveCodexHome(settings.get<string>('codex.dataDirectory') ?? '', process.env, os.homedir());
+      const manifest = codexSalt ? await scanCodexManifest(home, codexSalt) : null;
+      const lease = manifest ? await acquireCodexIndexLease(legacyPath) : null;
+      let index;
+      try {
+        index = manifest ? await readOwnedLegacyCodexIndex(legacyPath, manifest,
+          resolveTimeZone(settings.get<string>('timezone'))) : null;
+      } finally { await lease?.release(); }
       const legacyHistory = [
-        ...(index.quotaHistory ?? []),
-        ...Object.values(index.files).flatMap((file) => file.quotaHistory ?? []),
+        ...(index?.quotaHistory ?? []),
+        ...Object.values(index?.files ?? {}).flatMap((file) => file.quotaHistory ?? []),
       ];
       migrationCaptures.push(...codexQuotaCapturesFromWeeklyObservations(
         weeklyQuotaObservationsFromCodexHistory(legacyHistory),
@@ -914,8 +922,7 @@ export class ClaudeCodeUsageExtension {
     return names.filter((name) => {
       if (name === canonical) return true;
       if (family === 'codex-index') {
-        return /^codex-index-v1\.corrupt-\d+-\d+\.json$/.test(name) ||
-          /^codex-index-v1\.json\.tmp-\d+-[a-f0-9-]{36}$/.test(name);
+        return codexIndexCanonicalName(name) === canonical;
       }
       return /^quota-observations-v2\.json\.quarantine-\d+-[a-f0-9]{8}$/.test(name) ||
         /^\.quota-observations-v2\.json\.\d+\.[a-f0-9]{12}\.tmp$/.test(name);
@@ -932,7 +939,9 @@ export class ClaudeCodeUsageExtension {
     newestAt: number | null;
   }> {
     try {
-      const names = await this.derivedFileFamilyNames(filePath, family);
+      const names = family === 'codex-index'
+        ? (await fs.promises.readdir(path.dirname(filePath))).filter(name => codexIndexCanonicalName(name) !== null)
+        : await this.derivedFileFamilyNames(filePath, family);
       const stats = await Promise.all(names.map((name) =>
         fs.promises.lstat(path.join(path.dirname(filePath), name)),
       ));
@@ -975,12 +984,26 @@ export class ClaudeCodeUsageExtension {
   private async removeDerivedFileFamilyWithLease(
     filePath: string,
     family: 'codex-index' | 'quota-observations',
+    emptyTimeZone?: string,
   ): Promise<void> {
     const lease = await acquireCodexIndexLease(filePath);
     try {
       await this.removeDerivedFileFamily(filePath, family);
+      if (emptyTimeZone) await saveCodexIndexAtomic(filePath, createEmptyCodexIndex(emptyTimeZone));
     } finally {
       await lease.release();
+    }
+  }
+
+  private async codexDerivedIndexPaths(): Promise<string[]> {
+    const directory = this.context.globalStorageUri.fsPath;
+    try {
+      const names = await fs.promises.readdir(directory);
+      return [...new Set(names.map(codexIndexCanonicalName).filter((name): name is string => name !== null))]
+        .sort().map(name => path.join(directory, name));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
     }
   }
 
@@ -1673,8 +1696,10 @@ export class ClaudeCodeUsageExtension {
       }
       await retiring.dispose();
       await this.releaseCodexOwnership('settings-change');
-      const indexPath = path.join(this.context.globalStorageUri.fsPath, 'codex-index-v1.json');
-      await this.removeDerivedFileFamilyWithLease(indexPath, 'codex-index');
+      const indexPath = retiring.indexPath ?? path.join(this.context.globalStorageUri.fsPath, 'codex-index-v1.json');
+      await this.removeDerivedFileFamilyWithLease(indexPath, 'codex-index',
+        !this.clearingAllLocalData && /codex-index-v1-[a-f0-9]{64}\.json$/.test(indexPath)
+          ? resolveTimeZone(this.getConfiguration().timezone) : undefined);
       this.codexView = null;
       this.codexInsights = emptyCodexScopedInsights();
       this.codexHasData = false;
@@ -1725,6 +1750,9 @@ export class ClaudeCodeUsageExtension {
       ]);
       await this.settings.resetAllOwnedData();
       await this.clearCodexDerivedIndex(false);
+      for (const indexPath of await this.codexDerivedIndexPaths()) {
+        await this.removeDerivedFileFamilyWithLease(indexPath, 'codex-index');
+      }
       this.quotaObservationStore = await this.quotaObservationRepository.clear({});
       await this.webviewProvider.clearAdviceLocalData();
       this.webviewProvider.clearSharingRuntimeState();
@@ -1770,8 +1798,7 @@ export class ClaudeCodeUsageExtension {
     if (residualState.length > 0) {
       throw new Error('local-data-clear:global-state-postcondition-failed');
     }
-    const indexPath = path.join(this.context.globalStorageUri.fsPath, 'codex-index-v1.json');
-    if ((await this.derivedFileFamilyNames(indexPath, 'codex-index')).length > 0) {
+    if ((await this.codexDerivedIndexPaths()).length > 0) {
       throw new Error('local-data-clear:codex-index-postcondition-failed');
     }
     const quotaPath = path.join(
@@ -2230,10 +2257,9 @@ export class ClaudeCodeUsageExtension {
     return new CodexProvider({
       enabled: config.codexEnabled,
       codexHome: this.codexHome(config),
-      indexPath: path.join(
-        this.context.globalStorageUri.fsPath,
-        'codex-index-v1.json',
-      ),
+      indexPath: codexIndexStoragePath(this.context.globalStorageUri.fsPath,
+        this.codexHome(config), this.codexSalt, resolveTimeZone(config.timezone)),
+      legacyIndexPath: path.join(this.context.globalStorageUri.fsPath, 'codex-index-v1.json'),
       salt: this.codexSalt,
       timeZone: resolveTimeZone(config.timezone),
     });
@@ -3001,7 +3027,8 @@ export class ClaudeCodeUsageExtension {
       }
       if (persisted) {
         if (!this.codexView) this.applyCodexSnapshot(persisted);
-        if (this.codexBackgroundState.indexGeneration !== this.codexIndexGeneration(persisted)) {
+        if (this.codexBackgroundState.indexGeneration !== this.codexIndexGeneration(persisted) ||
+          (this.codexBackgroundState.status === 'complete' && this.codexHistoricalWorkPending(persisted))) {
           this.codexBackgroundState = createBackgroundWorkState({
             measurementVersion:
               ClaudeCodeUsageExtension.CODEX_BACKGROUND_MEASUREMENT_VERSION,
@@ -3191,7 +3218,6 @@ export class ClaudeCodeUsageExtension {
         const diagnostic = result.diagnostic;
         if (
           !historicalAttempt &&
-          diagnostic?.indexRecovery &&
           this.codexBackgroundState.status === 'complete' &&
           this.codexHistoricalWorkPending(result.snapshot)
         ) {
@@ -3224,6 +3250,7 @@ export class ClaudeCodeUsageExtension {
             periodTotalBytes: result.snapshot.coverage.period.allTime.totalBytes,
             migrationPending: diagnostic?.migrationPending ?? false,
             indexRecovery: diagnostic?.indexRecovery?.reason,
+            errorCode: diagnostic?.errorCode,
             bodyReads: diagnostic?.bodyReads ?? 0,
             failedFiles: diagnostic?.failedFiles ?? 0,
             metadataMs: diagnostic?.metadataMs ?? 0,

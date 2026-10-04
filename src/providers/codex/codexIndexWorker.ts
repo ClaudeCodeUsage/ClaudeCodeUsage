@@ -25,6 +25,7 @@ import {
   acquireCodexIndexLease,
 } from './codexIndexLease';
 import { CodexFilePassPool } from './codexFilePassPool';
+import { adoptLegacyCodexIndex } from './codexIndexStorage';
 
 const cancelled = new Set<string>();
 let activeRequestId: string | null = null;
@@ -88,6 +89,7 @@ export interface CodexWorkerRefreshRuntime {
   saveCodexIndexAtomic: typeof saveCodexIndexAtomic;
   createCodexFilePassPool?: () => Pick<CodexFilePassPool, 'run' | 'dispose'>;
   now?: () => number;
+  adoptLegacyCodexIndex?: typeof adoptLegacyCodexIndex;
 }
 
 export async function runCodexWorkerRefresh(
@@ -103,12 +105,16 @@ export async function runCodexWorkerRefresh(
     try {
       let indexRecovery: CodexIndexRecovery | undefined;
       const metadataStarted = now();
-      const [previous, manifest] = await Promise.all([
+      const [loaded, manifest] = await Promise.all([
         runtime.loadCodexIndex(request.indexPath, request.timeZone, (event) => {
           indexRecovery = event;
         }),
         runtime.scanCodexManifest(request.codexHome, request.salt),
       ]);
+      const previous = request.legacyIndexPath && runtime.adoptLegacyCodexIndex
+        ? await runtime.adoptLegacyCodexIndex(request.indexPath, request.legacyIndexPath,
+          manifest, request.timeZone, runtime.isCancelled) ?? loaded
+        : loaded;
       const metadataMs = now() - metadataStarted;
       const parseStarted = now();
       const foreground = request.profile === 'foreground';
@@ -208,6 +214,7 @@ async function runRefresh(
       scanCodexManifest,
       updateCodexIndex,
       saveCodexIndexAtomic,
+      adoptLegacyCodexIndex,
       createCodexFilePassPool: () => new CodexFilePassPool(),
     });
   } finally {

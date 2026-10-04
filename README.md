@@ -628,7 +628,7 @@ remote boundaries are in [Local data and privacy](LOCAL-DATA.md) ([简体中文]
 | Data | Stored locally | Remote behavior | Clear path |
 |---|---|---|---|
 | Claude/Codex source logs | Provider-owned and read-only; never copied wholesale | None by default | Managed by the provider tools, not deleted by this extension |
-| Codex derived index | Bounded pseudonymous numeric/structural aggregates | None | Rebuild or clear derived index |
+| Codex derived index | Bounded pseudonymous numeric/structural aggregates, isolated by source directory, profile salt and timezone | None | Rebuild the active index; Clear All removes every exact index family in this extension storage |
 | Quota observations | Bounded anonymous window facts; no raw account ID | Claude quota fetch only when enabled; Codex evidence stays local | Clear by provider/account epoch or all |
 | UI/share preferences | Tab/filter state plus optional title/range and GitHub destination strings | Publish only after exact explicit confirmation | Reset UI or sharing preferences independently |
 | Advice data/key | Bounded aggregate evidence; key only in SecretStorage | Exact previewed request only after separate Send | Clear advice data and key independently |

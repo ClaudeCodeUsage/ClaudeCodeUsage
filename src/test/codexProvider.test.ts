@@ -16,6 +16,7 @@ import {
 } from '../providers/codex/codexIndex';
 import { CodexWorkerResult } from '../providers/codex/codexWorkerProtocol';
 import { pseudonymousIdentityKey } from '../providers/codex/codexIdentity';
+import { CodexWorkerError } from '../providers/codex/codexIndexClient';
 
 function contribution(
   fileKey = 'anonymous-file-key',
@@ -665,6 +666,24 @@ test('a period with a mismatched lineage marker stays hidden during rebuild', as
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('worker failure diagnostics preserve only allowlisted error codes, never raw errors', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-error-code-'));
+  try {
+    await mkdir(path.join(root, 'sessions'), { recursive: true });
+    for (const [code, expected] of [['busy', 'busy'], ['cancelled', 'cancelled'],
+      ['worker-failed', 'worker-failed'], ['/private/secret', 'refresh-failed']]) {
+      const provider = new CodexProvider({ enabled: true, codexHome: root,
+        indexPath: 'index', salt: 'salt', timeZone: 'UTC' },
+      () => new FakeClient([new CodexWorkerError(code, '/private/credential') ]));
+      try {
+        const result = await provider.refresh();
+        assert.equal((result.diagnostic as any)?.errorCode, expected);
+        assert.doesNotMatch(JSON.stringify(result), /private|secret|credential/);
+      } finally { await provider.dispose(); }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('a worker failure retains the last verified provider snapshot', async () => {

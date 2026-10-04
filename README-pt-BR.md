@@ -70,7 +70,10 @@ Procure `Claude Code Usage` em **Extensões** no VS Code ou execute
 ou pelo comando **Show Usage Details**. Idioma, diretório de dados e opções
 de exibição ficam nas configurações. Os registros do Claude são lidos
 localmente; o índice do Codex guarda agregados pseudônimos, não o conteúdo
-das conversas. A orientação por IA é opcional: só envia uma solicitação após
+das conversas. Os índices são separados por diretório de registros, salt do perfil
+e fuso horário. Reconstruir afeta só o índice ativo; Apagar Tudo inclui todas as
+famílias exatas de arquivos de índice nesse armazenamento da extensão.
+A orientação por IA é opcional: só envia uma solicitação após
 prévia e envio explícito, com sua própria chave de API. Detalhes e formas de
 apagar dados derivados: [Dados locais e privacidade](LOCAL-DATA.md).
 

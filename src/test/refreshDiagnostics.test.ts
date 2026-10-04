@@ -88,6 +88,10 @@ test('Codex diagnostics expose only anonymous coverage, timing, and safe flags',
   } as any);
   assert.match(unsafeRecovery, /recovery=none/);
   assert.doesNotMatch(unsafeRecovery, /Users|private-index|\.json/);
+  assert.match(formatCodexIndexDiagnostic({ ...diagnostic, errorCode: 'busy' }), /errorCode=busy/);
+  const unsafeError = formatCodexIndexDiagnostic({ ...diagnostic, errorCode: '/private/credential' } as any);
+  assert.match(unsafeError, /errorCode=refresh-failed/);
+  assert.doesNotMatch(unsafeError, /private\/credential/);
 
   const unsafeModes = formatCodexIndexDiagnostic({
     ...diagnostic,

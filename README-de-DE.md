@@ -75,6 +75,9 @@ sich über die Statusleiste oder den Befehl **Show Usage Details**.
 Sprache, Datenverzeichnis und Anzeigeoptionen können in den Einstellungen
 angepasst werden. Claude-Protokolle werden lokal gelesen; der Codex-Index
 speichert abgeleitete, pseudonyme Nutzungsdaten statt Gesprächsinhalten.
+Die Indizes sind nach Protokollverzeichnis, Profil-Salt und Zeitzone getrennt.
+Ein Neuaufbau betrifft nur den aktiven Index; „Alle löschen“ umfasst alle exakt
+zugehörigen Indexdateien in diesem Erweiterungsspeicher.
 KI-Beratung ist optional und sendet erst nach Vorschau und ausdrücklichem
 Senden mit einem eigenen API-Schlüssel. Einzelheiten und Löschwege:
 [Lokale Daten und Datenschutz](LOCAL-DATA.md).

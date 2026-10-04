@@ -1813,7 +1813,7 @@ test('cooldown, user pause, and completed measurement suppress historical backfi
       extension.syncProviderUi = () => undefined;
       extension.codexProvider = {
         isAvailable: async () => true,
-        loadPersistedSnapshot: async () => snapshot,
+        loadPersistedSnapshot: async () => state.status === 'complete' ? completeCoordinatorSnapshot() : snapshot,
         refresh: async (
           _profile: string,
           _onProgress: unknown,
@@ -1822,7 +1822,7 @@ test('cooldown, user pause, and completed measurement suppress historical backfi
           allowed.push(allowHistoricalBackfill);
           return {
             outcome: 'partial',
-            snapshot,
+            snapshot: state.status === 'complete' ? completeCoordinatorSnapshot() : snapshot,
             diagnostic: {
               bodyReads: 0,
               failedFiles: 0,
@@ -1842,6 +1842,60 @@ test('cooldown, user pause, and completed measurement suppress historical backfi
   }
 
   assert.deepEqual(allowed, [false, false, false]);
+});
+
+test('Codex providers isolate source homes, profile salts, and timezones in shared global storage', () => {
+  const extension = bareExtension();
+  extension.context.globalStorageUri = { fsPath: '/fixture/shared-storage' };
+  extension.codexSalt = 'profile-a';
+  extension.selectCodexSnapshotHome = () => undefined;
+  extension.codexHome = (config: any) => config.home;
+  const options = (home: string, timezone = 'UTC') =>
+    extension.createCodexProvider({ home, timezone, codexEnabled: true }).options;
+  const first = options('/fixture/daily');
+  const second = options('/fixture/testing');
+  const zone = options('/fixture/daily', 'Europe/Istanbul');
+  extension.codexSalt = 'profile-b';
+  const profile = options('/fixture/daily');
+  assert.equal(new Set([first.indexPath, second.indexPath, zone.indexPath, profile.indexPath]).size, 4);
+  assert.match(first.indexPath, /codex-index-v1-[a-f0-9]{64}\.json$/);
+  assert.doesNotMatch(first.indexPath, /daily|profile-a/);
+  extension.codexSalt = 'profile-a';
+  assert.equal(options('/fixture/daily').indexPath, first.indexPath);
+});
+
+test('same-generation coverage regression queues accelerated reconciliation after a steady pass', async () => {
+  const extension = bareExtension();
+  const complete = completeCoordinatorSnapshot();
+  const pending = structuredClone(complete);
+  pending.coverage.complete = false;
+  pending.coverage.indexedFiles = 0;
+  const seed = createBackgroundWorkState({
+    measurementVersion: 1, reason: 'history-backfill', now: 1,
+    progress: { completedUnits: 1, totalUnits: 1, completedBytes: 1, totalBytes: 1 },
+  });
+  extension.codexBackgroundState = recordBackgroundWorkProgress(
+    beginBackgroundWork(seed, { trigger: 'automatic', now: 1 }).state,
+    { now: 2, complete: true, progress: seed.progress },
+  );
+  extension.getConfiguration = () => ({ codexEnabled: true });
+  extension.windowActivity = new WindowActivityGate(true);
+  extension.webviewProvider = { updateCodexProgress: () => undefined };
+  extension.syncProviderUi = () => undefined;
+  const continuations: string[] = [];
+  extension.refreshCodexData = async (trigger: string) => { continuations.push(trigger); };
+  extension.codexProvider = {
+    isAvailable: async () => true,
+    loadPersistedSnapshot: async () => complete,
+    refresh: async (_mode: string, _progress: unknown, historical: boolean) => {
+      assert.equal(historical, false);
+      return { outcome: 'partial', snapshot: pending };
+    },
+  };
+  await extension.runCodexRefresh('poll');
+  await Promise.resolve();
+  assert.equal(extension.codexBackgroundState.status, 'eligible');
+  assert.deepEqual(continuations, ['poll']);
 });
 
 test('a missing persisted index invalidates same-version complete background work', async () => {
@@ -1984,7 +2038,7 @@ test('a recovered index invalidates complete state and queues historical reconci
   };
   extension.codexProvider = {
     isAvailable: async () => true,
-    loadPersistedSnapshot: async () => pending,
+    loadPersistedSnapshot: async () => completeCoordinatorSnapshot(),
     refresh: async () => ({
       outcome: 'partial',
       snapshot: pending,

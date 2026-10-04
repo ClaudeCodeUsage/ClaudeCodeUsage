@@ -392,9 +392,33 @@ the single versioned destination-preference object cannot be persisted.
 
 ### Schema 3 index contract
 
-Schema 3 deliberately keeps the established `globalStorage` filename
-`codex-index-v1.json`; the filename is a compatibility path, not a statement
-about the JSON schema. Its persisted DTO is an explicit allowlist of numeric
+Schema 3 uses source-scoped `globalStorage` files
+`codex-index-v1-<HMAC>.json`; the HMAC binds the resolved Codex home, profile-local
+machine salt, and configured timezone. VS Code profiles may share the extension's
+global storage directory, so a write lease alone cannot isolate their sources.
+The old `codex-index-v1.json` is read-only migration input. A worker adopts it once
+under scoped-then-legacy leases only if every saved file key is proven by the
+current allowlisted metadata manifest with the same salt. No unchanged JSONL
+body is reread; unprovable ownership, deleted keys, malformed data, or oversized
+legacy input fail closed without modifying the old file. Root quota history in
+that formerly shared container is not trusted; only proven per-file observations
+are adopted. Already migrated P2 history stays independent.
+
+Rebuild clears only the active scoped family and installs an empty schema-3
+checkpoint to prevent legacy resurrection. Inventory and explicitly confirmed
+Clear All cover exact canonical, recovery, and interrupted-write families in
+this extension storage directory; locks, lookalikes, and source logs are excluded.
+No source path, salt, or namespace fingerprint reaches diagnostics or exports.
+
+中文：schema 3 按 Codex 日志目录、本地配置盐和数据时区的 HMAC 隔离缓存。
+VS Code 配置可能共用扩展存储目录，写入锁不能替代来源隔离。旧单文件只作为只读
+迁移输入；当前白名单元数据清单须证明每个文件键归属，才在双锁内沿用，不重读未变
+日志。无法证明归属、已删除的键、损坏或超大旧输入不沿用，也不修改旧文件。旧共享
+容器的顶层额度历史不可信，只接收已证明归属的逐文件观测，独立 P2 历史不清除。
+重建只清理当前文件族并写入空检查点防止旧缓存复活；清单与明确确认的全部清除覆盖
+当前扩展存储中的精确索引文件族，不处理锁、相似文件或源日志。不外传路径、盐或来源指纹。
+
+Its persisted DTO is an explicit allowlist of numeric
 aggregates, enum values, pseudonymous keys, cleaned labels, and opaque
 fingerprints derived only from numeric token-counter vectors. A v3 file never
 stores a raw incomplete line or a carry buffer. The only reader for those old
@@ -591,6 +615,14 @@ request, and backfill, and releases a lease only after its real stop callback
 finishes. A bounded first-index backfill may continue after focus loss for
 first-use latency, but extension disposal, provider disable, or explicit
 cancellation still owns its termination.
+
+A completed control state is reopened when a verified snapshot becomes incomplete,
+even without a generation change or corruption marker. User pauses and failure
+backoff are preserved. Refresh failures expose only fixed allowlisted error codes,
+not arbitrary error messages, paths, or stacks.
+
+中文：已完成状态遇到已验证覆盖率回退时重新补齐，不要求代次变化或损坏标记；
+用户暂停和失败退避仍保留。失败诊断只记录固定白名单错误代码，不记录原始报错、路径或调用栈。
 
 Weekly API-equivalent history is derived from already-aggregated token usage.
 The newest valid reset observation anchors non-overlapping seven-day display

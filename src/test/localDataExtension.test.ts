@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import Module = require('node:module');
@@ -28,6 +28,28 @@ function loadExtensionModule(): ExtensionModule {
 }
 
 const { ClaudeCodeUsageExtension } = loadExtensionModule();
+
+test('namespaced inventory and clearing cover exact families without deleting another source', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-scoped-clear-'));
+  const a = `codex-index-v1-${'a'.repeat(64)}.json`;
+  const b = `codex-index-v1-${'b'.repeat(64)}.json`;
+  const extension = Object.create(ClaudeCodeUsageExtension.prototype) as any;
+  extension.context = { globalStorageUri: { fsPath: root } };
+  const names = [a, b, `${a}.tmp-200-123e4567-e89b-12d3-a456-426614174000`,
+    a.replace('.json', '.corrupt-100-200.json'), `${a}.bak`, `${b}.lock`,
+    `codex-index-v1-${'z'.repeat(64)}.json`, 'source.jsonl'];
+  try {
+    await Promise.all(names.map(name => writeFile(path.join(root, name), 'preserve', 'utf8')));
+    assert.equal((await extension.derivedFileFamilyNames(path.join(root, a), 'codex-index')).length, 3);
+    assert.equal((await extension.localFileFamilyInventory(path.join(root, a), 'codex-index')).itemCount, 4);
+    assert.deepEqual(await extension.codexDerivedIndexPaths(), [a, b].map(name => path.join(root, name)));
+    await extension.removeDerivedFileFamilyWithLease(path.join(root, a), 'codex-index');
+    assert.equal((await extension.derivedFileFamilyNames(path.join(root, a), 'codex-index')).length, 0);
+    for (const name of [b, `${a}.bak`, `${b}.lock`, names[6], 'source.jsonl']) {
+      assert.equal(await readFile(path.join(root, name), 'utf8'), 'preserve');
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 function memoryGlobalState(initial: Record<string, unknown>) {
   const state = new Map(Object.entries(initial));
@@ -303,7 +325,14 @@ test('reset replay is serialized with newly requested local-data actions', async
   assert.equal(newerActionStarted, true);
 });
 
-test('clear-all uses the exact allowlist and preserves unrelated state', async () => {
+test('clear-all uses the exact allowlist and preserves unrelated state', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-clear-all-scoped-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const owned = ['codex-index-v1.json', `codex-index-v1-${'a'.repeat(64)}.json`,
+    `codex-index-v1-${'b'.repeat(64)}.corrupt-100-200.json`,
+    `codex-index-v1-${'c'.repeat(64)}.json.tmp-200-123e4567-e89b-12d3-a456-426614174000`];
+  const preserved = ['source.jsonl', 'codex-index-v1.json.bak', 'unrelated.json'];
+  await Promise.all([...owned, ...preserved].map(name => writeFile(path.join(root, name), 'fixture')));
   const globalState = memoryGlobalState({
     'ccu.setting.showCost': true,
     'ccu.setting.unknown-canary': 'must-survive',
@@ -316,7 +345,7 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
   });
   const resetSettings: string[] = [];
   const extension = Object.create(ClaudeCodeUsageExtension.prototype) as any;
-  extension.context = { globalState, globalStorageUri: { fsPath: '/synthetic/global-storage' } };
+  extension.context = { globalState, globalStorageUri: { fsPath: root } };
   extension.settings = {
     preflightResetAllOwnedData: () => undefined,
     resetAllOwnedData: async () => { resetSettings.push('advice.apiKey'); },
@@ -341,9 +370,12 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
     codexClearCalls += 1;
   };
   extension.quotaObservationRepository = {
-    clear: async () => createEmptyQuotaObservationStore(),
+    clear: async () => {
+      const store = createEmptyQuotaObservationStore();
+      await writeFile(path.join(root, 'quota-observations-v2.json'), JSON.stringify(store));
+      return store;
+    },
   };
-  extension.removeDerivedFileFamilyWithLease = async () => undefined;
   extension.quotaObservationStore = createEmptyQuotaObservationStore();
   let adviceClearCalls = 0;
   extension.webviewProvider = {
@@ -363,7 +395,6 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
   extension.codexHasData = false;
   extension.refreshQuotaObservationViews = () => undefined;
   extension.syncProviderUi = () => undefined;
-  extension.verifyClearAllPostcondition = async () => undefined;
 
   const pendingResult = extension.clearAllExtensionDerivedData();
   await new Promise((resolve) => setImmediate(resolve));
@@ -373,6 +404,8 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
 
   assert.equal(result.ok, true);
   assert.equal(result.clientAction, 'clear-all-client-state');
+  assert.deepEqual(await extension.codexDerivedIndexPaths(), []);
+  for (const name of preserved) assert.equal(await readFile(path.join(root, name), 'utf8'), 'fixture');
   assert.equal(codexClearCalls, 1);
   assert.equal(adviceClearCalls, 1);
   assert.ok(resetSettings.includes('advice.apiKey'));
