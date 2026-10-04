@@ -6,6 +6,17 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
+### Fixed
+- **Source-scoped Codex caches** — different Codex homes, profile salts and
+  data timezones sharing VS Code global storage no longer replace one another's
+  incremental index. Proven legacy checkpoints are adopted without rereading
+  unchanged logs; unprovable legacy data remains untouched. Rebuild and clear
+  controls include the exact scoped file families. A completed backfill can
+  resume after coverage regresses, and failures retain only privacy-safe codes.
+  A first switch to another timezone can reuse a complete, proven same-source
+  checkpoint for targeted date/hour migration rather than restart primary
+  history. Optional checkpoint reads are bounded and leave their inputs intact.
+
 ### Added
 - **Documentation in every supported UI language** — German and Brazilian
   Portuguese now have concise READMEs alongside the existing editions. The
@@ -67,6 +78,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   actual expiries. The proposed hourly approximation is not applied.
 
 ### Fixed
+- **Quiet completed Codex history** — normal log appends and new files no longer
+  flash a completed history-backfill banner. Ambiguous session identities remain
+  visible as data-quality evidence, without restarting history work that cannot
+  resolve them. Actual main-log, date and hourly backfills, pauses and retry
+  failures keep their progress and recovery feedback.
 - **AI destination mismatch** — the initial DeepSeek configuration now selects
   its matching OpenAI-compatible format. Request normalization preserves the
   configured host and proxy prefix, rejects protocol conflicts and secret-bearing

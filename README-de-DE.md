@@ -12,6 +12,8 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
   Seiten, nicht für Hintergrunderfassung und Statusleiste. Fehler behalten geprüfte
   Daten; Nachindizierung und Wiederholungswartezeit sind getrennt. Unveränderte,
   ausgeblendete Panels verwenden begrenzte Caches.
+  Vollständig indizierte Codex-Historien bleiben bei neuen Protokolldaten ruhig;
+  mehrdeutige Sitzungen bleiben ein Qualitätshinweis, kein wiederholter Nachlauf.
 - **Genaue Vorschauen und sichere Einstellungen:** KI-Ziel, Format und Modell sind
   sichtbar, ohne stillen Anbieterwechsel. Share Cards exportieren das bestätigte SVG;
   geänderte Optionen verlangen eine neue Vorschau. Zurücksetzen behält den API-Schlüssel,
@@ -73,6 +75,12 @@ sich über die Statusleiste oder den Befehl **Show Usage Details**.
 Sprache, Datenverzeichnis und Anzeigeoptionen können in den Einstellungen
 angepasst werden. Claude-Protokolle werden lokal gelesen; der Codex-Index
 speichert abgeleitete, pseudonyme Nutzungsdaten statt Gesprächsinhalten.
+Die Indizes sind nach Protokollverzeichnis, Profil-Salt und Zeitzone getrennt.
+Ein Neuaufbau betrifft nur den aktiven Index; „Alle löschen“ umfasst alle exakt
+zugehörigen Indexdateien in diesem Erweiterungsspeicher.
+Ein Zeitzonenwechsel kann einen vollständigen, nachweislich quellengleichen
+Checkpoint schreibgeschützt wiederverwenden; nur Tages-/Stundenwerte werden
+migriert, ohne die Haupthistorie neu aufzubauen.
 KI-Beratung ist optional und sendet erst nach Vorschau und ausdrücklichem
 Senden mit einem eigenen API-Schlüssel. Einzelheiten und Löschwege:
 [Lokale Daten und Datenschutz](LOCAL-DATA.md).

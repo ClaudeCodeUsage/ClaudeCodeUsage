@@ -272,8 +272,24 @@ Codex processed 相加；Codex cached input 与 reasoning 子集不会重复计�
 
 ### Schema 3 索引契约
 
-内部 schema 3 继续使用既有的 `globalStorage` 文件名 `codex-index-v1.json`；文件名是兼容路径，
-不是 JSON schema 版本声明。持久化 DTO 使用明确的 allowlist：只能写入数字 aggregate、enum、
+内部 schema 3 使用来源隔离的 `globalStorage` 文件 `codex-index-v1-<HMAC>.json`。
+HMAC 绑定解析后的 Codex 日志目录、配置内的本地盐和数据时区；它只是本地缓存命名空间，
+不是账号标识。VS Code 配置可能共用扩展存储目录，写入锁不能替代来源隔离。
+旧 `codex-index-v1.json` 只作为只读迁移输入。当前白名单元数据清单须用相同盐证明每个
+已保存文件键的归属，才能在独立索引锁与旧索引锁内沿用一次，不重读未变化日志。
+无法证明归属（含已删除的键）、损坏、不支持或超过 256 MiB 的旧输入不沿用、不修改。
+旧共享容器的顶层额度历史不可信，只接收已证明归属的逐文件观测，独立 P2 历史不清除。
+
+新时区目标不存在时，可只读沿用文件名与当前清单均证明属于同一目录／盐的完整
+兄弟检查点。最多检查 16 个较新候选，共享 256 MiB 读取预算，通过打开句柄固定原子
+文件，不锁定或修改兄弟输入。主用量保持已索引，日期／小时由现有定向迁移补算。
+已有目标（包括空重建检查点）优先；否则仍回退为旧单文件迁移。
+
+重建只清理当前独立文件族，并写入空 schema-3 检查点防止旧缓存复活。清单与明确确认的
+全部清除覆盖当前扩展存储中的精确 canonical、恢复和中断写入文件族，不处理锁、
+相似文件名或源日志。路径、盐和命名空间指纹不进入诊断或导出。
+
+持久化 DTO 使用明确的 allowlist：只能写入数字 aggregate、enum、
 伪名 key、清洗后的 label，以及仅由数字 token 计数向量生成的不透明指纹。v3 不保存未完成原始行，
 也不保存 carry buffer。旧字段只在明确命名的 schema-1 legacy migration 边界被读取；该迁移会先
 丢弃 carry，之后才保存 v3 索引。schema 1 与 schema 2 索引都会被标记为需要执行有界 lineage 重扫；
@@ -403,6 +419,10 @@ failure streak、next eligible time 和 pause reason。成功后立即继续，�
 watcher、worker、network request 与 backfill 的创建者，只在真实 stop callback 完成后释放 lease。
 为降低首次可用延迟，有界的首次索引可在失焦后继续；但 extension dispose、provider 关闭或显式取消
 仍对其终止负责。
+
+已完成的控制状态遇到已验证快照覆盖率回退时会重新补齐，不要求代次变化或损坏标记。
+用户暂停与失败退避仍保留。刷新失败只记录固定白名单错误代码，不记录任意报错、
+路径或调用栈。
 
 每周 API 等效价值历史只从已经聚合的 Token 用量生成。最新有效的重置观测用于锚定互不重叠的七天
 展示窗口；没有观测时，仅已用历史按 UTC 周一至周一的自然周分组。真实的额度用量比例观测可以支持

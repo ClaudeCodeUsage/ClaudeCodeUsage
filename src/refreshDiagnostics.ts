@@ -1,6 +1,7 @@
 import { RefreshTrigger } from './refreshPolicy';
 import { ProviderSourceOutcome } from './providers/providerTypes';
 import { CodexIndexRecoveryReason } from './providers/codex/codexIndex';
+import { CodexIndexErrorCode, safeCodexIndexErrorCode } from './providers/codex/codexWorkerProtocol';
 
 export interface LoadUsageDiagnostics {
   filesDiscovered: number;
@@ -99,6 +100,7 @@ export interface CodexIndexDiagnostic {
   periodTotalBytes: number;
   migrationPending: boolean;
   indexRecovery?: CodexIndexRecoveryReason;
+  errorCode?: CodexIndexErrorCode;
   bodyReads: number;
   failedFiles: number;
   metadataMs: number;
@@ -140,6 +142,7 @@ export function formatCodexIndexDiagnostic(value: CodexIndexDiagnostic): string 
     `periodBytes=${value.periodMigratedBytes}/${value.periodTotalBytes} ` +
     `migrationPending=${value.migrationPending} ` +
     `recovery=${recovery} ` +
+    (value.errorCode === undefined ? '' : `errorCode=${safeCodexIndexErrorCode(value.errorCode)} `) +
     `bodyReads=${value.bodyReads} failed=${value.failedFiles} ` +
     `metadataMs=${ms(value.metadataMs)} parseMs=${ms(value.parseMs)} ` +
     `flags=${safeFlagCounts(value.qualityFlags)}`

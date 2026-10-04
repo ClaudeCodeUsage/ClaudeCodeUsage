@@ -538,6 +538,116 @@ test('coordinator repeated complete metadata polls retain verified render revisi
   assert.equal(extension.codexDashboardProgress(), null);
 });
 
+test('coordinator a completed warm append or new file never flashes historical progress', async () => {
+  for (const change of ['append', 'new-file']) {
+    const { extension, deliveries, snapshot } = coordinatorHarness(true);
+    await extension.runCodexRefresh('poll');
+    const previousView = extension.codexView;
+    const updated = structuredClone(snapshot);
+    updated.coverage.indexedBytes += 100;
+    updated.coverage.totalBytes += 100;
+    if (change === 'new-file') {
+      updated.coverage.indexedFiles++;
+      updated.coverage.totalFiles++;
+    }
+    let backfill: boolean | undefined;
+    extension.codexProvider.refresh = async (_profile: unknown, onProgress: (value: unknown) => void,
+      allowHistoricalBackfill: boolean) => {
+      backfill = allowHistoricalBackfill;
+      onProgress({ scannedFiles: updated.coverage.indexedFiles,
+        totalFiles: updated.coverage.totalFiles, indexedBytes: updated.coverage.indexedBytes,
+        totalBytes: updated.coverage.totalBytes, period: updated.coverage.period,
+        hourly: updated.hourlyCoverage });
+      // A checkpoint handoff uses the same decision as the lightweight patch.
+      extension.syncProviderUi('poll');
+      return { outcome: 'success', snapshot: updated };
+    };
+    deliveries.length = 0;
+    await extension.runCodexRefresh('poll');
+    assert.equal(backfill, false, change);
+    assert.deepEqual(deliveries.filter(item => item.kind === 'progress'), [], change);
+    assert.ok(deliveries.filter(item => item.kind === 'provider')
+      .every(item => item.value.codexProgress === null), change);
+    assert.notEqual(extension.codexView, previousView, 'new verified data must still be delivered');
+    assert.equal(extension.codexView.coverage.totalBytes, updated.coverage.totalBytes);
+  }
+});
+
+test('coordinator ordinary tail ingestion stays quiet even before its last progress event', async () => {
+  const { extension, deliveries, snapshot } = coordinatorHarness(true);
+  await extension.runCodexRefresh('poll');
+  const updated = structuredClone(snapshot);
+  updated.coverage.indexedBytes += 100;
+  updated.coverage.totalBytes += 100;
+  extension.codexProvider.refresh = async (_profile: unknown, onProgress: (value: unknown) => void) => {
+    for (const indexedBytes of [snapshot.coverage.indexedBytes, updated.coverage.indexedBytes]) {
+      extension.codexProgressLastRenderedAt = 0;
+      onProgress({ scannedFiles: updated.coverage.indexedFiles, totalFiles: updated.coverage.totalFiles,
+        indexedBytes, totalBytes: updated.coverage.totalBytes, period: updated.coverage.period,
+        hourly: updated.hourlyCoverage });
+      extension.syncProviderUi('poll');
+    }
+    return { outcome: 'success', snapshot: updated };
+  };
+  deliveries.length = 0;
+  await extension.runCodexRefresh('poll');
+  assert.deepEqual(deliveries.filter(item => item.kind === 'progress'), []);
+  assert.ok(deliveries.filter(item => item.kind === 'provider')
+    .every(item => item.value.codexProgress === null));
+});
+
+test('coordinator identity ambiguity is quality evidence, not repeatable history work', async () => {
+  const { extension, deliveries, snapshot } = coordinatorHarness(true);
+  snapshot.coverage.identity = { complete: false, exactDuplicateFiles: 0, ambiguousSessionGroups: 2 };
+  const attempts: boolean[] = [];
+  extension.codexProvider.refresh = async (_profile: unknown, onProgress: (value: unknown) => void,
+    allowHistoricalBackfill: boolean) => {
+    attempts.push(allowHistoricalBackfill);
+    onProgress({ scannedFiles: snapshot.coverage.indexedFiles, totalFiles: snapshot.coverage.totalFiles,
+      indexedBytes: snapshot.coverage.indexedBytes, totalBytes: snapshot.coverage.totalBytes,
+      period: snapshot.coverage.period, hourly: snapshot.hourlyCoverage });
+    return { outcome: 'partial', snapshot };
+  };
+  await extension.runCodexRefresh('poll');
+  await extension.runCodexRefresh('poll');
+  assert.deepEqual(attempts, [false, false]);
+  assert.equal(extension.codexBackgroundState.status, 'complete');
+  assert.equal(extension.codexDashboardProgress(), null);
+  assert.deepEqual(deliveries.filter(item => item.kind === 'progress'), []);
+  assert.ok(deliveries.filter(item => item.kind === 'provider')
+    .every(item => item.value.codexProgress === null || item.value.codexProgress.totalFiles === 0),
+    'cold provider discovery may precede hydration, but complete coverage must not show backfill');
+  assert.equal(extension.codexView.coverage.identity.complete, false);
+  assert.deepEqual(extension.codexView.qualityFlags.find((item: any) =>
+    item.flag === 'ambiguous-session-identity'), { flag: 'ambiguous-session-identity', count: 2 });
+});
+
+test('coordinator real main, period and hourly history work keeps its own truthful progress', () => {
+  for (const phase of ['main', 'period', 'hourly']) {
+    const { extension, snapshot } = coordinatorHarness(true);
+    snapshot.coverage.identity.complete = false;
+    snapshot.coverage.identity.ambiguousSessionGroups = 2;
+    if (phase === 'main') Object.assign(snapshot.coverage,
+      { complete: false, indexedFiles: 4, indexedBytes: 1_300 });
+    if (phase === 'period') Object.assign(snapshot.coverage.period.allTime,
+      { complete: false, migratedFiles: 4, migratedBytes: 1_300 });
+    if (phase === 'hourly') Object.assign(snapshot.hourlyCoverage!,
+      { complete: false, indexedFiles: 2, indexedBytes: 600 });
+    extension.applyCodexSnapshot(snapshot);
+    assert.equal(extension.codexHistoricalWorkPending(snapshot), true, phase);
+    extension.codexBackgroundState = recordBackgroundWorkFailure(beginBackgroundWork(
+      createBackgroundWorkState({ measurementVersion: 1, reason: 'history-backfill', now: 0 }),
+      { trigger: 'automatic', now: 1 }).state, { now: 2 });
+    const progress = extension.codexDashboardProgress();
+    assert.equal(progress.phase, phase);
+    assert.equal(progress.workState.status, 'cooldown');
+    assert.ok(progress.scannedFiles < progress.totalFiles);
+    extension.codexBackgroundState = pauseBackgroundWork(extension.codexBackgroundState, { now: 3 });
+    assert.equal(extension.codexDashboardProgress().workState.status, 'paused');
+  }
+  assert.equal(bareExtension().codexHistoricalWorkPending(null), true);
+});
+
 test('coordinator checkpoint hydration cannot outlive disposal or its configuration generation', async () => {
   for (const boundary of ['dispose', 'configuration']) {
     const { extension, deliveries, snapshot } = coordinatorHarness(true);
@@ -1703,7 +1813,7 @@ test('cooldown, user pause, and completed measurement suppress historical backfi
       extension.syncProviderUi = () => undefined;
       extension.codexProvider = {
         isAvailable: async () => true,
-        loadPersistedSnapshot: async () => snapshot,
+        loadPersistedSnapshot: async () => state.status === 'complete' ? completeCoordinatorSnapshot() : snapshot,
         refresh: async (
           _profile: string,
           _onProgress: unknown,
@@ -1712,7 +1822,7 @@ test('cooldown, user pause, and completed measurement suppress historical backfi
           allowed.push(allowHistoricalBackfill);
           return {
             outcome: 'partial',
-            snapshot,
+            snapshot: state.status === 'complete' ? completeCoordinatorSnapshot() : snapshot,
             diagnostic: {
               bodyReads: 0,
               failedFiles: 0,
@@ -1732,6 +1842,60 @@ test('cooldown, user pause, and completed measurement suppress historical backfi
   }
 
   assert.deepEqual(allowed, [false, false, false]);
+});
+
+test('Codex providers isolate source homes, profile salts, and timezones in shared global storage', () => {
+  const extension = bareExtension();
+  extension.context.globalStorageUri = { fsPath: '/fixture/shared-storage' };
+  extension.codexSalt = 'profile-a';
+  extension.selectCodexSnapshotHome = () => undefined;
+  extension.codexHome = (config: any) => config.home;
+  const options = (home: string, timezone = 'UTC') =>
+    extension.createCodexProvider({ home, timezone, codexEnabled: true }).options;
+  const first = options('/fixture/daily');
+  const second = options('/fixture/testing');
+  const zone = options('/fixture/daily', 'Europe/Istanbul');
+  extension.codexSalt = 'profile-b';
+  const profile = options('/fixture/daily');
+  assert.equal(new Set([first.indexPath, second.indexPath, zone.indexPath, profile.indexPath]).size, 4);
+  assert.match(first.indexPath, /codex-index-v1-[a-f0-9]{64}\.json$/);
+  assert.doesNotMatch(first.indexPath, /daily|profile-a/);
+  extension.codexSalt = 'profile-a';
+  assert.equal(options('/fixture/daily').indexPath, first.indexPath);
+});
+
+test('same-generation coverage regression queues accelerated reconciliation after a steady pass', async () => {
+  const extension = bareExtension();
+  const complete = completeCoordinatorSnapshot();
+  const pending = structuredClone(complete);
+  pending.coverage.complete = false;
+  pending.coverage.indexedFiles = 0;
+  const seed = createBackgroundWorkState({
+    measurementVersion: 1, reason: 'history-backfill', now: 1,
+    progress: { completedUnits: 1, totalUnits: 1, completedBytes: 1, totalBytes: 1 },
+  });
+  extension.codexBackgroundState = recordBackgroundWorkProgress(
+    beginBackgroundWork(seed, { trigger: 'automatic', now: 1 }).state,
+    { now: 2, complete: true, progress: seed.progress },
+  );
+  extension.getConfiguration = () => ({ codexEnabled: true });
+  extension.windowActivity = new WindowActivityGate(true);
+  extension.webviewProvider = { updateCodexProgress: () => undefined };
+  extension.syncProviderUi = () => undefined;
+  const continuations: string[] = [];
+  extension.refreshCodexData = async (trigger: string) => { continuations.push(trigger); };
+  extension.codexProvider = {
+    isAvailable: async () => true,
+    loadPersistedSnapshot: async () => complete,
+    refresh: async (_mode: string, _progress: unknown, historical: boolean) => {
+      assert.equal(historical, false);
+      return { outcome: 'partial', snapshot: pending };
+    },
+  };
+  await extension.runCodexRefresh('poll');
+  await Promise.resolve();
+  assert.equal(extension.codexBackgroundState.status, 'eligible');
+  assert.deepEqual(continuations, ['poll']);
 });
 
 test('a missing persisted index invalidates same-version complete background work', async () => {
@@ -1874,7 +2038,7 @@ test('a recovered index invalidates complete state and queues historical reconci
   };
   extension.codexProvider = {
     isAvailable: async () => true,
-    loadPersistedSnapshot: async () => pending,
+    loadPersistedSnapshot: async () => completeCoordinatorSnapshot(),
     refresh: async () => ({
       outcome: 'partial',
       snapshot: pending,

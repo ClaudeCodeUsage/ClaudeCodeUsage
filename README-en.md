@@ -79,6 +79,8 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 - **Quieter updates and recovery** — auto-refresh pause applies to both pages,
   not background collection or the status bar. Manual refresh still works;
   failures retain verified data, and backfill/retry phases are clearly labelled.
+  Completed Codex history stays quiet during normal appends/new files; identity
+  ambiguity remains a quality warning, not a repeating backfill attempt.
   Unchanged hidden panels and weekly aggregates reuse bounded caches.
 - **Exact previews and safe settings** — AI previews include the endpoint,
   protocol and model without silently changing providers. Share Card export
@@ -189,10 +191,13 @@ retention, migration, clearing, and remote-interaction contract.
 | Data | Local retention | Remote behavior |
 |---|---|---|
 | Source logs | Provider-owned, read-only; never copied wholesale | None by default |
-| Codex index | Bounded pseudonymous numeric/structural aggregates | None |
+| Codex index | Bounded pseudonymous aggregates, isolated by source directory, profile salt and timezone; rebuild affects the active index, Clear All includes all exact index families | None |
 | Quota history | Bounded anonymous window observations; no raw account ID | Claude quota lookup only when enabled; Codex evidence stays local |
 | UI/share state | Filters plus optional title/range and GitHub destination strings | Publish only after exact explicit confirmation |
 | Advice state/key | Bounded aggregate evidence; key only in SecretStorage | Exact previewed request only after a separate Send action |
+
+A timezone switch can reuse a complete, proven same-source checkpoint read-only;
+only date/hour buckets migrate, without restarting primary history.
 
 A reset absent from official/local structured evidence cannot be reconstructed.
 Ambiguous multi-login Codex history uses the latest real observation for a

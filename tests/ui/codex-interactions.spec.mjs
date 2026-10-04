@@ -593,6 +593,51 @@ test('live Codex indexing progress patches text without replacing the page or mo
   expect(await page.evaluate(() => scrollY)).toBe(target);
 });
 
+test('completed Codex history stays banner-free across live patches and reload without losing drill-down', async ({ page }) => {
+  await openCodex(page, { fixture: 'complete-index', height: 560, autoRefresh: true });
+  await page.locator('#tab-month').click();
+  const day = '2026-07-19';
+  const toggleSelector = `#month [data-codex-hourly-toggle][data-date="${day}"]`;
+  const detail = page.locator(`#month [data-codex-hourly-detail-row][data-date="${day}"]`);
+  await page.locator(toggleSelector).click();
+  await expect(detail).toBeVisible();
+  // Let the intentional drill-down animation finish before observing movement
+  // caused by a background data patch. Clock advancement alone does not finish
+  // Chromium's native smooth scrolling.
+  await page.evaluate(() => new Promise(resolve => {
+    let previous = window.scrollY;
+    let stableFrames = 0;
+    const settled = () => {
+      stableFrames = window.scrollY === previous ? stableFrames + 1 : 0;
+      previous = window.scrollY;
+      if (stableFrames >= 8) resolve();
+      else requestAnimationFrame(settled);
+    };
+    requestAnimationFrame(settled);
+  }));
+  await page.locator(toggleSelector).focus();
+  const before = await page.locator(toggleSelector).evaluate(node => {
+    window.scrollBy({ top: node.getBoundingClientRect().top - 120, behavior: 'instant' });
+    document.body.dataset.completedHistoryIdentity = 'preserved';
+    return node.getBoundingClientRect().top;
+  });
+  for (const revision of [1, 2, 3]) {
+    await dispatchDashboardDataPatch(page, { provider: 'codex', fixture: 'complete-index', revision });
+    await expect.poll(() => page.evaluate(() => window.__ccuPostedMessages.at(-1)))
+      .toEqual({ command: 'dashboardDataPatchAck', revision, ok: true });
+    await expect(page.locator('[data-codex-index-progress-text]')).toHaveCount(0);
+    await expect(detail).toBeVisible();
+    await expect(page.locator(toggleSelector)).toBeFocused();
+    await expect(page.locator('body')).toHaveAttribute('data-completed-history-identity', 'preserved');
+    await expect.poll(() => page.locator(toggleSelector).evaluate(node => node.getBoundingClientRect().top))
+      .toBeCloseTo(before, 0);
+  }
+  await page.reload();
+  await expect(page.locator('#tab-month')).toHaveClass(/active/);
+  await expect(detail).toBeVisible();
+  await expect(page.locator('[data-codex-index-progress-text]')).toHaveCount(0);
+});
+
 for (const provider of [
   { name: 'Claude', value: 'claude', open: openClaude },
   { name: 'Codex', value: 'codex', open: openCodex },

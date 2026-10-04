@@ -201,6 +201,8 @@ real account or an installed-VSIX capture.*
   provider pages, not background indexing or the status bar. Manual refresh
   remains available; failures retain verified data and show a compact recovery
   message. Primary-log coverage, hourly backfill and retry waits are separate.
+  Completed Codex history stays quiet during normal appends/new files; identity
+  ambiguity remains a quality warning, not a repeating backfill attempt.
   Unchanged hidden panels and weekly usage aggregates reuse bounded caches.
 - **Predictable preview and settings** — AI previews show the actual endpoint,
   protocol and model; incompatible settings fail without redirecting to another
@@ -626,10 +628,13 @@ remote boundaries are in [Local data and privacy](LOCAL-DATA.md) ([简体中文]
 | Data | Stored locally | Remote behavior | Clear path |
 |---|---|---|---|
 | Claude/Codex source logs | Provider-owned and read-only; never copied wholesale | None by default | Managed by the provider tools, not deleted by this extension |
-| Codex derived index | Bounded pseudonymous numeric/structural aggregates | None | Rebuild or clear derived index |
+| Codex derived index | Bounded pseudonymous numeric/structural aggregates, isolated by source directory, profile salt and timezone | None | Rebuild the active index; Clear All removes every exact index family in this extension storage |
 | Quota observations | Bounded anonymous window facts; no raw account ID | Claude quota fetch only when enabled; Codex evidence stays local | Clear by provider/account epoch or all |
 | UI/share preferences | Tab/filter state plus optional title/range and GitHub destination strings | Publish only after exact explicit confirmation | Reset UI or sharing preferences independently |
 | Advice data/key | Bounded aggregate evidence; key only in SecretStorage | Exact previewed request only after separate Send | Clear advice data and key independently |
+
+A timezone switch can reuse a complete, proven same-source checkpoint read-only;
+only date/hour buckets migrate, without restarting primary history.
 
 - All **Claude** token / cost / session analysis runs locally by reading your
   `~/.claude/projects/**/*.jsonl` files.

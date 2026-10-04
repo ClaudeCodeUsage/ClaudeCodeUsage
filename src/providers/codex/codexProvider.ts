@@ -33,10 +33,12 @@ import {
   weeklyQuotaObservationsFromCodexHistory,
   weeklyQuotaObservationsFromCodexLimit,
 } from './codexQuotaHistory';
-import { CodexIndexClient } from './codexIndexClient';
+import { CodexIndexClient, CodexWorkerError } from './codexIndexClient';
 import {
   CodexWorkerRefreshInput,
   CodexWorkerResult,
+  CodexIndexErrorCode,
+  safeCodexIndexErrorCode,
 } from './codexWorkerProtocol';
 import { CodexSessionTitleCache } from './codexIdentity';
 import { classifyCodexSessionDuplicates } from './codexDedup';
@@ -90,6 +92,7 @@ export interface CodexProviderResult {
     parseMs: number;
     migrationPending: boolean;
     indexRecovery?: CodexIndexRecovery;
+    errorCode?: CodexIndexErrorCode;
   };
 }
 
@@ -369,6 +372,8 @@ export class CodexProvider {
     return sessions || archive;
   }
 
+  get indexPath(): string { return this.options.indexPath; }
+
   /**
    * Hydrate the last atomically checkpointed subtotal without starting the
    * worker. This keeps the dashboard useful while a long cold backfill or
@@ -443,6 +448,7 @@ export class CodexProvider {
         {
           codexHome: this.options.codexHome,
           indexPath: this.options.indexPath,
+          legacyIndexPath: this.options.legacyIndexPath,
           salt: this.options.salt,
           timeZone: this.options.timeZone,
           profile,
@@ -485,7 +491,7 @@ export class CodexProvider {
             : {}),
         },
       };
-    } catch {
+    } catch (error) {
       try {
         await client.dispose();
       } finally {
@@ -495,6 +501,11 @@ export class CodexProvider {
         outcome: 'error',
         snapshot: this.currentSnapshot ?? emptySnapshot(this.options.timeZone),
         progress: this.lastProgress,
+        diagnostic: {
+          bodyReads: 0, failedFiles: 0, metadataMs: 0, parseMs: 0,
+          migrationPending: false,
+          errorCode: safeCodexIndexErrorCode(error instanceof CodexWorkerError ? error.code : undefined),
+        },
       };
     }
   }

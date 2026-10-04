@@ -442,6 +442,21 @@ function withoutHourlyRowsForCoveredDay(snapshot, day) {
   return snapshot;
 }
 
+function completedHistorySnapshot(snapshot) {
+  const main = snapshot.coverage;
+  main.totalFiles = main.indexedFiles;
+  main.totalBytes = main.indexedBytes;
+  main.complete = true;
+  for (const range of [main.period.last7Days, main.period.last30Days, main.period.allTime]) {
+    range.totalFiles = range.migratedFiles;
+    range.totalBytes = range.migratedBytes;
+    range.complete = true;
+  }
+  snapshot.hourlyCoverage.complete = true;
+  snapshot.qualityFlags = {};
+  return snapshot;
+}
+
 exports.renderHarness = async function renderHarness({
   provider: selectedProvider = 'codex',
   locale = 'en',
@@ -489,6 +504,8 @@ exports.renderHarness = async function renderHarness({
         ? withoutInputSnapshot(baseSnapshot)
         : fixture === 'covered-day-without-hourly-rows'
           ? withoutHourlyRowsForCoveredDay(baseSnapshot, '2026-07-19')
+        : fixture === 'complete-index'
+          ? completedHistorySnapshot(baseSnapshot)
         : baseSnapshot;
     const view = buildCodexUsageView(snapshot, CODEX_WEBVIEW_NOW);
     const provider = new UsageWebviewProvider({ globalState: memoryGlobalState() });

@@ -43,6 +43,7 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - Codex menampilkan **token terpakai hari ini** dan **sisa kuota** secara terpisah: penggunaan mingguan 36% berarti `wk 64%`. Tooltip tetap menampilkan bilah penggunaan, waktu reset, dan catatan berbaris. Kuota berasal dari pengamatan lokal terakhir, bukan saldo langsung.
 - Detail periode tertutup secara default; pengaturan berbagi berada di bawah pratinjau. Berbagi aktif secara default dan dapat dimatikan, dengan intensitas kuantil, logaritmik, atau linear.
 - Panggilan CLI dihitung hanya jika sesi persisten menyimpan log dengan usage. Panggilan tanpa log tidak dapat dipulihkan; Hari ini dan 30 hari terakhir memakai zona waktu yang dikonfigurasi.
+- Setelah indeks riwayat Codex selesai, tambahan log atau file baru tidak lagi memunculkan pemberitahuan pengisian berulang. Identitas sesi ambigu tetap menjadi peringatan kualitas tanpa mengulang pekerjaan yang tidak dapat menyelesaikannya. Progres indeks yang benar-benar belum selesai dan percobaan ulang tetap terlihat.
 - Projects menambahkan heatmap Token 30/90 hari “proyek × tanggal” dan tren harian bertumpuk untuk kedua penyedia, dengan tooltip presisi, cakupan eksplisit, baris terbatas, dan ekor “Proyek lain”.
 
 ## Fitur
@@ -171,10 +172,13 @@ retensi, migrasi, penghapusan, dan batas interaksi jarak jauh.
 | Data | Retensi lokal | Perilaku jarak jauh |
 |---|---|---|
 | Log sumber | Milik penyedia, hanya-baca, tidak disalin utuh | Tidak ada secara default |
-| Indeks Codex | Agregat numerik/struktur pseudonim yang terbatas | Tidak ada |
+| Indeks Codex | Agregat pseudonim terbatas, terpisah menurut direktori log, salt profil dan zona waktu; bangun ulang hanya indeks aktif, Hapus Semua mencakup semua keluarga berkas indeks yang cocok persis | Tidak ada |
 | Riwayat kuota | Pengamatan jendela anonim terbatas, tanpa ID akun mentah | Hanya kuota Claude saat aktif; Codex tetap lokal |
 | UI/berbagi | Filter serta judul/rentang/tujuan GitHub opsional | Publikasi hanya setelah konfirmasi tepat |
 | Saran/kunci | Bukti agregat terbatas; kunci hanya di SecretStorage | Hanya permintaan yang dipratinjau persis setelah tindakan Kirim terpisah |
+
+Perubahan zona waktu dapat memakai checkpoint lengkap yang terbukti berasal dari sumber yang sama secara hanya-baca.
+Hanya bucket tanggal/jam yang dimigrasikan, tanpa membangun ulang riwayat utama dari nol.
 
 Reset tanpa bukti terstruktur tidak dapat direkonstruksi. Riwayat beberapa login
 yang ambigu memakai pengamatan nyata terbaru untuk estimasi gabungan periode berjalan

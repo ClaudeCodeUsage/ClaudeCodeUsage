@@ -30,6 +30,7 @@ const server = createServer(async (request, response) => {
     const requestedFixture = url.searchParams.get('fixture') ?? 'default';
     const fixture = [
       'default',
+      'complete-index',
       'rootless-cycle',
       'root-over-limit',
       'persisted-details',

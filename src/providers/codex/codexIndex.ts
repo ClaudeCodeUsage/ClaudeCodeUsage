@@ -4350,30 +4350,8 @@ async function quarantineCorruptCodexIndex(indexPath: string): Promise<void> {
   await rename(indexPath, backupPath);
 }
 
-export async function loadCodexIndex(
-  indexPath: string,
-  timeZone = 'UTC',
-  onRecovery?: (recovery: CodexIndexRecovery) => void,
-): Promise<CodexIndexV3> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readFile(indexPath, 'utf8'));
-  } catch (error) {
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'code' in error &&
-      (error as NodeJS.ErrnoException).code === 'ENOENT'
-    ) {
-      return createEmptyCodexIndex(timeZone);
-    }
-    if (error instanceof SyntaxError) {
-      await quarantineCorruptCodexIndex(indexPath);
-      onRecovery?.({ reason: 'invalid-json' });
-      return recoveredIndex(timeZone);
-    }
-    throw error;
-  }
+/** Shared normalization lets read-only legacy adoption parse its container once. */
+export function normalizeCodexIndex(parsed: unknown): CodexIndexV3 | null {
   if (isIndexV1(parsed)) {
     return markLineageRescanRequired(migrateIndexV1(parsed));
   }
@@ -4387,6 +4365,28 @@ export async function loadCodexIndex(
       ? markLineageRescanRequired(sanitized)
       : sanitized;
   }
+  return null;
+}
+
+export async function loadCodexIndex(
+  indexPath: string,
+  timeZone = 'UTC',
+  onRecovery?: (recovery: CodexIndexRecovery) => void,
+): Promise<CodexIndexV3> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(indexPath, 'utf8'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return createEmptyCodexIndex(timeZone);
+    if (error instanceof SyntaxError) {
+      await quarantineCorruptCodexIndex(indexPath);
+      onRecovery?.({ reason: 'invalid-json' });
+      return recoveredIndex(timeZone);
+    }
+    throw error;
+  }
+  const normalized = normalizeCodexIndex(parsed);
+  if (normalized) return normalized;
   await quarantineCorruptCodexIndex(indexPath);
   onRecovery?.({ reason: 'unsupported-schema' });
   return recoveredIndex(timeZone);
