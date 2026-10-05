@@ -20,11 +20,13 @@ test('all nine README editions document the 2.4.2 candidate and its canonical op
 });
 
 test('achievement storage and ownership are documented in the privacy inventory and both architecture copies', () => {
-  const inventory = read('LOCAL-DATA.md');
-  for (const key of ['ccu.achievements.grants.v5', 'ccu.achievements.activity.v2',
-    'ccu.achievements.hours.v3', 'ccu.achievements.calendarPeak.v1']) assert.ok(inventory.includes(key), key);
-  assert.match(inventory, /32,768/);
-  assert.match(inventory, /524,288/);
+  for (const file of ['LOCAL-DATA.md', 'LOCAL-DATA.zh-CN.md']) {
+    const inventory = read(file);
+    for (const key of ['ccu.achievements.grants.v5', 'ccu.achievements.activity.v2',
+      'ccu.achievements.hours.v3', 'ccu.achievements.calendarPeak.v1']) assert.ok(inventory.includes(key), `${file}: ${key}`);
+    assert.match(inventory, /32,768/);
+    assert.match(inventory, /524,288/);
+  }
   for (const file of ['ARCHITECTURE.md', 'ARCHITECTURE-zh-CN.md']) {
     const doc = read(file);
     assert.ok(doc.includes('achievementCalendar.ts'));
