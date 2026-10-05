@@ -126,7 +126,7 @@ function renderCatalogMarkdown(catalog, locale = 'zh-CN') {
   const threeTierCount = catalog.filter(card => card.levels.length === 3).length;
   const fiveTierCount = catalog.filter(card => card.levels.length === 5).length;
   const singleCount = catalog.filter(card => card.levels.length === 1).length;
-  const lines = [`# ${zh ? 'v2.4.1 成就与图标审阅清单' : 'v2.4.1 achievement and artwork review'}`, '',
+  const lines = [`# ${zh ? 'v2.4.2 成就与图标审阅清单' : 'v2.4.2 achievement and artwork review'}`, '',
     zh ? `${threeTierCount} 个三级系列 + ${fiveTierCount} 个五级系列 + ${singleCount} 个单次成就，共 ${catalog.length} 张卡、${catalog.reduce((sum, card) => sum + card.levels.length, 0)} 个可解锁等级。图鉴不是个人获奖记录。门槛与图片直接来自编译后的候选代码；复用原图，不重绘。` :
       `${threeTierCount} three-tier series + ${fiveTierCount} five-tier series + ${singleCount} single awards: ${catalog.length} cards and ${catalog.reduce((sum, card) => sum + card.levels.length, 0)} unlockable awards. This catalog is not personal award history. Targets and artwork come directly from the compiled candidate; existing art is reused, not redrawn.`, ''];
   for (const group of ['claude', 'codex', 'combined', 'plugin']) {

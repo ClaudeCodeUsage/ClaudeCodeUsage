@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } from '../achievements';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl } from '../achievementIcons';
 
-const { achievementCatalog, renderCatalogGroup } = require(resolve(
+const { achievementCatalog, renderCatalogGroup, renderCatalogMarkdown } = require(resolve(
   __dirname, '../../tests/ui/support/achievement-catalog.cjs',
 ));
 
@@ -39,5 +39,13 @@ test('mobile review sheets explicitly show catalog conditions, not personal unlo
     assert.doesNotMatch(html, /<script|https?:|fetch\(|setInterval\(|已获得|<progress/);
     assert.match(html, /data:image\/png;base64,/);
     assert.match(html, /普通/);
+  }
+});
+
+test('mobile review Markdown identifies the achievement candidate rather than the performance release', () => {
+  for (const locale of ['zh-CN', 'en']) {
+    const markdown = renderCatalogMarkdown(achievementCatalog(locale), locale);
+    assert.match(markdown, /^# v2\.4\.2 /);
+    assert.doesNotMatch(markdown, /v2\.4\.1/);
   }
 });
