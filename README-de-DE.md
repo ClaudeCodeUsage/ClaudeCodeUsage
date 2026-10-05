@@ -60,12 +60,15 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 Der noch nicht veröffentlichte Kandidat 2.4.2 hat 46 Symbolserien mit 124 Stufenbedingungen: Modell-Token, Ausgabe/Cache,
 Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
+Serien und Stufen werden getrennt gezählt. Lokale Filter bleiben nach Neuladen
+erhalten; das nächste Ziel steht auf der Karte, alle Stufenregeln im aufklappbaren Bereich.
 Standardmäßig an; **Local achievements** in ⚙ Settings (`enableAchievements`)
 schaltet neue Auszeichnungen und den zusätzlichen Stunden-Nachlauf ab.
 Beim Upgrade erscheint einmal ein nicht-modaler Hinweis mit Abschaltoption;
 vorherige Abschaltungen bleiben erhalten. Historische Freischaltungen sind still.
 Spätere Hinweise bleiben kurz im Dashboard, ohne Ton oder Fokuswechsel.
-Bis zu neun gewählte Abzeichen lassen sich nach Vorschau lokal als SVG exportieren,
+Bis zu neun gewählte Abzeichen lassen sich nach Vorschau als genau dieses SVG exportieren;
+veraltete Antworten erlauben keinen Export. Direkte Wege führen zurück zur Galerie und zur Abschaltoption,
 ohne GitHub-Anmeldung. Die Daten können mehrere Anmeldungen enthalten und
 belegen keine persönliche Produktivität. [Speicherung und Löschen](LOCAL-DATA.md#local-achievements-242-candidate).
 

@@ -57,12 +57,15 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 O candidato 2.4.2, ainda não lançado, tem 46 séries de ícones e 124 condições de nível: tokens por modelo, saída/cache,
 atividade, recordes semanais e algumas ações deliberadas no plugin.
+Séries e níveis têm contagens separadas. Filtros locais persistem após recarregar;
+o próximo alvo aparece no cartão e as regras de todos os níveis ficam na seção expansível.
 Ativas por padrão; desative **Local achievements** em ⚙ Settings
 (`enableAchievements`) para interromper novos prêmios e o preenchimento adicional
 de horas. A atualização mostra um aviso não modal uma única vez, com opção de
 desativar; escolhas anteriores de desativação são preservadas. Conquistas históricas
 ficam silenciosas; novos avisos são breves no painel, sem som ou mudança de foco.
-Escolha até nove emblemas, confira a prévia e exporte SVG localmente, sem login
+Escolha até nove emblemas e exporte exatamente a prévia SVG; respostas antigas não
+liberam a exportação. Há atalhos para voltar ao catálogo e localizar a opção de desativar, sem login
 GitHub. Históricos com múltiplos logins não comprovam produtividade individual.
 [Armazenamento e limpeza](LOCAL-DATA.md#local-achievements-242-candidate).
 

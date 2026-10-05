@@ -64,7 +64,9 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 
 The unreleased 2.4.2 candidate's icon-first gallery groups **46 series and 124 level conditions** into ordinary,
 silver and gold tiers, with platinum/legendary cumulative milestones. Expand a card
-for its exact rule and next target. Claude Sonnet/Opus/Haiku/Fable and Codex
+for every level's rule; the next target is visible on the card. Series and unlocked
+levels are counted separately. Local All / Next level / Earned filters survive reload,
+and tier upgrades keep the disclosure open. Claude Sonnet/Opus/Haiku/Fable and Codex
 Astra/Sol/Luna progression is primarily token-based; effort, agents, active days,
 cache/output, and a few deliberate plugin actions add variety.
 
@@ -81,7 +83,10 @@ a brief in-dashboard notice without sound or focus theft. Night/24–48-hour bad
 remain silent. Off stops new awards and extra hour-proof backfill, not usage tracking.
 
 Sharing requires selecting up to nine earned badges, accepting a preview and
-exporting a local SVG. No GitHub identity, auto-export or upload is involved.
+exporting that exact SVG. Stale replies cannot enable export for a newer selection;
+preview failures offer retry guidance. Return to the gallery from sharing, or use
+its settings shortcut to focus the opt-out without changing it. No GitHub identity,
+auto-export or upload is involved.
 Rules reuse verified numeric aggregates; expanding cards does not read logs.
 Older Codex indexes may get one bounded, resumable hour-proof pass, without
 resetting primary totals. Refresh failures retain visible statistics but cannot

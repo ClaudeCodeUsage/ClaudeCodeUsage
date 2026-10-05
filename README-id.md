@@ -62,12 +62,15 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 Kandidat 2.4.2 yang belum dirilis berfokus pada ikon: 46 seri dan 124 kondisi tingkat, meliputi token model,
 output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
+Seri dan tingkat dihitung terpisah. Filter lokal bertahan setelah muat ulang;
+target berikutnya tampil di kartu, semua aturan tingkat ada di bagian yang dapat dibuka.
 Aktif secara default; matikan **Local achievements** di ⚙ Settings
 (`enableAchievements`) untuk menghentikan penghargaan baru dan pengisian bukti jam
 tambahan, bukan pelacakan penggunaan biasa. Saat upgrade ada satu pemberitahuan
 non-modal dengan pilihan menonaktifkan; pilihan nonaktif sebelumnya tetap berlaku.
 Pembukaan historis tetap senyap; pemberitahuan baru singkat di panel tanpa suara
-atau mengambil fokus. Pilih hingga sembilan lencana, tinjau, lalu ekspor SVG lokal
+atau mengambil fokus. Pilih hingga sembilan lencana dan ekspor SVG persis seperti pratinjau;
+balasan lama tidak mengaktifkan ekspor. Ada pintasan kembali ke galeri dan ke pengaturan nonaktif,
 tanpa login GitHub. Riwayat akun bersama/beberapa login bukan bukti produktivitas
 pribadi. [Penyimpanan dan penghapusan](LOCAL-DATA.md#local-achievements-242-candidate).
 

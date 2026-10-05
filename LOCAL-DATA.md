@@ -118,6 +118,18 @@ Historical unlocks are saved quietly before new-activity notifications become
 eligible. Later notices are brief, dashboard-only, and never play sound or move focus.
 Night/24–48-hour output badges do not produce these notices.
 
+The gallery's persisted filter is only an `all` / `next` / `earned` enum in the
+existing Webview UI state; disclosure keys are public series IDs. The sharing
+return route remembers only a Claude/Codex enum and a one-shot focus boolean. They contain no
+usage, paths or identities and are removed by Reset Dashboard UI State. Opening,
+filtering or expanding the gallery does not read logs or add network calls.
+Badge-sharing preferences remember only manually selected public rule IDs (at
+most nine). One accepted SVG and its opaque preview handle stay in provider
+memory, not on disk as an export history. The current language is checked before
+export; switching language never silently saves an outdated-language preview.
+Export writes those exact preview bytes;
+replacement, reset, disable or panel close releases the retained artifact.
+
 The extension-owned ledger contains only the following validated fields:
 
 - `ccu.achievements.grants.v5`: an allowlisted set of at most 124 current rule IDs,

@@ -184,7 +184,9 @@ real account or an installed-VSIX capture.*
 
 The unreleased 2.4.2 candidate adds an icon-first gallery: **46 series and 124 level conditions**,
 with ordinary, silver and gold tiers, plus platinum/legendary cumulative milestones.
-One card shows each series; expand it for the exact rule, evidence and next target.
+One card shows each series and its compact next target; expand it for every level's
+rule and evidence. Series and unlocked levels are counted separately. Local All /
+Next level / Earned filters survive reload; upgrading a tier keeps its disclosure open.
 It records usage experience, not skill, productivity, billing or account entitlement.
 
 - **Token-led progression:** Claude Sonnet/Opus/Haiku/Fable and Codex Astra/Sol/Luna,
@@ -202,7 +204,10 @@ It records usage experience, not skill, productivity, billing or account entitle
   Existing opt-outs remain off; historical unlocks stay quiet. Later unlocks use a
   brief in-dashboard notice, without sound or focus theft. Night/24–48-hour badges stay silent.
 - **Preview-first sharing:** explicitly select up to nine earned badges, preview,
-  then export a local SVG. No auto-export, sign-in, profile lookup or background upload.
+  then export that exact SVG. Old responses cannot enable export for a new selection;
+  failures offer retry guidance. A return action leads back to the gallery, and its
+  settings shortcut focuses the opt-out without changing it. No auto-export, sign-in,
+  profile lookup or background upload.
 
 Evaluation reuses verified numeric aggregates; opening cards never reads logs.
 An older Codex index may need a bounded, resumable pass for positive-output hour

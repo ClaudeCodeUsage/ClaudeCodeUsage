@@ -20,6 +20,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Local badge sharing** — explicitly choose up to nine earned badges, accept
   the preview and export a self-contained SVG. No authentication or background
   upload; no credential/network-consent achievements.
+- **Lower-friction gallery** — series and level counts are separate; All / Next
+  level / Earned filters stay local and survive reload. Cards show a compact next
+  target, with every tier's rule inside a stable disclosure. The settings shortcut
+  focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
 - **Large Claude group stack overflow** — project, session, branch and workflow
@@ -35,6 +39,18 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Optional hour-proof work** — old Codex checkpoints retain primary totals while
   a bounded, resumable positive-output-hour pass completes. Disabling achievements
   stops this extra historical work without recreating the usage provider or index.
+- **Stable achievement interaction** — tier upgrades preserve disclosure identity
+  and canonical card order. Live notices count advanced series rather than calling
+  them imported history. Sharing exports the exact accepted SVG, rejects superseded
+  responses/handles, reconciles unavailable selections and recovers visibly from
+  preview failures without exposing private diagnostics. Automatic display restore
+  reuses the accepted artifact instead of silently regenerating it.
+- **Review-driven polish** — high-tier cards name the actual milestone; single-provider
+  views hide unreachable dual-provider series. Qualified units, near-target number
+  precision and consecutive-hour wording are explicit. Five-level disclosures fit
+  320px; silver and platinum have distinct accents. Sharing returns to the original
+  provider with keyboard focus, reports save/cancel/failure, prevents duplicate save
+  dialogs and checks language before accepting an export.
 
 ### Fixed
 - **Source-scoped Codex caches** — different Codex homes, profile salts and

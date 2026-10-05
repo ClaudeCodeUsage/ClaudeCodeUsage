@@ -322,6 +322,23 @@ view/disable actions without opening the gallery automatically. Historical grant
 establish a quiet baseline. Subsequent eligible in-panel notices have no sound or
 focus change; night and 24/48-hour output badges remain silent.
 
+Gallery counts use the enabled-provider series and level denominators separately.
+Canonical series keys own disclosure/focus restoration across tier changes, with
+aliases for older level-specific keys. All/Next/Earned filtering uses only a local
+UI enum; it never schedules provider work. A safe provider enum and one-shot focus
+intent return from sharing to the originating gallery. A compact next target precedes the
+expandable all-tier rules. The settings shortcut focuses the existing opt-out.
+
+Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
+token/request counters reject superseded replies; a response may remove unavailable
+selected IDs but never add badges. Restore reuses matching accepted bytes. Export
+requires the same handle, ordered IDs and display language, and captures those bytes
+before its single-flight save dialog. Success, cancellation and anonymous write
+failure are acknowledged in the panel; a later language change cannot mutate an
+already-started save. Removed choices are explained, never silently upgraded.
+Replacing, clearing, disabling or closing the panel retires the retained
+artifact. Build failures retire the old handle and return only an anonymous flag.
+
 The exact globalState ledger holds allowlisted rule IDs, 29 safe setting-key names
 and four local-feature enums, a streak maximum capped at 48, and one qualified
 four-week-average numeric maximum. It stores no setting values, account/source
