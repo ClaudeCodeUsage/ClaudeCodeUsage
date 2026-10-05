@@ -15,6 +15,9 @@ local-first 的建议有效性闭环、唯一的显式 BYOK 请求边界、可�
 Codex 有界的本地每周重置观测历史，以及滚动 30 天的日期→小时投影。
 v2.4 第一阶段把既有分享界面收敛为一个预览优先的工作台。呈现方式选择器可切换
 综合活动热力图、旧版 Claude 分享卡与仅 Claude 的 token 热力图；全宽导出预览始终位于控制项之前。
+尚未发布的 2.4.2 候选增加默认开启的本地分级成就（`enableAchievements`）、
+一次性升级关闭选项及证据／性能保护。GitHub 联动成就、个人回顾与可视化重设计
+不在本候选范围。
 
 - Claude：精确的本地 token bucket、模型成本估算和 Anthropic OAuth 5 小时/每周配额。
 - Codex：本地 processed/fresh/cache/output/reasoning 指标、模型与 effort 拆分、
@@ -34,6 +37,9 @@ v2.4 第一阶段把既有分享界面收敛为一个预览优先的工作台。
 | `extension.ts` | 激活、命令、设置、provider 生命周期、刷新编排、watcher、状态栏/webview 接线和匿名诊断。 |
 | `dataLoader.ts` | 为精确兼容保留的 Claude 解析、校验、归因和内容分析 primitive。 |
 | `claudeIncrementalIndex.ts` | 生产环境 Claude 内存 per-file 索引：append-tail 解析、精确跨文件 response 去重、受影响 group 聚合、内容分析 contribution 和已物化 dashboard row。 |
+| `achievements.ts`、`achievementSnapshot.ts`、`achievementCalendar.ts`、`achievementHours.ts` | 带版本的规则目录与已验证 Token／日／周／小时证据；只消费已物化数值，不读取日志正文。 |
+| `achievementActivity.ts`、`achievementIcons.ts`、`achievementShare.ts` | 白名单内的主动本地行为枚举、随插件打包的徽章查找与明确触发的自包含 SVG 导出。 |
+| `providers/codex/codexHourProof.ts` | 与规范文件、已验证偏移、当前身份与谱系绑定的有界 UTC 输出小时证明；可选旧索引证明迁移不清零主用量。 |
 | `adviceEffectiveness/contract.ts`、`adapters.ts`、`payload.ts` | 严格的观察/证据/建议/行动/结果契约，隐私重建型 provider adapter，以及 canonical 聚合/个性化 payload。 |
 | `adviceEffectiveness/preparedRequest.ts` / `remoteAdvice.ts` | host 持有的唯一完整 HTTP Prepared 对象、精确 preview/send bytes、BYOK-only 授权、取消与严格结构化解析。 |
 | `adviceEffectiveness/comparisonPairing.ts`、`comparisonResult.ts`、`versionedPersistence.ts` | 净化的可比任务配对、冻结的 measurement-version envelope 与有界的本地反馈/比较存储。 |
@@ -83,6 +89,10 @@ Claude JSONL
 
 Claude aggregate + Codex scope ──> 同一套 `webview.ts` dashboard render stack
 Claude aggregate + Codex scope ──> 并列 Compare（不跨 provider 求和）
+
+已验证供应商数值证据 + 白名单内主动本地行为
+  ──> 带版本成就规则 ──> 有界本地授予／峰值账本
+  ──> 图标优先图鉴 ──> 主动选择徽章预览 ──> 本地 SVG 导出
 
 已物化 Claude + Codex 每日聚合
   ──> 统一分享选择器 ──> 综合活动预览 ──> 显式本地 SVG/Markdown 导出
@@ -217,6 +227,29 @@ v2.3.1 候选还会保留一份有界、账户中性的 account-wide 每周观�
 v2.3.0 不读 Codex credential，也不发网络请求刷新它。
 
 ## 隐私与持久化
+
+### 本地成就（2.4.2 候选）
+
+图鉴包含 46 个系列、124 个等级条件。`enableAchievements` 默认开启，已有关闭偏好
+优先；一次性非模态升级提醒可查看或关闭成就，不自动打开图鉴。历史授予先建立
+静默基线，之后符合条件的新成就只短暂在面板内提示，不发声、不抢焦点；夜间与
+24／48 小时输出徽章始终静默。
+
+globalState 精确账本只含白名单规则 ID、29 个安全设置键与四个本地功能枚举、
+上限为 48 的小时连续输出最大值，以及一个带语境的四周周均数值峰值。不保存设置值、
+账户／来源标识、提示词、凭据、操作时间戳或导出历史。审计及可恢复迁移状态进入
+Clear All 的精确白名单。完整字段与上限见[本地数据说明](LOCAL-DATA.md#local-achievements-242-candidate)。
+
+Claude 在会话列表 1000 行显示截断前物化全会话计数。Codex 证据要求当前清单／身份／
+谱系及适用日期证明。UTC 正输出小时在正常解析时同步获取；旧索引使用有界、可保存
+检查点的证明迁移，保留主用量。关闭成就只停止这项额外迁移，不停止普通用量解析。
+刷新失败立即撤销新授予权限，不重绘或丢弃上次显示的数据；暂停自动刷新也不能绕过。
+用量证据版本与清除／活动版本分别保护排队写入，退役供应商不能授予新成就。首次
+历史对账保持静默。
+
+Claude 项目／会话／分支／工作流的无上限时间范围改为单次遍历计算，不用参数展开；
+项目合并亦逐项追加。这消除了独立复现的 15 万条记录 V8 调用栈溢出，不改变去重
+和数值计量口径。
 
 AI 密钥初始化在激活前完成一次协议兼容迁移。已有密钥而没有明确的 state／旧配置协议时，
 保留旧 Anthropic 默认；明确的协议不变，新安装无密钥时采用 OpenAI 兼容默认。

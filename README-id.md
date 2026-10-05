@@ -58,6 +58,19 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - **Harga multi-vendor** — Opus 4.x / Sonnet 4.x / Haiku 4.5 diverifikasi terhadap harga publik Anthropic; tarif referensi untuk OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen dengan fallback berbasis family model. `Refresh Token Pricing` menarik data LiteLLM langsung.
 - **Personalisasi** — bahasa, zona waktu, angka desimal, angka ringkas, pengelompokan proyek, toggle penyegaran otomatis dashboard.
 
+## Pencapaian lokal (kandidat)
+
+Kandidat 2.4.2 yang belum dirilis berfokus pada ikon: 46 seri dan 124 kondisi tingkat, meliputi token model,
+output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
+Aktif secara default; matikan **Local achievements** di ⚙ Settings
+(`enableAchievements`) untuk menghentikan penghargaan baru dan pengisian bukti jam
+tambahan, bukan pelacakan penggunaan biasa. Saat upgrade ada satu pemberitahuan
+non-modal dengan pilihan menonaktifkan; pilihan nonaktif sebelumnya tetap berlaku.
+Pembukaan historis tetap senyap; pemberitahuan baru singkat di panel tanpa suara
+atau mengambil fokus. Pilih hingga sembilan lencana, tinjau, lalu ekspor SVG lokal
+tanpa login GitHub. Riwayat akun bersama/beberapa login bukan bukti produktivitas
+pribadi. [Penyimpanan dan penghapusan](LOCAL-DATA.md#local-achievements-242-candidate).
+
 ## Yang baru di v2.4
 
 <details open>

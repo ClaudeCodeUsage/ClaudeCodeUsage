@@ -60,6 +60,39 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 - **Multi-vendor pricing** — Opus 4.x / Sonnet 4.x / Haiku 4.5 verified against Anthropic's public pricing; reference rates for OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen with family-aware fallback. `Refresh Token Pricing` pulls live LiteLLM data.
 - **Personalisation** — language, timezone, decimal places, compact numbers, project grouping, dashboard auto-refresh toggle.
 
+## Local achievements (candidate)
+
+The unreleased 2.4.2 candidate's icon-first gallery groups **46 series and 124 level conditions** into ordinary,
+silver and gold tiers, with platinum/legendary cumulative milestones. Expand a card
+for its exact rule and next target. Claude Sonnet/Opus/Haiku/Fable and Codex
+Astra/Sol/Luna progression is primarily token-based; effort, agents, active days,
+cache/output, and a few deliberate plugin actions add variety.
+
+Cumulative processed tokens use one series: **100M → 1B → 10B → 100B → 1T**.
+Calendar-week peaks use **500M / 2B / 10B**; the highest average across four
+completed weeks uses **500M / 2B / 5B**. Weeks start Monday in the configured
+timezone. Unfinished weeks and incomplete coverage cannot certify a four-week average.
+
+The gallery is **on by default**. Disable **Local achievements** in ⚙ Settings
+(`enableAchievements`). With release announcements enabled, an upgrade shows one
+non-modal reminder offering **View achievements** or **Turn achievements off**;
+previous opt-outs are preserved. Historical unlocks stay quiet; later unlocks use
+a brief in-dashboard notice without sound or focus theft. Night/24–48-hour badges
+remain silent. Off stops new awards and extra hour-proof backfill, not usage tracking.
+
+Sharing requires selecting up to nine earned badges, accepting a preview and
+exporting a local SVG. No GitHub identity, auto-export or upload is involved.
+Rules reuse verified numeric aggregates; expanding cards does not read logs.
+Older Codex indexes may get one bounded, resumable hour-proof pass, without
+resetting primary totals. Refresh failures retain visible statistics but cannot
+award from stale evidence.
+
+Badges describe local history, possibly from shared accounts or several sign-ins,
+not personal productivity or subscription allowance. Hour streaks mean recorded
+output in each UTC hour, not continuous human work. Safe-setting exploration and
+local feedback never require credentials or network consent. The exact bounded
+award storage and clear controls are in [LOCAL-DATA.md](LOCAL-DATA.md#local-achievements-242-candidate).
+
 ## What's new in v2.4
 
 <details open>

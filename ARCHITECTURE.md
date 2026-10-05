@@ -21,6 +21,10 @@ v2.4 phase 1 consolidates the existing sharing surfaces into one preview-first
 workspace. A presentation selector switches among the combined activity
 heatmap, the legacy Claude Share Card, and the Claude-only token heatmap; the
 full-width export preview always precedes its controls.
+The unreleased 2.4.2 candidate adds default-on, local-only tiered achievements
+(`enableAchievements`), a once-only upgrade opt-out, and evidence/performance guards.
+GitHub-linked achievements, personal reviews and visualization redesign are not
+part of this candidate.
 
 - Claude: exact local token buckets, model pricing estimates, and Anthropic
   OAuth 5-hour/weekly quota.
@@ -46,6 +50,9 @@ only the separate publish action can perform that network operation.
 | `extension.ts` | Activation, commands, settings, provider lifecycle, refresh orchestration, watchers, status/webview wiring, and anonymous diagnostics. |
 | `dataLoader.ts` | Claude parsing, validation, attribution, and content-analysis primitives retained for exact compatibility. |
 | `claudeIncrementalIndex.ts` | Production in-memory per-file Claude index: append-tail parsing, exact cross-file response deduplication, affected-group aggregation, content-analysis contributions, and materialized dashboard rows. |
+| `achievements.ts`, `achievementSnapshot.ts`, `achievementCalendar.ts`, `achievementHours.ts` | Versioned rule catalog and validated token/day/week/hour evidence, consuming numeric materialized inputs rather than log bodies. |
+| `achievementActivity.ts`, `achievementIcons.ts`, `achievementShare.ts` | Allowlisted deliberate local-action enums, bundled emblem lookup and explicit self-contained badge SVG export. |
+| `providers/codex/codexHourProof.ts` | Bounded UTC positive-output hour proof tied to canonical files, verified offsets, current identity and lineage. Optional old-checkpoint proof migration never resets primary totals. |
 | `adviceEffectiveness/contract.ts`, `adapters.ts`, and `payload.ts` | Strict observation/evidence/recommendation/action/result contracts, privacy-rebuilding provider adapters, and canonical aggregate/personalization payloads. |
 | `adviceEffectiveness/preparedRequest.ts` and `remoteAdvice.ts` | One host-owned full HTTP request object, exact preview/send bytes, BYOK-only authorization, cancellation, and strict structured-advice parsing. |
 | `adviceEffectiveness/comparisonPairing.ts`, `comparisonResult.ts`, and `versionedPersistence.ts` | Sanitized comparable-task pairing, frozen measurement-version envelopes, and bounded local feedback/comparison storage. |
@@ -96,6 +103,10 @@ allowlisted Codex JSONL
 
 Claude aggregates + Codex scopes ──> one `webview.ts` dashboard render stack
 Claude aggregates + Codex scopes ──> side-by-side Compare (no cross-provider totals)
+
+verified numeric provider evidence + deliberate allowlisted local actions
+  ──> versioned achievement rules ──> bounded local grants/peak ledger
+  ──> icon-first gallery ──> explicitly selected badge preview ──> local SVG export
 
 materialized Claude + Codex daily aggregates
   ──> unified sharing selector ──> combined activity preview ──> explicit local SVG/Markdown export
@@ -302,6 +313,36 @@ a reset that never appears in a local log line. v2.3.0 does not read Codex
 credentials or make a network call to refresh it.
 
 ## Privacy and persistence
+
+### Local achievements (2.4.2 candidate)
+
+The gallery has 46 series and 124 level conditions. `enableAchievements` defaults
+on, but an existing opt-out wins; a once-only non-modal upgrade announcement offers
+view/disable actions without opening the gallery automatically. Historical grants
+establish a quiet baseline. Subsequent eligible in-panel notices have no sound or
+focus change; night and 24/48-hour output badges remain silent.
+
+The exact globalState ledger holds allowlisted rule IDs, 29 safe setting-key names
+and four local-feature enums, a streak maximum capped at 48, and one qualified
+four-week-average numeric maximum. It stores no setting values, account/source
+identifiers, prompts, credentials, timestamps of actions, or export history.
+Audit and recoverable migration state is exact-allowlisted in Clear All.
+See [the complete inventory](LOCAL-DATA.md#local-achievements-242-candidate).
+
+Claude materializes all-session counts before the Sessions tab's 1,000-row display
+cap. Codex evidence requires current manifest/identity/lineage and applicable
+period proof. Positive-output UTC hours piggyback on normal parsing; existing
+indexes use bounded checkpointable proof migration while preserving primary
+totals. OFF suppresses that extra migration, not ordinary usage parsing.
+Failed refreshes revoke new-grant authority without rerendering or discarding
+last displayed statistics, including when auto-refresh presentation is paused.
+Separate usage-evidence and clear/activity epochs guard queued writes; retired
+providers cannot authorize a new grant. First-baseline reconciliation stays quiet.
+
+Timestamp bounds for unbounded Claude project/session/branch/workflow histories
+are calculated in one pass without argument spreading; project merges likewise
+append entries individually. This avoids the independently reproduced 150k-row
+V8 stack overflow without changing deduplication or numeric accounting.
 
 Codex discovery is restricted to:
 

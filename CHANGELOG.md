@@ -6,6 +6,36 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
+### Added — 2.4.2 local candidate
+- **Tiered local achievements** — 46 icon-first series and 124 level conditions,
+  reusing bundled artwork. Token-led Claude Sonnet/Opus/Haiku/Fable and Codex
+  Astra/Sol/Luna progression, output/cache, model/effort and agent experiences,
+  calendar activity, weekly peaks, completed four-week averages, and a few safe
+  deliberate plugin actions. Cumulative tokens share one five-tier series.
+- **Default-on with a clear opt-out** — a once-only non-modal upgrade reminder
+  offers View achievements or Turn achievements off, respecting release-reminder
+  settings and existing opt-outs. Historical awards establish a quiet baseline;
+  subsequent eligible awards use a brief in-panel notice without sound or focus
+  theft. Sensitive time-of-day and 24/48-hour output badges remain silent.
+- **Local badge sharing** — explicitly choose up to nine earned badges, accept
+  the preview and export a self-contained SVG. No authentication or background
+  upload; no credential/network-consent achievements.
+
+### Fixed — 2.4.2 local candidate
+- **Large Claude group stack overflow** — project, session, branch and workflow
+  timestamp bounds use a one-pass reducer rather than passing unbounded arrays
+  as function arguments. Project merging likewise appends records individually.
+  Regression coverage includes 150,000 synthetic records and zero-body-read
+  unchanged refreshes. This is distinct from the v2.4.1 warning-flood fix and is
+  not evidence that every Windows memory/CPU issue is solved.
+- **Award-proof lifecycle** — refresh failures immediately revoke permission to
+  award from stale numeric evidence, even while dashboard presentation is paused.
+  Last displayed statistics and legitimate saved awards remain intact; source
+  changes, clearing and retired callbacks cannot grant on behalf of a new source.
+- **Optional hour-proof work** — old Codex checkpoints retain primary totals while
+  a bounded, resumable positive-output-hour pass completes. Disabling achievements
+  stops this extra historical work without recreating the usage provider or index.
+
 ### Fixed
 - **Source-scoped Codex caches** — different Codex homes, profile salts and
   data timezones sharing VS Code global storage no longer replace one another's

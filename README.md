@@ -180,6 +180,42 @@ real account or an installed-VSIX capture.*
 
 ---
 
+## Local achievements (candidate)
+
+The unreleased 2.4.2 candidate adds an icon-first gallery: **46 series and 124 level conditions**,
+with ordinary, silver and gold tiers, plus platinum/legendary cumulative milestones.
+One card shows each series; expand it for the exact rule, evidence and next target.
+It records usage experience, not skill, productivity, billing or account entitlement.
+
+- **Token-led progression:** Claude Sonnet/Opus/Haiku/Fable and Codex Astra/Sol/Luna,
+  output, cache, model/effort exploration, agents, active days and repeat experiences.
+  Cumulative processed tokens share one series: 100M → 1B → 10B → 100B → 1T.
+- **Peaks and sustained use:** a calendar-week peak of 500M / 2B / 10B tokens;
+  the highest average across four completed calendar weeks has 500M / 2B / 5B tiers.
+  Weeks start Monday in the configured timezone; incomplete coverage cannot prove zero use.
+- **Small local discoveries:** deliberately changing safe settings, previewing/exporting
+  a share card, and saving local advice feedback. Credentials, network consent and
+  public GitHub publication are never achievement requirements.
+- **On by default, easy to stop:** turn off **Local achievements** in ⚙ Settings
+  (`enableAchievements`). On upgrade, with release announcements enabled, one
+  non-modal reminder offers **View achievements** and **Turn achievements off**.
+  Existing opt-outs remain off; historical unlocks stay quiet. Later unlocks use a
+  brief in-dashboard notice, without sound or focus theft. Night/24–48-hour badges stay silent.
+- **Preview-first sharing:** explicitly select up to nine earned badges, preview,
+  then export a local SVG. No auto-export, sign-in, profile lookup or background upload.
+
+Evaluation reuses verified numeric aggregates; opening cards never reads logs.
+An older Codex index may need a bounded, resumable pass for positive-output hour
+proof, without resetting its primary totals. Turning achievements off stops this
+extra historical work, not the ordinary usage tracker. A refresh failure revokes
+new-award authority while retaining the last displayed statistics.
+
+Shared accounts and multiple sign-ins in one local history can contribute to these
+badges; they are not proof of one person's activity. Continuous output means a
+positive-output record in each UTC hour, not continuous human work. Clearing all
+extension-derived data removes the local award ledger, never provider logs.
+See [local storage and clearing](LOCAL-DATA.md#local-achievements-242-candidate).
+
 ## What's new in 2.4
 
 <details open>

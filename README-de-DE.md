@@ -56,6 +56,19 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 Das Bild nutzt synthetische Daten, nicht das Konto einer Person. Weitere
 Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](README.md).
 
+## Lokale Erfolge (Kandidat)
+
+Der noch nicht veröffentlichte Kandidat 2.4.2 hat 46 Symbolserien mit 124 Stufenbedingungen: Modell-Token, Ausgabe/Cache,
+Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
+Standardmäßig an; **Local achievements** in ⚙ Settings (`enableAchievements`)
+schaltet neue Auszeichnungen und den zusätzlichen Stunden-Nachlauf ab.
+Beim Upgrade erscheint einmal ein nicht-modaler Hinweis mit Abschaltoption;
+vorherige Abschaltungen bleiben erhalten. Historische Freischaltungen sind still.
+Spätere Hinweise bleiben kurz im Dashboard, ohne Ton oder Fokuswechsel.
+Bis zu neun gewählte Abzeichen lassen sich nach Vorschau lokal als SVG exportieren,
+ohne GitHub-Anmeldung. Die Daten können mehrere Anmeldungen enthalten und
+belegen keine persönliche Produktivität. [Speicherung und Löschen](LOCAL-DATA.md#local-achievements-242-candidate).
+
 ## Daten richtig lesen
 
 Bei Codex gilt **verarbeitet = Eingabe + Ausgabe** und **nicht gecachte Nutzung

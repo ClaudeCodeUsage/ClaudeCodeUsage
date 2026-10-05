@@ -4,7 +4,8 @@ Claude Code Usage is local-first. It reads provider-owned usage logs, stores
 only bounded derived state needed for fast refresh and reset-aware estimates,
 and never treats API-equivalent cost as a bill.
 
-This page is the user-facing inventory for the v2.3.x development line. The
+This page is the user-facing inventory for the v2.4 development line, including
+the unreleased 2.4.2 local-achievements candidate. The
 v2.3.1 normative field-level contract is in
 [`docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md).
 
@@ -19,6 +20,7 @@ v2.3.1 normative field-level contract is in
 | Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy preview, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
 | Share destination | User-entered GitHub target | One versioned `ccu.heatmapDestination.v1` object containing optional `owner/repository/path`; no GitHub credential | Until sharing preferences are reset | Only after an explicit publish action and exact destination confirmation. A successful write is reported even if saving this convenience preference fails |
 | Advice evidence | Derived local aggregates and explicit feedback | Coarse observations, recommendations, ratings, snoozes, comparable-task metrics, coverage, and versions | Bounded local ledger; clear independently | Nothing by default; only the exact previewed request is sent after a separate action |
+| Local achievements (2.4.2 candidate) | Verified numeric usage and deliberate allowlisted local actions | Rule IDs, safe setting-key/feature enums (never values), a bounded hour-streak maximum, and a version/timezone-qualified four-week-average peak | Default on; off stops new grants and extra historical hour-proof work but preserves saved badges. Clear all extension-derived data removes the exact achievement state families | None; sharing requires an explicit local preview/export, not GitHub authentication |
 | Advice API key | User-provided secret | Secret value in VS Code SecretStorage only | Until the key or all derived data is cleared | Used only as the authorization credential for the explicitly configured endpoint |
 
 ## What is never cached
@@ -59,7 +61,8 @@ values from the [ECB euro reference rates](https://www.ecb.europa.eu/stats/polic
 The preview-first sharing workspace reuses materialized provider aggregates; it
 does not scan logs again or create another statistics cache. Its remembered
 presentation is one local enum (`ccu.sharing.template`): combined activity
-heatmap, Claude Share Card, or Claude token heatmap. `enableShareCard` is the
+heatmap, Claude Share Card, Claude token heatmap, or (in the 2.4.2 candidate)
+explicitly selected earned badges. `enableShareCard` is the
 only visible on/off setting. The retired `showHeatmap` value remains catalogued
 for bounded clearing and one-release compatibility, but it no longer creates a
 second panel. Explicit legacy-command coordination is runtime-only: the host
@@ -105,6 +108,52 @@ default branch, then asks the user to confirm the exact
 Private repositories use local SVG plus Markdown instead of silently requesting
 broader access. After GitHub accepts the write, success is authoritative and is
 reported before any warning that the atomic destination preference could not be saved.
+
+## Local achievements (2.4.2 candidate)
+
+`enableAchievements` defaults to true. The once-only upgrade reminder reuses
+`ccu.lastSeenVersion`; it requests no new permission, opens no panel automatically,
+respects disabled release reminders and preserves an existing achievement opt-out.
+Historical unlocks are saved quietly before new-activity notifications become
+eligible. Later notices are brief, dashboard-only, and never play sound or move focus.
+Night/24–48-hour output badges do not produce these notices.
+
+The extension-owned ledger contains only the following validated fields:
+
+- `ccu.achievements.grants.v5`: an allowlisted set of at most 124 current rule IDs,
+  not a timestamped activity or export history.
+- `ccu.achievements.activity.v2`: at most 29 safe setting-key names and four feature
+  enums. Only deliberate, successful local actions count; no setting values,
+  secrets, paths, consent decisions or default/migration/reset events are retained.
+- `ccu.achievements.hours.v3`: the numeric maximum positive-output hour streak,
+  capped at 48. It is not a list of human working hours.
+- `ccu.achievements.calendarPeak.v1`: one verified four-completed-week average
+  maximum plus measurement versions, timezone and provider-presence bitmask.
+  Reuse requires matching context and complete current normalized numeric evidence.
+- Exact audit/migration booleans and a bounded rule-ID migration draft; unknown
+  fields are rejected. Clear All includes these and known older achievement schemas
+  by exact name, without deleting unrelated or future state.
+
+Numeric evaluation reuses materialized indexes. Codex's per-file index additionally
+stores positive-output UTC hour IDs with a verified byte offset and excluded-lineage
+event count: at most 32,768 hours per file and 524,288 unique hours per snapshot.
+Capacity exhaustion fails closed instead of certifying a partial hour history.
+Existing indexes can complete this proof through a bounded, resumable pass, leaving
+primary token totals intact. With achievements off, no extra historical proof pass
+is scheduled; ordinary new-log indexing still runs.
+
+Refreshed grants require current verified evidence; displayed stale statistics
+after a refresh failure cannot grant new awards. Saved legitimate awards remain
+available when the underlying rolling window expires. Source changes and clearing
+invalidate queued evidence. Continuous output means recorded output in each UTC
+hour, not continuous human work. Week-based rules use the configured timezone;
+partial dates cannot be counted as proven zero-use dates.
+
+Badges cover local history, which may include shared accounts and multiple sign-ins.
+They do not certify identity, skill, productivity, subscription allowance or bills.
+Badge sharing exports only selected public rule labels, tier markers, bundled icons
+and caveats, not source paths, account data or logs. Choose up to nine earned badges
+and accept a local preview before export; no automatic export, sign-in or upload.
 
 ## Clear and migration behavior
 

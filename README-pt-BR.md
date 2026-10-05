@@ -53,6 +53,19 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
 A imagem usa dados sintéticos, não informações de uma conta real. Veja mais
 imagens e detalhes na [página principal completa em inglês](README.md).
 
+## Conquistas locais (candidato)
+
+O candidato 2.4.2, ainda não lançado, tem 46 séries de ícones e 124 condições de nível: tokens por modelo, saída/cache,
+atividade, recordes semanais e algumas ações deliberadas no plugin.
+Ativas por padrão; desative **Local achievements** em ⚙ Settings
+(`enableAchievements`) para interromper novos prêmios e o preenchimento adicional
+de horas. A atualização mostra um aviso não modal uma única vez, com opção de
+desativar; escolhas anteriores de desativação são preservadas. Conquistas históricas
+ficam silenciosas; novos avisos são breves no painel, sem som ou mudança de foco.
+Escolha até nove emblemas, confira a prévia e exporte SVG localmente, sem login
+GitHub. Históricos com múltiplos logins não comprovam produtividade individual.
+[Armazenamento e limpeza](LOCAL-DATA.md#local-achievements-242-candidate).
+
 ## Como interpretar os números
 
 No Codex, **processado = entrada + saída** e **uso sem cache = entrada sem

@@ -7,7 +7,7 @@ import { chromium, expect } from '@playwright/test';
 
 const require = createRequire(import.meta.url);
 const { achievementCatalog, renderCatalogGroup, renderCatalogMarkdown } = require('./achievement-catalog.cjs');
-const output = resolve('test-results/v241-mobile-review');
+const output = resolve('test-results/v242-mobile-review');
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch();
 try {

@@ -58,6 +58,16 @@
 - **多廠商定價** — Opus 4.x / Sonnet 4.x / Haiku 4.5 對照 Anthropic 官方定價；OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen 參考價，含家族感知回退。`Refresh Token Pricing` 可拉取 LiteLLM 即時價格。
 - **個人化** — 語言、時區、小數位數、精簡數字、專案分組、儀表板自動刷新開關。
 
+## 本機成就（候選）
+
+尚未發布的 2.4.2 候選圖鑑包含 46 個系列、124 個等級條件，涵蓋模型 Token、輸出／快取、
+活躍日、週用量里程碑及少量外掛體驗。預設開啟，可在 ⚙ 設定的「本地成就」
+（`enableAchievements`）關閉；停止新解鎖及額外小時證據補齊，仍保留一般用量統計。
+升級時有一次非模態提醒與關閉選項，保留先前關閉偏好；歷史補認靜默，新提示只短暫
+顯示於面板，不發聲、不搶焦點。可主動選擇最多九枚徽章，預覽後匯出本機 SVG，
+無需 GitHub 登入。共用帳戶／多個登入的本機歷史不是個人生產率證明。
+詳見[本機資料與清除](LOCAL-DATA.md#local-achievements-242-candidate)。
+
 ## v2.4 新功能
 
 <details open>
