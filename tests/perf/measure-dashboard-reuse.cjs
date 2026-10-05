@@ -38,6 +38,12 @@ function measured(fn) {
 (async () => {
   try {
     await renderHarness({ provider: 'claude', autoRefresh: false });
+    // Browser screenshot fixtures inline PNGs so they need no resource server.
+    // A real extension uses asWebviewUri instead; measure that installed path.
+    provider.context.extensionPath = process.cwd();
+    provider.panel = { webview: {
+      asWebviewUri: uri => ({ toString: () => 'vscode-resource://synthetic/' + require('node:path').basename(uri.fsPath) }),
+    } };
     Date.now = () => CODEX_WEBVIEW_NOW;
     provider.dataPanelCache.clear();
     provider.weeklyUsageCache = undefined;
@@ -58,6 +64,7 @@ function measured(fn) {
     const medianMs = warm.map((row) => row.ms).sort((a, b) => a - b)[5];
     process.stdout.write(JSON.stringify({
       kind: 'synthetic-host-renderer-not-installed-VSIX-or-native-scroll-FPS',
+      assetMode: 'extension-resource-uri',
       records: records.length, cold, warmMedianMs: medianMs, warm, minute, nextHour,
       dataPanelCalls: calls, cacheEntries: provider.dataPanelCache.size,
       peakSampledRssBytes: process.memoryUsage().rss,

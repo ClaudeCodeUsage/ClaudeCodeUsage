@@ -17,6 +17,7 @@ const webview = {
   set html(_value) { documentWrites++; },
   onDidReceiveMessage: () => ({ dispose() {} }),
   postMessage: async message => { posted.push(message); return true; },
+  asWebviewUri: uri => ({ toString: () => 'vscode-resource://synthetic/' + path.basename(uri.fsPath) }),
 };
 const vscode = {
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
@@ -70,7 +71,8 @@ Module._load = load;
     const settings = { get: key => values.get(key), snapshot: () => SETTINGS.map(def => ({
       ...def, value: values.get(def.key), configured: false,
     })) };
-    const p = new UsageWebviewProvider({ globalState: { get: () => undefined, update: async () => undefined } });
+    const p = new UsageWebviewProvider({ extensionPath: process.cwd(),
+      globalState: { get: () => undefined, update: async () => undefined } });
     p.settings = settings;
     p.show();
     const diagnostics = [];
@@ -176,6 +178,7 @@ Module._load = load;
     assert.equal(e.cache.records.length, recordCount + 1);
     assert.ok(renders > 0, 'a real append still invalidates panels');
     process.stdout.write(JSON.stringify({ kind: 'synthetic-production-coordinator-plus-renderer-not-native-UI-or-OOM-proof',
+      assetMode: 'extension-resource-uri',
       records: recordCount, contentAnalysis: true, coldMs, claude, hourBoundary, compare, appendInvalidates: true, peakSampledRssBytes }, null, 2) + '\n');
   } finally {
     ClaudeDataLoader.getUsageAttribution = originalAttribution;

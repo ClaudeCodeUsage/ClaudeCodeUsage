@@ -18,6 +18,7 @@ import {
   finalizeAnalysis,
   mergeAnalysisAcc,
   newAnalysisAcc,
+  recordTimestampBounds,
   validateUsageRecord,
 } from './dataLoader';
 import {
@@ -2147,7 +2148,7 @@ function recomputeDerivedRows(index: ClaudeUsageIndex): void {
       index.projectSessionIds.delete(projectKey);
       continue;
     }
-    const timestamps = records.map((record) => Date.parse(record.timestamp)).filter(Number.isFinite);
+    const timestamps = recordTimestampBounds(records);
     const first = records[0];
     const sessions = new Set(records.map((record) => record._sessionId || 'unknown'));
     index.projectSessionIds.set(projectKey, sessions);
@@ -2155,8 +2156,8 @@ function recomputeDerivedRows(index: ClaudeUsageIndex): void {
       projectName: first._projectName || 'unknown',
       projectPath: first._projectPath || first._projectName || 'unknown',
       sessionCount: sessions.size,
-      firstSeen: timestamps.length > 0 ? new Date(Math.min(...timestamps)) : new Date(0),
-      lastSeen: timestamps.length > 0 ? new Date(Math.max(...timestamps)) : new Date(0),
+      firstSeen: new Date(timestamps.first),
+      lastSeen: new Date(timestamps.last),
       data: ClaudeDataLoader.calculateUsageData(records),
     });
   }
