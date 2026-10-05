@@ -82,6 +82,7 @@ async function measured(label, work) {
   const start = performance.now();
   const result = await work();
   const memory = process.memoryUsage();
+  peakRss = Math.max(peakRss, memory.rss);
   return {
     label,
     elapsedMs: Math.round(performance.now() - start),
@@ -189,6 +190,7 @@ try {
     assistantPayload,
     model,
     warningCalls,
+    memoryScope: 'single-process synthetic mutations; phase results retain prior snapshots, not a production soak',
     peakRssBytes: peakRss,
     phases: [
       { label: generated.label, elapsedMs: generated.elapsedMs,

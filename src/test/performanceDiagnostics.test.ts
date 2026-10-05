@@ -26,4 +26,6 @@ test('large Claude diagnostic supports bounded small lines and reports actual us
   assert.ok(result.fillerLineBytes <= 17 * 1024);
   assert.ok(result.coldRecords >= 120, 'fixture must exercise many actual usage records, not just payload bytes');
   assert.equal(result.phases.find((phase: any) => phase.label === 'unchanged').bytesRead, 0);
+  assert.ok(result.peakRssBytes >= Math.max(...result.phases.map((phase: any) => phase.rssBytes)),
+    'reported peak must include every explicit phase-end memory observation');
 });
