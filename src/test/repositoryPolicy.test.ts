@@ -1561,8 +1561,8 @@ test('v2.3 README editions share release evidence and local-data boundaries', ()
     }
     assert.doesNotMatch(
       body,
-      /local candidate|本地候选|本機候選|ローカル候補|로컬 후보|Kandidat lokal/i,
-      `${readme} still labels v2.3.1 as a local candidate`,
+      /(?:v?2\.3\.1[^\n]{0,30}(?:local candidate|本地候选|本機候選|ローカル候補|로컬 후보|Kandidat lokal))/i,
+      `${readme} still labels released v2.3.1 as a local candidate`,
     );
   }
 

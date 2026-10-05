@@ -402,6 +402,16 @@ export const SETTINGS: SettingDef[] = [
     providers: ['claude', 'codex'],
   },
   {
+    key: 'enableAchievements',
+    type: 'boolean',
+    default: true,
+    storage: 'state',
+    group: 'features',
+    label: 'Show local achievements',
+    help: 'On by default. Recognize evidence-backed local usage milestones and show the Achievements tab. Turning it off hides the tab and stops new grants without deleting existing badges.',
+    providers: ['claude', 'codex'],
+  },
+  {
     key: 'showCostliestMessages',
     type: 'boolean',
     default: false,

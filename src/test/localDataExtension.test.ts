@@ -339,6 +339,23 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
     'ccu.lastSeenVersion': '2.3.0',
     'ccu.heatmapRepo': 'owner/repo',
     'ccu.adviceEffectiveness.localState': { schemaVersion: 3 },
+    'ccu.achievements.grants.v1': ['active-days-7'],
+    'ccu.achievements.grants.v2': ['sonnet-main'],
+    'ccu.achievements.grants.v3': ['fable-volume-bronze'],
+    'ccu.achievements.grants.v4': ['fable-volume-bronze'],
+    'ccu.achievements.grants.v5': ['hundred-million-club'],
+    'ccu.achievements.hours.v3': { schemaVersion: 3, maxStreak: 24 },
+    'ccu.achievements.structuralAudit.v1': true,
+    'ccu.achievements.tokenAudit.v1': true,
+    'ccu.achievements.bucketAudit.v1': true,
+    'ccu.achievements.manifestAudit.v1': true,
+    'ccu.achievements.calendarAudit.v1': true,
+    'ccu.achievements.calibrationAudit.v1': true,
+    'ccu.achievements.calibrationPending.v1': { schemaVersion: 1, grants: [] },
+    'ccu.achievements.calendarPeak.v1': { schemaVersion: 1, peakFourWeekAverage: 2_000_000_000 },
+    'ccu.achievements.future-canary': 'must-survive',
+    'ccu.achievements.activity.v2': { schemaVersion: 2, settingKeys: [], features: [] },
+    'ccu.achievements.hours.v2': { schemaVersion: 2, maxStreak: 12 },
     'claudeCodeUsage.adviceEffectiveness.feedback.v1': { schemaVersion: 1 },
     'ccu.unrelated.canary': 'must-survive',
     'provider.credentials.canary': 'must-survive',
@@ -380,6 +397,16 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
   let adviceClearCalls = 0;
   extension.webviewProvider = {
     clearAdviceLocalData: async () => { adviceClearCalls += 1; return true; },
+    clearAchievementGrants: async (options: { holdUntilReload?: boolean }) => {
+      assert.equal(options.holdUntilReload, true,
+        'clear-all must not reopen stale achievement evidence before reload');
+      await globalState.update('ccu.achievements.grants.v1', undefined);
+      await globalState.update('ccu.achievements.grants.v2', undefined);
+      await globalState.update('ccu.achievements.grants.v3', undefined);
+      await globalState.update('ccu.achievements.grants.v4', undefined);
+      await globalState.update('ccu.achievements.activity.v2', undefined);
+      await globalState.update('ccu.achievements.hours.v2', undefined);
+    },
     clearSharingRuntimeState: () => undefined,
   };
   extension.claudeWeeklyQuotaHistory = [];
@@ -414,6 +441,23 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
   assert.equal(globalState.state.has('ccu.lastSeenVersion'), false);
   assert.equal(globalState.state.has('ccu.heatmapRepo'), false);
   assert.equal(globalState.state.has('ccu.adviceEffectiveness.localState'), false);
+  assert.equal(globalState.state.has('ccu.achievements.grants.v1'), false);
+  assert.equal(globalState.state.has('ccu.achievements.grants.v2'), false);
+  assert.equal(globalState.state.has('ccu.achievements.grants.v3'), false);
+  assert.equal(globalState.state.has('ccu.achievements.grants.v4'), false);
+  assert.equal(globalState.state.has('ccu.achievements.activity.v2'), false);
+  assert.equal(globalState.state.has('ccu.achievements.hours.v2'), false);
+  for (const key of [
+    'ccu.achievements.grants.v5', 'ccu.achievements.hours.v3',
+    'ccu.achievements.structuralAudit.v1', 'ccu.achievements.tokenAudit.v1',
+    'ccu.achievements.bucketAudit.v1',
+    'ccu.achievements.manifestAudit.v1',
+    'ccu.achievements.calendarAudit.v1',
+    'ccu.achievements.calibrationAudit.v1',
+    'ccu.achievements.calibrationPending.v1',
+    'ccu.achievements.calendarPeak.v1',
+  ]) assert.equal(globalState.state.has(key), false, key);
+  assert.equal(globalState.state.get('ccu.achievements.future-canary'), 'must-survive');
   assert.equal(globalState.state.has('ccu.codex.machineSalt'), false);
   assert.equal(globalState.state.has('claudeCodeUsage.adviceEffectiveness.feedback.v1'), false);
   assert.equal(globalState.state.get('ccu.unrelated.canary'), 'must-survive');

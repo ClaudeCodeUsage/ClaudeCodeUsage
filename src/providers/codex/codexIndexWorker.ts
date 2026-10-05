@@ -158,6 +158,7 @@ export async function runCodexWorkerRefresh(
               progress,
             }),
           allowHistoricalBackfill,
+          allowAchievementHourProof: request.allowAchievementHourProof !== false,
           ...(filePassPool ? { filePassBatch: filePassPool.run } : {}),
         });
       } finally {

@@ -84,6 +84,7 @@ test('presentation selection swaps truthful previews and survives reload', async
     'Combined activity heatmap',
     'Claude Share Card',
     'Claude token heatmap',
+    'Achievement card',
   ]);
 
   await selector.selectOption('claudeShareCard');

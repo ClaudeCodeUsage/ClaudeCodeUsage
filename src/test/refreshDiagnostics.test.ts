@@ -107,4 +107,32 @@ test('Codex diagnostics expose only anonymous coverage, timing, and safe flags',
     unsafeModes,
     /Users|private-trigger|prompt-secret|credential-path|\.jsonl/,
   );
+
+  for (const failureCode of ['cancelled', 'busy', 'worker-failed', 'disposed', 'refresh-failed']) {
+    const failed = formatCodexIndexDiagnostic({ ...diagnostic, outcome: 'error', failureCode } as any);
+    assert.ok(failed.includes(`failure=${failureCode} `));
+  }
+  const unsafeFailure = formatCodexIndexDiagnostic({
+    ...diagnostic, outcome: 'error', failureCode: '/Users/carl/private-token',
+  } as any);
+  assert.match(unsafeFailure, /failure=unknown /);
+  assert.doesNotMatch(unsafeFailure, /Users|private-token|carl/);
+  const missingWorkerStats = formatCodexIndexDiagnostic({
+    ...diagnostic, outcome: 'error', failureCode: 'cancelled',
+    bodyReads: null, failedFiles: null, metadataMs: null, parseMs: null,
+  } as any);
+  assert.match(missingWorkerStats,
+    /failure=cancelled bodyReads=unknown failed=unknown metadataMs=unknown parseMs=unknown/);
+  const unknownCoverage = formatCodexIndexDiagnostic({
+    ...diagnostic, outcome: 'error', coverageSource: 'unknown',
+    indexedFiles: null, totalFiles: null, indexedBytes: null, totalBytes: null,
+    periodMigratedBytes: null, periodTotalBytes: null,
+    migrationPending: null, indexRecovery: null,
+  } as any);
+  assert.match(unknownCoverage, /coverage=unknown files=unknown\/unknown bytes=unknown\/unknown/);
+  assert.match(unknownCoverage, /periodBytes=unknown\/unknown migrationPending=unknown recovery=unknown/);
+  const cachedCoverage = formatCodexIndexDiagnostic({
+    ...diagnostic, outcome: 'error', coverageSource: 'last-snapshot',
+  } as any);
+  assert.match(cachedCoverage, /coverage=last-snapshot files=4\/5/);
 });

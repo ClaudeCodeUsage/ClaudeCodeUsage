@@ -66,7 +66,20 @@ async function createProvider(storage: AdviceLocalStateStorage): Promise<any> {
   } finally {
     (Module as any)._load = originalLoad;
   }
-  const provider = new UsageWebviewProvider({ globalState: storage } as any) as any;
+  // The real globalState is keyed. Keep advice's controlled writer isolated
+  // from unrelated achievement migration keys used by the same provider.
+  const otherState = new Map<string, unknown>();
+  const keyedStorage = {
+    get<T>(key: string): T | undefined {
+      return key === ADVICE_LOCAL_STATE_KEY ? storage.get<T>(key) : otherState.get(key) as T | undefined;
+    },
+    update(key: string, value: unknown): Promise<void> {
+      if (key === ADVICE_LOCAL_STATE_KEY) return Promise.resolve(storage.update(key, value));
+      if (value === undefined) otherState.delete(key); else otherState.set(key, value);
+      return Promise.resolve();
+    },
+  };
+  const provider = new UsageWebviewProvider({ globalState: keyedStorage } as any) as any;
   await nextTurn();
   provider.settings = { get: (key: string) => key === 'advice.effectiveness.enabled' };
   provider.adviceLocalStateStatus = 'ready';

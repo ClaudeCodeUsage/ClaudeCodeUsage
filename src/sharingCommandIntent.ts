@@ -1,4 +1,4 @@
-export type SharingTemplate = 'combinedHeatmap' | 'claudeShareCard' | 'claudeHeatmap';
+export type SharingTemplate = 'combinedHeatmap' | 'claudeShareCard' | 'claudeHeatmap' | 'achievements';
 
 export interface SharingCommandIntent {
   revision: number;

@@ -35,3 +35,9 @@ test('preview selects the greatest full semantic version', () => {
     '2.10.0',
   );
 });
+
+test('downgrades and invalid versions never masquerade as upgrades', () => {
+  for (const last of ['2.4.2', 'invalid', '2.3']) {
+    assert.equal(announcementForUpgrade('2.3.1', last, true, catalog), null);
+  }
+});

@@ -206,6 +206,7 @@ test('Codex uses the shared dashboard shell and tab vocabulary', async ({ page }
     'Sessions',
     'Projects',
     'Recommendations',
+    'Achievements',
     'Settings',
   ]);
   await expect(page.locator('.tab-content.active')).toHaveAttribute('id', 'today');

@@ -28,6 +28,7 @@ import {
   rollingDayKeys,
 } from './dateKeys';
 import { I18n } from './i18n';
+import { claudeSessionAchievementEvidence, ClaudeSessionAchievementEvidence } from './achievements';
 import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
 import { ownRecordValue, setRecordValue } from './ownRecord';
 import {
@@ -291,6 +292,8 @@ export interface ClaudeUsageDashboardSnapshot extends ClaudeUsageAggregateSnapsh
   session: SessionData | null;
   workspaceToday: UsageData | null;
   sessions: SessionUsage[];
+  /** Counts from all materialized rows; no uncapped IDs or paths leave the host. */
+  achievementSessionEvidence: ClaudeSessionAchievementEvidence;
   projects: ProjectGroup[];
   branches: BranchUsage[];
   workflows: WorkflowUsage[];
@@ -2420,7 +2423,9 @@ export function claudeUsageDashboardSnapshot(
 ): ClaudeUsageDashboardSnapshot {
   const now = options.now ?? new Date();
   const aggregates = claudeUsageAggregateSnapshot(index, now);
-  const sessions = [...index.sessionRows.values()]
+  const achievementSessions = [...index.sessionRows.values()];
+  const achievementSessionEvidence = claudeSessionAchievementEvidence(achievementSessions);
+  const sessions = [...achievementSessions]
     .sort((left, right) => right.endTime.getTime() - left.endTime.getTime())
     .slice(0, 1000);
   const scopedSessions = options.workspacePath
@@ -2497,6 +2502,7 @@ export function claudeUsageDashboardSnapshot(
     session,
     workspaceToday,
     sessions,
+    achievementSessionEvidence,
     projects: buildProjectGroups(index, options.projectGroupingMode ?? 'git'),
     branches: [...index.branchRows.values()]
       .sort((left, right) => right.data.totalCost - left.data.totalCost)

@@ -170,6 +170,7 @@ function settingsStore({
   adviceOptimizer = false,
   displayCurrency = 'USD',
   projectMatrix = true,
+  achievementsEnabled = true,
 } = {}) {
   const values = new Map(SETTINGS.map((definition) => [definition.key, definition.default]));
   values.set('codex.optimization.enabled', true);
@@ -180,6 +181,7 @@ function settingsStore({
   values.set('advice.optimizer.enabled', adviceOptimizer);
   values.set('displayCurrency', displayCurrency);
   values.set('showProjectUsageMatrix', projectMatrix);
+  values.set('enableAchievements', achievementsEnabled);
   return {
     get: (key) => values.get(key),
     snapshot: () => SETTINGS.map((definition) => ({
@@ -466,10 +468,12 @@ exports.renderHarness = async function renderHarness({
   weeklyValue = true,
   shareStudio = true,
   projectMatrix = true,
+  achievementsEnabled = true,
   adviceFeedback = 'none',
   timeZone = 'Asia/Hong_Kong',
   codexMonth = '',
   claudeOnly = false,
+  codexOnly = false,
   commandTemplate = '',
   commandAfterReset = false,
 } = {}) {
@@ -528,8 +532,9 @@ exports.renderHarness = async function renderHarness({
       adviceOptimizer: adviceOptimizerFixture,
       displayCurrency,
       projectMatrix,
+      achievementsEnabled,
     });
-    addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
+    if (!codexOnly) addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
     if (adviceEffectivenessFixture) {
       provider.updateAdviceEffectivenessData(
         buildAdviceEffectivenessFixture({ locale }).states,
@@ -581,7 +586,7 @@ exports.renderHarness = async function renderHarness({
       buildScopedCodexInsights(view),
       claudeOnly
         ? { claude: true, codex: false, codexData: false }
-        : { claude: true, codex: true },
+        : { claude: !codexOnly, codex: true, codexData: true },
     );
     provider.currentProvider = selectedProvider;
 

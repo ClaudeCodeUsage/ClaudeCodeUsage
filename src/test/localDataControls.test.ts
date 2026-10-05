@@ -135,6 +135,21 @@ test('source exclusions and clear-all allowlists cannot target provider logs or 
   assert.ok(allowlistedState.size > 0);
   assert.ok(allowlistedState.has('ccu.migrated.adviceDefaultFormat.v2.4.1'),
     'the non-secret compatibility marker is included in confirmed clear-all');
+  assert.equal(allowlistedState.has('ccu.achievements.grants.v2'), true);
+  assert.equal(allowlistedState.has('ccu.achievements.grants.v3'), true);
+  assert.equal(allowlistedState.has('ccu.achievements.grants.v4'), true);
+  assert.equal(allowlistedState.has('ccu.achievements.activity.v2'), true);
+  assert.equal(allowlistedState.has('ccu.achievements.hours.v2'), true);
+  for (const key of [
+    'ccu.achievements.grants.v5', 'ccu.achievements.hours.v3',
+    'ccu.achievements.structuralAudit.v1', 'ccu.achievements.tokenAudit.v1',
+    'ccu.achievements.bucketAudit.v1',
+    'ccu.achievements.manifestAudit.v1',
+    'ccu.achievements.calendarAudit.v1',
+    'ccu.achievements.calibrationAudit.v1',
+    'ccu.achievements.calibrationPending.v1',
+    'ccu.achievements.calendarPeak.v1',
+  ]) assert.equal(allowlistedState.has(key), true, `${key} must have an exact clear-all postcondition`);
   for (const key of allowlistedState) {
     assert.match(key, /^ccu\./);
     assert.doesNotMatch(key, /oauth|cookie|provider.?credential|provider.?log/i);

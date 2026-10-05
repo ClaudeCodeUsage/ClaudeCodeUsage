@@ -1,0 +1,157 @@
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
+import type { AchievementId } from './achievements';
+
+/** Only bundled artwork can appear in the gallery or exported SVG. */
+export const ACHIEVEMENT_IMAGE_FILES: Record<AchievementId, string> = {
+  'codex-output-bronze': 'codex-cyber-foreman.png',
+  'codex-output-silver': 'codex-cyber-foreman.png',
+  'codex-output-gold': 'codex-cyber-foreman.png',
+  'codex-cache-read-bronze': 'claude-cache-wizard.png',
+  'codex-cache-read-silver': 'claude-cache-wizard.png',
+  'codex-cache-read-gold': 'claude-cache-wizard.png',
+  'astra-days-bronze': 'codex-astra-regular.png',
+  'astra-days-silver': 'codex-astra-regular.png',
+  'astra-days-gold': 'codex-astra-regular.png',
+  'sol-days-bronze': 'codex-sol-regular.png',
+  'sol-days-silver': 'codex-sol-regular.png',
+  'sol-days-gold': 'codex-sol-regular.png',
+  'luna-days-bronze': 'codex-luna-regular.png',
+  'luna-days-silver': 'codex-luna-regular.png',
+  'luna-days-gold': 'codex-luna-regular.png',
+  'sonnet-days-bronze': 'claude-sonnet-main.png',
+  'sonnet-days-silver': 'claude-sonnet-main.png',
+  'sonnet-days-gold': 'claude-sonnet-main.png',
+  'opus-days-bronze': 'claude-opus-cannon.png',
+  'opus-days-silver': 'claude-opus-cannon.png',
+  'opus-days-gold': 'claude-opus-cannon.png',
+  'haiku-days-bronze': 'claude-haiku-worker.png',
+  'haiku-days-silver': 'claude-haiku-worker.png',
+  'haiku-days-gold': 'claude-haiku-worker.png',
+  'dual-provider-days-bronze': 'combined-model-rainbow.png',
+  'dual-provider-days-silver': 'combined-model-rainbow.png',
+  'dual-provider-days-gold': 'combined-model-rainbow.png',
+  'active-weeks-bronze': 'combined-active-day-streak.png',
+  'active-weeks-silver': 'combined-active-day-streak.png',
+  'active-weeks-gold': 'combined-active-day-streak.png',
+  'weekly-average-bronze': 'combined-active-day-streak.png',
+  'weekly-average-silver': 'combined-active-day-streak.png',
+  'weekly-average-gold': 'combined-active-day-streak.png',
+  'three-family-day': 'combined-model-rainbow.png',
+  'dual-provider-day': 'combined-model-rainbow.png',
+  'sonnet-main': 'claude-sonnet-main.png',
+  'sonnet-main-silver': 'claude-sonnet-main.png',
+  'sonnet-main-gold': 'claude-sonnet-main.png',
+  'opus-cannon': 'claude-opus-cannon.png',
+  'opus-cannon-silver': 'claude-opus-cannon.png',
+  'opus-cannon-gold': 'claude-opus-cannon.png',
+  'haiku-worker': 'claude-haiku-worker.png',
+  'haiku-worker-silver': 'claude-haiku-worker.png',
+  'haiku-worker-gold': 'claude-haiku-worker.png',
+  'cache-wizard': 'claude-cache-wizard.png',
+  'cache-wizard-silver': 'claude-cache-wizard.png',
+  'cache-wizard-gold': 'claude-cache-wizard.png',
+  'claude-output-bronze': 'claude-context-marathon.png',
+  'claude-output-silver': 'claude-context-marathon.png',
+  'claude-output-gold': 'claude-context-marathon.png',
+  'claude-output-sessions-bronze': 'claude-context-marathon.png',
+  'claude-output-sessions-silver': 'claude-context-marathon.png',
+  'claude-output-sessions-gold': 'claude-context-marathon.png',
+  'claude-cache-creation-bronze': 'claude-cache-wizard.png',
+  'claude-cache-creation-silver': 'claude-cache-wizard.png',
+  'claude-cache-creation-gold': 'claude-cache-wizard.png',
+  'fable-volume-bronze': 'claude-fable-day-pass.png',
+  'fable-volume-silver': 'claude-fable-day-pass.png',
+  'fable-volume-gold': 'claude-fable-day-pass.png',
+  'fable-days-bronze': 'claude-fable-day-pass.png',
+  'fable-days-silver': 'claude-fable-day-pass.png',
+  'fable-days-gold': 'claude-fable-day-pass.png',
+  'fable-relay': 'claude-fable-day-pass.png',
+  'fable-sessions-bronze': 'claude-fable-day-pass.png',
+  'fable-sessions-silver': 'claude-fable-day-pass.png',
+  'fable-sessions-gold': 'claude-fable-day-pass.png',
+  'weekly-volume-bronze': 'combined-active-day-streak.png',
+  'weekly-volume-silver': 'combined-active-day-streak.png',
+  'weekly-volume-gold': 'combined-active-day-streak.png',
+  'output-hours-bronze': 'claude-context-marathon.png',
+  'output-hours-silver': 'claude-context-marathon.png',
+  'output-hours-gold': 'claude-context-marathon.png',
+  'night-output-peak': 'combined-three-am-partner.png',
+  'settings-explorer-bronze': 'combined-settings-tourist.png',
+  'settings-explorer-silver': 'combined-settings-tourist.png',
+  'settings-explorer-gold': 'combined-settings-tourist.png',
+  'safe-feature-explorer': 'combined-dashboard-archaeologist.png',
+  'local-share-export': 'combined-share-it.png',
+  'local-advice-feedback': 'combined-dashboard-archaeologist.png',
+  'astra-regular': 'codex-astra-regular.png',
+  'astra-regular-silver': 'codex-astra-regular.png',
+  'astra-regular-gold': 'codex-astra-regular.png',
+  'sol-regular': 'codex-sol-regular.png',
+  'sol-regular-silver': 'codex-sol-regular.png',
+  'sol-regular-gold': 'codex-sol-regular.png',
+  'luna-regular': 'codex-luna-regular.png',
+  'luna-regular-silver': 'codex-luna-regular.png',
+  'luna-regular-gold': 'codex-luna-regular.png',
+  'agent-standup': 'codex-agent-standup.png',
+  'tiny-ai-company': 'codex-tiny-ai-company.png',
+  'agent-team-gold': 'codex-tiny-ai-company.png',
+  'agent-conductor': 'codex-cyber-foreman.png',
+  'agent-conductor-silver': 'codex-cyber-foreman.png',
+  'agent-conductor-gold': 'codex-cyber-foreman.png',
+  'root-portfolio-bronze': 'codex-astra-regular.png',
+  'root-portfolio-silver': 'codex-astra-regular.png',
+  'root-portfolio-gold': 'codex-astra-regular.png',
+  'agent-participation-bronze': 'codex-tiny-ai-company.png',
+  'agent-participation-silver': 'codex-tiny-ai-company.png',
+  'agent-participation-gold': 'codex-tiny-ai-company.png',
+  'model-relay-roots-bronze': 'codex-multi-core-human.png',
+  'model-relay-roots-silver': 'codex-multi-core-human.png',
+  'model-relay-roots-gold': 'codex-multi-core-human.png',
+  'multi-core-human': 'codex-multi-core-human.png',
+  'same-root-models-silver': 'codex-multi-core-human.png',
+  'same-root-models-gold': 'codex-multi-core-human.png',
+  'effort-explorer': 'codex-effort-explorer.png',
+  'effort-breadth-silver': 'codex-effort-explorer.png',
+  'effort-spectrum': 'codex-effort-spectrum.png',
+  'active-day-streak': 'combined-active-day-streak.png',
+  'active-day-streak-silver': 'combined-active-day-streak.png',
+  'active-day-streak-gold': 'combined-active-day-streak.png',
+  'active-days-bronze': 'combined-active-day-streak.png',
+  'active-days-silver': 'combined-active-day-streak.png',
+  'active-days-gold': 'combined-active-day-streak.png',
+  'streak-machine': 'combined-fourteen-day-streak.png',
+  'model-rainbow': 'combined-model-rainbow.png',
+  'model-rainbow-bronze': 'combined-model-rainbow.png',
+  'model-rainbow-gold': 'combined-model-rainbow.png',
+  'hundred-million-club': 'combined-hundred-million-club.png',
+  'billion-token-club': 'combined-billion-token-club.png',
+  'ten-billion-token-club': 'combined-ten-billion-token-club.png',
+  'hundred-billion-token-club': 'combined-hundred-billion-token-club.png',
+  'trillion-token-club': 'combined-hundred-billion-token-club.png',
+};
+
+const encoded = new Map<AchievementId, string>();
+
+export function achievementImagePath(id: AchievementId): string {
+  return path.join(__dirname, '..', 'assets', 'achievements', ACHIEVEMENT_IMAGE_FILES[id]);
+}
+
+export function achievementImageDataUrl(id: AchievementId): string {
+  let url = encoded.get(id);
+  if (!url) {
+    url = 'data:image/png;base64,' + readFileSync(achievementImagePath(id)).toString('base64');
+    encoded.set(id, url);
+  }
+  return url;
+}
+
+/** Self-contained exported SVG uses only local, allowlisted PNG bytes. */
+export function renderAchievementIcon(
+  id: AchievementId,
+  _color: 'currentColor' | '#db8b5b' | '#82a9ed' | '#ad99e2',
+  position?: { x: number; y: number; size?: number },
+): string {
+  const coordinates = position ? ` x="${position.x}" y="${position.y}"` : '';
+  const size = position?.size ?? 48;
+  return `<svg data-achievement-icon="${id}"${coordinates} width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><image href="${achievementImageDataUrl(id)}" width="48" height="48" /></svg>`;
+}

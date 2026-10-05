@@ -316,6 +316,8 @@ export interface ExtensionConfig {
   compactNumbers: boolean;
   // Show one exact-version What's New notification after an upgrade.
   releaseAnnouncements: boolean;
+  // Local achievements default on; turning off suppresses feature-only history work.
+  enableAchievements: boolean;
   // IANA timezone name (e.g. "Asia/Hong_Kong") used for date display and
   // provider period boundaries, or '' to use the system timezone. Useful for
   // users in devcontainers or sandboxes whose system zone differs from theirs.

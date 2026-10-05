@@ -73,7 +73,7 @@ async function expectKeyboardFocusRing(page, locator) {
   expect(treatment.outlineOffset).toBeGreaterThanOrEqual(2);
 }
 
-for (const tab of ['today', 'month', 'all', 'sessions', 'projects', 'content', 'settings']) {
+for (const tab of ['today', 'month', 'all', 'sessions', 'projects', 'content', 'achievements', 'settings']) {
   test(`${tab} has no serious or critical Axe violations`, async ({ page }) => {
     await openCodex(page, { locale: 'en' });
     if (tab !== 'today') {
@@ -83,6 +83,12 @@ for (const tab of ['today', 'month', 'all', 'sessions', 'projects', 'content', '
     expect(await seriousOrCriticalViolations(page)).toEqual([]);
   });
 }
+
+test('achievement gallery has no serious or critical Axe violations in the light theme', async ({ page }) => {
+  await openCodex(page, { locale: 'zh-CN', theme: 'light' });
+  await page.locator('#tab-achievements').click();
+  expect(await seriousOrCriticalViolations(page)).toEqual([]);
+});
 
 for (const scenario of [
   { name: 'Claude light English', open: openClaude, options: { locale: 'en', theme: 'light' } },
@@ -101,7 +107,7 @@ test('dashboard tablist uses automatic activation with roving keyboard focus', a
   await openCodex(page, { locale: 'en' });
 
   const tablist = page.locator('.tabs[role="tablist"]');
-  const tabNames = ['today', 'month', 'all', 'sessions', 'projects', 'content', 'settings'];
+  const tabNames = ['today', 'month', 'all', 'sessions', 'projects', 'content', 'achievements', 'settings'];
   await expect(tablist).toHaveAttribute('aria-label', /\S/);
   await expect(tablist.getByRole('tab')).toHaveCount(tabNames.length);
 

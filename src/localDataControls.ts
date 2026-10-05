@@ -108,6 +108,24 @@ export const LOCAL_DATA_PENDING_CLIENT_RESET_KEY =
 
 /** Exact non-setting globalState keys eligible for clear-all. */
 export const LOCAL_DATA_GLOBAL_STATE_KEYS = [
+  'ccu.achievements.grants.v1',
+  'ccu.achievements.grants.v2',
+  'ccu.achievements.grants.v3',
+  'ccu.achievements.grants.v4',
+  'ccu.achievements.grants.v5',
+  'ccu.achievements.structuralAudit.v1',
+  'ccu.achievements.tokenAudit.v1',
+  'ccu.achievements.bucketAudit.v1',
+  'ccu.achievements.manifestAudit.v1',
+  'ccu.achievements.calendarAudit.v1',
+  'ccu.achievements.calibrationAudit.v1',
+  'ccu.achievements.calibrationPending.v1',
+  'ccu.achievements.calendarPeak.v1',
+  'ccu.achievements.activity.v1',
+  'ccu.achievements.activity.v2',
+  'ccu.achievements.hours.v1',
+  'ccu.achievements.hours.v2',
+  'ccu.achievements.hours.v3',
   'ccu.adviceEffectiveness.localState',
   'ccu.codex.backgroundWork.v1',
   'ccu.codex.machineSalt',
@@ -152,6 +170,7 @@ export const LOCAL_DATA_ACTION_TARGETS: Record<LocalDataAction, readonly string[
   'reset-sharing-preferences': [
     'active ccu.setting.enableShareCard and retired compatibility ccu.setting.showHeatmap',
     'ccu.sharing.template presentation selection',
+    'ccu.sharing.achievementBadges selected earned-badge IDs',
     'ccu.combinedHeatmap.title, .range, .privacyPreview, .intensityMode, .palette, and .customAccent Webview keys',
     'ccu.heatmapDestination.v1 plus legacy ccu.heatmapRepo and ccu.heatmapPath destination strings',
     'in-memory share-card SVG/configuration preview',

@@ -15,7 +15,7 @@ import {
 } from './claudeIncrementalIndex';
 import { StatusBarManager } from './statusBar';
 import { UsageWebviewProvider } from './webview';
-import { I18n } from './i18n';
+import { achievementCopyFor, I18n } from './i18n';
 import { dayKeyInZone, resolveTimeZone } from './dateKeys';
 import {
   GITHUB_HEATMAP_DESTINATION_KEY,
@@ -96,6 +96,8 @@ import { weeklyQuotaObservationsFromCodexHistory } from './providers/codex/codex
 import { resolveCodexHome, scanCodexManifest } from './providers/codex/codexManifest';
 import { codexIndexStoragePath, codexIndexCanonicalName, readOwnedLegacyCodexIndex } from './providers/codex/codexIndexStorage';
 import { buildCodexUsageView, CodexUsageView } from './providers/codex/codexUsage';
+import { codexModelSignals, CodexAchievementSignals } from './achievements';
+import { codexAchievementDayEvidence, codexAchievementTokenEvidence } from './achievementCalendar';
 import {
   buildScopedCodexInsights,
   CodexScopedInsights,
@@ -420,12 +422,18 @@ const WHATS_NEW: ReleaseAnnouncementCatalog<LocalizedReleaseAnnouncement> = {
     version: '2.3.2',
     body: () => I18n.t.releaseAnnouncement.v232,
   },
+  '2.4.2': {
+    version: '2.4.2',
+    body: () => achievementCopyFor(I18n.getLocale()).upgradeOn,
+  },
 };
 
 export class ClaudeCodeUsageExtension {
   private static readonly CODEX_BACKGROUND_WORK_STATE_KEY =
     'ccu.codex.backgroundWork.v1';
-  private static readonly CODEX_BACKGROUND_MEASUREMENT_VERSION = 1;
+  // Reopen completed v1 background work once so existing indexes can acquire
+  // the bounded historical output-hour proof required by achievements.
+  private static readonly CODEX_BACKGROUND_MEASUREMENT_VERSION = 2;
   private static readonly CODEX_FIRST_BACKFILL_BLUR_DEADLINE_MS = 10_000;
   private statusBar: StatusBarManager;
   private webviewProvider: UsageWebviewProvider;
@@ -512,6 +520,11 @@ export class ClaudeCodeUsageExtension {
   private codexProvider: CodexProvider;
   private readonly codexSalt: string;
   private codexView: CodexUsageView | null = null;
+  private codexAchievementSignals: CodexAchievementSignals = {
+    modelCount: 0,
+    efforts: [],
+    familyRootCounts: { astra: 0, sol: 0, luna: 0 },
+  };
   private codexInsights: CodexScopedInsights = emptyCodexScopedInsights();
   private codexAvailable = false;
   private codexHasData = false;
@@ -553,6 +566,7 @@ export class ClaudeCodeUsageExtension {
   private codexBackgroundStateWrite: Promise<void> = Promise.resolve();
   private initializationWrites: Promise<void> = Promise.resolve();
   private initializationWriteFailure: unknown = null;
+  private pendingReleaseAnnouncementVersion?: string;
   private localDataActionWrite: Promise<void> = Promise.resolve();
   private pendingClientResetReplay: Promise<void> = Promise.resolve();
   private pendingClientResetRevision = 0;
@@ -796,21 +810,23 @@ export class ClaudeCodeUsageExtension {
   private maybeAnnounceWhatsNew(): void {
     const current = (this.context.extension?.packageJSON?.version as string) || '';
     const last = this.context.globalState.get<string>('ccu.lastSeenVersion');
-    if (!current) {
+    if (!current || this.pendingReleaseAnnouncementVersion === current) {
       return;
     }
+    this.pendingReleaseAnnouncementVersion = current;
     const announcement = announcementForUpgrade(
       current,
       last,
       this.getConfiguration().releaseAnnouncements,
       WHATS_NEW,
     );
-    this.queueInitializationWrite(() =>
-      this.context.globalState.update('ccu.lastSeenVersion', current),
-    );
-    if (announcement) {
-      this.showWhatsNew(announcement.version);
-    }
+    this.queueInitializationWrite(async () => {
+      await this.context.globalState.update('ccu.lastSeenVersion', current);
+      // Persist first: a failed store must not turn reload into repeated toasts.
+      if (!this.disposed && !this.clearingAllLocalData && !this.localDataClearedRequiresReload && announcement) {
+        this.showWhatsNew(announcement.version);
+      }
+    });
   }
 
   /** Show the what's-new toast for one exact release, if it is catalogued. */
@@ -819,8 +835,37 @@ export class ClaudeCodeUsageExtension {
     if (!announcement) {
       return;
     }
+    if (version === '2.4.2' && this.getConfiguration().enableAchievements !== false) {
+      const copy = achievementCopyFor(I18n.getLocale());
+      void Promise.resolve(vscode.window.showInformationMessage(
+        `Claude Code Usage ${version}: ${copy.upgradeOn}`, copy.openAchievements, copy.disableAchievements,
+      )).then((pick) => {
+        if (this.disposed || this.clearingAllLocalData || this.localDataClearedRequiresReload) return;
+        if (pick === copy.openAchievements && this.getConfiguration().enableAchievements !== false) {
+          this.webviewProvider.show('achievements');
+        } else if (pick === copy.disableAchievements) {
+          // The clear-all barrier owns this write too; a delayed click cannot
+          // resurrect settings after local data was cleared.
+          this.queueInitializationWrite(async () => {
+            if (this.clearingAllLocalData) return;
+            try {
+              await this.settings.set('enableAchievements', false);
+              if (!this.disposed && !this.localDataClearedRequiresReload) {
+                this.onSettingsChangedFromPanel('enableAchievements');
+              }
+            } catch {
+              if (!this.disposed && !this.localDataClearedRequiresReload) {
+                void vscode.window.showErrorMessage(copy.disableFailed);
+              }
+            }
+          });
+        }
+      }).catch(() => undefined);
+      return;
+    }
     const open = I18n.t.popup.title; // "Show details" entry point label
-    void vscode.window.showInformationMessage(`Claude Code Usage ${version}: ${announcement.body()}`, open).then((pick) => {
+    const body = version === '2.4.2' ? achievementCopyFor(I18n.getLocale()).upgradeOff : announcement.body();
+    void vscode.window.showInformationMessage(`Claude Code Usage ${version}: ${body}`, open).then((pick) => {
       if (pick === open) {
         vscode.commands.executeCommand('claudeCodeUsage.showDetails');
       }
@@ -1749,6 +1794,7 @@ export class ClaudeCodeUsageExtension {
         this.cancelQuotaNetworks('cancelled'),
       ]);
       await this.settings.resetAllOwnedData();
+      await this.webviewProvider.clearAchievementGrants({ holdUntilReload: true });
       await this.clearCodexDerivedIndex(false);
       for (const indexPath of await this.codexDerivedIndexPaths()) {
         await this.removeDerivedFileFamilyWithLease(indexPath, 'codex-index');
@@ -2215,6 +2261,7 @@ export class ClaudeCodeUsageExtension {
       tokenDecimalPlaces: s.get<number>('tokenDecimalPlaces'),
       compactNumbers: s.get<boolean>('compactNumbers'),
       releaseAnnouncements: s.get<boolean>('releaseAnnouncements'),
+      enableAchievements: s.get<boolean>('enableAchievements') ?? true,
       timezone: s.get<string>('timezone'),
       showCost: s.get<boolean>('showCost'),
       showContext: s.get<boolean>('showContext'),
@@ -2262,6 +2309,7 @@ export class ClaudeCodeUsageExtension {
       legacyIndexPath: path.join(this.context.globalStorageUri.fsPath, 'codex-index-v1.json'),
       salt: this.codexSalt,
       timeZone: resolveTimeZone(config.timezone),
+      allowAchievementHourProof: config.enableAchievements !== false,
     });
   }
 
@@ -2330,6 +2378,11 @@ export class ClaudeCodeUsageExtension {
     this.providerRefreshStates[provider] = failed
       ? { ...previous, failed: true }
       : { failed: false, lastSuccessfulAt: Date.now() };
+    if (failed) {
+      // Revoke award authority even when automatic panel delivery is paused.
+      // Numeric display data remains the last verified snapshot.
+      this.tryProviderUiUpdate(() => this.webviewProvider.invalidateAchievementEvidence?.(provider));
+    }
     // A direct failed retry must reach the compact in-page feedback even when
     // the same failure was already observed by an automatic attempt.
     this.publishRefreshState(provider, trigger, failed && trigger === 'manual');
@@ -2422,7 +2475,8 @@ export class ClaudeCodeUsageExtension {
       codexData: this.codexHasData,
       codexLoading: this.codexRefreshing,
       codexProgress: this.codexDashboardProgress(),
-    });
+    }, this.codexView ? this.codexAchievementSignals : undefined,
+    !this.providerRefreshStates.codex.failed);
     if (this.codexView) this.codexDashboardHydrated = true;
     if (trigger === 'settings' || trigger === 'pricing') {
       this.publishRefreshState('claude', trigger);
@@ -2568,7 +2622,11 @@ export class ClaudeCodeUsageExtension {
     // migration work is represented by main, period and hourly coverage.
     return !coverage.complete ||
       !coverage.period.allTime.complete ||
-      !snapshot.hourlyCoverage?.complete;
+      !snapshot.hourlyCoverage?.complete ||
+      (this.getConfiguration().enableAchievements !== false &&
+        snapshot.outputHourProof?.complete === false &&
+        (snapshot.outputHourProof.backfillableFiles === undefined ||
+          snapshot.outputHourProof.backfillableFiles > 0));
   }
 
   private codexIndexGeneration(snapshot: CodexProviderSnapshot | null): number | null {
@@ -2587,9 +2645,13 @@ export class ClaudeCodeUsageExtension {
     const main = snapshot.coverage;
     const period = main.period.allTime;
     const hourly = snapshot.hourlyCoverage;
+    const hourProof = this.getConfiguration().enableAchievements !== false
+      ? snapshot.outputHourProof : undefined;
     return {
-      completedUnits: main.indexedFiles + period.migratedFiles + (hourly?.indexedFiles ?? 0),
-      totalUnits: main.totalFiles + period.totalFiles + (hourly?.totalFiles ?? 0),
+      completedUnits: main.indexedFiles + period.migratedFiles + (hourly?.indexedFiles ?? 0) +
+        (hourProof?.provenFiles ?? 0),
+      totalUnits: main.totalFiles + period.totalFiles + (hourly?.totalFiles ?? 0) +
+        (hourProof?.totalFiles ?? 0),
       completedBytes: main.indexedBytes + period.migratedBytes + (hourly?.indexedBytes ?? 0),
       totalBytes: main.totalBytes + period.totalBytes + (hourly?.totalBytes ?? 0),
     };
@@ -2928,21 +2990,24 @@ export class ClaudeCodeUsageExtension {
         formatCodexIndexDiagnostic({
           trigger,
           outcome: 'error',
+          failureCode: 'refresh-failed',
           watcherEvents: diagnosticContext.watcherEvents,
           coalescedTriggers: diagnosticContext.coalescedTriggers,
           backfillMode: 'unknown',
           workerMode: 'unknown',
-          indexedFiles: 0,
-          totalFiles: 0,
-          indexedBytes: 0,
-          totalBytes: 0,
-          periodMigratedBytes: 0,
-          periodTotalBytes: 0,
-          migrationPending: false,
-          bodyReads: 0,
-          failedFiles: 1,
-          metadataMs: 0,
-          parseMs: 0,
+          coverageSource: 'unknown',
+          indexedFiles: null,
+          totalFiles: null,
+          indexedBytes: null,
+          totalBytes: null,
+          periodMigratedBytes: null,
+          periodTotalBytes: null,
+          migrationPending: null,
+          indexRecovery: null,
+          bodyReads: null,
+          failedFiles: null,
+          metadataMs: null,
+          parseMs: null,
           qualityFlags: { 'refresh-failed': 1 },
         }),
       );
@@ -3366,6 +3431,14 @@ export class ClaudeCodeUsageExtension {
     if (!isDeepStrictEqual(this.codexView, nextView)) {
       this.codexView = nextView;
       this.codexInsights = buildScopedCodexInsights(nextView);
+      this.codexAchievementSignals = codexModelSignals(snapshot.files);
+      const complete = nextView.currentManifestVerified === true &&
+        nextView.coverage.complete && nextView.coverage.identity.complete;
+      this.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(snapshot.files, complete);
+      this.codexAchievementSignals.dayEvidence = codexAchievementDayEvidence(
+        snapshot.files, nextView.periodCoverage.timeZone,
+        complete && nextView.periodCoverage.allTime.complete,
+      );
     }
     this.codexSkipPersistedHydration = false;
     this.codexAvailable = true;
@@ -3438,6 +3511,7 @@ export class ClaudeCodeUsageExtension {
     'dashboardAutoRefresh',
     'showWeeklyEquivalentValue',
     'showProjectUsageMatrix',
+    'enableAchievements',
   ]);
 
   // These values only reformat already-materialized USD estimates. They must
@@ -3457,6 +3531,10 @@ export class ClaudeCodeUsageExtension {
       return;
     }
     if (key && ClaudeCodeUsageExtension.DASHBOARD_ONLY_SETTINGS.has(key)) {
+      if (key === 'enableAchievements') {
+        this.codexProvider?.setAchievementHourProofEnabled?.(
+          this.getConfiguration().enableAchievements !== false);
+      }
       this.syncProviderUi();
       return;
     }
@@ -3544,6 +3622,18 @@ export class ClaudeCodeUsageExtension {
     this.stopCredentialsWatching();
     this.selectClaudeProfile(config.dataDirectory);
     const retiringCodexProvider = this.codexProvider;
+    if (this.codexView) {
+      // A replacement provider has not verified the published display data.
+      // Withdraw award proof before any asynchronous retirement or blur return.
+      this.codexView = {
+        ...this.codexView,
+        currentManifestVerified: false,
+        ...(this.codexView.outputHourProof ? {
+          outputHourProof: { ...this.codexView.outputHourProof, complete: false, hours: [] },
+        } : {}),
+      };
+      this.syncProviderUiSafely('settings');
+    }
     this.codexWorkerCancellationRequested = true;
     retiringCodexProvider.cancel();
     this.trackCodexProviderRetirement(retiringCodexProvider);
@@ -4749,6 +4839,8 @@ export class ClaudeCodeUsageExtension {
                 materialized.hourlyForLast30DaysByDay,
                 materialized.projectUsageMatrix,
                 materialized.dailyForAllTime,
+                materialized.achievementSessionEvidence,
+                timeZone,
               );
               this.claudeDashboardHydrated = true;
             });
@@ -4883,7 +4975,7 @@ export class ClaudeCodeUsageExtension {
         this.statusBar.updateContext(materialized.context);
         if (updateWebview) {
           this.tryProviderUiUpdate(() => {
-            this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime);
+            this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime, materialized.achievementSessionEvidence, loaded.index.timeZone);
             this.claudeDashboardHydrated = true;
           });
         }

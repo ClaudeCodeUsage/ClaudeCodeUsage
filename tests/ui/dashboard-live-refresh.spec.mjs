@@ -1,7 +1,36 @@
 import { test, expect, openClaude, openCodex } from './support/app.mjs';
 
+async function pauseRefreshClock(page) {
+  // Keep the 120ms quiet/500ms maximum contract independent of host load and
+  // browser RPC time. The fixture clock starts on July 20; July 21 is safely
+  // ahead of setup, and runFor below controls each simulated scroll burst.
+  await page.clock.pauseAt(new Date('2026-07-21T12:00:00.000Z'));
+}
+
+test('achievement data updates stay local and preserve the selected gallery', async ({ page }) => {
+  await openCodex(page, { height: 420 });
+  await page.locator('#tab-achievements').click();
+  const cardCount = await page.locator('.achievement-card').count();
+  expect(cardCount).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const panel = document.getElementById('provider-panel');
+    window.__achievementDocument = document.documentElement;
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      command: 'dashboardDataPatch', provider: 'codex', tab: 'achievements', revision: 1,
+      html: panel.innerHTML, claudeLast30HoursByDay: {},
+    } }));
+  });
+  await expect.poll(() => page.evaluate(() =>
+    window.__ccuPostedMessages.filter((message) => message.command === 'dashboardDataPatchAck'),
+  )).toEqual([{ command: 'dashboardDataPatchAck', revision: 1, ok: true }]);
+  await expect(page.locator('#tab-achievements')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.achievement-card')).toHaveCount(cardCount);
+  expect(await page.evaluate(() => document.documentElement === window.__achievementDocument)).toBe(true);
+});
+
 test('a live Codex refresh waits for an active scroll burst before replacing the panel', async ({ page }) => {
   await openCodex(page, { height: 420 });
+  await pauseRefreshClock(page);
   const before = await page.evaluate(() => {
     const panel = document.getElementById('provider-panel');
     const filler = document.createElement('div');
@@ -23,6 +52,7 @@ test('a live Codex refresh waits for an active scroll burst before replacing the
   expect(before.scrollY).toBeGreaterThan(0);
   expect(await page.evaluate(() => document.getElementById('provider-panel').firstElementChild === window.__ccuScrollPanel)).toBe(true);
   expect(await page.evaluate(() => window.__ccuPostedMessages.some((message) => message.command === 'dashboardDataPatchAck'))).toBe(false);
+  await page.clock.runFor(200);
   await expect.poll(() => page.evaluate(() =>
     window.__ccuPostedMessages.some((message) => message.command === 'dashboardDataPatchAck' && message.revision === 1 && message.ok),
   )).toBe(true);
@@ -31,6 +61,7 @@ test('a live Codex refresh waits for an active scroll burst before replacing the
 
 test('continued Codex scrolling coalesces updates but cannot starve the latest patch', async ({ page }) => {
   await openCodex(page, { height: 420 });
+  await pauseRefreshClock(page);
   await page.evaluate(() => {
     const panel = document.getElementById('provider-panel');
     const filler = document.createElement('div');
@@ -47,6 +78,7 @@ test('continued Codex scrolling coalesces updates but cannot starve the latest p
     }
   });
   try {
+    await page.clock.runFor(600);
     await expect.poll(() => page.evaluate(() =>
       window.__ccuPostedMessages.filter((message) => message.command === 'dashboardDataPatchAck'),
     )).toEqual([{ command: 'dashboardDataPatchAck', revision: 4, ok: true }]);
@@ -57,7 +89,8 @@ test('continued Codex scrolling coalesces updates but cannot starve the latest p
 
 test('a 20-update scroll storm swaps the provider panel at most twice', async ({ page }) => {
   await openCodex(page, { height: 420 });
-  const result = await page.evaluate(async () => {
+  await pauseRefreshClock(page);
+  const storm = page.evaluate(async () => {
     const panel = document.getElementById('provider-panel');
     const filler = document.createElement('div');
     filler.style.height = '1600px';
@@ -69,6 +102,7 @@ test('a 20-update scroll storm swaps the provider panel at most twice', async ({
     });
     observer.observe(panel, { childList: true });
     scrollTo(0, 160);
+    window.__ccuScrollStormStarted = true;
     for (let revision = 1; revision <= 20; revision += 1) {
       window.dispatchEvent(new Event('scroll'));
       window.dispatchEvent(new MessageEvent('message', { data: {
@@ -86,6 +120,9 @@ test('a 20-update scroll storm swaps the provider panel at most twice', async ({
         .map((message) => message.revision),
     };
   });
+  await expect.poll(() => page.evaluate(() => window.__ccuScrollStormStarted)).toBe(true);
+  await page.clock.runFor(1200);
+  const result = await storm;
   expect(result.swaps).toBeGreaterThan(0);
   expect(result.swaps).toBeLessThanOrEqual(2);
   expect(result.acks.at(-1)).toBe(20);

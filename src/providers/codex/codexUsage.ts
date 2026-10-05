@@ -180,6 +180,8 @@ export interface CodexBehaviorScopesView {
 }
 
 export interface CodexUsageView {
+  /** Cached display data cannot prove new awards before source verification. */
+  currentManifestVerified?: boolean;
   /** Calendar day in the configured provider timezone. */
   today: CodexUsageScopeView;
   /** Exact, sparse current-day hours from the independently resumable sidecar. */
@@ -188,6 +190,8 @@ export interface CodexUsageView {
   /** Sparse data-day -> exact hour rows for the configured rolling window. */
   last30DaysHourlyByDay: Record<string, CodexHourlyUsageView[]>;
   hourlyCoverage: CodexHourlyCoverage;
+  /** Canonical, complete-only positive-output UTC hours for achievements. */
+  outputHourProof?: CodexProviderSnapshot['outputHourProof'];
   lastTask: CodexUsageScopeView | null;
   lastTaskIdentity: CodexTaskIdentityView | null;
   last7Days: CodexUsageScopeView;
@@ -1191,6 +1195,7 @@ export function buildCodexUsageView(
 
   return {
     today: todayScope,
+    currentManifestVerified: snapshot.currentManifestVerified === true,
     todayHourly: hourlyRows(
       snapshot.files,
       periodCoverage.asOfDay,
@@ -1199,6 +1204,7 @@ export function buildCodexUsageView(
     todayCoverage: snapshot.coverage.today,
     last30DaysHourlyByDay,
     hourlyCoverage,
+    outputHourProof: snapshot.outputHourProof,
     lastTask: recentScope,
     lastTaskIdentity: recent.length > 0
       ? {

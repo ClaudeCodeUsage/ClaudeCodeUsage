@@ -30,6 +30,7 @@ var __ccuRefreshScrollerKinds = [
   ['local-data-table', '.local-data-table-wrap'],
   ['heatmap', '.heatmap-svg'],
   ['share-preview', '.share-preview'],
+  ['achievement-share-preview', '.achievement-share-preview'],
   ['advice-preview', '.advice-payload-preview pre']
 ];
 var __ccuRefreshScrollerSelector = __ccuRefreshScrollerKinds
@@ -452,8 +453,10 @@ function ccuRestoreRefreshPosition(context, panel) {
 }
 
 function ccuRestoreDashboardUiAfterPatch(context, panel, tab, adviceSnapshotIds) {
-  try { localStorage.setItem('ccu.activeTab', tab); } catch (e) {}
-  showTab(tab, true);
+  if (ccuProviderName() !== 'compare') {
+    try { localStorage.setItem('ccu.activeTab', tab); } catch (e) {}
+    showTab(tab, true);
+  }
   restoreSessionFilter();
   restorePersistedDetails();
   restoreClaudeDrilldownDetails();
@@ -470,6 +473,10 @@ function ccuRestoreDashboardUiAfterPatch(context, panel, tab, adviceSnapshotIds)
   restoreProjectMatrixState(panel);
   ccuRestoreTransientControls(context, panel);
   scSyncPreviewStatus();
+  // Display hydration is not a deliberate preview or export action. Reapply
+  // saved choices against the newly earned badges and recalculate capacity.
+  restoreSharingTemplate();
+  restoreAchievementShareSelection();
   restoreAdviceEffectivenessState();
   ccuRestoreAdvicePreviews(context.advicePreviews, adviceSnapshotIds);
   formatOptSettings();
@@ -486,10 +493,11 @@ function ccuApplyDashboardDataPatch(message) {
   }
   var panel = document.getElementById('provider-panel');
   var valid = panel &&
-    (message.provider === 'claude' || message.provider === 'codex') &&
+    (message.provider === 'claude' || message.provider === 'codex' || message.provider === 'compare') &&
     message.provider === ccuProviderName() &&
-    ['today', 'month', 'all', 'sessions', 'projects', 'content', 'branches', 'workflows', 'settings']
-      .indexOf(message.tab) !== -1 &&
+    (message.provider === 'compare' ? message.tab === 'all' :
+      ['today', 'month', 'all', 'sessions', 'projects', 'content', 'branches', 'workflows', 'achievements', 'settings']
+        .indexOf(message.tab) !== -1) &&
     typeof message.html === 'string' &&
     message.html.length <= 32 * 1024 * 1024 &&
     !/<script(?:\\s|>)/i.test(message.html) &&

@@ -57,6 +57,7 @@ const server = createServer(async (request, response) => {
     const weeklyValue = url.searchParams.get('weeklyValue') !== 'false';
     const shareStudio = url.searchParams.get('shareStudio') !== 'false';
     const projectMatrix = url.searchParams.get('projectMatrix') !== 'false';
+    const achievementsEnabled = url.searchParams.get('achievementsEnabled') !== 'false';
     const requestedFeedback = url.searchParams.get('adviceFeedback');
     const adviceFeedback = requestedFeedback === 'claude-helpful' ||
       requestedFeedback === 'optimizer-helpful'
@@ -67,8 +68,9 @@ const server = createServer(async (request, response) => {
       ? requestedCodexMonth
       : '';
     const claudeOnly = url.searchParams.get('claudeOnly') === 'true';
+    const codexOnly = url.searchParams.get('codexOnly') === 'true';
     const requestedCommandTemplate = url.searchParams.get('commandTemplate') ?? '';
-    const commandTemplate = ['claudeShareCard', 'claudeHeatmap'].includes(requestedCommandTemplate)
+    const commandTemplate = ['claudeShareCard', 'claudeHeatmap', 'achievements'].includes(requestedCommandTemplate)
       ? requestedCommandTemplate
       : '';
     const commandAfterReset = url.searchParams.get('commandAfterReset') === 'true';
@@ -81,10 +83,12 @@ const server = createServer(async (request, response) => {
       weeklyValue,
       shareStudio,
       projectMatrix,
+      achievementsEnabled,
       adviceFeedback,
       timeZone,
       codexMonth,
       claudeOnly,
+      codexOnly,
       commandTemplate,
       commandAfterReset,
     });

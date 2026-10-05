@@ -31,11 +31,11 @@ export { expect };
 
 export async function openCodex(
   page,
-  { locale = 'en', theme = 'light', fixture = 'default', autoRefresh = false, weeklyValue = true, shareStudio = true, projectMatrix = true, width = 1280, height = 900 } = {},
+  { locale = 'en', theme = 'light', fixture = 'default', autoRefresh = false, weeklyValue = true, shareStudio = true, projectMatrix = true, codexOnly = false, width = 1280, height = 900 } = {},
 ) {
   await page.setViewportSize({ width, height });
   await page.goto(
-    `${uiBaseUrl}/?provider=codex&locale=${encodeURIComponent(locale)}&theme=${theme}&fixture=${encodeURIComponent(fixture)}&autoRefresh=${autoRefresh}&weeklyValue=${weeklyValue}&shareStudio=${shareStudio}&projectMatrix=${projectMatrix}`,
+    `${uiBaseUrl}/?provider=codex&locale=${encodeURIComponent(locale)}&theme=${theme}&fixture=${encodeURIComponent(fixture)}&autoRefresh=${autoRefresh}&weeklyValue=${weeklyValue}&shareStudio=${shareStudio}&projectMatrix=${projectMatrix}&codexOnly=${codexOnly}`,
     { waitUntil: 'load' },
   );
   await page.locator('.tab-content.active').waitFor();

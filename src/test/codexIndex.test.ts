@@ -22,6 +22,7 @@ import {
   CodexIndexUpdateOptions,
   CODEX_REFRESH_MIN_BYTES,
   createEmptyCodexIndex,
+  codexHourProofSnapshot,
   loadCodexIndex,
   saveCodexIndexAtomic,
   updateCodexIndex as updateCodexIndexRaw,
@@ -687,6 +688,212 @@ function updateCodexIndex(
     timeZone: options.timeZone ?? 'UTC',
   });
 }
+
+test('disabled achievements leave a complete legacy usage index warm without extra history reads', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-proof-disabled-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    await mkdir(sessions);
+    await writeFile(path.join(sessions, 'history.jsonl'),
+      `${sessionLine('disabled-proof')}\n${contextLine()}\n${tokenLine(100, 50, '2026-07-20T00:10:00.000Z')}\n`, 'utf8');
+    const manifest = await scanCodexManifest(root, SALT);
+    const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest, { salt: SALT });
+    const legacy = structuredClone(cold.index);
+    for (const row of Object.values(legacy.files)) delete row.hourProof;
+    const disabled = await updateCodexIndex(legacy, manifest, {
+      salt: SALT, allowAchievementHourProof: false,
+    } as any);
+    assert.equal(disabled.bodyReads, 0, 'OFF must not run achievement-only history migration');
+    assert.equal(disabled.indexChanged, false);
+    assert.equal(disabled.index, legacy, 'numeric checkpoint and generation remain intact');
+    const enabled = await updateCodexIndex(disabled.index, manifest, {
+      salt: SALT, allowAchievementHourProof: true,
+    } as any);
+    assert.equal(codexHourProofSnapshot(enabled.index).complete, true);
+    assert.deepEqual(enabled.index.aggregate.total, cold.index.aggregate.total);
+    const warm = await updateCodexIndex(enabled.index, manifest, { salt: SALT });
+    assert.equal(warm.bodyReads, 0);
+    assert.equal(warm.indexChanged, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('UTC output proof backfills legacy history, resumes, and keeps warm body reads at zero', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-hour-proof-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    await mkdir(sessions, { recursive: true });
+    const indexPath = path.join(root, 'index.json');
+    const filePath = path.join(sessions, 'history.jsonl');
+    const body = `${sessionLine('proof')}\n${contextLine()}\n${Array.from(
+      { length: 11_000 },
+      (_, i) => tokenLine(i + 1, i + 1,
+        `2026-07-20T${String(Math.floor(i / 60) % 24).padStart(2, '0')}:00:00.000Z`),
+    ).join('\n')}\n`;
+    await writeFile(filePath, body, 'utf8');
+    const manifest = await scanCodexManifest(root, SALT);
+    const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest, { salt: SALT });
+    const key = manifest.files[0].fileKey;
+    const legacy = structuredClone(cold.index);
+    delete legacy.files[key].hourProof;
+    const budget = { maxFilePasses: 16, maxBytes: CODEX_REFRESH_MIN_BYTES };
+    const partial = await updateCodexIndex(legacy, manifest, { salt: SALT, budget });
+    assert.ok((partial.index.files[key].hourProofMigration?.offset ?? 0) > 0);
+    assert.equal(codexHourProofSnapshot(partial.index).complete, false);
+    await saveCodexIndexAtomic(indexPath, partial.index);
+    let resumed = await loadCodexIndex(indexPath, 'UTC');
+    let iterations = 0;
+    while (!codexHourProofSnapshot(resumed).complete && iterations++ < 20) {
+      resumed = (await updateCodexIndex(resumed, manifest, { salt: SALT, budget })).index;
+    }
+    const proof = codexHourProofSnapshot(resumed);
+    assert.equal(proof.complete, true);
+    assert.ok(proof.hours.length >= 12);
+    await saveCodexIndexAtomic(indexPath, resumed);
+    resumed = await loadCodexIndex(indexPath, 'UTC');
+    assert.deepEqual(codexHourProofSnapshot(resumed), proof);
+    const warm = await updateCodexIndex(resumed, manifest, { salt: SALT });
+    assert.equal(warm.bodyReads, 0);
+    assert.equal(warm.indexChanged, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('legacy hour proof advances even when another session appends on refresh', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-hour-progress-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    await mkdir(sessions, { recursive: true });
+    const older = path.join(sessions, 'older.jsonl');
+    const active = path.join(sessions, 'active.jsonl');
+    await writeFile(older, `${sessionLine('older-proof')}\n${contextLine()}\n` +
+      `${tokenLine(1, 1, '2026-07-20T00:10:00.000Z')}\n`, 'utf8');
+    await writeFile(active, `${sessionLine('active-proof')}\n${contextLine()}\n` +
+      `${tokenLine(1, 1, '2026-07-20T01:10:00.000Z')}\n`, 'utf8');
+    let manifest = await scanCodexManifest(root, SALT);
+    const index = (await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest, { salt: SALT })).index;
+    const olderKey = manifest.files.find((entry) => entry.absolutePath === older)!.fileKey;
+    delete index.files[olderKey].hourProof;
+    await appendFile(active, `${tokenLine(2, 2, '2026-07-20T02:10:00.000Z')}\n`);
+    manifest = await scanCodexManifest(root, SALT);
+    const updated = await updateCodexIndex(index, manifest, {
+      salt: SALT, budget: { maxFilePasses: 2, maxBytes: CODEX_REFRESH_MIN_BYTES },
+    });
+    assert.equal(updated.index.files[olderKey].hourProof?.indexedThrough,
+      updated.index.files[olderKey].offset,
+    'a routine append must not indefinitely postpone an unrelated legacy proof');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('UTC output proof updates on append and drops removed or replaced files', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-hour-change-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    await mkdir(sessions, { recursive: true });
+    const filePath = path.join(sessions, 'session.jsonl');
+    await writeFile(filePath, `${sessionLine('proof-change')}\n${contextLine()}\n` +
+      `${tokenLine(1, 1, '2026-07-20T00:10:00.000Z')}\n`, 'utf8');
+    let manifest = await scanCodexManifest(root, SALT);
+    let index = (await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest, { salt: SALT })).index;
+    assert.equal(codexHourProofSnapshot(index).complete, true);
+    assert.equal(codexHourProofSnapshot(index).hours.length, 1);
+    assert.deepEqual(codexHourProofSnapshot(index,
+      Date.parse('2026-07-20T00:30:00.000Z')).hours, []);
+    assert.equal(codexHourProofSnapshot(index,
+      Date.parse('2026-07-20T01:00:00.000Z')).hours.length, 1);
+    await appendFile(filePath, `${tokenLine(2, 2, '2026-07-20T01:10:00.000Z')}\n`);
+    manifest = await scanCodexManifest(root, SALT);
+    index = (await updateCodexIndex(index, manifest, { salt: SALT })).index;
+    assert.equal(codexHourProofSnapshot(index).complete, true);
+    assert.equal(codexHourProofSnapshot(index).hours.length, 2);
+    await writeFile(filePath, `${sessionLine('proof-replacement')}\n${contextLine()}\n` +
+      `${tokenLine(3, 3, '2026-07-21T04:10:00.000Z')}\n`, 'utf8');
+    manifest = await scanCodexManifest(root, SALT);
+    index = (await updateCodexIndex(index, manifest, { salt: SALT })).index;
+    assert.deepEqual(codexHourProofSnapshot(index).hours,
+      [Date.parse('2026-07-21T04:00:00.000Z') / 3_600_000]);
+    await rm(filePath);
+    manifest = await scanCodexManifest(root, SALT);
+    index = (await updateCodexIndex(index, manifest, { salt: SALT })).index;
+    assert.deepEqual(codexHourProofSnapshot(index).hours, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('unknown or malformed persisted hour proof is discarded without leaking fields', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-hour-invalid-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    await mkdir(sessions, { recursive: true });
+    await writeFile(path.join(sessions, 'session.jsonl'),
+      `${sessionLine('proof-invalid')}\n${contextLine()}\n` +
+      `${tokenLine(1, 1, '2026-07-20T00:10:00.000Z')}\n`, 'utf8');
+    const manifest = await scanCodexManifest(root, SALT);
+    const index = (await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest,
+      { salt: SALT })).index;
+    const key = manifest.files[0].fileKey;
+    const indexPath = path.join(root, 'index.json');
+    index.files[key].hourProof = { ...index.files[key].hourProof!, version: 99,
+      path: 'must-not-persist' } as any;
+    index.files[key].hourProofMigration = {
+      version: 1, offset: index.files[key].offset, prefixEvents: 0,
+      tokenEventsSeen: 0, discardingOversizedLine: false,
+      parserState: index.files[key].parserState,
+      hours: [2, 1], rawSessionId: 'must-not-persist',
+    } as any;
+    await saveCodexIndexAtomic(indexPath, index);
+    const stored = await readFile(indexPath, 'utf8');
+    assert.doesNotMatch(stored, /must-not-persist/);
+    const loaded = await loadCodexIndex(indexPath, 'UTC');
+    assert.equal(loaded.files[key].hourProof, undefined);
+    assert.equal(loaded.files[key].hourProofMigration, undefined);
+    assert.equal(codexHourProofSnapshot(loaded).complete, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('cancelled hour proof migration resumes from a durable safe cursor', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-hour-cancel-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    await mkdir(sessions, { recursive: true });
+    const body = `${sessionLine('proof-cancel')}\n${contextLine()}\n` +
+      `${tokenLine(1, 1, '2026-07-20T00:10:00.000Z')}\n`.repeat(3_000);
+    await writeFile(path.join(sessions, 'session.jsonl'), body, 'utf8');
+    const manifest = await scanCodexManifest(root, SALT);
+    const legacy = (await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest,
+      { salt: SALT })).index;
+    const key = manifest.files[0].fileKey;
+    delete legacy.files[key].hourProof;
+    const checkpointPath = path.join(root, 'checkpoint.json');
+    let cancelled = false;
+    await assert.rejects(updateCodexIndex(legacy, manifest, {
+      salt: SALT,
+      scheduling: { checkpointEveryBytes: 1 },
+      shouldCancel: () => cancelled,
+      onCheckpoint: async (index) => {
+        if ((index.files[key].hourProofMigration?.offset ?? 0) > 0) {
+          await saveCodexIndexAtomic(checkpointPath, index);
+          cancelled = true;
+        }
+      },
+    }), CodexIndexCancelledError);
+    const saved = await loadCodexIndex(checkpointPath, 'UTC');
+    assert.ok((saved.files[key].hourProofMigration?.offset ?? 0) > 0);
+    assert.equal(codexHourProofSnapshot(saved).complete, false);
+    const resumed = await updateCodexIndex(saved, manifest, { salt: SALT });
+    assert.equal(codexHourProofSnapshot(resumed.index).complete, true);
+    assert.ok(resumed.migration.bytesRead < body.length);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 function sessionLine(id: string): string {
   return JSON.stringify({
@@ -2335,6 +2542,8 @@ test('exact active and archive copies contribute usage only once', async () => {
     });
     assert.equal(result.index.coverage.period.allTime.totalFiles, 1);
     assert.equal(result.index.coverage.period.allTime.complete, true);
+    assert.equal(codexHourProofSnapshot(result.index).complete, true);
+    assert.equal(codexHourProofSnapshot(result.index).totalFiles, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -2359,6 +2568,8 @@ test('ambiguous active and archive copies remain in period coverage', async () =
     assert.equal(result.index.coverage.period.allTime.totalFiles, 2);
     assert.equal(result.index.coverage.identity.ambiguousSessionGroups, 1);
     assert.equal(result.index.coverage.identity.complete, false);
+    assert.equal(codexHourProofSnapshot(result.index).complete, false);
+    assert.deepEqual(codexHourProofSnapshot(result.index).hours, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

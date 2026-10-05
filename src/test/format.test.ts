@@ -8,6 +8,12 @@ import { I18n } from '../i18n';
 
 I18n.setLanguage('en'); // deterministic locale for the <1000 branch
 
+test('formatTokensCompact keeps trillion-level Token milestones compact', () => {
+  I18n.setTokenDecimalPlaces(1);
+  assert.equal(I18n.formatTokensCompact(1_000_000_000_000), '1.0T');
+  assert.equal(I18n.formatTokensCompact(-1_250_000_000_000), '-1.3T');
+});
+
 test('formatTokensCompact honours tokenDecimalPlaces (default 1)', () => {
   I18n.setTokenDecimalPlaces(1);
   assert.equal(I18n.formatTokensCompact(1_200_000), '1.2M');

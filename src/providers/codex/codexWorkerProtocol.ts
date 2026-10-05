@@ -23,6 +23,8 @@ export interface CodexWorkerRefreshInput {
   /** False keeps changed-file/tail maintenance active but suppresses unchanged
    * historical reconciliation until the persisted eligibility time. */
   allowHistoricalBackfill?: boolean;
+  /** False skips achievement-only UTC output proof migration, not usage indexing. */
+  allowAchievementHourProof?: boolean;
 }
 
 export type CodexWorkerRequest =

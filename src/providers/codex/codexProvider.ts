@@ -16,10 +16,12 @@ import {
   CodexTodayCoverage,
   CodexIndexV1,
   createEmptyCodexIndex,
+  codexHourProofSnapshot,
   isReadableCodexPeriod,
   isCodexUsageContributionCurrent,
   loadCodexIndex,
 } from './codexIndex';
+import type { CanonicalCodexOutputHours } from './codexHourProof';
 import {
   CODEX_ROLLING_HOURLY_DAYS,
   codexPeriodFitsAggregate,
@@ -66,8 +68,12 @@ export interface CodexProviderSnapshot {
   provider: 'codex';
   /** Persisted index generation used to isolate migration completion state. */
   indexGeneration?: number;
+  /** Runtime-only: this worker run has checked the current source manifest. */
+  currentManifestVerified?: boolean;
   total: ProviderTokenCounts;
   files: CodexFileAggregate[];
+  /** Complete, canonical UTC positive-output hour proof; empty while pending. */
+  outputHourProof?: CanonicalCodexOutputHours;
   coverage: CodexIndexCoverage;
   qualityFlags: Record<string, number>;
   limits: ProviderLimitSnapshot[];
@@ -83,6 +89,8 @@ export interface CodexProviderSnapshot {
 
 export interface CodexProviderResult {
   outcome: ProviderSourceOutcome;
+  /** Fixed diagnostic category only; never a raw worker error or its message. */
+  failureCode?: CodexProviderFailureCode;
   snapshot: CodexProviderSnapshot;
   progress?: CodexIndexProgress;
   diagnostic?: {
@@ -93,6 +101,37 @@ export interface CodexProviderResult {
     migrationPending: boolean;
     indexRecovery?: CodexIndexRecovery;
     errorCode?: CodexIndexErrorCode;
+  };
+}
+
+export type CodexProviderFailureCode =
+  | 'cancelled'
+  | 'busy'
+  | 'worker-failed'
+  | 'disposed'
+  | 'refresh-failed';
+
+function safeWorkerFailureCode(error: unknown): CodexProviderFailureCode {
+  if (error instanceof CodexWorkerError) {
+    switch (error.code) {
+      case 'cancelled':
+      case 'busy':
+      case 'worker-failed':
+      case 'disposed':
+      case 'refresh-failed':
+        return error.code;
+    }
+  }
+  return 'refresh-failed';
+}
+
+function displayOnlySnapshot(snapshot: CodexProviderSnapshot): CodexProviderSnapshot {
+  return {
+    ...snapshot,
+    currentManifestVerified: false,
+    ...(snapshot.outputHourProof ? {
+      outputHourProof: { ...snapshot.outputHourProof, complete: false, hours: [] },
+    } : {}),
   };
 }
 
@@ -265,6 +304,7 @@ function codexWeeklyValueInputs(
 function snapshotFromIndex(
   index: CodexIndexV1,
   sessionTitles: Map<string, string> = new Map(),
+  currentManifestVerified = false,
 ): CodexProviderSnapshot {
   const canonicalFileKeys = classifyCodexSessionDuplicates(
     index.files,
@@ -317,8 +357,12 @@ function snapshotFromIndex(
   return {
     provider: 'codex',
     indexGeneration: index.indexGeneration,
+    currentManifestVerified,
     total: aggregateTotal(usageContributions),
     files,
+    outputHourProof: currentManifestVerified
+      ? codexHourProofSnapshot(index)
+      : { ...codexHourProofSnapshot(index), complete: false, hours: [] },
     coverage: index.coverage,
     qualityFlags: qualityCounts(contributions),
     limits,
@@ -382,10 +426,11 @@ export class CodexProvider {
   async loadPersistedSnapshot(): Promise<CodexProviderSnapshot | null> {
     if (this.disposed) return null;
     if (this.currentSnapshot) {
-      return this.currentSnapshot;
+      return displayOnlySnapshot(this.currentSnapshot);
     }
     if (this.persistedSnapshotLoad) {
-      return this.persistedSnapshotLoad;
+      const snapshot = await this.persistedSnapshotLoad;
+      return snapshot ? displayOnlySnapshot(snapshot) : null;
     }
     const generation = this.snapshotGeneration;
     const pending = (async (): Promise<CodexProviderSnapshot | null> => {
@@ -397,6 +442,10 @@ export class CodexProvider {
           loadCodexIndex(this.options.indexPath, this.options.timeZone),
           this.sessionTitleCache.load(this.options.codexHome, this.options.salt),
         ]);
+        if (this.disposed) {
+          this.sessionTitleCache.clear();
+          return null;
+        }
         if (
           index.coverage.totalFiles === 0 &&
           Object.keys(index.files).length === 0
@@ -405,12 +454,12 @@ export class CodexProvider {
         }
         const snapshot = snapshotFromIndex(index, sessionTitles);
         if (generation !== this.snapshotGeneration) {
-          return this.currentSnapshot;
+          return this.currentSnapshot ? displayOnlySnapshot(this.currentSnapshot) : null;
         }
         this.currentSnapshot = snapshot;
         return snapshot;
       } catch {
-        return this.currentSnapshot;
+        return this.currentSnapshot ? displayOnlySnapshot(this.currentSnapshot) : null;
       }
     })();
     this.persistedSnapshotLoad = pending;
@@ -431,13 +480,13 @@ export class CodexProvider {
     if (this.disposed) {
       return {
         outcome: 'unavailable',
-        snapshot: this.currentSnapshot ?? emptySnapshot(this.options.timeZone),
+        snapshot: this.invalidateCurrentManifestProof(),
       };
     }
     if (!(await this.isAvailable())) {
       return {
         outcome: 'unavailable',
-        snapshot: this.currentSnapshot ?? emptySnapshot(this.options.timeZone),
+        snapshot: this.invalidateCurrentManifestProof(),
       };
     }
     this.client ??= this.clientFactory();
@@ -453,18 +502,26 @@ export class CodexProvider {
           timeZone: this.options.timeZone,
           profile,
           allowHistoricalBackfill,
+          allowAchievementHourProof: this.options.allowAchievementHourProof !== false,
         },
         (progress) => {
           this.lastProgress = progress;
           onProgress?.(progress);
         },
       );
+      if (this.disposed || this.client !== client) {
+        return { outcome: 'unavailable', snapshot: this.invalidateCurrentManifestProof() };
+      }
       const sessionTitles = await this.sessionTitleCache.load(
         this.options.codexHome,
         this.options.salt,
       );
+      if (this.disposed || this.client !== client) {
+        this.sessionTitleCache.clear();
+        return { outcome: 'unavailable', snapshot: this.invalidateCurrentManifestProof() };
+      }
       this.snapshotGeneration += 1;
-      this.currentSnapshot = snapshotFromIndex(result.index, sessionTitles);
+      this.currentSnapshot = snapshotFromIndex(result.index, sessionTitles, true);
       const outcome: ProviderSourceOutcome =
         result.failedFiles > 0 ||
           !result.index.coverage.complete ||
@@ -492,6 +549,7 @@ export class CodexProvider {
         },
       };
     } catch (error) {
+      const snapshot = this.invalidateCurrentManifestProof();
       try {
         await client.dispose();
       } finally {
@@ -499,7 +557,8 @@ export class CodexProvider {
       }
       return {
         outcome: 'error',
-        snapshot: this.currentSnapshot ?? emptySnapshot(this.options.timeZone),
+        failureCode: safeWorkerFailureCode(error),
+        snapshot,
         progress: this.lastProgress,
         diagnostic: {
           bodyReads: 0, failedFiles: 0, metadataMs: 0, parseMs: 0,
@@ -508,6 +567,21 @@ export class CodexProvider {
         },
       };
     }
+  }
+
+  /** Apply an achievement toggle without replacing the usage provider or its checkpoint. */
+  setAchievementHourProofEnabled(enabled: boolean): void {
+    this.options.allowAchievementHourProof = enabled;
+  }
+
+  private invalidateCurrentManifestProof(): CodexProviderSnapshot {
+    this.snapshotGeneration += 1;
+    if (this.currentSnapshot) {
+      // Keep the last numeric subtotal useful without pretending a failed or
+      // unavailable current scan verified it. Published snapshots stay immutable.
+      this.currentSnapshot = displayOnlySnapshot(this.currentSnapshot);
+    }
+    return this.currentSnapshot ?? emptySnapshot(this.options.timeZone);
   }
 
   snapshot(): CodexProviderSnapshot | null {
@@ -527,7 +601,7 @@ export class CodexProvider {
   async dispose(): Promise<void> {
     if (this.disposal) return this.disposal;
     this.disposed = true;
-    this.snapshotGeneration += 1;
+    this.invalidateCurrentManifestProof();
     this.sessionTitleCache.clear();
     const client = this.client;
     this.client = null;

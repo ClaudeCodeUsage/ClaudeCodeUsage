@@ -394,6 +394,33 @@ test('coordinator Codex cooldown and user pause retain exact hourly phase after 
   }
 });
 
+test('paused refresh failures withdraw achievement authority without replacing numeric panels', () => {
+  const { extension, deliveries } = coordinatorHarness(false);
+  const invalidated: string[] = [];
+  extension.webviewProvider.invalidateAchievementEvidence = (provider: string) => invalidated.push(provider);
+  extension.applyCodexSnapshot(completeCoordinatorSnapshot());
+  const displayed = extension.codexView;
+  deliveries.length = 0;
+  extension.recordRefreshState('codex', true, 'watch');
+  extension.recordRefreshState('claude', true, 'poll');
+  assert.deepEqual(invalidated, ['codex', 'claude']);
+  assert.equal(extension.codexView, displayed);
+  assert.equal(deliveries.length, 0, 'proof revocation is not a dashboard refresh');
+});
+
+test('disabled achievements do not schedule their independent historical proof migration', () => {
+  const { extension, config, snapshot } = coordinatorHarness(false);
+  snapshot.outputHourProof = { complete: false, hours: [], provenFiles: 0, totalFiles: 3,
+    backfillableFiles: 3 } as any;
+  config.enableAchievements = false;
+  assert.equal(extension.codexHistoricalWorkPending(snapshot), false);
+  assert.equal(extension.codexBackgroundProgress(snapshot).totalUnits,
+    snapshot.coverage.totalFiles + snapshot.coverage.period.allTime.totalFiles +
+      snapshot.hourlyCoverage!.totalFiles);
+  config.enableAchievements = true;
+  assert.equal(extension.codexHistoricalWorkPending(snapshot), true);
+});
+
 test('coordinator warm Codex exceptions preserve verified view and manual failures always send compact state', async () => {
   const { extension, deliveries } = coordinatorHarness();
   extension.applyCodexSnapshot(completeCoordinatorSnapshot());
@@ -3693,7 +3720,23 @@ test('rapid settings changes wait for every provider retirement and only latest 
   extension.startCodexWatching = () => { calls.push('codex:start'); };
   extension.startCredentialsWatching = () => { calls.push('credentials:start'); };
 
+  const verifiedView = {
+    currentManifestVerified: true,
+    outputHourProof: { complete: true, hours: [500000] },
+    today: { total: { processed: 123 } },
+  };
+  extension.codexView = verifiedView;
+  const published: any[] = [];
+  extension.syncProviderUi = () => published.push(extension.codexView);
+
   extension.onConfigurationChanged();
+  assert.equal(extension.codexView.currentManifestVerified, false);
+  assert.equal(extension.codexView.outputHourProof.complete, false);
+  assert.deepEqual(extension.codexView.outputHourProof.hours, []);
+  assert.equal(extension.codexView.today.total.processed, 123);
+  assert.equal(published[published.length - 1].currentManifestVerified, false,
+    'withdraw proof from the dashboard before waiting for provider retirement');
+  assert.equal(verifiedView.currentManifestVerified, true, 'published old objects stay immutable');
   extension.onConfigurationChanged();
   finishSecond();
   await Promise.resolve();
@@ -3708,6 +3751,55 @@ test('rapid settings changes wait for every provider retirement and only latest 
   assert.equal(calls.filter((call) => call === 'codex:start').length, 1);
   assert.equal(calls.filter((call) => call === 'credentials:start').length, 1);
 });
+
+for (const focused of [false, true]) {
+  test(`provider replacement withdraws dashboard proof even when retirement fails (focused=${focused})`, async () => {
+    const extension = bareExtension();
+    extension.windowActivity = new WindowActivityGate(focused);
+    extension.webviewProvider = { invalidatePreparedAiRequests: () => undefined };
+    extension.statusBar = { setVisibility: () => undefined };
+    extension.getConfiguration = () => ({
+      language: 'en', decimalPlaces: 2, tokenDecimalPlaces: 0,
+      compactNumbers: true, timezone: 'UTC', showCost: true,
+      showContext: true, usageLimitTracking: false, statusBarMetric: 'tokens',
+      showScopedWeekly: false, quotaFiveHourOnly: false, showResetInStatusBar: false,
+      resetCountdownFormat: 'short', dataDirectory: '',
+    });
+    extension.cancelAdviceNetworks = async () => undefined;
+    extension.cancelQuotaNetworks = async () => undefined;
+    extension.stopQuotaColdRetry = () => undefined;
+    extension.startAutoRefresh = () => undefined;
+    extension.stopFileWatching = () => undefined;
+    extension.stopCodexWatching = () => undefined;
+    extension.stopCredentialsWatching = () => undefined;
+    extension.selectClaudeProfile = () => undefined;
+    const verified = {
+      currentManifestVerified: true,
+      outputHourProof: { complete: true, hours: [500000] },
+      today: { total: { processed: 123 } },
+    };
+    extension.codexView = verified;
+    const published: any[] = [];
+    extension.syncProviderUi = () => published.push(extension.codexView);
+    let workerStarted = false;
+    extension.refreshData = async () => { workerStarted = true; };
+    extension.codexProvider = {
+      cancel: () => undefined,
+      dispose: async () => { throw new Error('synthetic retirement failure'); },
+    };
+    extension.createCodexProvider = () => ({ cancel: () => undefined, dispose: async () => undefined });
+    extension.onConfigurationChanged();
+    assert.equal(extension.codexView.currentManifestVerified, false);
+    assert.equal(extension.codexView.outputHourProof.complete, false);
+    assert.deepEqual(extension.codexView.outputHourProof.hours, []);
+    assert.equal(extension.codexView.today.total.processed, 123);
+    assert.equal(published[published.length - 1].currentManifestVerified, false);
+    assert.equal(verified.currentManifestVerified, true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(workerStarted, false);
+    assert.equal(extension.codexView.currentManifestVerified, false);
+  });
+}
 
 test('credentials change clears quota failure backoff before refreshing', async () => {
   const extension = bareExtension();

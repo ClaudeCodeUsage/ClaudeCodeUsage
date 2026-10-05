@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -15,8 +15,9 @@ import {
   createEmptyCodexIndex,
 } from '../providers/codex/codexIndex';
 import { CodexWorkerResult } from '../providers/codex/codexWorkerProtocol';
-import { pseudonymousIdentityKey } from '../providers/codex/codexIdentity';
 import { CodexWorkerError } from '../providers/codex/codexIndexClient';
+import { pseudonymousIdentityKey } from '../providers/codex/codexIdentity';
+import { buildCodexUsageView } from '../providers/codex/codexUsage';
 
 function contribution(
   fileKey = 'anonymous-file-key',
@@ -274,6 +275,61 @@ test('a persisted checkpoint hydrates a usable snapshot before the worker refres
     assert.equal(snapshot.files.length, 1);
     assert.deepEqual(provider.snapshot(), snapshot);
     assert.equal(client.calls, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('hour proof stays closed on cached hydration until a worker verifies the manifest', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-provider-hour-cache-'));
+  try {
+    await mkdir(path.join(root, 'sessions'), { recursive: true });
+    const indexPath = path.join(root, 'index.json');
+    const index = partialIndex();
+    const file = Object.values(index.files)[0];
+    file.identityChecked = true;
+    file.lineage = {
+      fingerprintBlocks: [], pendingFingerprints: [], tokenEvents: 0,
+      appliedPrefixEvents: 0, desiredPrefixEvents: 0,
+    };
+    file.hourProof = {
+      version: 1, indexedThrough: file.offset, prefixEvents: 0,
+      hours: [Date.parse('2026-07-20T00:00:00.000Z') / 3_600_000],
+    };
+    index.coverage.complete = true;
+    index.coverage.indexedFiles = 1;
+    index.coverage.totalFiles = 1;
+    index.coverage.indexedBytes = file.offset;
+    index.coverage.totalBytes = file.size;
+    await writeFile(indexPath, JSON.stringify(index), 'utf8');
+    const provider = new CodexProvider({
+      enabled: true, codexHome: root, indexPath, salt: 'salt', timeZone: 'UTC',
+    }, () => new FakeClient([
+      workerResult(index),
+      new CodexWorkerError('cancelled', '/private/worker cancellation details'),
+      workerResult(index),
+    ]));
+    const cached = await provider.loadPersistedSnapshot();
+    assert.equal(cached?.outputHourProof?.complete, false);
+    assert.deepEqual(cached?.outputHourProof?.hours, []);
+    assert.equal(cached?.currentManifestVerified, false);
+    assert.equal(buildCodexUsageView(cached!).currentManifestVerified, false);
+    const verified = await provider.refresh();
+    assert.equal(verified.snapshot.outputHourProof?.complete, true);
+    assert.equal(verified.snapshot.outputHourProof?.hours.length, 1);
+    assert.equal(verified.snapshot.currentManifestVerified, true);
+    assert.equal(buildCodexUsageView(verified.snapshot).currentManifestVerified, true);
+    const interrupted = await provider.refresh();
+    assert.equal(interrupted.snapshot.total.inputTotal, verified.snapshot.total.inputTotal);
+    assert.equal(interrupted.snapshot.currentManifestVerified, false);
+    assert.equal(interrupted.snapshot.outputHourProof?.complete, false);
+    assert.deepEqual(interrupted.snapshot.outputHourProof?.hours, []);
+    assert.equal(provider.snapshot()?.currentManifestVerified, false);
+    assert.equal((await provider.loadPersistedSnapshot())?.currentManifestVerified, false);
+    assert.equal(verified.snapshot.currentManifestVerified, true, 'do not mutate an earlier published snapshot');
+    const recovered = await provider.refresh();
+    assert.equal(recovered.snapshot.currentManifestVerified, true);
+    assert.equal(recovered.snapshot.outputHourProof?.complete, true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -709,9 +765,127 @@ test('a worker failure retains the last verified provider snapshot', async () =>
 
     assert.equal(verified.snapshot.total.inputTotal, 80);
     assert.equal(failed.outcome, 'error');
+    assert.equal(failed.failureCode, 'refresh-failed');
     assert.equal(failed.snapshot.total.inputTotal, 80);
+    assert.equal(failed.snapshot.currentManifestVerified, false,
+      'cached totals remain visible, but a failed current scan cannot prove new achievements');
+    assert.equal(verified.snapshot.currentManifestVerified, true);
     assert.doesNotMatch(JSON.stringify(failed), /private\/path/);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('worker errors expose only an allowlisted category, never the error message', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-provider-safe-failure-'));
+  try {
+    await mkdir(path.join(root, 'sessions'), { recursive: true });
+    for (const code of ['cancelled', 'busy', 'worker-failed', 'disposed', 'refresh-failed', '/private/secret-code']) {
+      const provider = new CodexProvider({
+        enabled: true, codexHome: root, indexPath: 'index', salt: 'salt', timeZone: 'UTC',
+      }, () => new FakeClient([new CodexWorkerError(code, '/private/credentials token=secret-value')]));
+      const failed = await provider.refresh();
+      assert.equal(failed.failureCode, code.startsWith('/') ? 'refresh-failed' : code);
+      assert.doesNotMatch(JSON.stringify(failed), /private|credentials|secret-value|secret-code/);
+      assert.equal(failed.snapshot.currentManifestVerified, false);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('unavailable and disposed providers keep cached totals without current achievement proof', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-provider-proof-lifecycle-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    const pausedSessions = path.join(root, 'paused-sessions');
+    await mkdir(sessions, { recursive: true });
+    const client = new FakeClient([workerResult(), workerResult()]);
+    const provider = new CodexProvider({
+      enabled: true, codexHome: root, indexPath: 'index', salt: 'salt', timeZone: 'UTC',
+    }, () => client);
+    const verified = await provider.refresh();
+    await rename(sessions, pausedSessions);
+    const unavailable = await provider.refresh();
+    assert.equal(unavailable.outcome, 'unavailable');
+    assert.equal(unavailable.snapshot.total.inputTotal, verified.snapshot.total.inputTotal);
+    assert.equal(unavailable.snapshot.currentManifestVerified, false);
+    assert.equal(buildCodexUsageView(unavailable.snapshot).currentManifestVerified, false);
+    assert.equal(verified.snapshot.currentManifestVerified, true);
+    await rename(pausedSessions, sessions);
+    const recovered = await provider.refresh();
+    assert.equal(recovered.snapshot.currentManifestVerified, true);
+    await provider.dispose();
+    const disposed = await provider.refresh();
+    assert.equal(disposed.outcome, 'unavailable');
+    assert.equal(disposed.snapshot.currentManifestVerified, false);
+    assert.equal(disposed.snapshot.total.inputTotal, verified.snapshot.total.inputTotal);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('cached hydration cannot reopen proof when a previously unavailable directory returns', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-provider-restored-cache-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    const paused = path.join(root, 'paused-sessions');
+    await mkdir(sessions);
+    const provider = new CodexProvider({
+      enabled: true, codexHome: root, indexPath: 'index', salt: 'salt', timeZone: 'UTC',
+    }, () => new FakeClient([workerResult()]));
+    const verified = await provider.refresh();
+    await rename(sessions, paused);
+    assert.equal(await provider.isAvailable(), false,
+      'the extension can observe unavailability without calling provider.refresh');
+    await rename(paused, sessions);
+    const cached = await provider.loadPersistedSnapshot();
+    assert.equal(cached?.total.inputTotal, verified.snapshot.total.inputTotal);
+    assert.equal(cached?.currentManifestVerified, false);
+    assert.equal(cached?.outputHourProof?.complete, false);
+    assert.deepEqual(cached?.outputHourProof?.hours, []);
+    assert.equal(verified.snapshot.currentManifestVerified, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('disposal during the title await cannot republish current proof or revive its cache', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-provider-title-retirement-'));
+  let finishTitles!: () => void;
+  const titlesHeld = new Promise<void>(resolve => { finishTitles = resolve; });
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    const provider = new CodexProvider({
+      enabled: true, codexHome: root, indexPath: 'index', salt: 'salt', timeZone: 'UTC',
+    }, () => new FakeClient([workerResult(), workerResult()]));
+    const verified = await provider.refresh();
+    let titleLoadStarted!: () => void;
+    const titleStarted = new Promise<void>(resolve => { titleLoadStarted = resolve; });
+    const cache = {
+      populated: false,
+      clear: () => { cache.populated = false; },
+      load: async () => {
+        titleLoadStarted();
+        await titlesHeld;
+        cache.populated = true;
+        return new Map<string, string>();
+      },
+    };
+    (provider as any).sessionTitleCache = cache;
+    const pending = provider.refresh();
+    await titleStarted;
+    await provider.dispose();
+    finishTitles();
+    const retired = await pending;
+    assert.equal(retired.outcome, 'unavailable');
+    assert.equal(retired.snapshot.currentManifestVerified, false);
+    assert.equal(provider.snapshot()?.currentManifestVerified, false);
+    assert.equal(retired.snapshot.total.inputTotal, verified.snapshot.total.inputTotal);
+    assert.equal(verified.snapshot.currentManifestVerified, true);
+    assert.equal(cache.populated, false);
+  } finally {
+    finishTitles();
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -23,6 +23,30 @@ import { ClaudeDataLoader } from '../dataLoader';
 import { I18n } from '../i18n';
 import { ClaudeUsageRecord } from '../types';
 
+test('achievement evidence keeps all indexed sessions beyond the Sessions tab cap', () => {
+  const index = createClaudeUsageIndex();
+  const when = new Date('2026-08-01T00:00:00Z');
+  for (let i = 0; i < 1_001; i++) {
+    index.sessionRows.set(`session-${i}`, {
+      sessionId: `session-${i}`, projectName: 'fixture', projectPath: '/fixture',
+      startTime: when, endTime: when, peakContextTokens: 0,
+      data: { totalOutputTokens: 1, modelBreakdown: {
+        'claude-fable-5': { inputTokens: 0, outputTokens: 1,
+          cacheCreationTokens: 0, cacheReadTokens: 0 },
+      } },
+    } as any);
+  }
+  const snapshot = claudeUsageDashboardSnapshot(index, {
+    now: new Date('2026-10-01T00:00:00Z'),
+  });
+  assert.equal(snapshot.sessions.length, 1_000);
+  assert.equal(snapshot.achievementSessionEvidence.outputSessions, 1_001);
+  assert.equal(snapshot.achievementSessionEvidence.fableOutputSessions, 1_001);
+  assert.equal(snapshot.achievementSessionEvidence.fableMixedFamilySession, false);
+  assert.equal('achievementSessions' in snapshot, false,
+    'the gallery should receive counts, not uncapped session IDs and paths');
+});
+
 const roots: string[] = [];
 
 after(async () => {

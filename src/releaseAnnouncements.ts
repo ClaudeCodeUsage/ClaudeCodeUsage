@@ -16,6 +16,12 @@ export function announcementForUpgrade<T extends ReleaseAnnouncement>(
   if (!enabled || !current || !lastSeen || current === lastSeen) {
     return null;
   }
+  const exactVersion = /^\d+\.\d+\.\d+$/;
+  if (!exactVersion.test(current) || !exactVersion.test(lastSeen)) return null;
+  const currentParts = current.split('.').map(Number);
+  const lastParts = lastSeen.split('.').map(Number);
+  const changedPart = currentParts.findIndex((value, index) => value !== lastParts[index]);
+  if (changedPart < 0 || currentParts[changedPart] <= lastParts[changedPart]) return null;
   return catalog[current] ?? null;
 }
 

@@ -12,6 +12,7 @@ import * as path from 'node:path';
 
 import {
   CodexIndexV3,
+  codexHourProofSnapshot,
   createEmptyCodexIndex,
   loadCodexIndex,
   saveCodexIndexAtomic,
@@ -155,6 +156,34 @@ test('resume appended to one physical rollout keeps the terminal cumulative valu
   try {
     assert.equal(index.aggregate.total.inputTotal, 150);
     assert.equal(index.aggregate.total.outputTotal, 20);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('reconciled child hour proof excludes its copied parent hour', async () => {
+  const childOutput = JSON.parse(tokenCount(150, 20, 3)) as {
+    timestamp: string;
+  };
+  childOutput.timestamp = '2026-07-20T01:00:03.000Z';
+  const { root, index } = await scanFixture({
+    parent: rollout(
+      sessionMeta('parent', 'tree'), taskStarted('parent-turn'),
+      tokenCount(100, 10, 1),
+    ),
+    child: rollout(
+      sessionMeta('child', 'tree', 'parent'),
+      sessionMeta('parent', 'tree'), taskStarted('parent-turn'),
+      tokenCount(100, 10, 1), taskStarted('child-turn', 2),
+      JSON.stringify(childOutput),
+    ),
+  });
+  try {
+    const child = bySession(index, 'child');
+    assert.equal(child?.lineage?.appliedPrefixEvents, 1);
+    assert.deepEqual(child?.hourProof?.hours,
+      [Date.parse('2026-07-20T01:00:00.000Z') / 3_600_000]);
+    assert.equal(codexHourProofSnapshot(index).complete, true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

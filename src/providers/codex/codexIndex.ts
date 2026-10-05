@@ -79,6 +79,14 @@ import {
   CodexQuotaObservation,
   sanitizeCodexQuotaHistory,
 } from './codexQuotaHistory';
+import {
+  CODEX_UTC_HOUR_PROOF_VERSION,
+  MAX_CODEX_HOURS_PER_FILE,
+  CodexHourProof,
+  CanonicalCodexOutputHours,
+  addCodexOutputHourInPlace,
+  canonicalCodexOutputHours,
+} from './codexHourProof';
 
 export {
   CodexPeriodMigrationState,
@@ -129,6 +137,17 @@ export interface CodexFileContribution {
   identityChecked?: boolean;
   periodMigration?: CodexPeriodMigrationState;
   todayMigration?: CodexTodayMigrationState;
+  hourProof?: CodexHourProof;
+  hourProofMigration?: CodexHourProofMigrationState;
+}
+
+export interface CodexHourProofMigrationState extends CodexJsonlCursor {
+  version: typeof CODEX_UTC_HOUR_PROOF_VERSION;
+  prefixEvents: number;
+  tokenEventsSeen: number;
+  parserState: CodexParserState;
+  hours: number[];
+  overflow?: boolean;
 }
 
 /**
@@ -149,6 +168,8 @@ export interface CodexLineageReconciliationState extends CodexJsonlCursor {
   parserState: CodexParserState;
   aggregate: CodexFileAggregate;
   qualityFlags: string[];
+  hourProofHours?: number[];
+  hourProofOverflow?: boolean;
 }
 
 // A first-time or legacy backfill receives one large streaming ceiling so a
@@ -298,6 +319,61 @@ export type CodexFilePassKind =
   | 'today'
   | 'identity';
 
+/** Identity-incomplete or partially migrated histories expose no hour IDs. */
+export function codexHourProofSnapshot(
+  index: CodexIndexV3,
+  nowMs = Date.now(),
+): CanonicalCodexOutputHours {
+  const canonicalKeys = classifyCodexSessionDuplicates(index.files).canonicalFileKeys;
+  const proof = canonicalCodexOutputHours(
+    index.files,
+    canonicalKeys,
+    index.coverage.complete && index.coverage.identity.complete &&
+      index.coverage.indexedFiles === index.coverage.totalFiles,
+  );
+  // A future-dated event in the current UTC hour cannot be distinguished
+  // from an already-observed one by the minimal hour ID alone. Count only
+  // closed UTC hours, accepting a delay of at most one hour for awards.
+  return {
+    ...proof,
+    hours: proof.hours.filter((hour) => (hour + 1) * 3_600_000 <= nowMs),
+    backfillableFiles: index.coverage.identity.complete
+      ? [...canonicalKeys].filter((key) => {
+          const contribution = index.files[key];
+          return contribution && contribution.offset === contribution.size &&
+            needsHourProofBackfill(contribution);
+        }).length
+      : 0,
+  };
+}
+
+function needsHourProofBackfill(contribution: CodexFileContribution): boolean {
+  if (contribution.identityChecked !== true || contribution.discardingOversizedLine ||
+      contribution.lineageReconciliation || contribution.hourProofMigration?.overflow ||
+      contribution.lineage?.appliedPrefixEvents !== contribution.lineage?.desiredPrefixEvents ||
+      contribution.qualityFlags.some((flag) => [
+        'stale-file', 'stale-reset-required', 'oversized-jsonl-line',
+        'invalid-event-timestamp',
+      ].includes(flag))) return false;
+  const proof = sanitizeCodexHourProof(contribution.hourProof);
+  return !proof || proof.indexedThrough !== contribution.offset ||
+    proof.prefixEvents !== contribution.lineage?.desiredPrefixEvents;
+}
+
+function hourProofWorkEntries(
+  index: CodexIndexV3,
+  manifest: CodexManifest,
+): CodexRuntimeManifestEntry[] {
+  if (!index.coverage.identity.complete) return [];
+  const canonical = classifyCodexSessionDuplicates(index.files).canonicalFileKeys;
+  return manifest.files.filter((entry) => {
+    if (!canonical.has(entry.fileKey)) return false;
+    const contribution = index.files[entry.fileKey];
+    return !!contribution && contribution.offset === entry.size &&
+      needsHourProofBackfill(contribution);
+  });
+}
+
 /**
  * A self-contained, per-file pass. Runtime paths are sent only to the local
  * worker that reads the file and are never persisted in the index.
@@ -343,6 +419,8 @@ export interface CodexIndexUpdateOptions {
   /** False skips unchanged historical lineage/period/hour/identity passes while
    * still allowing the main changed-file and append-tail stage to run. */
   allowHistoricalBackfill?: boolean;
+  /** False avoids separate history reads for achievements; existing usage cursors stay intact. */
+  allowAchievementHourProof?: boolean;
   /** Internal resolved civil day shared with local file-pass workers. */
   asOfDay?: string;
 }
@@ -826,6 +904,12 @@ function contributionFor(
     discardingOversizedLine: false,
     parserState,
     lineage: createLineageTrace(),
+    hourProof: {
+      version: CODEX_UTC_HOUR_PROOF_VERSION,
+      indexedThrough: 0,
+      prefixEvents: 0,
+      hours: [],
+    },
     aggregate: {
       ...emptyFileAggregate(entry.fileKey, parserState.role),
       period: { timeZone, indexedThrough: 0, days: {} },
@@ -876,6 +960,13 @@ async function updateContribution(
     lineage.appliedPrefixEvents === desiredPrefixEvents &&
     isCompatibleCodexPeriodLineage(aggregate.period, desiredPrefixEvents) &&
     codexPeriodFitsAggregate(aggregate.period, aggregate.total);
+  const activeHourProof = contribution.hourProof?.version === CODEX_UTC_HOUR_PROOF_VERSION &&
+    contribution.hourProof.indexedThrough === contribution.offset &&
+    contribution.hourProof.prefixEvents === desiredPrefixEvents &&
+    lineage.appliedPrefixEvents === desiredPrefixEvents &&
+    !contribution.lineageReconciliation
+      ? contribution.hourProof
+      : undefined;
   if (aggregate.today && !reanchorRollingToday(aggregate.today, asOfDay, timeZone)) {
     delete aggregate.today;
   }
@@ -889,6 +980,7 @@ async function updateContribution(
       ? aggregate.today
       : undefined;
   let invalidEventTimestamp = false;
+  let activeHourProofOverflow = false;
 
   const snapshot = (cursor: CodexJsonlCursor): CodexFileContribution => {
     syncSession(aggregate, parserState);
@@ -896,6 +988,7 @@ async function updateContribution(
       activeToday.indexedThrough = cursor.offset;
       syncTodayProjection(activeToday);
     }
+    if (activeHourProof) activeHourProof.indexedThrough = cursor.offset;
     return {
       ...contribution,
       fileKey: entry.fileKey,
@@ -909,6 +1002,22 @@ async function updateContribution(
       parserState,
       lineage,
       aggregate,
+      ...(activeHourProof && !activeHourProofOverflow ? {
+        hourProof: { ...activeHourProof, hours: [...activeHourProof.hours] },
+      } : {}),
+      ...(activeHourProofOverflow ? {
+        hourProof: undefined,
+        hourProofMigration: {
+          version: CODEX_UTC_HOUR_PROOF_VERSION,
+          prefixEvents: desiredPrefixEvents,
+          tokenEventsSeen: 0,
+          offset: cursor.offset,
+          discardingOversizedLine: cursor.discardingOversizedLine,
+          parserState,
+          hours: [],
+          overflow: true,
+        },
+      } : {}),
       limit,
       limits,
       ...(quotaHistory.length > 0 ? { quotaHistory } : {}),
@@ -938,6 +1047,12 @@ async function updateContribution(
         }
         for (const event of parsed.events) {
           reduceUsage(aggregate, event);
+          if (activeHourProof) {
+            const added = addCodexOutputHourInPlace(
+              activeHourProof.hours, event.timestamp, event.tokens.outputTotal,
+            );
+            if (!added) activeHourProofOverflow = true;
+          }
           if (!Number.isFinite(event.timestamp) || event.timestamp <= 0) {
             invalidEventTimestamp = true;
           } else if (advancePeriod && aggregate.period) {
@@ -1034,6 +1149,27 @@ function promoteCaughtUpLineage(
   }
   contribution.aggregate = reconciliation.aggregate;
   lineage.appliedPrefixEvents = reconciliation.prefixEvents;
+  if (reconciliation.hourProofHours && !reconciliation.hourProofOverflow) {
+    contribution.hourProof = {
+      version: CODEX_UTC_HOUR_PROOF_VERSION,
+      indexedThrough: contribution.offset,
+      prefixEvents: reconciliation.prefixEvents,
+      hours: reconciliation.hourProofHours,
+    };
+    delete contribution.hourProofMigration;
+  } else if (reconciliation.hourProofOverflow) {
+    delete contribution.hourProof;
+    contribution.hourProofMigration = {
+      version: CODEX_UTC_HOUR_PROOF_VERSION,
+      prefixEvents: reconciliation.prefixEvents,
+      tokenEventsSeen: reconciliation.tokenEventsSeen,
+      offset: contribution.offset,
+      discardingOversizedLine: false,
+      parserState: reconciliation.parserState,
+      hours: [],
+      overflow: true,
+    };
+  }
   if (contribution.aggregate.period) {
     contribution.aggregate.period.lineageVersion = CODEX_PERIOD_LINEAGE_VERSION;
     contribution.aggregate.period.lineagePrefixEvents = reconciliation.prefixEvents;
@@ -1043,6 +1179,23 @@ function promoteCaughtUpLineage(
     reconciliation.qualityFlags,
   );
   delete contribution.lineageReconciliation;
+}
+
+function promoteCaughtUpHourProof(contribution: CodexFileContribution): void {
+  const draft = contribution.hourProofMigration;
+  if (!draft || draft.version !== CODEX_UTC_HOUR_PROOF_VERSION ||
+      draft.overflow || draft.discardingOversizedLine ||
+      draft.offset < contribution.offset || contribution.lineageReconciliation ||
+      draft.tokenEventsSeen < draft.prefixEvents ||
+      contribution.lineage?.appliedPrefixEvents !== draft.prefixEvents ||
+      contribution.lineage.desiredPrefixEvents !== draft.prefixEvents) return;
+  contribution.hourProof = {
+    version: CODEX_UTC_HOUR_PROOF_VERSION,
+    indexedThrough: contribution.offset,
+    prefixEvents: draft.prefixEvents,
+    hours: draft.hours,
+  };
+  delete contribution.hourProofMigration;
 }
 
 async function reconcileContributionLineage(
@@ -1080,11 +1233,14 @@ async function reconcileContributionLineage(
           today: emptyTodayIndex(asOfDay, timeZone),
         },
         qualityFlags: [],
+        hourProofHours: [],
       };
   let parserState = initial.parserState;
   let tokenEventsSeen = initial.tokenEventsSeen;
   const aggregate = initial.aggregate;
   let invalidEventTimestamp = false;
+  let hourProofHours = initial.hourProofHours ? [...initial.hourProofHours] : undefined;
+  let hourProofOverflow = initial.hourProofOverflow === true;
   const pseudonymize = pseudonymizer(options.salt);
   let quotaHistory = appendCodexQuotaHistory(
     contribution.quotaHistory ?? [],
@@ -1118,6 +1274,8 @@ async function reconcileContributionLineage(
           parserState.qualityFlags,
           invalidEventTimestamp ? ['invalid-event-timestamp'] : [],
         ),
+        ...(hourProofHours ? { hourProofHours: hourProofOverflow ? [] : [...hourProofHours] } : {}),
+        ...(hourProofOverflow ? { hourProofOverflow: true } : {}),
       },
     };
   };
@@ -1150,6 +1308,12 @@ async function reconcileContributionLineage(
       if (includeUsage) {
         for (const event of parsed.events) {
           reduceUsage(aggregate, event);
+          if (hourProofHours && !hourProofOverflow) {
+            const added = addCodexOutputHourInPlace(
+              hourProofHours, event.timestamp, event.tokens.outputTotal,
+            );
+            if (!added) hourProofOverflow = true;
+          }
           if (!Number.isFinite(event.timestamp) || event.timestamp <= 0) {
             invalidEventTimestamp = true;
           } else if (aggregate.period) {
@@ -1335,6 +1499,86 @@ async function migrateContributionPeriod(
       updated.periodMigration.qualityFlags,
     );
     delete updated.periodMigration;
+  }
+  return { contribution: updated, bytesRead: scan.bytesRead };
+}
+
+/** One-time historical UTC hour scan; its draft is safe to checkpoint mid-file. */
+async function migrateContributionHourProof(
+  contribution: CodexFileContribution,
+  entry: CodexRuntimeManifestEntry,
+  options: CodexIndexUpdateOptions,
+  io: CodexIndexIo,
+  endExclusive: number,
+  onChunk: ContributionChunkHandler,
+): Promise<CodexFilePassResult> {
+  const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
+  const saved = contribution.hourProofMigration;
+  const initial: CodexHourProofMigrationState = saved?.version === CODEX_UTC_HOUR_PROOF_VERSION &&
+      saved.prefixEvents === prefixEvents && !saved.overflow
+    ? saved
+    : {
+        version: CODEX_UTC_HOUR_PROOF_VERSION,
+        prefixEvents,
+        tokenEventsSeen: 0,
+        offset: 0,
+        discardingOversizedLine: false,
+        parserState: createCodexParserState(entry.fileKey),
+        hours: [],
+      };
+  let parserState = initial.parserState;
+  let tokenEventsSeen = initial.tokenEventsSeen;
+  const hours = [...initial.hours];
+  let overflow = false;
+  const pseudonymize = pseudonymizer(options.salt);
+  const snapshot = (cursor: CodexJsonlCursor): CodexFileContribution => ({
+    ...contribution,
+    hourProof: undefined,
+    hourProofMigration: {
+      version: CODEX_UTC_HOUR_PROOF_VERSION,
+      prefixEvents,
+      tokenEventsSeen,
+      offset: cursor.offset,
+      discardingOversizedLine: cursor.discardingOversizedLine,
+      parserState,
+      hours: overflow ? [] : [...hours],
+      ...(overflow ? { overflow: true } : {}),
+    },
+  });
+  const scan = await scanCodexJsonlLines(
+    entry,
+    io,
+    { offset: initial.offset, discardingOversizedLine: initial.discardingOversizedLine },
+    endExclusive,
+    (line) => {
+      if (line.trim() === '') return;
+      const parsed = parseCodexLine(line, parserState, pseudonymize);
+      parserState = parsed.state;
+      if (parsed.lineageTokenKey) tokenEventsSeen += 1;
+      if (tokenEventsSeen <= prefixEvents || overflow) return;
+      for (const event of parsed.events) {
+        if (!addCodexOutputHourInPlace(hours, event.timestamp, event.tokens.outputTotal)) {
+          overflow = true;
+          break;
+        }
+      }
+    },
+    async (progress) => { await onChunk(snapshot(progress.cursor), progress.bytesRead); },
+  );
+  if (!scan.reachedEnd) throw new Error('Codex log changed during hour proof migration');
+  if (scan.oversizedLines > 0) overflow = true;
+  const updated = snapshot(scan.cursor);
+  if (updated.hourProofMigration &&
+      updated.hourProofMigration.offset >= contribution.offset &&
+      !updated.hourProofMigration.discardingOversizedLine &&
+      tokenEventsSeen >= prefixEvents && !overflow) {
+    updated.hourProof = {
+      version: CODEX_UTC_HOUR_PROOF_VERSION,
+      indexedThrough: contribution.offset,
+      prefixEvents,
+      hours,
+    };
+    delete updated.hourProofMigration;
   }
   return { contribution: updated, bytesRead: scan.bytesRead };
 }
@@ -2207,6 +2451,8 @@ function isWarmNoOp(
   diff: ReturnType<typeof diffCodexManifest>,
   timeZone: string,
   asOfDay: string,
+  allowHistoricalBackfill: boolean,
+  allowAchievementHourProof: boolean,
 ): boolean {
   // Older schema-3 indexes have a current `limit` projection but no neutral
   // reset history. Give the next refresh one chance to seed the bounded cache
@@ -2217,6 +2463,8 @@ function isWarmNoOp(
   const totalBytes = manifest.files.reduce((sum, entry) => sum + entry.size, 0);
   const hourlyCoverage = previous.coverage.hourly;
   if (
+    (allowHistoricalBackfill && allowAchievementHourProof &&
+      hourProofWorkEntries(previous, manifest).length > 0) ||
     diff.appended.length > 0 ||
     diff.truncated.length > 0 ||
     diff.replaced.length > 0 ||
@@ -2326,7 +2574,8 @@ export async function updateCodexIndex(
     ),
   };
   const diff = diffCodexManifest(previousManifest(previous), manifest.persistable);
-  if (isWarmNoOp(previous, manifest, diff, timeZone, asOfDay)) {
+  if (isWarmNoOp(previous, manifest, diff, timeZone, asOfDay,
+    options.allowHistoricalBackfill !== false, options.allowAchievementHourProof !== false)) {
     return {
       index: previous,
       indexChanged: false,
@@ -2393,6 +2642,7 @@ export async function updateCodexIndex(
   }
   for (const contribution of Object.values(index.files)) {
     promoteCaughtUpLineage(contribution);
+    promoteCaughtUpHourProof(contribution);
     const desiredPrefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
     if (contribution.aggregate.period && (
       !isCompatibleCodexPeriodLineage(
@@ -2787,6 +3037,7 @@ export async function updateCodexIndex(
   }
 
   await finishStage(filePasses > mainPassStart, true);
+  const mainPassEnd = filePasses;
   const allowHistoricalBackfill = options.allowHistoricalBackfill !== false;
   const lineageWork = (allowHistoricalBackfill ? manifest.files : [])
     .filter((entry) => {
@@ -3279,11 +3530,57 @@ export async function updateCodexIndex(
   }
 
   await finishStage(filePasses > identityPassStart);
+  // A migrated index has no older hour positions in its period projection.
+  // Run this only under the historical-work allowance and only after lineage
+  // and duplicate classification have settled. Each pass is streaming and
+  // checkpointed at the same safe JSONL cursor as the other migrations.
+  recomputeDerivedIndex(index, manifest, timeZone, asOfDay);
+  const hourProofStart = filePasses;
+  // Routine appended tails should not starve older hour proofs. Keep only one
+  // historical migration stage per refresh to protect the bounded I/O budget.
+  if (allowHistoricalBackfill && options.allowAchievementHourProof !== false &&
+      filePasses === mainPassEnd && hasBudget()) {
+    const hourWork = hourProofWorkEntries(index, manifest).sort(recentFirst);
+    for (const entry of hourWork) {
+      if (!hasBudget()) break;
+      await cancelBeforePass();
+      const prior = index.files[entry.fileKey];
+      const base = cloneContribution(prior);
+      const draft = base.hourProofMigration;
+      const start = draft?.version === CODEX_UTC_HOUR_PROOF_VERSION &&
+        draft.prefixEvents === (base.lineage?.desiredPrefixEvents ?? 0) &&
+        !draft.overflow
+          ? draft.offset : 0;
+      const endExclusive = Math.min(base.offset, start + budget.maxBytes - bytesRead);
+      if (endExclusive <= start) break;
+      bodyReads += 1;
+      filePasses += 1;
+      const passStartingBytes = bytesRead;
+      try {
+        const pass = await migrateContributionHourProof(
+          base, entry, normalizedOptions, io, endExclusive,
+          onChunk(entry, passStartingBytes),
+        );
+        bytesRead = passStartingBytes + pass.bytesRead;
+        index.files[entry.fileKey] = pass.contribution;
+      } catch (error) {
+        if (error instanceof CodexIndexCancelledError) throw error;
+        failedFiles += 1;
+        index.files[entry.fileKey] = prior;
+      }
+      dirtySinceCheckpoint = true;
+      filePassesSinceCheckpoint += 1;
+      if (!(await checkpoint(false))) publishProgress(false);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+  await finishStage(filePasses > hourProofStart);
   if (filePasses === 0) {
     options.onProgress?.(progressFor(index, manifest.files.length));
   } else {
     publishProgress(true);
   }
+  const historicalHourProof = codexHourProofSnapshot(index);
   return {
     index,
     indexChanged: true,
@@ -3295,7 +3592,9 @@ export async function updateCodexIndex(
       pending:
         !index.coverage.complete ||
         !index.coverage.period.allTime.complete ||
-        !index.coverage.hourly?.complete,
+        !index.coverage.hourly?.complete ||
+        (options.allowAchievementHourProof !== false && !historicalHourProof.complete &&
+          (historicalHourProof.backfillableFiles ?? 0) > 0),
     },
   };
 }
@@ -3785,6 +4084,59 @@ function sanitizePeriodMigration(
   };
 }
 
+// Keep the persisted DTO sanitizer local: repository policy audits every field
+// reachable from sanitizeIndexV2 rather than trusting an external return value.
+function sanitizeCodexHourProof(value: unknown): CodexHourProof | undefined {
+  if (!isRecord(value) || value.version !== CODEX_UTC_HOUR_PROOF_VERSION ||
+      !Number.isSafeInteger(value.indexedThrough) || (value.indexedThrough as number) < 0 ||
+      !Number.isSafeInteger(value.prefixEvents) || (value.prefixEvents as number) < 0 ||
+      !Array.isArray(value.hours) || value.hours.length > MAX_CODEX_HOURS_PER_FILE) {
+    return undefined;
+  }
+  const hours: number[] = [];
+  for (const hour of value.hours) {
+    if (!Number.isSafeInteger(hour) || hour <= 0 ||
+        (hours.length > 0 && hour <= hours[hours.length - 1])) return undefined;
+    hours.push(hour);
+  }
+  return {
+    version: CODEX_UTC_HOUR_PROOF_VERSION,
+    indexedThrough: value.indexedThrough as number,
+    prefixEvents: value.prefixEvents as number,
+    hours,
+  };
+}
+
+function sanitizeHourProofMigration(
+  value: unknown,
+  fileKey: string,
+): CodexHourProofMigrationState | undefined {
+  if (!isRecord(value) || value.version !== CODEX_UTC_HOUR_PROOF_VERSION ||
+      !Number.isSafeInteger(value.offset) || (value.offset as number) < 0 ||
+      !Number.isSafeInteger(value.prefixEvents) || (value.prefixEvents as number) < 0 ||
+      !Number.isSafeInteger(value.tokenEventsSeen) ||
+      (value.tokenEventsSeen as number) < 0 ||
+      !isRecord(value.parserState) || value.parserState.schemaVersion !== 4 ||
+      value.parserState.fileKey !== fileKey) return undefined;
+  const proof = sanitizeCodexHourProof({
+    version: value.version,
+    indexedThrough: value.offset,
+    prefixEvents: value.prefixEvents,
+    hours: value.hours,
+  });
+  if (!proof) return undefined;
+  return {
+    version: CODEX_UTC_HOUR_PROOF_VERSION,
+    offset: proof.indexedThrough,
+    prefixEvents: proof.prefixEvents,
+    tokenEventsSeen: value.tokenEventsSeen as number,
+    discardingOversizedLine: value.discardingOversizedLine === true,
+    parserState: sanitizeParserState(value.parserState, fileKey),
+    hours: proof.hours,
+    ...(value.overflow === true ? { overflow: true } : {}),
+  };
+}
+
 function sanitizeTodayMigration(
   value: unknown,
   fileKey: string,
@@ -3950,6 +4302,12 @@ function sanitizeLineageReconciliation(
     return undefined;
   }
   const parserState = sanitizeParserState(value.parserState, fileKey);
+  const hourProof = sanitizeCodexHourProof({
+    version: CODEX_UTC_HOUR_PROOF_VERSION,
+    indexedThrough: value.offset,
+    prefixEvents: value.prefixEvents,
+    hours: value.hourProofHours,
+  });
   return {
     prefixEvents: Math.max(0, Math.floor(finiteNumber(value.prefixEvents))),
     tokenEventsSeen: Math.max(
@@ -3961,6 +4319,8 @@ function sanitizeLineageReconciliation(
     parserState,
     aggregate: sanitizeFileAggregate(value.aggregate, parserState),
     qualityFlags: sanitizeQualityFlags(value.qualityFlags),
+    ...(hourProof ? { hourProofHours: hourProof.hours } : {}),
+    ...(value.hourProofOverflow === true ? { hourProofOverflow: true } : {}),
   };
 }
 
@@ -4229,6 +4589,12 @@ function sanitizeFileContribution(
     contribution.todayMigration,
     fileKey,
   );
+  const rawHourProof = sanitizeCodexHourProof(contribution.hourProof);
+  const hourProof = rawHourProof && rawHourProof.indexedThrough <= safeOffset
+    ? rawHourProof : undefined;
+  const rawHourDraft = sanitizeHourProofMigration(contribution.hourProofMigration, fileKey);
+  const hourProofMigration = rawHourDraft && rawHourDraft.offset <= safeOffset
+    ? rawHourDraft : undefined;
   if (todayMigration) {
     todayMigration.offset = Math.min(todayMigration.offset, safeOffset);
     todayMigration.prefixEvents = Math.min(
@@ -4276,6 +4642,8 @@ function sanitizeFileContribution(
       : {}),
     ...(periodMigration ? { periodMigration } : {}),
     ...(todayMigration ? { todayMigration } : {}),
+    ...(hourProof ? { hourProof } : {}),
+    ...(hourProofMigration ? { hourProofMigration } : {}),
   };
 }
 
