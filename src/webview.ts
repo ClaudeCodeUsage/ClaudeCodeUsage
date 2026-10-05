@@ -51,7 +51,7 @@ import {
 } from './combinedHeatmapSvg';
 import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename } from './shareCard';
 import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
-import { highestEarnedAchievements, renderAchievementShareSvg, selectShareAchievements } from './achievementShare';
+import { AchievementSharePreview, highestEarnedAchievements, renderAchievementShareSvg, selectShareAchievements } from './achievementShare';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import {
   AchievementActivity,
@@ -1068,6 +1068,8 @@ export class UsageWebviewProvider {
   private silentAchievementRechecks = new Set<AchievementId>();
   private lastAchievementNoticeAt = 0;
   private achievementShareSelection: AchievementId[] | undefined;
+  private readonly acceptedAchievementPreview = new AchievementSharePreview();
+  private achievementExportPending = false;
   private codexInsights: CodexScopedInsights = emptyCodexScopedInsights();
   private providerAvailability = { claude: false, codex: false, codexData: false };
   private codexLoading = false;
@@ -1933,6 +1935,7 @@ export class UsageWebviewProvider {
     this.invalidateSharingCaches();
     this.lastShareCardConfig = undefined;
     this.achievementShareSelection = undefined;
+    this.acceptedAchievementPreview.clear();
     this.sharingTemplate = 'combinedHeatmap';
     this.sharingWorkspaceRequested = false;
     // Reset clears any live command without rewinding its sequence. A later
@@ -2323,6 +2326,7 @@ export class UsageWebviewProvider {
       }
       this.clearPreparedAdviceSnapshots();
       this.pendingAchievementNotice.clear();
+      this.acceptedAchievementPreview.clear();
       this.discardPreparedOptimizer();
       this.onAiSurfaceClosed?.();
       // Force a fresh render into the next panel (the lastHtml guard must not
@@ -2482,38 +2486,69 @@ export class UsageWebviewProvider {
           break;
         case 'restoreAchievementShare':
         case 'previewAchievementShare': {
-          if (!this.setting<boolean>('enableAchievements', true)) break;
+          const requestId = message.requestId;
+          if (!Number.isSafeInteger(requestId) || requestId < 1 ||
+              typeof message.clientId !== 'string' || !/^[a-z0-9-]{1,64}$/.test(message.clientId)) break;
+          if (!this.setting<boolean>('enableAchievements', true) || !this.setting<boolean>('enableShareCard', true)) {
+            this.acceptedAchievementPreview.clear();
+            this.panel?.webview.postMessage({ command: 'achievementShareResult', requestId,
+              clientId: message.clientId, ids: [], svg: '', error: true });
+            break;
+          }
           const requested = Array.isArray(message.ids)
-            ? message.ids.filter((id: unknown): id is string => typeof id === 'string') : [];
-          this.achievementShareSelection = selectShareAchievements(this.earnedAchievements(), requested);
-          const svg = this.achievementShareSvg(this.achievementShareSelection);
-          this.panel?.webview.postMessage({ command: 'achievementShareResult', svg });
-          if (svg && message.command === 'previewAchievementShare') {
-            this.recordAchievementFeature('achievementSharePreview');
+            ? message.ids.slice(0, 9).filter((id: unknown): id is string => typeof id === 'string') : [];
+          try {
+            this.achievementShareSelection = selectShareAchievements(this.earnedAchievements(), requested);
+            const accepted = (message.command === 'restoreAchievementShare'
+              ? this.acceptedAchievementPreview.read(this.achievementShareSelection, I18n.getLocale()) : undefined) ??
+              this.acceptedAchievementPreview.accept(this.achievementShareSelection,
+                this.achievementShareSvg(this.achievementShareSelection), I18n.getLocale());
+            this.panel?.webview.postMessage({ command: 'achievementShareResult', requestId,
+              clientId: message.clientId, ids: this.achievementShareSelection, ...accepted });
+            if (accepted.svg && message.command === 'previewAchievementShare') {
+              this.recordAchievementFeature('achievementSharePreview');
+            }
+          } catch {
+            this.acceptedAchievementPreview.clear();
+            this.panel?.webview.postMessage({ command: 'achievementShareResult', requestId,
+              clientId: message.clientId, ids: [], svg: '', error: true });
           }
           break;
         }
         case 'exportAchievementShare': {
-          if (!this.setting<boolean>('enableAchievements', true)) break;
-          const requested = Array.isArray(message.ids)
-            ? message.ids.filter((id: unknown): id is string => typeof id === 'string') : [];
-          const svg = this.achievementShareSvg(requested);
-          if (!svg) {
-            void vscode.window.showWarningMessage(achievementCopyFor(I18n.getLocale()).shareEmpty);
+          if (this.achievementExportPending) break;
+          const reply = (result: { ok: boolean; stale?: boolean; cancelled?: boolean }): void => {
+            this.panel?.webview.postMessage({ command: 'achievementShareExportResult', previewId: message.previewId, ...result });
+          };
+          if (!this.setting<boolean>('enableAchievements', true) || !this.setting<boolean>('enableShareCard', true)) {
+            reply({ ok: false, stale: true });
             break;
           }
-          const uri = await vscode.window.showSaveDialog({
-            defaultUri: vscode.Uri.file(path.join(os.homedir(), 'claude-code-usage-achievements.svg')),
-            filters: { 'SVG image': ['svg'] },
-            saveLabel: combinedHeatmapUiCopy(I18n.getLocale()).exportSvg.replace('…', ''),
-          });
-          if (uri) {
-            try {
+          const requested = Array.isArray(message.ids)
+            ? message.ids.slice(0, 9).filter((id: unknown): id is string => typeof id === 'string') : [];
+          // Freeze the accepted bytes before awaiting the dialog. A new level,
+          // language change or later preview must not alter the file being saved.
+          const svg = this.acceptedAchievementPreview.capture(message.previewId, requested, I18n.getLocale());
+          if (!svg) {
+            reply({ ok: false, stale: true });
+            break;
+          }
+          this.achievementExportPending = true;
+          try {
+            const uri = await vscode.window.showSaveDialog({
+              defaultUri: vscode.Uri.file(path.join(os.homedir(), 'claude-code-usage-achievements.svg')),
+              filters: { 'SVG image': ['svg'] },
+              saveLabel: combinedHeatmapUiCopy(I18n.getLocale()).exportSvg.replace('…', ''),
+            });
+            if (uri) {
               await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
               this.recordAchievementFeature('localShareExport');
-            } catch (error) {
-              void vscode.window.showErrorMessage(`Achievement SVG export failed: ${error instanceof Error ? error.message : String(error)}`);
-            }
+              reply({ ok: true });
+            } else { reply({ ok: false, cancelled: true }); }
+          } catch {
+            reply({ ok: false, stale: false });
+          } finally {
+            this.achievementExportPending = false;
           }
           break;
         }
@@ -2787,6 +2822,8 @@ export class UsageWebviewProvider {
             const trackSetting = isAchievementSettingKey(message.key);
             const previous = trackSetting ? this.settings.get(message.key) : undefined;
             await this.settings.set(message.key, message.value);
+            if ((message.key === 'enableAchievements' || message.key === 'enableShareCard') &&
+                this.settings.get(message.key) === false) this.acceptedAchievementPreview.clear();
             if (trackSetting) {
               this.recordAchievementSettingChange(message.key,
                 previous !== this.settings.get(message.key));
@@ -4160,7 +4197,9 @@ export class UsageWebviewProvider {
       this.pendingAchievementNotice.clear();
       return;
     }
-    const ids = [...this.pendingAchievementNotice];
+    const ids = highestEarnedAchievements([...this.pendingAchievementNotice].map((id) => ({
+      id, group: 'combined' as const, progress: 1, target: 1, unlocked: true,
+    }))).map((result) => result.id);
     this.pendingAchievementNotice.clear();
     // Reserve the disturbance budget before sending. Slow or rejected delivery
     // must not let another saved batch emit an immediate second notice.
@@ -4188,6 +4227,7 @@ export class UsageWebviewProvider {
     this.achievementNoticeBaselineReady = false;
     this.pendingAchievementNotice.clear();
     this.pendingAchievementGrants.clear();
+    this.acceptedAchievementPreview.clear();
     this.pendingAchievementActivity = undefined;
     try {
       await this.achievementWrite.catch(() => undefined);
@@ -4331,8 +4371,6 @@ export class UsageWebviewProvider {
     const copy = achievementCopyFor(I18n.getLocale());
     const results = this.achievementResults();
     const cumulativeLowerBound = this.codexAchievementVolume().lowerBound;
-    const earnedCount = results.filter((result) =>
-      result.unlocked || this.achievementGrants.has(result.id)).length;
     const unitFor = (id: AchievementId): string =>
       id.startsWith('codex-output-') ? copy.units.outputTokens :
       id.startsWith('codex-cache-read-') ? copy.units.codexCachedTokens :
@@ -4342,15 +4380,16 @@ export class UsageWebviewProvider {
       id.startsWith('active-weeks-') ? copy.units.weeks :
       id.startsWith('weekly-average-') ? copy.units.weeklyAverage :
       id === 'three-family-day' ? copy.units.threeFamilyDay :
-      id === 'dual-provider-day' ? '' :
+      id === 'dual-provider-day' ? copy.units.sharedDays :
       id.startsWith('claude-output-') && !id.startsWith('claude-output-sessions-') ? copy.units.outputTokens :
       id.startsWith('cache-wizard') ? copy.units.cacheReadTokens :
       id.startsWith('claude-cache-creation-') ? copy.units.cacheCreationTokens :
       id.startsWith('output-hours-') ? copy.units.hours :
-      id === 'night-output-peak' ? '' :
-      id.startsWith('settings-explorer-') ? '' :
-      id === 'safe-feature-explorer' ? '' :
-      id === 'local-share-export' || id === 'local-advice-feedback' ? '' :
+      id === 'night-output-peak' ? copy.units.nightPeak :
+      id.startsWith('settings-explorer-') ? copy.units.settings :
+      id === 'safe-feature-explorer' ? copy.units.features :
+      id === 'local-share-export' ? copy.units.exports :
+      id === 'local-advice-feedback' ? copy.units.feedback :
       id.startsWith('root-portfolio-') ||
       id.startsWith('model-relay-roots-') ? copy.units.roots :
       id.startsWith('agent-participation-') ? copy.units.childSessions :
@@ -4359,10 +4398,9 @@ export class UsageWebviewProvider {
       id.startsWith('effort-') ? copy.units.efforts :
       id.startsWith('active-day-streak') || id === 'streak-machine' ? copy.units.streak :
       id.startsWith('active-days-') ? copy.units.days :
-      id.startsWith('fable-days-') ? copy.units.days :
       id.startsWith('fable-sessions-') ? copy.units.sessions :
       id.startsWith('claude-output-sessions-') ? copy.units.outputSessions :
-      id === 'fable-relay' ? '' :
+      id === 'fable-relay' ? copy.units.relay :
       id.startsWith('model-rainbow') ? copy.units.families :
       id === 'multi-core-human' || id.startsWith('same-root-models-') ? copy.units.models : copy.units.tokens;
     const byId = new Map(results.map((result) => [result.id, result]));
@@ -4381,7 +4419,7 @@ export class UsageWebviewProvider {
     }).map((result) => {
       const series = seriesForId.get(result.id);
       const tiers = series ? seriesResults.get(series) : undefined;
-      if (!tiers) return { result, nextResult: result, series: undefined, tierCount: 0, earnedTiers: 0,
+      if (!tiers) return { result, nextResult: result, series: undefined, tiers: undefined, tierCount: 0, earnedTiers: 0,
         earnedLevels: [] as boolean[], nextTierIndex: 0, hasNextTier: false, tier: '' };
       const earnedLevels = tiers.map((entry) => entry.unlocked || this.achievementGrants.has(entry.id));
       const earnedTiers = earnedLevels.filter(Boolean).length;
@@ -4390,28 +4428,41 @@ export class UsageWebviewProvider {
       return {
         result: tiers[Math.max(0, highestEarnedIndex)],
         nextResult: tiers[nextTierIndex],
-        series, tierCount: tiers.length, earnedTiers, earnedLevels, nextTierIndex,
+        series, tiers, tierCount: tiers.length, earnedTiers, earnedLevels, nextTierIndex,
         hasNextTier: highestEarnedIndex < tiers.length - 1,
         tier: tierOrder[Math.max(0, highestEarnedIndex)],
       };
     });
-    const card = ({ result, nextResult, series, tierCount, earnedTiers, earnedLevels, nextTierIndex,
+    const card = ({ result, nextResult, series, tiers, tierCount, earnedTiers, earnedLevels, nextTierIndex,
       hasNextTier, tier }: typeof presentation[number]): string => {
       const earned = series ? earnedTiers > 0 : result.unlocked || this.achievementGrants.has(result.id);
       const targetUnlocked = nextResult.unlocked || this.achievementGrants.has(nextResult.id);
       const progress = Math.min(nextResult.target, targetUnlocked ? nextResult.target : nextResult.progress);
+      let compactProgress = I18n.formatTokensCompact(progress);
+      const rounded = compactProgress.match(/^([\d.]+)([kMBT])$/);
+      const scale: Record<string, number> = { k: 1e3, M: 1e6, B: 1e9, T: 1e12 };
+      if (progress < nextResult.target && rounded && Number(rounded[1]) * scale[rounded[2]] >= nextResult.target) {
+        compactProgress = progress.toLocaleString(I18n.getLocale(), { maximumFractionDigits: 0 });
+      }
       const formatted = nextResult.target >= 10_000_000
-        ? I18n.formatTokensCompact(progress) + ' / ' + I18n.formatTokensCompact(nextResult.target)
+        ? compactProgress + ' / ' + I18n.formatTokensCompact(nextResult.target)
         : I18n.formatNumber(progress) + ' / ' + I18n.formatNumber(nextResult.target);
       const cumulativeVolume = ['hundred-million-club',
         'billion-token-club', 'ten-billion-token-club', 'hundred-billion-token-club', 'trillion-token-club']
         .includes(result.id);
       const name = copy.titles[result.id];
-      const firstSeriesName = series ? copy.titles[ACHIEVEMENT_SERIES[series][0]] : name;
-      const baseName = series && firstSeriesName.endsWith(copy.levels[0])
-        ? firstSeriesName.slice(0, -copy.levels[0].length).replace(/[\s·・]+$/u, '') : firstSeriesName;
+      let baseName = name;
+      if (series) {
+        for (const level of copy.levels) {
+          if (baseName.endsWith(level) && /[\s·・]$/u.test(baseName.slice(0, -level.length))) {
+            baseName = baseName.slice(0, -level.length).replace(/[\s·・]+$/u, '');
+            break;
+          }
+        }
+      }
+      const bound = cumulativeLowerBound && cumulativeVolume ? '≥' : '';
       const levelName = series && earnedTiers > 0
-        ? copy.levels[Math.max(0, earnedTiers - 1)] : earned ? copy.earned : copy.locked;
+        ? copy.levels[tierOrder.indexOf(tier)] : earned ? copy.milestone : copy.locked;
       const webview = this.panel?.webview;
       const iconSrc = webview?.asWebviewUri && this.context.extensionPath
         ? webview.asWebviewUri(vscode.Uri.file(achievementImagePath(result.id))).toString()
@@ -4432,10 +4483,22 @@ export class UsageWebviewProvider {
           earnedLevels.map((complete, index) => '<span class="achievement-tier-pip' +
             (complete ? ' complete' : index === nextTierIndex ? ' next' : '') + '"></span>').join('') +
           '</span>' : '';
+      const key = series ?? result.id;
+      const next = series ? hasNextTier : !earned;
+      const compactTarget = nextResult.target >= 10_000_000
+        ? I18n.formatTokensCompact(nextResult.target) : I18n.formatNumber(nextResult.target);
+      const levelRules = (tiers ?? [result]).map((entry, index) =>
+        '<li data-achievement-level="' + entry.id + '"><strong>' +
+          this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span>' +
+          this.escapeHtml(copy.titles[entry.id]) + '</span><span>' +
+          this.escapeHtml((entry.target >= 10_000_000 ? I18n.formatTokensCompact(entry.target) :
+            I18n.formatNumber(entry.target)) + ' ' + unitFor(entry.id)) + '</span></li>').join('');
       return '<article class="achievement-card ' + (earned ? 'earned' : 'locked') +
-        '"' + seriesAttrs + ' data-achievement-id="' + result.id + '">' +
-        '<details class="achievement-disclosure" data-persist="achievement:' + result.id + '">' +
-        '<summary aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' + formatted + ' ' +
+        '"' + seriesAttrs + ' data-achievement-key="' + key + '" data-achievement-earned="' + earned +
+        '" data-achievement-next="' + next + '" data-achievement-id="' + result.id + '">' +
+        '<details class="achievement-disclosure" data-persist="achievement:' + key + '"' +
+        ' data-persist-aliases="' + (tiers ?? [result]).map(entry => 'achievement:' + entry.id).join(' ') + '">' +
+        '<summary aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' + bound + formatted + ' ' +
           unitFor(result.id)) + '">' +
         '<span class="achievement-emblem" aria-hidden="true">' +
         '<img data-achievement-icon="' + result.id + '" data-achievement-artwork="' +
@@ -4443,36 +4506,54 @@ export class UsageWebviewProvider {
         '" alt="" loading="lazy"></span>' +
         '<h4>' + this.escapeHtml(baseName) + '</h4>' +
         (earned ? '<span class="achievement-rank">' + this.escapeHtml(levelName) + '</span>' : '') +
-        tierPips + '</summary>' +
+        tierPips + '<span class="achievement-next-target">' + this.escapeHtml(next
+          ? (series ? copy.nextTarget + ' · ' + compactTarget : copy.milestone) : copy.complete) + '</span></summary>' +
         '<div class="achievement-card-detail">' + tierMarkers +
         '<p class="achievement-state">' + this.escapeHtml(series && earnedTiers < tierCount && earnedTiers > 0
           ? `${earnedTiers}/${tierCount} ${copy.earned}` : earned ? copy.earned : copy.locked) + '</p>' +
         '<label class="achievement-progress-label" for="achievement-progress-' + result.id + '">' +
-        this.escapeHtml((cumulativeLowerBound && cumulativeVolume ? '≥' : '') +
-          (series && earnedTiers > 0 && hasNextTier ? copy.nextTarget + ': ' : '') +
+        this.escapeHtml((series && earnedTiers > 0 && hasNextTier ? copy.nextTarget + ': ' : '') + bound +
           formatted + ' ' + unitFor(result.id)) + '</label>' +
         '<progress id="achievement-progress-' + result.id + '" max="' + nextResult.target +
-        '" value="' + progress + '"></progress></div></details></article>';
+        '" value="' + progress + '"></progress><h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
+        '<ol class="achievement-level-rules">' + levelRules + '</ol></div></details></article>';
     };
     const groups: Array<'claude' | 'codex' | 'combined' | 'plugin'> =
       ['claude', 'codex', 'combined', 'plugin'];
+    const visibleGroups = groups.filter(group => group === 'combined' || group === 'plugin' || this.providerAvailability[group]);
+    const visibleResult = (result: AchievementResult): boolean => visibleGroups.includes(result.group) &&
+      (!result.id.startsWith('dual-provider-') || (this.providerAvailability.claude && this.providerAvailability.codex));
+    const visibleCards = presentation.filter(entry => visibleResult(entry.result));
+    const visibleResults = results.filter(visibleResult);
+    const isEarned = (result: AchievementResult): boolean => result.unlocked || this.achievementGrants.has(result.id);
+    const earnedCount = visibleResults.filter(isEarned).length;
+    const seriesCount = visibleCards.filter(entry => entry.earnedTiers > 0 || isEarned(entry.result)).length;
+    const countLabel = (template: string, earned: number, total: number): string =>
+      template.replace('{earned}', I18n.formatNumber(earned)).replace('{total}', I18n.formatNumber(total));
     return '<section class="achievement-collection" aria-label="' + this.escapeHtml(copy.heading) + '">' +
       '<div class="achievement-intro"><h2>' + this.escapeHtml(copy.heading) + '</h2><p>' +
       this.escapeHtml(copy.intro) + '</p>' +
       (cumulativeLowerBound ? '<p class="achievement-evidence-note">' +
         this.escapeHtml(copy.lowerBoundNote) + '</p>' : '') +
       '<p class="achievement-count">' +
-      I18n.formatNumber(earnedCount) + ' / ' + I18n.formatNumber(results.length) + ' ' +
-      this.escapeHtml(copy.earned) + '</p>' +
+      this.escapeHtml(countLabel(copy.seriesCount, seriesCount, visibleCards.length)) + ' · ' +
+      this.escapeHtml(countLabel(copy.levelCount, earnedCount, visibleResults.length)) + '</p>' +
+      '<div class="achievement-actions">' +
       (this.setting<boolean>('enableShareCard', true)
         ? '<button class="btn-secondary btn-small" onclick="openAchievementShare()">' +
-          this.escapeHtml(copy.shareTitle) + '</button>' : '') + '</div>' +
-      groups.filter((group) => group === 'combined' || group === 'plugin' || this.providerAvailability[group])
+          this.escapeHtml(copy.shareTitle) + '</button>' : '') +
+      '<button class="btn-secondary btn-small" onclick="openAchievementSettings()">' +
+        this.escapeHtml(copy.settingsTitle) + '</button></div></div>' +
+      '<div class="achievement-filter-toolbar"><label for="achievementFilter">' + this.escapeHtml(copy.filterLabel) +
+      '</label><select id="achievementFilter" onchange="filterAchievements(this.value, true)">' +
+      '<option value="all">' + this.escapeHtml(copy.filterAll) + '</option><option value="next">' +
+      this.escapeHtml(copy.filterNext) + '</option><option value="earned">' + this.escapeHtml(copy.filterEarned) +
+      '</option></select><span id="achievementShownCount" role="status"></span></div>' +
+      '<p id="achievementFilterEmpty" class="table-hint" hidden>' + this.escapeHtml(copy.filterEmpty) + '</p>' +
+      visibleGroups
         .map((group) => '<section class="achievement-group achievement-group-' + group + '"><h3>' +
           this.escapeHtml(copy.groups[group]) + '</h3><div class="achievement-grid">' +
-          presentation.filter((entry) => entry.result.group === group)
-            .sort((left, right) => Number(right.earnedTiers > 0 || right.result.unlocked || this.achievementGrants.has(right.result.id)) -
-              Number(left.earnedTiers > 0 || left.result.unlocked || this.achievementGrants.has(left.result.id)))
+          visibleCards.filter((entry) => entry.result.group === group)
             .map(card).join('') +
           '</div></section>').join('') + '</section>';
   }
@@ -4505,24 +4586,32 @@ export class UsageWebviewProvider {
     const workspaceCopy = combinedHeatmapUiCopy(I18n.getLocale());
     const results = highestEarnedAchievements(this.earnedAchievements());
     const chosen = selectShareAchievements(results, this.achievementShareSelection);
-    const preview = selected === 'achievements' ? this.achievementShareSvg(chosen) : '';
+    const accepted = selected === 'achievements' ? this.acceptedAchievementPreview.read(chosen, I18n.getLocale()) : undefined;
+    const preview = accepted?.svg ?? '';
+    const iconSrc = (id: AchievementId): string => this.panel?.webview?.asWebviewUri && this.context.extensionPath
+      ? this.panel.webview.asWebviewUri(vscode.Uri.file(achievementImagePath(id))).toString() : achievementImageDataUrl(id);
     const choices = results.map((result) => '<label class="sc-check"><input type="checkbox" class="achievement-share-choice" value="' +
       result.id + '"' + (chosen.includes(result.id) ? ' checked' : '') +
-      ' onchange="previewAchievementShare(this)">' + this.escapeHtml(copy.titles[result.id]) + '</label>').join('');
+      ' onchange="previewAchievementShare(this)"><img class="achievement-share-choice-icon" src="' +
+      this.escapeHtml(iconSrc(result.id)) + '" alt="" loading="lazy"><span>' + this.escapeHtml(copy.titles[result.id]) + '</span></label>').join('');
     return '<section class="sharing-presentation achievement-share-presentation" data-sharing-presentation="achievements"' +
       (selected === 'achievements' ? '' : ' hidden') + ' aria-labelledby="achievementShareHeading">' +
       '<h3 id="achievementShareHeading" class="sharing-presentation-title">' + this.escapeHtml(copy.shareTitle) + '</h3>' +
       '<p class="sharing-presentation-description">' + this.escapeHtml(copy.shareIntro) + '</p>' +
       '<div class="combined-preview-toolbar"><strong>' + this.escapeHtml(workspaceCopy.previewLabel) + '</strong></div>' +
       '<div id="achievementSharePreview" class="sharing-artifact-preview achievement-share-preview" role="region" tabindex="0" aria-label="' +
-      this.escapeHtml(copy.shareTitle) + '">' + (preview || '<p class="table-hint">' + this.escapeHtml(copy.shareEmpty) + '</p>') + '</div>' +
+      this.escapeHtml(copy.shareTitle) + '" data-preview-id="' + this.escapeHtml(accepted?.previewId ?? '') + '">' +
+      (preview || '<p class="table-hint">' + this.escapeHtml(results.length ? copy.shareSelect : copy.shareEmpty) + '</p>') + '</div>' +
       '<div class="sharing-controls-panel"><fieldset class="sc-checks"><legend>' + this.escapeHtml(copy.shareChoose) +
       ' <span id="achievementShareCount" aria-live="polite">' + chosen.length + '/9</span></legend>' + choices +
-      '</fieldset><div class="share-actions">' +
+      '</fieldset><p id="achievementShareLimit" class="table-hint" role="status"></p>' +
+      '<p id="achievementShareStatus" class="table-hint" role="status"></p><div class="share-actions">' +
       '<button class="btn-primary btn-small" onclick="previewAchievementShare()"' + (results.length ? '' : ' disabled') + '>' +
       this.escapeHtml(workspaceCopy.updatePreview) + '</button>' +
-      '<button id="achievementShareExportBtn" class="btn-secondary btn-small" onclick="exportAchievementShare()"' + (chosen.length ? '' : ' disabled') + '>' +
-      this.escapeHtml(workspaceCopy.exportSvg) + '</button></div></div></section>';
+      '<button id="achievementShareExportBtn" class="btn-secondary btn-small" onclick="exportAchievementShare()"' + (preview ? '' : ' disabled') + '>' +
+      this.escapeHtml(workspaceCopy.exportSvg) + '</button>' +
+      '<button id="achievementShareBack" class="btn-secondary btn-small" onclick="backToAchievements()">' +
+      this.escapeHtml(copy.shareBack) + '</button></div></div></section>';
   }
 
   /**
@@ -12223,6 +12312,10 @@ export class UsageWebviewProvider {
       .achievement-intro h2 { margin: 0 0 5px; font-size: 1.35rem; }
       .achievement-intro p { margin: 0; color: var(--vscode-descriptionForeground); line-height: 1.5; }
       .achievement-intro .achievement-count { margin-top: 8px; color: var(--vscode-foreground); font-weight: 650; }
+      .achievement-actions, .achievement-filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+      .achievement-filter-toolbar { color: var(--vscode-descriptionForeground); }
+      .achievement-filter-toolbar select { max-width: 100%; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 4px; padding: 5px 7px; }
+      .achievement-filter-toolbar select:focus-visible { outline: 2px solid var(--vscode-focusBorder); }
       .achievement-group { --achievement-accent: var(--vscode-charts-purple); }
       .achievement-group-claude { --achievement-accent: var(--vscode-charts-orange); }
       .achievement-group-codex { --achievement-accent: var(--vscode-charts-blue); }
@@ -12231,7 +12324,7 @@ export class UsageWebviewProvider {
       .achievement-card { min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 11px; background: var(--vscode-editor-background); overflow: hidden; }
       .achievement-card.earned { border-color: var(--achievement-accent); }
       .achievement-card[data-achievement-tier="bronze"] { --achievement-tier-color: var(--vscode-charts-orange); }
-      .achievement-card[data-achievement-tier="silver"] { --achievement-tier-color: var(--vscode-charts-blue); }
+      .achievement-card[data-achievement-tier="silver"] { --achievement-tier-color: var(--vscode-descriptionForeground); }
       .achievement-card[data-achievement-tier="gold"] { --achievement-tier-color: var(--vscode-charts-yellow); }
       .achievement-card[data-achievement-tier="platinum"] { --achievement-tier-color: var(--vscode-charts-blue); }
       .achievement-card[data-achievement-tier="legendary"] { --achievement-tier-color: var(--vscode-charts-purple); }
@@ -12241,6 +12334,9 @@ export class UsageWebviewProvider {
       .achievement-card summary { display: grid; justify-items: center; align-content: start; gap: 4px; min-height: 175px; padding: 14px 10px 12px; cursor: pointer; list-style: none; text-align: center; }
       .achievement-card summary::-webkit-details-marker { display: none; }
       .achievement-card summary:hover { background: var(--vscode-list-hoverBackground); }
+      .achievement-card summary > * { min-width: 0; max-width: 100%; }
+      .achievement-card summary::after { content: '⌄'; color: var(--vscode-descriptionForeground); line-height: 1; }
+      .achievement-card details[open] summary::after { content: '⌃'; }
       .achievement-card summary:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -3px; border-radius: 10px; }
       .achievement-emblem { display: grid; place-items: center; width: 108px; height: 108px; border-radius: 13px; overflow: hidden; }
       .achievement-card summary .achievement-emblem { margin-bottom: 4px; }
@@ -12249,13 +12345,21 @@ export class UsageWebviewProvider {
       .achievement-card h4 { margin: 0; font-size: .9rem; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
       .achievement-card[data-achievement-series].earned h4 { color: var(--achievement-tier-label-color); }
       .achievement-rank { display: inline-block; max-width: 100%; padding: 2px 7px; border: 1px solid var(--vscode-panel-border); border-radius: 999px; color: var(--vscode-descriptionForeground); font-size: .72rem; line-height: 1.25; overflow-wrap: anywhere; }
+      .achievement-next-target { color: var(--vscode-descriptionForeground); font-size: .72rem; line-height: 1.4; overflow-wrap: anywhere; }
+      .achievement-card-detail h5 { margin: 12px 0 6px; font-size: .8rem; }
+      .achievement-level-rules { min-width: 0; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      .achievement-level-rules li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
+      .achievement-level-rules li span { color: var(--vscode-descriptionForeground); }
+      .achievement-share-choice-icon { flex: none; width: 32px; height: 32px; object-fit: contain; }
+      .achievement-share-presentation .sc-check { min-width: 0; }
+      .achievement-share-presentation .sc-check span { overflow-wrap: anywhere; }
       .achievement-card[data-achievement-series].earned .achievement-rank { border-color: var(--achievement-tier-color); color: var(--achievement-tier-label-color); }
       .achievement-tier-pips { display: flex; align-items: center; justify-content: center; gap: 6px; height: 10px; }
       .achievement-tier-pip { width: 5px; height: 5px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 50%; opacity: .65; }
       .achievement-tier-pip.complete { width: 7px; height: 7px; border-color: var(--achievement-tier-color); background: var(--achievement-tier-color); opacity: 1; }
       .achievement-tier-pip.next { width: 7px; height: 7px; border-color: var(--vscode-foreground); opacity: .8; }
       .achievement-card-detail { padding: 0 12px 13px; border-top: 1px solid var(--vscode-panel-border); }
-      .achievement-tier-markers { display: flex; gap: 5px; margin: 9px 0 4px; }
+      .achievement-tier-markers { display: flex; flex-wrap: wrap; gap: 5px; margin: 9px 0 4px; }
       .achievement-tier-marker { display: grid; place-items: center; min-width: 19px; height: 17px; padding: 0 3px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; color: var(--vscode-descriptionForeground); font-size: .68rem; line-height: 1; }
       .achievement-tier-marker.complete { border-color: var(--achievement-tier-color); color: var(--achievement-tier-label-color); font-weight: 700; }
       .achievement-tier-marker.next { border-style: dashed; }
@@ -12324,6 +12428,7 @@ function ccuRequestDestinationText(message) {
     __dashboardFeedbackCopy.model + ': ' + message.model;
 }
 const __achievementDismissLabel = ${JSON.stringify(I18n.t.popup.dismiss)};
+const __achievementCopy = ${JSON.stringify((({ titles, ...chrome }) => chrome)(achievementCopyFor(I18n.getLocale())))};
 let __claudeLast30HoursByDay = ${LIVE_PATCH_HOURS_START}${inlineScriptJson(
       claudeHourlyDisplayDto(this.hourlyDataForRolling30DaysByDay),
     )}${LIVE_PATCH_HOURS_END};
@@ -12557,7 +12662,9 @@ function restorePersistedDetails() {
     var open = st.openDetails || [];
     if (!open.length) { return; }
     document.querySelectorAll('details[data-persist]').forEach(function(d){
-      if (open.indexOf(d.getAttribute('data-persist')) !== -1) { d.open = true; }
+      var aliases = (d.getAttribute('data-persist-aliases') || '').split(' ');
+      if (open.indexOf(d.getAttribute('data-persist')) !== -1 ||
+          aliases.some(function(key) { return key && open.indexOf(key) !== -1; })) { d.open = true; }
     });
   } catch (e) {}
 }
@@ -12605,6 +12712,7 @@ function restoreUi() {
   restoreActiveTab();
   restoreSessionFilter();
   restorePersistedDetails();
+  restoreAchievementFilter();
   restoreClaudeDrilldownDetails();
   restoreCodexHourlyDetails();
   restoreAdviceEffectivenessState();
@@ -12622,6 +12730,7 @@ function restoreUi() {
   restoreProjectMatrixState();
   requestLocalDataInventoryForVisibleSettings();
   restoreScrollPosition();
+  restoreAchievementReturnFocus();
   vscode.postMessage({ command: 'localDataClientReady' });
 }
 
@@ -12788,17 +12897,100 @@ function selectedAchievementShareIds(changed) {
   choices.forEach(function(input) { input.disabled = checked.length >= 9 && !input.checked; });
   var count = document.getElementById('achievementShareCount');
   if (count) { count.textContent = checked.length + '/9'; }
+  var limit = document.getElementById('achievementShareLimit');
+  if (limit) { limit.textContent = checked.length === 9 ? __achievementCopy.shareLimit : ''; }
   return checked.map(function(input) { return input.value; });
 }
+var __achievementShareRequest = 0;
+var __achievementShareClientId = globalThis.crypto.randomUUID();
+var __achievementShareRequestedIds = [];
+var __achievementExportPreviewId = '';
+var __achievementSelectionChanged = false;
+function requestAchievementShare(command, ids) {
+  __achievementShareRequestedIds = ids.slice();
+  var preview = document.getElementById('achievementSharePreview');
+  var exportButton = document.getElementById('achievementShareExportBtn');
+  var status = document.getElementById('achievementShareStatus');
+  if (preview) {
+    preview.dataset.previewId = '';
+    preview.setAttribute('aria-busy', ids.length ? 'true' : 'false');
+    if (!ids.length) {
+      preview.textContent = document.querySelector('.achievement-share-choice')
+        ? __achievementCopy.shareSelect : __achievementCopy.shareEmpty;
+    }
+  }
+  if (exportButton) { exportButton.disabled = true; }
+  if (status) { status.textContent = ids.length ? __achievementCopy.sharePending : ''; }
+  vscode.postMessage({ command: command, ids: ids, requestId: ++__achievementShareRequest, clientId: __achievementShareClientId });
+}
 function previewAchievementShare(changed) {
+  __achievementSelectionChanged = false;
   var ids = selectedAchievementShareIds(changed);
   try { localStorage.setItem('ccu.sharing.achievementBadges', JSON.stringify(ids)); } catch (e) {}
-  vscode.postMessage({ command: 'previewAchievementShare', ids: ids });
+  requestAchievementShare('previewAchievementShare', ids);
 }
 function exportAchievementShare() {
-  vscode.postMessage({ command: 'exportAchievementShare', ids: selectedAchievementShareIds() });
+  var preview = document.getElementById('achievementSharePreview');
+  var button = document.getElementById('achievementShareExportBtn');
+  if (!preview || !preview.dataset.previewId || !button || button.disabled || __achievementExportPreviewId) { return; }
+  __achievementExportPreviewId = preview.dataset.previewId;
+  button.disabled = true;
+  var status = document.getElementById('achievementShareStatus');
+  if (status) { status.textContent = __achievementCopy.shareSaving; }
+  vscode.postMessage({ command: 'exportAchievementShare', ids: selectedAchievementShareIds(), previewId: preview.dataset.previewId });
+}
+function filterAchievements(value, save) {
+  var selector = document.getElementById('achievementFilter');
+  if (!selector) { return; }
+  var filter = ['all', 'next', 'earned'].indexOf(value) >= 0 ? value : 'all';
+  selector.value = filter;
+  var shown = 0;
+  document.querySelectorAll('.achievement-card').forEach(function(card) {
+    card.hidden = filter === 'earned' ? card.dataset.achievementEarned !== 'true' :
+      filter === 'next' ? card.dataset.achievementNext !== 'true' : false;
+    if (!card.hidden) { shown++; }
+  });
+  document.querySelectorAll('.achievement-group').forEach(function(group) {
+    group.hidden = !Array.from(group.querySelectorAll('.achievement-card')).some(function(card) { return !card.hidden; });
+  });
+  var empty = document.getElementById('achievementFilterEmpty');
+  if (empty) { empty.hidden = shown > 0; }
+  var count = document.getElementById('achievementShownCount');
+  if (count) { count.textContent = __achievementCopy.shownCount.replace('{count}', shown.toLocaleString()); }
+  if (save) { ccuWriteUiState('achievementFilter', filter); }
+}
+function restoreAchievementFilter() {
+  filterAchievements(ccuReadUiState().achievementFilter, false);
+}
+function openAchievementSettings() {
+  showTab('settings');
+  var setting = document.getElementById('set_enableAchievements');
+  if (setting) { setting.focus(); setting.scrollIntoView({ block: 'center' }); }
+}
+function backToAchievements() {
+  try { localStorage.setItem('ccu.activeTab', 'achievements'); } catch (e) {}
+  ccuWriteUiState('achievementReturnFocus', true);
+  if (document.getElementById('tab-achievements')) { showTab('achievements'); restoreAchievementReturnFocus(); }
+  else {
+    var origin = ccuReadUiState().achievementShareOrigin;
+    if ((origin !== 'claude' && origin !== 'codex') || !document.getElementById('provider-tab-' + origin)) {
+      origin = document.getElementById('provider-tab-codex') ? 'codex' : 'claude';
+    }
+    showProvider(origin, 'achievements');
+  }
+}
+function restoreAchievementReturnFocus() {
+  var filter = document.getElementById('achievementFilter');
+  var tab = document.getElementById('tab-achievements');
+  if (ccuReadUiState().achievementReturnFocus !== true || !filter || !tab || tab.getAttribute('aria-selected') !== 'true') { return; }
+  ccuWriteUiState('achievementReturnFocus', false);
+  filter.focus({ preventScroll: true });
 }
 function openAchievementShare() {
+  var origin = document.querySelector('.provider-tab[aria-selected="true"]');
+  if (origin && (origin.id === 'provider-tab-claude' || origin.id === 'provider-tab-codex')) {
+    ccuWriteUiState('achievementShareOrigin', origin.id.replace('provider-tab-', ''));
+  }
   try { localStorage.setItem('ccu.sharing.template', 'achievements'); } catch (e) {}
   if (document.getElementById('provider-tab-compare')) {
     showProvider('compare', 'all');
@@ -12817,7 +13009,12 @@ function restoreAchievementShareSelection() {
   if (!Array.isArray(stored)) { selectedAchievementShareIds(); return; }
   choices.forEach(function(input) { input.checked = stored.indexOf(input.value) >= 0; });
   var ids = selectedAchievementShareIds();
-  vscode.postMessage({ command: 'restoreAchievementShare', ids: ids });
+  __achievementSelectionChanged = stored.some(function(id) { return ids.indexOf(id) < 0; });
+  requestAchievementShare('restoreAchievementShare', ids);
+  if (__achievementSelectionChanged) {
+    var status = document.getElementById('achievementShareStatus');
+    if (status) { status.textContent = __achievementCopy.shareSelectionChanged; }
+  }
 }
 function restoreSharingTemplate() {
   var selector = document.getElementById('sharingTemplate');
@@ -14827,12 +15024,52 @@ window.addEventListener('message', async function(event) {
   }
 
   if (message.command === 'achievementShareResult') {
-    var achievementPreview = document.getElementById('achievementSharePreview');
-    if (achievementPreview) {
-      achievementPreview.innerHTML = message.svg || '';
+    if (message.clientId !== __achievementShareClientId || message.requestId !== __achievementShareRequest ||
+        JSON.stringify(__achievementShareRequestedIds) !== JSON.stringify(selectedAchievementShareIds())) { return; }
+    // A grant may become unavailable during an audit. Accept only a subset of
+    // the explicit selection, in its original order; never add a new badge.
+    var validIds = Array.isArray(message.ids) && message.ids.length <= 9 &&
+      message.ids.every(function(id) { return typeof id === 'string'; }) &&
+      JSON.stringify(__achievementShareRequestedIds.filter(function(id) { return message.ids.indexOf(id) >= 0; })) === JSON.stringify(message.ids);
+    if (validIds && message.error !== true) {
+      __achievementSelectionChanged = __achievementSelectionChanged || message.ids.length !== __achievementShareRequestedIds.length;
+      document.querySelectorAll('.achievement-share-choice').forEach(function(input) {
+        if (message.ids.indexOf(input.value) < 0) { input.checked = false; }
+      });
+      __achievementShareRequestedIds = selectedAchievementShareIds();
+      try { localStorage.setItem('ccu.sharing.achievementBadges', JSON.stringify(__achievementShareRequestedIds)); } catch (e) {}
     }
+    var achievementPreview = document.getElementById('achievementSharePreview');
+    var achievementStatus = document.getElementById('achievementShareStatus');
+    var accepted = validIds && message.error !== true && message.ids.length > 0 && typeof message.svg === 'string' && message.svg.length > 0 &&
+      typeof message.previewId === 'string' && message.previewId.length > 0 && message.previewId.length <= 64;
+    var failed = message.error === true || !validIds || (message.ids.length > 0 && !accepted);
+    if (achievementPreview) {
+      achievementPreview.setAttribute('aria-busy', 'false');
+      achievementPreview.dataset.previewId = accepted ? message.previewId : '';
+      if (accepted) { achievementPreview.innerHTML = message.svg; }
+      else { achievementPreview.textContent = failed ? __achievementCopy.shareFailed :
+        document.querySelector('.achievement-share-choice') ? __achievementCopy.shareSelect : __achievementCopy.shareEmpty; }
+    }
+    if (achievementStatus) { achievementStatus.textContent = failed ? __achievementCopy.shareFailed :
+      __achievementSelectionChanged ? __achievementCopy.shareSelectionChanged : ''; }
     var achievementExport = document.getElementById('achievementShareExportBtn');
-    if (achievementExport) { achievementExport.disabled = !message.svg; }
+    if (achievementExport) { achievementExport.disabled = !accepted || !!__achievementExportPreviewId; }
+  }
+
+  if (message.command === 'achievementShareExportResult' && message.previewId === __achievementExportPreviewId && __achievementExportPreviewId) {
+    __achievementExportPreviewId = '';
+    var exportPreview = document.getElementById('achievementSharePreview');
+    var exportButton = document.getElementById('achievementShareExportBtn');
+    var exportStatus = document.getElementById('achievementShareStatus');
+    if (exportPreview && exportPreview.dataset.previewId === message.previewId) {
+      if (message.stale === true) { exportPreview.dataset.previewId = ''; }
+      if (exportStatus) { exportStatus.textContent = message.ok === true ? __achievementCopy.shareSaved :
+        message.cancelled === true ? __achievementCopy.shareCancelled : message.stale === true ?
+          __achievementCopy.shareStale : __achievementCopy.shareExportFailed; }
+    }
+    if (exportButton) { exportButton.disabled = !exportPreview || !exportPreview.dataset.previewId ||
+      exportPreview.getAttribute('aria-busy') === 'true'; }
   }
 
   if (message.command === 'combinedHeatmapResult') {

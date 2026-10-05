@@ -1,0 +1,232 @@
+import { test, expect, openCodex, openClaude, openCompare } from './support/app.mjs';
+
+test('gallery filters are local, survive reload, and do not read or refresh logs', async ({ page }) => {
+  await openCodex(page);
+  await page.locator('#tab-achievements').click();
+  await page.locator('#achievementFilter').selectOption('next');
+  const expected = await page.locator('.achievement-card[data-achievement-next="true"]').count();
+  await expect(page.locator('.achievement-card:visible')).toHaveCount(expected);
+  await page.reload();
+  await expect(page.locator('#achievementFilter')).toHaveValue('next');
+  await expect(page.locator('.achievement-card:visible')).toHaveCount(expected);
+  await page.locator('#achievementFilter').selectOption('earned');
+  const earned = await page.locator('.achievement-card[data-achievement-earned="true"]').count();
+  await expect(page.locator('.achievement-card:visible')).toHaveCount(earned);
+  const messages = await page.evaluate(() => window.__ccuPostedMessages);
+  expect(messages.some(message => ['refresh', 'updateSetting'].includes(message.command))).toBe(false);
+  await expect(page.locator('.achievement-count')).toContainText('series');
+  await expect(page.locator('.achievement-count')).toContainText('levels');
+});
+
+test('a gallery settings shortcut focuses the existing opt-out without changing it', async ({ page }) => {
+  await openCodex(page);
+  await page.locator('#tab-achievements').click();
+  await page.getByRole('button', { name: 'Achievement settings', exact: true }).click();
+  await expect(page.locator('#tab-settings')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#set_enableAchievements')).toBeFocused();
+  await expect(page.locator('#set_enableAchievements')).toBeChecked();
+  await page.reload();
+  await expect(page.locator('#tab-settings')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#set_enableAchievements').locator('..')).toBeVisible();
+  await page.locator('#set_enableAchievements').focus();
+  await page.locator('#set_enableAchievements').press('Space');
+  await expect.poll(() => page.evaluate(() => window.__ccuPostedMessages.some(message =>
+    message.command === 'updateSetting' && message.key === 'enableAchievements' && message.value === false))).toBe(true);
+});
+
+test('a tier update keeps its series disclosure, filter, card order and keyboard focus', async ({ page }) => {
+  await openCodex(page);
+  await page.locator('#tab-achievements').click();
+  await page.locator('#achievementFilter').selectOption('next');
+  const card = page.locator('[data-achievement-series="astra-regular"]');
+  await card.locator('summary').click();
+  await card.locator('summary').focus();
+  const order = await page.locator('.achievement-card').evaluateAll(cards => cards.map(card => card.dataset.achievementKey));
+  const source = await (await page.context().request.get(page.url())).text();
+  await page.evaluate(source => {
+    const nextPanel = new DOMParser().parseFromString(source, 'text/html').getElementById('provider-panel');
+    // The host rendering contract separately verifies real tier upgrades. This
+    // patch exercises client restoration while the displayed level ID changes.
+    const upgraded = nextPanel.querySelector('[data-achievement-series="astra-regular"]');
+    upgraded.dataset.achievementId = 'astra-regular-silver';
+    upgraded.querySelector('h4').textContent = 'Astra regular · Silver';
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      command: 'dashboardDataPatch', provider: 'codex', tab: 'achievements', revision: 1,
+      html: nextPanel.innerHTML, claudeLast30HoursByDay: {},
+    } }));
+  }, source);
+  await expect.poll(() => page.evaluate(() => window.__ccuPostedMessages.some(message =>
+    message.command === 'dashboardDataPatchAck' && message.revision === 1 && message.ok))).toBe(true);
+  await expect(card.locator('details')).toHaveAttribute('open');
+  await expect(card.locator('summary')).toBeFocused();
+  await expect(page.locator('#achievementFilter')).toHaveValue('next');
+  expect(await page.locator('.achievement-card').evaluateAll(cards => cards.map(card => card.dataset.achievementKey))).toEqual(order);
+  await page.reload();
+  await expect(card.locator('details')).toHaveAttribute('open');
+  await expect(page.locator('#achievementFilter')).toHaveValue('next');
+});
+
+test('closing a disclosure restored from an old level key remains closed after reload', async ({ page }) => {
+  await openCodex(page);
+  await page.locator('#tab-achievements').click();
+  await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem('__ccu-vscode-state')) || {};
+    state.openDetails = ['achievement:sol-regular-silver'];
+    localStorage.setItem('__ccu-vscode-state', JSON.stringify(state));
+  });
+  await page.reload();
+  const card = page.locator('[data-achievement-series="sol-regular"]');
+  await expect(card.locator('details')).toHaveAttribute('open');
+  await card.locator('summary').click();
+  await expect(card.locator('details')).not.toHaveAttribute('open');
+  await page.reload();
+  await expect(card.locator('details')).not.toHaveAttribute('open');
+});
+
+test('five-level rules and distinct silver/platinum treatments fit 320px and 360px', async ({ page }) => {
+  for (const width of [320, 360]) {
+    await openCodex(page, { width });
+    await page.locator('#tab-achievements').click();
+    const card = page.locator('[data-achievement-series="cumulative-volume"]');
+    if (!await card.locator('details').evaluate(details => details.open)) await card.locator('summary').click();
+    const fits = await card.evaluate(card => [...card.querySelectorAll('summary,.achievement-tier-markers,.achievement-level-rules')]
+      .every(element => element.scrollWidth <= element.clientWidth + 1));
+    expect(fits).toBe(true);
+  }
+  const colors = await page.evaluate(() => {
+    const card = document.querySelector('.achievement-card');
+    card.dataset.achievementTier = 'silver';
+    const silver = getComputedStyle(card).getPropertyValue('--achievement-tier-color');
+    card.dataset.achievementTier = 'platinum';
+    return { silver, platinum: getComputedStyle(card).getPropertyValue('--achievement-tier-color') };
+  });
+  expect(colors.silver.trim()).not.toBe(colors.platinum.trim());
+});
+
+for (const [provider, open] of [['claude', openClaude], ['codex', openCodex]]) {
+  test(`sharing returns to the ${provider} gallery with keyboard focus`, async ({ page }) => {
+    await open(page, { fixture: 'combined-heatmap' });
+    await page.locator('#tab-achievements').click();
+    await page.locator('#achievements button[onclick="openAchievementShare()"] ').click();
+    await openCompare(page, { fixture: 'combined-heatmap', commandTemplate: 'achievements' });
+    await page.locator('#achievementShareBack').click();
+    await expect.poll(() => page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'providerChanged').at(-1)))
+      .toEqual({ command: 'providerChanged', provider, tab: 'achievements' });
+    await open(page, { fixture: 'combined-heatmap' });
+    await expect(page.locator('#tab-achievements')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('#achievementFilter')).toBeFocused();
+  });
+}
+
+test('an upgrade never silently selects a new badge and explains selection changes', async ({ page }) => {
+  await openCompare(page, { fixture: 'combined-heatmap', commandTemplate: 'achievements' });
+  await page.evaluate(() => localStorage.setItem('ccu.sharing.achievementBadges', JSON.stringify(['no-longer-offered-tier'])));
+  await page.reload();
+  await expect(page.locator('.achievement-share-choice:checked')).toHaveCount(0);
+  await expect(page.locator('#achievementShareStatus')).toContainText('changed');
+  await expect(page.locator('#achievementShareExportBtn')).toBeDisabled();
+});
+
+test('export suppresses repeated clicks and reports success, cancel and a retryable error', async ({ page }) => {
+  await openCompare(page, { fixture: 'combined-heatmap', commandTemplate: 'achievements' });
+  await page.locator('.achievement-share-choice').first().check();
+  const request = await page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'previewAchievementShare').at(-1));
+  await page.evaluate(request => window.dispatchEvent(new MessageEvent('message', { data: {
+    ...request, command: 'achievementShareResult', previewId: 'export-preview', svg: '<svg width="100" height="60"/>',
+  } })), request);
+  const button = page.locator('#achievementShareExportBtn');
+  await button.click();
+  await page.evaluate(() => exportAchievementShare());
+  expect(await page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'exportAchievementShare').length)).toBe(1);
+  await expect(button).toBeDisabled();
+  for (const [reply, text] of [[{ ok: true }, 'saved'], [{ ok: false, cancelled: true }, 'cancelled'], [{ ok: false, stale: false }, 'Could not save']]) {
+    await page.evaluate(reply => window.dispatchEvent(new MessageEvent('message', { data: {
+      command: 'achievementShareExportResult', previewId: 'export-preview', ...reply,
+    } })), reply);
+    await expect(page.locator('#achievementShareStatus')).toContainText(text);
+    await expect(button).toBeEnabled();
+    if (!reply.stale && !('stale' in reply)) await button.click();
+  }
+});
+
+test('share selection explains its empty state and waits for the matching preview, ignoring stale replies', async ({ page }) => {
+  await openCompare(page, { fixture: 'combined-heatmap', commandTemplate: 'achievements' });
+  await expect(page.locator('#achievementSharePreview')).toContainText('Select');
+  await expect(page.locator('.achievement-share-choice-icon').first()).toBeVisible();
+  await page.locator('.achievement-share-choice').first().check();
+  const request = await page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'previewAchievementShare').at(-1));
+  expect(request.requestId).toBeGreaterThan(0);
+  await expect(page.locator('#achievementShareExportBtn')).toBeDisabled();
+  await expect(page.locator('#achievementShareStatus')).toContainText('Preparing');
+  await page.evaluate(request => window.dispatchEvent(new MessageEvent('message', { data: {
+    command: 'achievementShareResult', requestId: request.requestId - 1, clientId: request.clientId, ids: request.ids,
+    previewId: 'stale', svg: '<svg data-old="true"/>',
+  } })), request);
+  await expect(page.locator('#achievementShareExportBtn')).toBeDisabled();
+  await page.evaluate(request => window.dispatchEvent(new MessageEvent('message', { data: {
+    command: 'achievementShareResult', requestId: request.requestId, clientId: request.clientId, ids: request.ids,
+    previewId: 'accepted-preview', svg: '<svg width="120" height="80"><rect width="120" height="80"/></svg>',
+  } })), request);
+  await expect(page.locator('#achievementShareExportBtn')).toBeEnabled();
+  await page.locator('#achievementShareExportBtn').click();
+  const exported = await page.evaluate(() => window.__ccuPostedMessages.find(message => message.command === 'exportAchievementShare'));
+  expect(exported.previewId).toBe('accepted-preview');
+  expect(exported.ids).toEqual(request.ids);
+  await page.locator('.achievement-share-choice').first().uncheck();
+  await expect(page.locator('#achievementShareExportBtn')).toBeDisabled();
+  await page.locator('#achievementShareBack').click();
+  await expect.poll(() => page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'providerChanged').at(-1)))
+    .toEqual({ command: 'providerChanged', provider: 'codex', tab: 'achievements' });
+  // The harness records provider requests; the extension host is tested separately.
+  await openCodex(page, { fixture: 'combined-heatmap' });
+  await expect(page.locator('#tab-achievements')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('a matching preview reconciles only unavailable selected badges and survives reload', async ({ page }) => {
+  await openCompare(page, { fixture: 'combined-heatmap', commandTemplate: 'achievements' });
+  await page.locator('.achievement-share-choice').nth(0).check();
+  const request = await page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'previewAchievementShare').at(-1));
+  const acceptedIds = [];
+  await page.evaluate(({ request, acceptedIds }) => window.dispatchEvent(new MessageEvent('message', { data: {
+    command: 'achievementShareResult', requestId: request.requestId, clientId: request.clientId, ids: acceptedIds,
+    svg: '',
+  } })), { request, acceptedIds });
+  await expect(page.locator('#achievementShareExportBtn')).toBeDisabled();
+  await expect(page.locator('#achievementSharePreview')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('.achievement-share-choice').nth(0)).not.toBeChecked();
+  await expect(page.locator('#achievementShareCount')).toHaveText('0/9');
+  await page.reload();
+  const restored = await page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'restoreAchievementShare').at(-1));
+  expect(restored.ids).toEqual(acceptedIds);
+});
+
+test('a matching malformed preview fails visibly instead of remaining busy or accepting extra badges', async ({ page }) => {
+  await openCompare(page, { fixture: 'combined-heatmap', commandTemplate: 'achievements' });
+  await page.locator('.achievement-share-choice').nth(0).check();
+  const request = await page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'previewAchievementShare').at(-1));
+  await page.evaluate(request => window.dispatchEvent(new MessageEvent('message', { data: {
+    command: 'achievementShareResult', requestId: request.requestId, clientId: request.clientId, ids: ['not-selected'],
+    previewId: 'untrusted-preview', svg: '<svg data-unexpected="true"/>',
+  } })), request);
+  await expect(page.locator('#achievementShareExportBtn')).toBeDisabled();
+  await expect(page.locator('#achievementSharePreview')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('#achievementShareStatus')).toContainText(/could not/i);
+  await expect(page.locator('#achievementSharePreview svg')).toHaveCount(0);
+  await expect(page.locator('.achievement-share-choice').nth(0)).toBeChecked();
+});
+
+for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
+  test(`${locale} compact targets, full tier rules, and controls fit the narrow gallery`, async ({ page }, testInfo) => {
+    await openCodex(page, { locale, theme: 'dark', width: 360 });
+    await page.locator('#tab-achievements').click();
+    await expect(page.locator('.achievement-next-target').first()).toBeVisible();
+    await page.locator('[data-achievement-series="astra-regular"] summary').click();
+    await expect(page.locator('[data-achievement-series="astra-regular"] [data-achievement-level]')).toHaveCount(3);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
+    expect(overflow).toBe(false);
+    await page.locator('#achievementFilter').selectOption('next');
+    await page.reload();
+    await expect(page.locator('#achievementFilter')).toHaveValue('next');
+    if (locale === 'zh-CN') await page.locator('#achievements').screenshot({ path: testInfo.outputPath('experience-narrow-dark.png') });
+  });
+}

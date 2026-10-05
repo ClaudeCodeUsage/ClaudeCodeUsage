@@ -5,6 +5,18 @@ const require = createRequire(import.meta.url);
 const { ACHIEVEMENT_COPY } = require('../../out/i18n.js');
 const { renderAchievementShareSvg } = require('../../out/achievementShare.js');
 
+async function acceptAchievementSvg(page, svg) {
+  await page.evaluate(svg => {
+    const request = window.__ccuPostedMessages.filter(message =>
+      ['previewAchievementShare', 'restoreAchievementShare'].includes(message.command)).at(-1);
+    if (!request) throw new Error('fixture needs a matching preview request');
+    window.dispatchEvent(new MessageEvent('message', { data: {
+      command: 'achievementShareResult', clientId: request.clientId, requestId: request.requestId,
+      ids: request.ids, previewId: 'synthetic-preview', svg,
+    } }));
+  }, svg);
+}
+
 test('achievements are on by default and remain selected after reload', async ({ page }, testInfo) => {
   await openCodex(page, { theme: 'dark' });
   await expect(page.locator('#tab-achievements')).toBeVisible();
@@ -75,9 +87,7 @@ test('earned badges join the preview-first sharing workspace without automatic e
       message.ids.length === 1 && message.ids[0] === selectedId)).toBe(true);
   // This browser harness records host messages but does not run the extension
   // host; acknowledge its preview response explicitly.
-  await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', {
-    data: { command: 'achievementShareResult', svg: '<svg data-achievement-icon="true" width="120" height="80"><rect width="120" height="80"/></svg>' },
-  })));
+  await acceptAchievementSvg(page, '<svg data-achievement-icon="true" width="120" height="80"><rect width="120" height="80"/></svg>');
   await expect(page.locator('#achievementSharePreview > svg')).toBeVisible();
   expect(await page.locator('#achievementSharePreview svg[data-achievement-icon]').count()).toBeGreaterThan(0);
   await page.locator('.achievement-share-choice').first().uncheck();
@@ -233,9 +243,8 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       // determining earned selection are covered by host/unit tests separately.
       const svg = renderAchievementShareSvg({ selected, titles: copy.titles, heading: copy.shareTitle,
         subtitle: copy.intro, groups: copy.groups, levels: copy.levels, milestone: copy.milestone, footer: copy.heading });
-      await page.evaluate((svg) => window.dispatchEvent(new MessageEvent('message', {
-        data: { command: 'achievementShareResult', svg },
-      })), svg);
+      await page.locator('.achievement-share-choice').first().check();
+      await acceptAchievementSvg(page, svg);
       const preview = page.locator('#achievementSharePreview > svg');
       await expect(preview).toBeVisible();
       await expect(preview.locator('g[data-achievement-share-badge]')).toHaveCount(9);

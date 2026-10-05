@@ -88,6 +88,133 @@ test('share export writes the accepted immutable SVG, not a newly calculated art
   assert.equal(saveDialogs, 1, 'superseded previews cannot export');
 });
 
+test('achievement export captures its exact accepted SVG; restored UI never silently rebuilds it', async () => {
+  const p = provider();
+  p.earnedAchievements = () => [{ id: 'astra-regular', group: 'codex', progress: 1, target: 1, unlocked: true }];
+  let builds = 0;
+  p.achievementShareSvg = () => '<svg>achievement-' + (++builds) + '</svg>';
+  const request = { ids: ['astra-regular'], clientId: 'synthetic-client', requestId: 1 };
+  await handler({ command: 'previewAchievementShare', ...request });
+  const preview = posted.find(message => message.command === 'achievementShareResult')!;
+  assert.equal(preview.clientId, request.clientId);
+  assert.equal(preview.requestId, 1);
+  await handler({ command: 'restoreAchievementShare', ...request, requestId: 2 });
+  assert.equal(builds, 1, 'auto-refresh display hydration reuses the accepted artifact');
+  await handler({ command: 'exportAchievementShare', ids: ['sol-regular'], previewId: preview.previewId });
+  assert.equal(saveDialogs, 0, 'unpreviewed selection cannot open the save dialog');
+  await handler({ command: 'exportAchievementShare', ids: request.ids, previewId: preview.previewId });
+  assert.deepEqual(writes, [preview.svg]);
+  assert.equal(builds, 1);
+  await handler({ command: 'previewAchievementShare', ...request, requestId: 3 });
+  await handler({ command: 'exportAchievementShare', ids: request.ids, previewId: preview.previewId });
+  assert.equal(saveDialogs, 1, 'superseded handle stays invalid');
+  p.clearSharingRuntimeState();
+  const latest = posted.filter(message => message.command === 'achievementShareResult');
+  await handler({ command: 'exportAchievementShare', ids: request.ids, previewId: latest[latest.length - 1]!.previewId });
+  assert.equal(saveDialogs, 1, 'reset cannot resurrect an accepted preview');
+});
+
+test('achievement preview messages require an owned client token and safe request counter', async () => {
+  const p = provider();
+  p.achievementShareSvg = () => '<svg>unexpected</svg>';
+  for (const invalid of [{}, { requestId: 0, clientId: 'client' }, { requestId: 1, clientId: '../path' },
+    { requestId: Number.POSITIVE_INFINITY, clientId: 'client' }]) {
+    await handler({ command: 'previewAchievementShare', ids: [], ...invalid });
+  }
+  assert.equal(posted.some(message => message.command === 'achievementShareResult'), false);
+});
+
+test('achievement sharing refreshes its language before saving but a started save keeps the captured bytes', async () => {
+  const locale = I18n.getLocale();
+  const originalDialog = vscode.window.showSaveDialog;
+  try {
+    I18n.setLanguage('en');
+    const p = provider();
+    p.earnedAchievements = () => [{ id: 'astra-regular', group: 'codex', progress: 1, target: 1, unlocked: true }];
+    p.achievementShareSvg = () => '<svg>' + I18n.getLocale() + '</svg>';
+    const request = { ids: ['astra-regular'], clientId: 'client', requestId: 1 };
+    await handler({ command: 'previewAchievementShare', ...request });
+    const old = posted.find(message => message.command === 'achievementShareResult')!;
+    I18n.setLanguage('zh-CN');
+    await handler({ command: 'exportAchievementShare', ids: request.ids, previewId: old.previewId });
+    assert.equal(saveDialogs, 0);
+    await handler({ command: 'restoreAchievementShare', ...request, requestId: 2 });
+    const replies = posted.filter(message => message.command === 'achievementShareResult');
+    const current = replies[replies.length - 1];
+    assert.equal(current.svg, '<svg>zh-CN</svg>');
+    let finish: (uri: any) => void = () => undefined;
+    vscode.window.showSaveDialog = () => new Promise<any>(resolve => { finish = resolve; });
+    const saving = handler({ command: 'exportAchievementShare', ids: request.ids, previewId: current.previewId });
+    I18n.setLanguage('en');
+    finish({ fsPath: '/synthetic/export.svg' });
+    await saving;
+    assert.deepEqual(writes, ['<svg>zh-CN</svg>']);
+  } finally { I18n.setLanguage(locale as Parameters<typeof I18n.setLanguage>[0]); vscode.window.showSaveDialog = originalDialog; }
+});
+
+test('an achievement preview build failure invalidates its old handle and replies without private diagnostics', async () => {
+  const p = provider();
+  p.earnedAchievements = () => [{ id: 'astra-regular', group: 'codex', progress: 1, target: 1, unlocked: true }];
+  p.achievementShareSvg = () => '<svg>accepted</svg>';
+  const request = { ids: ['astra-regular'], clientId: 'synthetic-client', requestId: 1 };
+  await handler({ command: 'previewAchievementShare', ...request });
+  const old = posted.find(message => message.command === 'achievementShareResult')!;
+  p.achievementShareSvg = () => { throw new Error('/private/synthetic-path'); };
+  await assert.doesNotReject(handler({ command: 'previewAchievementShare', ...request, requestId: 2 }));
+  const replies = posted.filter(message => message.command === 'achievementShareResult');
+  assert.deepEqual(replies[replies.length - 1], {
+    command: 'achievementShareResult', requestId: 2, clientId: request.clientId, ids: [], svg: '', error: true,
+  });
+  await handler({ command: 'exportAchievementShare', ids: request.ids, previewId: old.previewId });
+  assert.equal(saveDialogs, 0);
+  assert.equal(JSON.stringify(posted).includes('synthetic-path'), false);
+});
+
+test('turning achievements off resolves an already-owned preview request without remaining busy', async () => {
+  const p = provider();
+  p.settings = { get: (key: string, fallback: unknown) => key === 'enableAchievements' ? false : fallback };
+  await handler({ command: 'previewAchievementShare', ids: ['astra-regular'], clientId: 'client', requestId: 1 });
+  assert.deepEqual(posted.find(message => message.command === 'achievementShareResult'), {
+    command: 'achievementShareResult', ids: [], svg: '', error: true, clientId: 'client', requestId: 1,
+  });
+});
+
+test('achievement export uses one save dialog at a time and acknowledges success, cancellation and write failure', async () => {
+  const p = provider();
+  p.earnedAchievements = () => [{ id: 'astra-regular', group: 'codex', progress: 1, target: 1, unlocked: true }];
+  p.achievementShareSvg = () => '<svg>accepted</svg>';
+  await handler({ command: 'previewAchievementShare', ids: ['astra-regular'], clientId: 'client', requestId: 1 });
+  const preview = posted.find(message => message.command === 'achievementShareResult')!;
+  const message = { command: 'exportAchievementShare', ids: ['astra-regular'], previewId: preview.previewId };
+  const originalDialog = vscode.window.showSaveDialog;
+  const originalWrite = vscode.workspace.fs.writeFile;
+  let finish: (uri: any) => void = () => undefined;
+  vscode.window.showSaveDialog = () => { saveDialogs++; return new Promise<any>(resolve => { finish = resolve; }); };
+  try {
+    const first = handler(message);
+    await handler(message);
+    assert.equal(saveDialogs, 1);
+    finish({ fsPath: '/synthetic/export.svg' });
+    await first;
+    const exportReplies = posted.filter(reply => reply.command === 'achievementShareExportResult');
+    assert.deepEqual(exportReplies[exportReplies.length - 1], {
+      command: 'achievementShareExportResult', previewId: preview.previewId, ok: true,
+    });
+    vscode.window.showSaveDialog = async () => undefined as any;
+    await handler(message);
+    assert.equal(posted[posted.length - 1]!.cancelled, true);
+    vscode.window.showSaveDialog = originalDialog;
+    vscode.workspace.fs.writeFile = async () => { throw new Error('/private/synthetic-write-error'); };
+    await assert.doesNotReject(handler(message));
+    assert.equal(posted[posted.length - 1]!.ok, false);
+    assert.equal(posted[posted.length - 1]!.stale, false);
+    assert.equal(JSON.stringify(posted).includes('synthetic-write-error'), false);
+  } finally {
+    vscode.window.showSaveDialog = originalDialog;
+    vscode.workspace.fs.writeFile = originalWrite;
+  }
+});
+
 test('ordinary reset-all preserves secrets even if the client explicitly includes their keys', async () => {
   const p = provider();
   const reset: string[] = [];

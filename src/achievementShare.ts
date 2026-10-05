@@ -1,6 +1,31 @@
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES, AchievementId, AchievementResult } from './achievements';
 import { renderAchievementIcon } from './achievementIcons';
 import type { AchievementCopy } from './i18n';
+import { randomUUID } from 'node:crypto';
+
+/** One accepted local artifact, not an export history. Capture before any save dialog. */
+export class AchievementSharePreview {
+  private current?: { previewId: string; ids: string; svg: string; locale: string };
+
+  accept(ids: readonly AchievementId[], svg: string, locale = ''): { previewId?: string; svg: string } {
+    this.clear();
+    if (!ids.length || !svg) return { svg: '' };
+    this.current = { previewId: randomUUID(), ids: JSON.stringify(ids), svg, locale };
+    return { previewId: this.current.previewId, svg };
+  }
+
+  capture(previewId: unknown, ids: readonly string[], locale = ''): string | undefined {
+    return typeof previewId === 'string' && this.current?.previewId === previewId &&
+      this.current.ids === JSON.stringify(ids) && this.current.locale === locale ? this.current.svg : undefined;
+  }
+
+  read(ids: readonly string[], locale = ''): { previewId: string; svg: string } | undefined {
+    return this.current?.ids === JSON.stringify(ids) && this.current.locale === locale
+      ? { previewId: this.current.previewId, svg: this.current.svg } : undefined;
+  }
+
+  clear(): void { this.current = undefined; }
+}
 
 /** One earned representative per series, in canonical rule order. */
 export function highestEarnedAchievements(results: readonly AchievementResult[]): AchievementResult[] {

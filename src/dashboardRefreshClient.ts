@@ -459,6 +459,7 @@ function ccuRestoreDashboardUiAfterPatch(context, panel, tab, adviceSnapshotIds)
   }
   restoreSessionFilter();
   restorePersistedDetails();
+  restoreAchievementFilter();
   restoreClaudeDrilldownDetails();
   restoreCodexHourlyDetails();
   restoreSessionDetails();
@@ -477,6 +478,7 @@ function ccuRestoreDashboardUiAfterPatch(context, panel, tab, adviceSnapshotIds)
   // saved choices against the newly earned badges and recalculate capacity.
   restoreSharingTemplate();
   restoreAchievementShareSelection();
+  restoreAchievementReturnFocus();
   restoreAdviceEffectivenessState();
   ccuRestoreAdvicePreviews(context.advicePreviews, adviceSnapshotIds);
   formatOptSettings();

@@ -15,10 +15,32 @@ export interface AchievementCopy {
   earned: string;
   locked: string;
   nextTarget: string;
+  seriesCount: string;
+  levelCount: string;
+  shownCount: string;
+  filterLabel: string;
+  filterAll: string;
+  filterNext: string;
+  filterEarned: string;
+  filterEmpty: string;
+  settingsTitle: string;
+  allLevels: string;
+  complete: string;
   shareTitle: string;
   shareIntro: string;
   shareChoose: string;
   shareEmpty: string;
+  shareSelect: string;
+  shareLimit: string;
+  sharePending: string;
+  shareStale: string;
+  shareFailed: string;
+  shareExportFailed: string;
+  shareSaved: string;
+  shareCancelled: string;
+  shareSaving: string;
+  shareSelectionChanged: string;
+  shareBack: string;
   unlockedNotice: string;
   unlockedBatch: string;
   upgradeOn: string;
@@ -54,6 +76,12 @@ export interface AchievementCopy {
     weeks: string;
     weeklyAverage: string;
     codexCachedTokens: string;
+    settings: string;
+    features: string;
+    exports: string;
+    feedback: string;
+    nightPeak: string;
+    relay: string;
   };
   titles: Record<AchievementId, string>;
 }
@@ -65,8 +93,18 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     intro: 'Milestones from indexed local usage. They describe activity, not skill or productivity.',
     lowerBoundNote: '≥ marks a conservative total for conflicting Codex copies. Calendar awards need verified retained logs; four-week means skip the first event week. Deleted/rotated logs can leave gaps.',
     earned: 'Earned', locked: 'In progress', nextTarget: 'Next level',
+    seriesCount: '{earned} / {total} series', levelCount: '{earned} / {total} levels', shownCount: '{count} series shown',
+    filterLabel: 'Show achievements', filterAll: 'All series', filterNext: 'Next levels', filterEarned: 'Earned series',
+    filterEmpty: 'No series match this view. Choose All series to browse the collection.',
+    settingsTitle: 'Achievement settings', allLevels: 'Level requirements', complete: 'All levels earned',
+    shareSelect: 'Select up to 9 earned badges below to preview your card.', shareLimit: '9 badges selected. Remove one to choose another.',
+    sharePending: 'Preparing preview…', shareStale: 'Preview your current selection before exporting.',
+    shareFailed: 'Could not prepare the preview. Try updating it again.', shareExportFailed: 'Could not save the achievement card. Please try again.',
+    shareBack: 'Back to achievements',
+    shareSaved: 'Achievement card saved.', shareCancelled: 'Save cancelled. Your preview is unchanged.', shareSaving: 'Saving card…',
+    shareSelectionChanged: 'Available badges changed. Check your selection before sharing; new levels are not selected automatically.',
     shareTitle: 'Achievement card', shareIntro: 'Choose earned badges to include in a local SVG. Export only after preview.', shareChoose: 'Badges to share', shareEmpty: 'Earn a badge before creating a card.',
-    unlockedNotice: 'Badge unlocked: {name}', unlockedBatch: '{count} badges unlocked from local history',
+    unlockedNotice: 'Badge unlocked: {name}', unlockedBatch: '{count} achievement series advanced',
     upgradeOn: 'Local achievements are now on by default. Historical badges are added quietly; you can turn achievements off here or in dashboard Settings.',
     upgradeOff: 'Local achievements are available. Your existing OFF preference has been kept; you can enable them in dashboard Settings.',
     openAchievements: 'View achievements', disableAchievements: 'Turn achievements off',
@@ -95,8 +133,12 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       qualifiedDays: 'closed days, each with 1M+ family processed tokens and positive output',
       sharedDays: 'closed days with 1M+ processed tokens and positive output per provider',
       weeks: 'closed Monday-start weeks with 4+ days, each with 1M+ processed tokens and positive output',
-      weeklyAverage: 'peak processed tokens/week over 4 consecutive closed Monday-start weeks; zero weeks included, total ÷ 4 (Gold: 5B)',
+      weeklyAverage: 'peak processed tokens/week over 4 consecutive closed Monday-start weeks; zero weeks included, total ÷ 4',
       codexCachedTokens: 'cached input tokens',
+      settings: 'different safe settings deliberately changed', features: 'local features: gallery, badge preview and SVG export',
+      exports: 'successful local SVG exports', feedback: 'saved local advice feedback',
+      nightPeak: '30-day portrait: 14+ active days, 5+ night days; output-positive hours at 22:00–06:00 exceed each other 8-hour band by 20% (not work time)',
+      relay: 'sessions with output from Fable and another recognized Claude family',
     },
     titles: {
       'sonnet-main': 'Sonnet mainstay', 'opus-cannon': 'Opus deep dive', 'haiku-worker': 'Haiku workhorse',
@@ -191,8 +233,18 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     intro: '依据已索引的本地用量解锁；记录使用经历，不评价能力或生产力。',
     lowerBoundNote: '≥ 表示 Codex 副本冲突时的累计保守下界。日历成就须核实留存日志；四周均值排除首条事件所在周。删除或轮转的日志可能留下缺口。',
     earned: '已获得', locked: '进行中', nextTarget: '下一等级',
+    seriesCount: '{earned} / {total} 个系列', levelCount: '{earned} / {total} 个等级', shownCount: '显示 {count} 个系列',
+    filterLabel: '显示范围', filterAll: '全部系列', filterNext: '待解锁等级', filterEarned: '已获得系列',
+    filterEmpty: '当前范围没有成就，选择“全部系列”可查看完整图鉴。',
+    settingsTitle: '成就设置', allLevels: '各等级条件', complete: '全部等级已获得',
+    shareSelect: '请在下方选择最多 9 枚已获得的徽章，生成分享预览。', shareLimit: '已选择 9 枚徽章，取消一枚后可选择其他徽章。',
+    sharePending: '正在生成预览…', shareStale: '请先预览当前选择，再导出。',
+    shareFailed: '预览生成失败，请重新更新预览。', shareExportFailed: '成就分享卡保存失败，请重试。',
+    shareBack: '返回成就',
+    shareSaved: '成就分享卡已保存。', shareCancelled: '已取消保存，预览保持不变。', shareSaving: '正在保存分享卡…',
+    shareSelectionChanged: '可分享徽章已变化，请确认选择；新等级不会自动勾选。',
     shareTitle: '成就分享卡', shareIntro: '选择已获得的徽章生成本地 SVG，预览后再导出。', shareChoose: '选择展示的徽章', shareEmpty: '获得徽章后即可制作分享卡。',
-    unlockedNotice: '解锁徽章：{name}', unlockedBatch: '从本地历史解锁 {count} 枚徽章',
+    unlockedNotice: '解锁徽章：{name}', unlockedBatch: '{count} 个成就系列取得新进展',
     upgradeOn: '本地成就默认开启，历史徽章将静默补齐。可在此关闭，也可在面板设置中随时关闭。',
     upgradeOff: '本地成就已上线，已保留你原有的关闭选择。可在面板设置中开启。',
     openAchievements: '查看成就', disableAchievements: '关闭成就',
@@ -221,8 +273,12 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       qualifiedDays: '个已结束自然日，每日该家族至少 100万已处理 Token 且有正输出',
       sharedDays: '个已结束自然日，两供应商各至少 100万已处理 Token 且有正输出',
       weeks: '个周一起算的已结束自然周，每周 4+ 天各至少 100万已处理 Token 且有正输出',
-      weeklyAverage: '连续 4 个周一起算的已结束自然周，每周已处理 Token 均值峰值；含零用量周，总量 ÷ 4（金色：5B）',
+      weeklyAverage: '连续 4 个周一起算的已结束自然周，每周已处理 Token 均值峰值；含零用量周，总量 ÷ 4',
       codexCachedTokens: '缓存输入 Token',
+      settings: '项主动修改过的不同安全设置', features: '项本地功能：图鉴、徽章预览、SVG 导出',
+      exports: '次成功的本地 SVG 导出', feedback: '项已保存的本地建议反馈',
+      nightPeak: '项近 30 日画像：≥14 个活跃日、≥5 个夜间活跃日；22:00–06:00 有输出小时数比另两个八小时时段分别高至少 20%（非工作时长）',
+      relay: '个 Fable 与另一已识别 Claude 家族均有输出的会话',
     },
     titles: {
       'sonnet-main': 'Sonnet 主力', 'opus-cannon': 'Opus 深度使用', 'haiku-worker': 'Haiku 多面手',
@@ -316,8 +372,18 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     tab: '成就', heading: '本機成就', intro: '根據已索引的本機用量解鎖；記錄使用經歷，不評價能力或生產力。',
     lowerBoundNote: '≥ 表示 Codex 副本衝突時的累計保守下界。日曆成就須核實留存日誌；四週均值排除首筆事件所在週。刪除或輪替的日誌可能留下缺口。',
     earned: '已獲得', locked: '進行中', nextTarget: '下一等級',
+    seriesCount: '{earned} / {total} 個系列', levelCount: '{earned} / {total} 個等級', shownCount: '顯示 {count} 個系列',
+    filterLabel: '顯示範圍', filterAll: '全部系列', filterNext: '待解鎖等級', filterEarned: '已獲得系列',
+    filterEmpty: '目前範圍沒有成就，選擇「全部系列」可查看完整圖鑑。',
+    settingsTitle: '成就設定', allLevels: '各等級條件', complete: '全部等級已獲得',
+    shareSelect: '請在下方選擇最多 9 枚已獲得的徽章，產生分享預覽。', shareLimit: '已選擇 9 枚徽章，取消一枚後可選擇其他徽章。',
+    sharePending: '正在產生預覽…', shareStale: '請先預覽目前選擇，再匯出。',
+    shareFailed: '預覽產生失敗，請重新更新預覽。', shareExportFailed: '成就分享卡儲存失敗，請重試。',
+    shareBack: '返回成就',
+    shareSaved: '成就分享卡已儲存。', shareCancelled: '已取消儲存，預覽保持不變。', shareSaving: '正在儲存分享卡…',
+    shareSelectionChanged: '可分享徽章已變更，請確認選擇；新等級不會自動勾選。',
     shareTitle: '成就分享卡', shareIntro: '選擇已獲得的徽章產生本機 SVG，預覽後再匯出。', shareChoose: '選擇展示的徽章', shareEmpty: '獲得徽章後即可製作分享卡。',
-    unlockedNotice: '解鎖徽章：{name}', unlockedBatch: '從本機記錄解鎖 {count} 枚徽章',
+    unlockedNotice: '解鎖徽章：{name}', unlockedBatch: '{count} 個成就系列取得新進展',
     upgradeOn: '本機成就預設開啟，歷史徽章將靜默補齊。可在此關閉，也可隨時在面板設定中關閉。',
     upgradeOff: '本機成就已推出，已保留你原有的關閉選擇。可在面板設定中開啟。',
     openAchievements: '檢視成就', disableAchievements: '關閉成就',
@@ -346,8 +412,12 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       qualifiedDays: '個已結束自然日，每日該家族至少 100萬已處理 Token 且有正輸出',
       sharedDays: '個已結束自然日，兩供應商各至少 100萬已處理 Token 且有正輸出',
       weeks: '個週一起算的已結束自然週，每週 4+ 天各至少 100萬已處理 Token 且有正輸出',
-      weeklyAverage: '連續 4 個週一起算的已結束自然週，每週已處理 Token 均值峰值；含零用量週，總量 ÷ 4（金色：5B）',
+      weeklyAverage: '連續 4 個週一起算的已結束自然週，每週已處理 Token 均值峰值；含零用量週，總量 ÷ 4',
       codexCachedTokens: '快取輸入 Token',
+      settings: '項主動修改過的不同安全設定', features: '項本機功能：圖鑑、徽章預覽、SVG 匯出',
+      exports: '次成功的本機 SVG 匯出', feedback: '項已儲存的本機建議回饋',
+      nightPeak: '項近 30 日使用型態：≥14 個活躍日、≥5 個夜間活躍日；22:00–06:00 有輸出小時數比另兩個八小時時段分別高至少 20%（非工作時長）',
+      relay: '個 Fable 與另一已識別 Claude 家族均有輸出的會話',
     },
     titles: {
       'sonnet-main': 'Sonnet 主力', 'opus-cannon': 'Opus 深度使用', 'haiku-worker': 'Haiku 多面手',
@@ -441,8 +511,18 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     tab: 'Erfolge', heading: 'Lokale Erfolge', intro: 'Meilensteine aus lokal indexierter Nutzung; keine Bewertung von Können oder Produktivität.',
     lowerBoundNote: '≥ markiert eine konservative Summe bei Codex-Kopienkonflikten. Kalendererfolge brauchen geprüfte erhaltene Logs; Vierwochenmittel überspringen die erste Ereigniswoche. Gelöschte/rotierte Logs können Lücken hinterlassen.',
     earned: 'Erreicht', locked: 'In Arbeit', nextTarget: 'Nächste Stufe',
+    seriesCount: '{earned} / {total} Serien', levelCount: '{earned} / {total} Stufen', shownCount: '{count} Serien angezeigt',
+    filterLabel: 'Erfolge anzeigen', filterAll: 'Alle Serien', filterNext: 'Nächste Stufen', filterEarned: 'Erreichte Serien',
+    filterEmpty: 'Keine Serie in dieser Ansicht. Unter Alle Serien ist die gesamte Sammlung sichtbar.',
+    settingsTitle: 'Erfolgseinstellungen', allLevels: 'Stufenbedingungen', complete: 'Alle Stufen erreicht',
+    shareSelect: 'Unten bis zu 9 erreichte Abzeichen für die Vorschau auswählen.', shareLimit: '9 Abzeichen ausgewählt. Für ein anderes zuerst eines abwählen.',
+    sharePending: 'Vorschau wird erstellt…', shareStale: 'Aktuelle Auswahl vor dem Export in der Vorschau prüfen.',
+    shareFailed: 'Vorschau fehlgeschlagen. Bitte erneut aktualisieren.', shareExportFailed: 'Erfolgskarte konnte nicht gespeichert werden. Bitte erneut versuchen.',
+    shareBack: 'Zurück zu Erfolgen',
+    shareSaved: 'Erfolgskarte gespeichert.', shareCancelled: 'Speichern abgebrochen. Die Vorschau bleibt unverändert.', shareSaving: 'Karte wird gespeichert…',
+    shareSelectionChanged: 'Verfügbare Abzeichen haben sich geändert. Auswahl prüfen; neue Stufen werden nicht automatisch ausgewählt.',
     shareTitle: 'Erfolgskarte', shareIntro: 'Erreichte Abzeichen für eine lokale SVG auswählen; erst nach Vorschau exportieren.', shareChoose: 'Abzeichen auswählen', shareEmpty: 'Erst ein Abzeichen verdienen, dann eine Karte erstellen.',
-    unlockedNotice: 'Abzeichen freigeschaltet: {name}', unlockedBatch: '{count} Abzeichen aus lokalen Daten freigeschaltet',
+    unlockedNotice: 'Abzeichen freigeschaltet: {name}', unlockedBatch: '{count} Erfolgsserien weiterentwickelt',
     upgradeOn: 'Lokale Erfolge sind jetzt standardmäßig aktiviert. Historische Abzeichen werden ohne Hinweis ergänzt. Hier oder in den Dashboard-Einstellungen können Sie Erfolge deaktivieren.',
     upgradeOff: 'Lokale Erfolge sind verfügbar. Ihre bisherige Deaktivierung bleibt erhalten. Aktivieren ist in den Dashboard-Einstellungen möglich.',
     openAchievements: 'Erfolge ansehen', disableAchievements: 'Erfolge deaktivieren',
@@ -461,7 +541,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       days: 'aktive Tage',
       sessions: 'Sitzungen mit Fable-Ausgabe',
       outputSessions: 'Sitzungen mit Ausgabe',
-      hours: 'UTC-Stunden mit Ausgabe (keine menschliche Arbeitszeit)',
+      hours: 'aufeinanderfolgende UTC-Stunden mit Ausgabe (keine menschliche Arbeitszeit)',
       tokens: 'verarbeitete Token',
       agents: 'bestätigte Unteragenten in einer Aufgabe',
       agentRoots: 'Sitzungen mit 3+ Unteragenten',
@@ -471,8 +551,12 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       qualifiedDays: 'abgeschlossene Tage mit je 1M+ verarbeiteten Familien-Token und positiver Ausgabe',
       sharedDays: 'abgeschlossene Tage mit je 1M+ verarbeiteten Token und positiver Ausgabe pro Anbieter',
       weeks: 'abgeschlossene Montagwochen mit 4+ Tagen, jeder mit 1M+ verarbeiteten Token und positiver Ausgabe',
-      weeklyAverage: 'höchster Schnitt verarbeiteter Token/Woche über 4 aufeinanderfolgende abgeschlossene Montagwochen; Nullwochen enthalten, Summe ÷ 4 (Gold: 5B)',
+      weeklyAverage: 'höchster Schnitt verarbeiteter Token/Woche über 4 aufeinanderfolgende abgeschlossene Montagwochen; Nullwochen enthalten, Summe ÷ 4',
       codexCachedTokens: 'gecachte Eingabe-Token',
+      settings: 'bewusst geänderte unterschiedliche sichere Einstellungen', features: 'lokale Funktionen: Galerie, Abzeichenvorschau und SVG-Export',
+      exports: 'erfolgreiche lokale SVG-Exporte', feedback: 'gespeicherte lokale Feedbacks',
+      nightPeak: '30-Tage-Profil: 14+ aktive Tage, 5+ Nachttage; Ausgabestunden von 22–06 Uhr liegen mindestens 20% über jedem anderen 8-Stunden-Band (keine Arbeitszeit)',
+      relay: 'Sitzungen mit Ausgabe von Fable und einer anderen erkannten Claude-Familie',
     },
     titles: {
       'sonnet-main': 'Sonnet als Hauptmodell', 'opus-cannon': 'Opus intensiv', 'haiku-worker': 'Haiku im Einsatz',
@@ -566,8 +650,18 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     tab: '実績', heading: 'ローカル実績', intro: '索引済みのローカル利用記録に基づく実績です。能力や生産性の評価ではありません。',
     lowerBoundNote: '≥ は Codex 複製の競合時の保守的な累計下限です。暦の実績には検証済みの残存ログが必要です。4週平均は最初のイベント週を除外します。削除・ローテーションされたログには欠落があり得ます。',
     earned: '獲得済み', locked: '進行中', nextTarget: '次のレベル',
+    seriesCount: '{earned} / {total} シリーズ', levelCount: '{earned} / {total} レベル', shownCount: '{count} シリーズを表示',
+    filterLabel: '表示範囲', filterAll: '全シリーズ', filterNext: '未獲得レベル', filterEarned: '獲得済みシリーズ',
+    filterEmpty: 'この範囲に実績はありません。「全シリーズ」で図鑑を表示できます。',
+    settingsTitle: '実績の設定', allLevels: '各レベルの条件', complete: '全レベル獲得済み',
+    shareSelect: '下から獲得済みバッジを最大 9 個選び、プレビューを作成してください。', shareLimit: '9 個選択済みです。別のバッジを選ぶには 1 個解除してください。',
+    sharePending: 'プレビューを作成中…', shareStale: '現在の選択をプレビューしてから書き出してください。',
+    shareFailed: 'プレビューの作成に失敗しました。再度更新してください。', shareExportFailed: '実績カードを保存できませんでした。再試行してください。',
+    shareBack: '実績に戻る',
+    shareSaved: '実績カードを保存しました。', shareCancelled: '保存をキャンセルしました。プレビューは変わりません。', shareSaving: 'カードを保存中…',
+    shareSelectionChanged: '共有可能なバッジが変わりました。選択を確認してください。新しいランクは自動選択されません。',
     shareTitle: '実績共有カード', shareIntro: '獲得済みのバッジを選んでローカル SVG に。プレビュー後に書き出します。', shareChoose: '表示するバッジ', shareEmpty: 'バッジを獲得するとカードを作れます。',
-    unlockedNotice: 'バッジを獲得：{name}', unlockedBatch: 'ローカル記録から {count} 個のバッジを獲得',
+    unlockedNotice: 'バッジを獲得：{name}', unlockedBatch: '{count} 個の実績シリーズが進展',
     upgradeOn: 'ローカル実績は既定で有効です。過去のバッジは通知せず追加します。ここで、またはダッシュボードの設定で無効にできます。',
     upgradeOff: 'ローカル実績が利用可能になりました。以前の無効設定は保持されています。ダッシュボードの設定で有効にできます。',
     openAchievements: '実績を表示', disableAchievements: '実績を無効にする',
@@ -596,8 +690,12 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       qualifiedDays: '終了済みの日数：各日で当該系統の処理トークン100万以上と正の出力',
       sharedDays: '終了済みの日数：両プロバイダーそれぞれに処理トークン100万以上と正の出力',
       weeks: '月曜始まりの終了済み週数：4+日で各日100万以上の処理トークンと正の出力',
-      weeklyAverage: '連続する月曜始まりの終了済み4週の週当たり処理トークン平均の最大値；ゼロ使用週を含み、合計 ÷ 4（ゴールド：5B）',
+      weeklyAverage: '連続する月曜始まりの終了済み4週の週当たり処理トークン平均の最大値；ゼロ使用週を含み、合計 ÷ 4',
       codexCachedTokens: 'キャッシュ済み入力トークン',
+      settings: '種類の意図的に変更した安全な設定', features: 'ローカル機能：図鑑、バッジのプレビュー、SVG 出力',
+      exports: '回の成功したローカル SVG 出力', feedback: '件の保存済みローカル提案フィードバック',
+      nightPeak: '直近30日：活動14日以上、夜間5日以上；22–06時の出力時間数が他の各8時間帯より20%以上多い（作業時間ではない）',
+      relay: '件の Fable と別の認識済み Claude 系列が共に出力したセッション',
     },
     titles: {
       'sonnet-main': 'Sonnet の主力運用', 'opus-cannon': 'Opus の深い活用', 'haiku-worker': 'Haiku の活用',
@@ -691,8 +789,18 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     tab: '업적', heading: '로컬 업적', intro: '색인된 로컬 사용 기록에 기반합니다. 능력이나 생산성을 평가하지 않습니다.',
     lowerBoundNote: '≥는 Codex 사본 충돌 시 보수적 누적 하한입니다. 달력 업적에는 검증된 잔존 로그가 필요합니다. 4주 평균은 첫 이벤트 주를 제외합니다. 삭제·순환된 로그에는 누락이 있을 수 있습니다.',
     earned: '획득', locked: '진행 중', nextTarget: '다음 단계',
+    seriesCount: '{earned} / {total} 시리즈', levelCount: '{earned} / {total} 단계', shownCount: '{count}개 시리즈 표시',
+    filterLabel: '표시 범위', filterAll: '전체 시리즈', filterNext: '다음 단계', filterEarned: '획득한 시리즈',
+    filterEmpty: '이 범위에 업적이 없습니다. 전체 시리즈에서 도감을 확인하세요.',
+    settingsTitle: '업적 설정', allLevels: '단계별 조건', complete: '모든 단계 획득',
+    shareSelect: '아래에서 획득한 배지를 최대 9개 선택하여 미리 보세요.', shareLimit: '배지 9개를 선택했습니다. 다른 배지를 고르려면 하나를 해제하세요.',
+    sharePending: '미리 보기 생성 중…', shareStale: '현재 선택을 미리 본 뒤 내보내세요.',
+    shareFailed: '미리 보기 생성에 실패했습니다. 다시 업데이트하세요.', shareExportFailed: '업적 카드를 저장하지 못했습니다. 다시 시도하세요.',
+    shareBack: '업적으로 돌아가기',
+    shareSaved: '업적 카드를 저장했습니다.', shareCancelled: '저장을 취소했습니다. 미리 보기는 유지됩니다.', shareSaving: '카드 저장 중…',
+    shareSelectionChanged: '공유 가능한 배지가 변경되었습니다. 선택을 확인하세요. 새 등급은 자동으로 선택되지 않습니다.',
     shareTitle: '업적 공유 카드', shareIntro: '획득한 배지를 골라 로컬 SVG를 만듭니다. 미리 본 뒤 내보내세요.', shareChoose: '공유할 배지', shareEmpty: '배지를 획득하면 카드를 만들 수 있습니다.',
-    unlockedNotice: '배지 잠금 해제: {name}', unlockedBatch: '로컬 기록에서 배지 {count}개 잠금 해제',
+    unlockedNotice: '배지 잠금 해제: {name}', unlockedBatch: '{count}개 업적 시리즈에 새 진전',
     upgradeOn: '로컬 업적이 기본으로 활성화됩니다. 과거 배지는 알림 없이 추가됩니다. 여기 또는 대시보드 설정에서 끌 수 있습니다.',
     upgradeOff: '로컬 업적을 사용할 수 있습니다. 기존 비활성화 설정은 유지됩니다. 대시보드 설정에서 켤 수 있습니다.',
     openAchievements: '업적 보기', disableAchievements: '업적 끄기',
@@ -721,8 +829,12 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       qualifiedDays: '종료된 일수: 매일 해당 계열의 100만+ 처리 토큰과 양의 출력',
       sharedDays: '종료된 일수: 두 제공자 각각 100만+ 처리 토큰과 양의 출력',
       weeks: '월요일 시작의 종료된 주 수: 4+일, 매일 100만+ 처리 토큰과 양의 출력',
-      weeklyAverage: '월요일 시작의 종료된 연속 4주에서 주당 처리 토큰 평균 최댓값; 사용량 0인 주 포함, 합계 ÷ 4 (골드: 5B)',
+      weeklyAverage: '월요일 시작의 종료된 연속 4주에서 주당 처리 토큰 평균 최댓값; 사용량 0인 주 포함, 합계 ÷ 4',
       codexCachedTokens: '캐시된 입력 토큰',
+      settings: '개 직접 변경한 서로 다른 안전 설정', features: '개 로컬 기능: 도감, 배지 미리보기, SVG 내보내기',
+      exports: '회 성공한 로컬 SVG 내보내기', feedback: '개 저장된 로컬 조언 피드백',
+      nightPeak: '최근 30일: 활동 14일 이상, 야간 5일 이상; 22–06시 출력 시간 수가 다른 각 8시간대보다 20% 이상 많음(근무 시간 아님)',
+      relay: '개 Fable과 다른 인식된 Claude 계열이 함께 출력한 세션',
     },
     titles: {
       'sonnet-main': 'Sonnet 주력', 'opus-cannon': 'Opus 집중 활용', 'haiku-worker': 'Haiku 활용',
@@ -816,8 +928,18 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     tab: 'Conquistas', heading: 'Conquistas locais', intro: 'Marcos do uso local indexado; não medem habilidade nem produtividade.',
     lowerBoundNote: '≥ marca um total conservador com cópias Codex conflitantes. Conquistas de calendário exigem logs retidos verificados; médias de quatro semanas excluem a primeira semana com evento. Logs apagados/rotacionados podem deixar lacunas.',
     earned: 'Conquistada', locked: 'Em andamento', nextTarget: 'Próximo nível',
+    seriesCount: '{earned} / {total} séries', levelCount: '{earned} / {total} níveis', shownCount: '{count} séries exibidas',
+    filterLabel: 'Exibir conquistas', filterAll: 'Todas as séries', filterNext: 'Próximos níveis', filterEarned: 'Séries conquistadas',
+    filterEmpty: 'Nenhuma série nesta visualização. Selecione Todas as séries para ver a coleção.',
+    settingsTitle: 'Configurações de conquistas', allLevels: 'Requisitos dos níveis', complete: 'Todos os níveis conquistados',
+    shareSelect: 'Selecione abaixo até 9 emblemas conquistados para a prévia.', shareLimit: '9 emblemas selecionados. Remova um para escolher outro.',
+    sharePending: 'Preparando prévia…', shareStale: 'Confira a seleção atual na prévia antes de exportar.',
+    shareFailed: 'Não foi possível preparar a prévia. Atualize novamente.', shareExportFailed: 'Não foi possível salvar o cartão. Tente novamente.',
+    shareBack: 'Voltar às conquistas',
+    shareSaved: 'Cartão de conquistas salvo.', shareCancelled: 'Salvamento cancelado. A prévia não mudou.', shareSaving: 'Salvando cartão…',
+    shareSelectionChanged: 'Os emblemas disponíveis mudaram. Confira a seleção; novos níveis não são selecionados automaticamente.',
     shareTitle: 'Cartão de conquistas', shareIntro: 'Escolha emblemas conquistados para um SVG local; exporte após conferir a prévia.', shareChoose: 'Emblemas para compartilhar', shareEmpty: 'Conquiste um emblema para criar o cartão.',
-    unlockedNotice: 'Emblema desbloqueado: {name}', unlockedBatch: '{count} emblemas desbloqueados pelo histórico local',
+    unlockedNotice: 'Emblema desbloqueado: {name}', unlockedBatch: '{count} séries de conquistas avançaram',
     upgradeOn: 'As conquistas locais agora vêm ativadas. Os emblemas históricos são adicionados sem aviso. Você pode desativar aqui ou nas configurações do painel.',
     upgradeOff: 'As conquistas locais estão disponíveis. Sua opção anterior de desativar foi mantida. Você pode ativar nas configurações do painel.',
     openAchievements: 'Ver conquistas', disableAchievements: 'Desativar conquistas',
@@ -836,7 +958,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       days: 'dias ativos',
       sessions: 'sessões com saída Fable',
       outputSessions: 'sessões com saída',
-      hours: 'horas UTC com saída (não é trabalho humano contínuo)',
+      hours: 'horas UTC consecutivas com saída (não indica trabalho humano)',
       tokens: 'tokens processados',
       agents: 'subagentes verificados em uma tarefa',
       agentRoots: 'sessões com 3+ subagentes',
@@ -846,8 +968,12 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       qualifiedDays: 'dias encerrados, cada um com 1 milhão+ de tokens processados da família e saída positiva',
       sharedDays: 'dias encerrados com 1 milhão+ de tokens processados e saída positiva por provedor',
       weeks: 'semanas encerradas desde segunda-feira com 4+ dias, cada um com 1 milhão+ de tokens processados e saída positiva',
-      weeklyAverage: 'maior média de tokens processados/semana em 4 semanas consecutivas encerradas desde segunda-feira; semanas zeradas incluídas, total ÷ 4 (Ouro: 5B)',
+      weeklyAverage: 'maior média de tokens processados/semana em 4 semanas consecutivas encerradas desde segunda-feira; semanas zeradas incluídas, total ÷ 4',
       codexCachedTokens: 'tokens de entrada em cache',
+      settings: 'configurações seguras distintas alteradas deliberadamente', features: 'recursos locais: catálogo, prévia de emblemas e exportação SVG',
+      exports: 'exportações SVG locais bem-sucedidas', feedback: 'feedbacks locais de sugestões salvos',
+      nightPeak: 'perfil de 30 dias: 14+ dias ativos, 5+ noturnos; horas com saída entre 22–06h superam cada outra faixa de 8h em 20% (não é tempo de trabalho)',
+      relay: 'sessões com saída de Fable e outra família Claude reconhecida',
     },
     titles: {
       'sonnet-main': 'Sonnet principal', 'opus-cannon': 'Opus em profundidade', 'haiku-worker': 'Haiku em ação',
@@ -941,8 +1067,18 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     tab: 'Pencapaian', heading: 'Pencapaian lokal', intro: 'Tonggak dari penggunaan lokal yang terindeks; bukan ukuran keterampilan atau produktivitas.',
     lowerBoundNote: '≥ menandai total konservatif saat salinan Codex bertentangan. Pencapaian kalender perlu log tersimpan terverifikasi; rata-rata empat pekan melewati pekan event pertama. Log dihapus/dirotasi dapat meninggalkan celah.',
     earned: 'Diraih', locked: 'Berlangsung', nextTarget: 'Tingkat berikutnya',
+    seriesCount: '{earned} / {total} seri', levelCount: '{earned} / {total} tingkat', shownCount: '{count} seri ditampilkan',
+    filterLabel: 'Tampilkan pencapaian', filterAll: 'Semua seri', filterNext: 'Tingkat berikutnya', filterEarned: 'Seri yang diraih',
+    filterEmpty: 'Tidak ada seri dalam tampilan ini. Pilih Semua seri untuk melihat koleksi.',
+    settingsTitle: 'Pengaturan pencapaian', allLevels: 'Syarat tiap tingkat', complete: 'Semua tingkat diraih',
+    shareSelect: 'Pilih hingga 9 lencana yang diraih di bawah untuk pratinjau.', shareLimit: '9 lencana dipilih. Hapus satu pilihan untuk memilih yang lain.',
+    sharePending: 'Menyiapkan pratinjau…', shareStale: 'Pratinjau pilihan saat ini sebelum mengekspor.',
+    shareFailed: 'Pratinjau gagal disiapkan. Coba perbarui lagi.', shareExportFailed: 'Kartu pencapaian gagal disimpan. Silakan coba lagi.',
+    shareBack: 'Kembali ke pencapaian',
+    shareSaved: 'Kartu pencapaian tersimpan.', shareCancelled: 'Penyimpanan dibatalkan. Pratinjau tidak berubah.', shareSaving: 'Menyimpan kartu…',
+    shareSelectionChanged: 'Lencana yang tersedia berubah. Periksa pilihan; tingkat baru tidak dipilih otomatis.',
     shareTitle: 'Kartu pencapaian', shareIntro: 'Pilih lencana yang diraih untuk SVG lokal; ekspor setelah melihat pratinjau.', shareChoose: 'Lencana yang dibagikan', shareEmpty: 'Raih lencana sebelum membuat kartu.',
-    unlockedNotice: 'Lencana terbuka: {name}', unlockedBatch: '{count} lencana terbuka dari riwayat lokal',
+    unlockedNotice: 'Lencana terbuka: {name}', unlockedBatch: '{count} seri pencapaian meningkat',
     upgradeOn: 'Pencapaian lokal kini aktif secara default. Lencana historis ditambahkan tanpa notifikasi. Anda dapat menonaktifkannya di sini atau di Pengaturan dasbor.',
     upgradeOff: 'Pencapaian lokal tersedia. Pilihan nonaktif sebelumnya tetap dipertahankan. Aktifkan melalui Pengaturan dasbor.',
     openAchievements: 'Lihat pencapaian', disableAchievements: 'Nonaktifkan pencapaian',
@@ -971,8 +1107,12 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       qualifiedDays: 'hari berakhir, setiap hari dengan 1 juta+ token keluarga diproses dan keluaran positif',
       sharedDays: 'hari berakhir dengan 1 juta+ token diproses dan keluaran positif per penyedia',
       weeks: 'pekan berakhir mulai Senin dengan 4+ hari, setiap hari dengan 1 juta+ token diproses dan keluaran positif',
-      weeklyAverage: 'rata-rata puncak token diproses/pekan dari 4 pekan berakhir berturut-turut mulai Senin; pekan nol termasuk, total ÷ 4 (Emas: 5B)',
+      weeklyAverage: 'rata-rata puncak token diproses/pekan dari 4 pekan berakhir berturut-turut mulai Senin; pekan nol termasuk, total ÷ 4',
       codexCachedTokens: 'token masukan tersimpan dalam cache',
+      settings: 'pengaturan aman berbeda yang sengaja diubah', features: 'fitur lokal: galeri, pratinjau lencana dan ekspor SVG',
+      exports: 'ekspor SVG lokal yang berhasil', feedback: 'umpan balik saran lokal tersimpan',
+      nightPeak: 'potret 30 hari: 14+ hari aktif, 5+ malam; jam beroutput pukul 22–06 melebihi tiap kelompok 8 jam lainnya sebesar 20% (bukan waktu kerja)',
+      relay: 'sesi dengan output Fable dan keluarga Claude lain yang dikenali',
     },
     titles: {
       'sonnet-main': 'Sonnet andalan', 'opus-cannon': 'Opus mendalam', 'haiku-worker': 'Haiku andalan',

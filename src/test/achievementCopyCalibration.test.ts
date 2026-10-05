@@ -92,8 +92,12 @@ for (const locale of Object.keys(localeMarkers) as Array<keyof typeof localeMark
     assert.match(copy.units.weeklyAverage, markers.monday);
     assert.match(copy.units.weeklyAverage, markers.zero);
     assert.match(copy.units.weeklyAverage, /÷\s*4/);
-    assert.match(copy.units.weeklyAverage, /5B/);
-    assert.ok(copy.units.weeklyAverage.includes(copy.levels[2]));
+    // The shared unit belongs to all three tiers; baking Gold/5B into it made
+    // Ordinary (500M) and Silver (2B) requirements contradictory. The renderer
+    // prepends each rule's actual target and its own localized tier title.
+    assert.doesNotMatch(copy.units.weeklyAverage, /5B/);
+    assert.equal(ACHIEVEMENT_DEFINITIONS.find(entry => entry.id === 'weekly-average-gold')!.target, 5_000_000_000);
+    assert.ok(copy.titles['weekly-average-gold'].endsWith(copy.levels[2]));
     assert.doesNotMatch(copy.units.weeklyAverage, /10B|complete|vollständig|完整|完全|완전|complet|lengkap/i);
   });
 
