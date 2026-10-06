@@ -8,7 +8,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Added — 2.4.2 local candidate
 - **Tiered local achievements** — 46 icon-first series and 124 level conditions,
-  reusing bundled artwork. Token-led Claude Sonnet/Opus/Haiku/Fable and Codex
+  with distinct bundled artwork per series, shared by its colored tiers. Token-led Claude Sonnet/Opus/Haiku/Fable and Codex
   Astra/Sol/Luna progression, output/cache, model/effort and agent experiences,
   calendar activity, weekly peaks, completed four-week averages, and a few safe
   deliberate plugin actions. Cumulative tokens share one five-tier series.
@@ -26,6 +26,15 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
+- **Codex awards blocked by unrelated identity conflicts** — after complete current
+  indexing, independently verified token/model/effort/agent lineages can prove
+  positive milestones. Conflicting copies and affected descendants are excluded;
+  calendar awards still require complete identity and date proof. Deep lineage
+  selection/root resolution is iterative and memoized, without rereading logs.
+- **Integer-first, quieter achievement cards** — progress/targets use integer
+  abbreviations floored below the next threshold; exact integer progress remains
+  accessible. Duplicate status and tier-title prose is removed; necessary retained-
+  log/calendar caveats stay available in an initially collapsed evidence disclosure.
 - **Large Claude group stack overflow** — project, session, branch and workflow
   timestamp bounds use a one-pass reducer rather than passing unbounded arrays
   as function arguments. Project merging likewise appends records individually.

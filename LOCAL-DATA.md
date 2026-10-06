@@ -146,7 +146,12 @@ The extension-owned ledger contains only the following validated fields:
   fields are rejected. Clear All includes these and known older achievement schemas
   by exact name, without deleting unrelated or future state.
 
-Numeric evaluation reuses materialized indexes. Codex's per-file index additionally
+Numeric evaluation reuses materialized indexes. Once the current manifest is fully
+indexed, positive Codex milestones may use independently verified lineages while
+withholding conflicting branches and descendants. Calendar awards retain their
+complete identity/date requirement. This selection is in memory only: no new
+scan, network call, persisted identity list or storage field is added.
+Codex's per-file index additionally
 stores positive-output UTC hour IDs with a verified byte offset and excluded-lineage
 event count: at most 32,768 hours per file and 524,288 unique hours per snapshot.
 Capacity exhaustion fails closed instead of certifying a partial hour history.

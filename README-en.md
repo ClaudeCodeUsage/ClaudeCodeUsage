@@ -69,6 +69,8 @@ levels are counted separately. Local All / Next level / Earned filters survive r
 and tier upgrades keep the disclosure open. Claude Sonnet/Opus/Haiku/Fable and Codex
 Astra/Sol/Luna progression is primarily token-based; effort, agents, active days,
 cache/output, and a few deliberate plugin actions add variety.
+Each series has distinct artwork, with one emblem shared by its colored tiers.
+Achievement numbers use integers; detailed conditions and data caveats stay expandable.
 
 Cumulative processed tokens use one series: **100M → 1B → 10B → 100B → 1T**.
 Calendar-week peaks use **500M / 2B / 10B**; the highest average across four
@@ -88,6 +90,9 @@ preview failures offer retry guidance. Return to the gallery from sharing, or us
 its settings shortcut to focus the opt-out without changing it. No GitHub identity,
 auto-export or upload is involved.
 Rules reuse verified numeric aggregates; expanding cards does not read logs.
+With complete current indexing, unrelated Codex identity conflicts no longer block
+independently verified token/agent milestones. Calendar awards still require complete
+identity and date evidence; conflicting branches are excluded.
 Older Codex indexes may get one bounded, resumable hour-proof pass, without
 resetting primary totals. Refresh failures retain visible statistics but cannot
 award from stale evidence.

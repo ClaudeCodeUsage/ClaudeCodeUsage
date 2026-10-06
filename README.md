@@ -188,6 +188,8 @@ One card shows each series and its compact next target; expand it for every leve
 rule and evidence. Series and unlocked levels are counted separately. Local All /
 Next level / Earned filters survive reload; upgrading a tier keeps its disclosure open.
 It records usage experience, not skill, productivity, billing or account entitlement.
+Each series has distinct artwork; tiers share that emblem and use level colors.
+Achievement numbers use integers. Rules and data caveats are available on demand.
 
 - **Token-led progression:** Claude Sonnet/Opus/Haiku/Fable and Codex Astra/Sol/Luna,
   output, cache, model/effort exploration, agents, active days and repeat experiences.
@@ -210,6 +212,9 @@ It records usage experience, not skill, productivity, billing or account entitle
   profile lookup or background upload.
 
 Evaluation reuses verified numeric aggregates; opening cards never reads logs.
+After complete current indexing, unrelated Codex identity conflicts no longer block
+milestones supported by independently verified lineages; calendar awards still need
+complete identity and date evidence. Conflicting branches are excluded, not estimated.
 An older Codex index may need a bounded, resumable pass for positive-output hour
 proof, without resetting its primary totals. Turning achievements off stops this
 extra historical work, not the ordinary usage tracker. A refresh failure revokes

@@ -328,6 +328,12 @@ aliases for older level-specific keys. All/Next/Earned filtering uses only a loc
 UI enum; it never schedules provider work. A safe provider enum and one-shot focus
 intent return from sharing to the originating gallery. A compact next target precedes the
 expandable all-tier rules. The settings shortcut focuses the existing opt-out.
+Each of the 46 series/singles has distinct bundled raster artwork. Tiers share
+their series emblem; level color/labels provide the progression. Gallery numbers
+are floored integer abbreviations, never rounded up to an unmet target; full
+integer progress remains in tooltips and accessibility text. Detailed data caveats
+are in a persisted, initially collapsed disclosure. Embedded export images are
+cached by filename rather than repeated for every tier ID.
 
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable
@@ -347,8 +353,12 @@ Audit and recoverable migration state is exact-allowlisted in Clear All.
 See [the complete inventory](LOCAL-DATA.md#local-achievements-242-candidate).
 
 Claude materializes all-session counts before the Sessions tab's 1,000-row display
-cap. Codex evidence requires current manifest/identity/lineage and applicable
-period proof. Positive-output UTC hours piggyback on normal parsing; existing
+cap. Codex positive token/model/agent milestones require complete current manifest
+indexing and independently verified canonical lineages. Identity conflicts block
+only affected branches and descendants, not unrelated positive proof. Selection
+and root resolution are iterative/memoized; invalid vectors, orphan/cyclic/unknown
+roles and unsafe sums fail closed. Calendar awards still require global identity
+and applicable period proof. Positive-output UTC hours piggyback on normal parsing; existing
 indexes use bounded checkpointable proof migration while preserving primary
 totals. OFF suppresses that extra migration, not ordinary usage parsing.
 Failed refreshes revoke new-grant authority without rerendering or discarding

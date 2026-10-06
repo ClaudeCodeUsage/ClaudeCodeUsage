@@ -57,6 +57,8 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 O candidato 2.4.2, ainda não lançado, tem 46 séries de ícones e 124 condições de nível: tokens por modelo, saída/cache,
 atividade, recordes semanais e algumas ações deliberadas no plugin.
+Cada série tem arte própria, compartilhada entre seus níveis coloridos. Os números são inteiros; limites dos dados ficam na seção expansível.
+Após indexação atual completa, linhagens Codex sem conflito podem comprovar marcos de tokens/agentes; conquistas de calendário ainda exigem identidade e datas verificadas por completo.
 Séries e níveis têm contagens separadas. Filtros locais persistem após recarregar;
 o próximo alvo aparece no cartão e as regras de todos os níveis ficam na seção expansível.
 Ativas por padrão; desative **Local achievements** em ⚙ Settings
