@@ -18,9 +18,9 @@ const evidence = {
   'fable-days': ['Fable 达标日', 'qualified Fable days', '当前配置时区内，每个已结束自然日 Fable 家族均须有输出且已处理 Token ≥1M；须有完整、已验证的日期数值证据，不要求连续。', 'In the current configured timezone, Fable needs output and 1M+ processed tokens on each counted closed civil day; complete validated numeric day evidence required, with no consecutive-day requirement.'],
   'fable-sessions': ['有 Fable 输出的会话', 'sessions with Fable output', '同一会话只计一次；仅输入不算。', 'Each session once; input-only activity does not count.'],
   'fable-relay': ['同一会话', 'one session', 'Fable 与另一 Claude 家族在同一会话中各有输出。', 'Fable and another Claude family both output in the same session.'],
-  'astra-regular': ['已处理 Token', 'processed tokens', 'Astra 家族的真实用量；等待索引及身份核验完成。', 'Actual Astra family usage; complete index and identity verification required.'],
-  'sol-regular': ['已处理 Token', 'processed tokens', 'Sol 家族的真实用量；等待索引及身份核验完成。', 'Actual Sol family usage; complete index and identity verification required.'],
-  'luna-regular': ['已处理 Token', 'processed tokens', 'Luna 家族的真实用量；等待索引及身份核验完成。', 'Actual Luna family usage; complete index and identity verification required.'],
+  'astra-regular': ['已处理 Token', 'processed tokens', '完整当前索引中已独立核验的 Astra 谱系用量；冲突分支及其子会话不计入。', 'Astra usage from independently verified lineages in the complete current index; conflicting branches and descendants excluded.'],
+  'sol-regular': ['已处理 Token', 'processed tokens', '完整当前索引中已独立核验的 Sol 谱系用量；冲突分支及其子会话不计入。', 'Sol usage from independently verified lineages in the complete current index; conflicting branches and descendants excluded.'],
+  'luna-regular': ['已处理 Token', 'processed tokens', '完整当前索引中已独立核验的 Luna 谱系用量；冲突分支及其子会话不计入。', 'Luna usage from independently verified lineages in the complete current index; conflicting branches and descendants excluded.'],
   'sonnet-days': ['Sonnet 达标日', 'qualified Sonnet days', '当前配置时区内，每个已结束自然日 Sonnet 家族有输出且已处理 Token ≥1M；不要求连续。', 'In the current configured timezone, Sonnet has output and 1M+ processed tokens on each counted closed civil day; days need not be consecutive.'],
   'opus-days': ['Opus 达标日', 'qualified Opus days', '当前配置时区内，每个已结束自然日 Opus 家族有输出且已处理 Token ≥1M；不要求连续。', 'In the current configured timezone, Opus has output and 1M+ processed tokens on each counted closed civil day; days need not be consecutive.'],
   'haiku-days': ['Haiku 达标日', 'qualified Haiku days', '当前配置时区内，每个已结束自然日 Haiku 家族有输出且已处理 Token ≥1M；不要求连续。', 'In the current configured timezone, Haiku has output and 1M+ processed tokens on each counted closed civil day; days need not be consecutive.'],
@@ -43,7 +43,7 @@ const evidence = {
   'output-hours': ['连续 UTC 小时', 'consecutive UTC hours', '每小时都有输出，可跨日／模型／供应商；不是连续工作。24／48 小时静默。', 'Output each hour across dates/models/providers; not human work. 24/48 hours stay quiet.'],
   'active-day-streak': ['连续活跃日', 'consecutive active days', '所选时区中每日均有可确认本地用量。', 'Verified local usage every civil day in the configured timezone.'],
   'active-days': ['累计活跃日', 'distinct active days', '跨供应商按日期去重，不要求连续。', 'Dates deduplicated across providers; no consecutive-day requirement.'],
-  'model-rainbow': ['达标模型家族', 'qualified model families', '仅计 Sonnet／Opus／Fable／Haiku／Astra／Sol／Luna 七个家族，每家族均须 ≥500K 已处理 Token；Codex 须完成当前清单及身份核验。', 'Only Sonnet/Opus/Fable/Haiku/Astra/Sol/Luna count; 500K+ processed tokens per family. Codex requires complete current-manifest and identity verification.'],
+  'model-rainbow': ['达标模型家族', 'qualified model families', '仅计 Sonnet／Opus／Fable／Haiku／Astra／Sol／Luna 七个家族，每家族均须 ≥500K 已处理 Token；Codex 仅计完整当前索引中独立核验通过的谱系。', 'Only Sonnet/Opus/Fable/Haiku/Astra/Sol/Luna count; 500K+ processed tokens per family. Codex counts independently verified lineages in the complete current index only.'],
   'night-output-peak': ['30 日内的夜间画像', 'night-time pattern over 30 days', '≥14 输出日、≥5 夜间输出日；22–06 点有输出小时数比另两时段均高 ≥20%。静默。', '14+ output days, 5+ night days; 22–06 output-positive hours exceed both other bands by 20%+. Quiet.'],
   'streak-machine': ['连续活跃日', 'consecutive active days', '保留原十四日单次徽章，不替代三级连续日系列。', 'Legacy fourteen-day single badge alongside the tiered streak family.'],
   'settings-explorer': ['主动修改的不同安全设置项', 'distinct deliberately changed safe settings', '只计成功保存；不计默认、迁移、重置或重复操作。', 'Successful deliberate changes only; defaults, migrations, resets and repeats excluded.'],
@@ -99,8 +99,7 @@ function escapeHtml(value) {
   }[char]));
 }
 function compact(value) {
-  return value >= 1e12 ? `${value / 1e12}T` : value >= 1e9 ? `${value / 1e9}B` : value >= 1e6 ? `${value / 1e6}M` :
-    value >= 1e3 ? `${value / 1e3}K` : String(value);
+  return require('../../../out/achievementFormat').formatAchievementCompact(value);
 }
 
 function renderCatalogGroup(catalog, group, locale = 'zh-CN') {
@@ -117,7 +116,7 @@ function renderCatalogGroup(catalog, group, locale = 'zh-CN') {
     p.note{grid-column:1/-1;font-size:14px;line-height:1.6;color:#b9b9b9;margin:11px 0 0}.tier-icons{grid-column:1/-1;display:flex;gap:14px;margin-top:9px}.tier-icons span{display:flex;align-items:center;gap:5px;font-size:13px}.tier-icons img{width:36px;height:36px;object-fit:contain}footer{border-top:1px solid #444;padding-top:14px;margin-top:6px}
   </style><main><header><h1>${escapeHtml(copy.groups[group])}</h1><p>${zh ? '图鉴审阅，非个人解锁记录' : 'Catalog review, not personal award history'}</p><p>${cards.length} ${zh ? '张卡片' : 'cards'} / ${ruleCount} ${zh ? '个可解锁等级' : 'unlockable awards'}</p></header>
   ${cards.map((card) => `<article data-review-card="${card.key}"><img class="main-icon" src="${card.levels[0].image}" alt="${escapeHtml(card.title)}"><div><h2>${escapeHtml(card.title)}</h2><p class="metric">${escapeHtml(card.metric)}</p><div class="levels">${card.levels.map((level) => `<span class="level ${level.tier}">${level.label}<strong>${compact(level.target)}</strong></span>`).join('')}</div></div><p class="note">${escapeHtml(card.note)}</p>${new Set(card.levels.map((level) => level.artwork)).size > 1 ? `<div class="tier-icons">${card.levels.map((level) => `<span class="${level.tier}"><img src="${level.image}" alt="${escapeHtml(level.title)}">${level.label}</span>`).join('')}</div>` : ''}</article>`).join('')}
-  <footer>${zh ? '使用候选内的原始图标；暂不重绘。M＝百万，B＝十亿，T＝万亿。记录本地使用经历，不评价能力、生产力或个人工作时间。' : 'Original candidate artwork, not redrawn. M = million; B = billion; T = trillion. Local usage history, not skill, productivity or human working time.'}</footer></main></html>`;
+  <footer>${zh ? '使用候选内图标，重复系列图案已替换。M＝百万，B＝十亿，T＝万亿。记录本地使用经历，不评价能力、生产力或个人工作时间。' : 'Bundled candidate artwork; duplicate series art replaced. M = million; B = billion; T = trillion. Local usage history, not skill, productivity or human working time.'}</footer></main></html>`;
 }
 
 function renderCatalogMarkdown(catalog, locale = 'zh-CN') {
@@ -127,8 +126,8 @@ function renderCatalogMarkdown(catalog, locale = 'zh-CN') {
   const fiveTierCount = catalog.filter(card => card.levels.length === 5).length;
   const singleCount = catalog.filter(card => card.levels.length === 1).length;
   const lines = [`# ${zh ? 'v2.4.2 成就与图标审阅清单' : 'v2.4.2 achievement and artwork review'}`, '',
-    zh ? `${threeTierCount} 个三级系列 + ${fiveTierCount} 个五级系列 + ${singleCount} 个单次成就，共 ${catalog.length} 张卡、${catalog.reduce((sum, card) => sum + card.levels.length, 0)} 个可解锁等级。图鉴不是个人获奖记录。门槛与图片直接来自编译后的候选代码；复用原图，不重绘。` :
-      `${threeTierCount} three-tier series + ${fiveTierCount} five-tier series + ${singleCount} single awards: ${catalog.length} cards and ${catalog.reduce((sum, card) => sum + card.levels.length, 0)} unlockable awards. This catalog is not personal award history. Targets and artwork come directly from the compiled candidate; existing art is reused, not redrawn.`, ''];
+    zh ? `${threeTierCount} 个三级系列 + ${fiveTierCount} 个五级系列 + ${singleCount} 个单次成就，共 ${catalog.length} 张卡、${catalog.reduce((sum, card) => sum + card.levels.length, 0)} 个可解锁等级。图鉴不是个人获奖记录。门槛与图片直接来自编译后的候选代码；每个系列图案独立，各等级共用同一徽章。` :
+      `${threeTierCount} three-tier series + ${fiveTierCount} five-tier series + ${singleCount} single awards: ${catalog.length} cards and ${catalog.reduce((sum, card) => sum + card.levels.length, 0)} unlockable awards. This catalog is not personal award history. Targets and artwork come directly from the compiled candidate; each series has distinct artwork shared by its tiers.`, ''];
   for (const group of ['claude', 'codex', 'combined', 'plugin']) {
     lines.push(`## ${copy.groups[group]}`, '', zh ? '| 成就 | 等级门槛（低→高） | 计量与条件 | 原图 |' :
       '| Achievement | Level targets (low to high) | Evidence | Artwork |', '|:--|:--|:--|:--|');

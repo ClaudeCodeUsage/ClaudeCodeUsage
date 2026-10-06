@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } from '../achievements';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl } from '../achievementIcons';
+import { createHash } from 'node:crypto';
 
 const { achievementCatalog, renderCatalogGroup, renderCatalogMarkdown } = require(resolve(
   __dirname, '../../tests/ui/support/achievement-catalog.cjs',
@@ -16,6 +17,18 @@ test('mobile review catalog covers every live rule exactly once without placehol
   assert.equal(catalog.filter((card: any) => card.levels.length > 1).length,
     Object.keys(ACHIEVEMENT_SERIES).length);
   assert.ok(catalog.every((card: any) => card.title && card.metric && card.note));
+});
+
+test('different achievement series have distinct artwork; every tier within a series shares its emblem', () => {
+  const catalog = achievementCatalog('en');
+  const hashes = new Set<string>();
+  for (const card of catalog) {
+    assert.equal(new Set(card.levels.map((level: any) => level.artwork)).size, 1, card.key);
+    const hash = createHash('sha256').update(card.levels[0].image).digest('hex');
+    assert.equal(hashes.has(hash), false, `duplicated artwork: ${card.key}`);
+    hashes.add(hash);
+  }
+  assert.equal(hashes.size, 46);
 });
 
 test('review targets and all tier icons come directly from the production catalog', () => {
