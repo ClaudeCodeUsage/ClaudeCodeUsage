@@ -231,7 +231,8 @@ test('Codex token proof distinguishes complete-empty, incomplete and malformed e
   assert.deepEqual(tokenProof([]), { complete: true, output: 0, cachedInput: 0 });
   assert.deepEqual(tokenProof([], false), { complete: false, output: 0, cachedInput: 0 });
   for (const bad of [null, {}, { ...file(), total: null }, { ...file(), session: null }]) {
-    assert.deepEqual(tokenProof([file('valid'), bad]), { complete: false, output: 0, cachedInput: 0 });
+    assert.deepEqual(tokenProof([bad]), { complete: false, output: 0, cachedInput: 0 });
+    assert.deepEqual(tokenProof([file('valid'), bad]), { ...tokenProof([file('valid')]), lowerBound: true });
   }
 });
 
@@ -246,7 +247,7 @@ test('canonical Codex roots and nested children can arrive in any order', () => 
   assert.equal(dayProof([grandchild, child, root]).days[0].processed, 23);
 });
 
-test('both Codex proofs reject duplicate, missing, self-parent and cyclic ancestry', () => {
+test('Codex calendar rejects bad ancestry; token proof withholds only affected branches', () => {
   const root = file();
   const child = file('child');
   child.session = { sessionKey: 'child', parentSessionKey: 'root', role: 'subagent' };
@@ -261,7 +262,9 @@ test('both Codex proofs reject duplicate, missing, self-parent and cyclic ancest
     [{ ...root, session: { ...root.session, parentSessionKey: '' } }],
   ];
   for (const files of cases) {
-    assert.equal(tokenProof(files).complete, false);
+    const safeRootSurvives = files.length === 2 && files[0] === root && files[1].session.parentSessionKey === 'absent';
+    assert.equal(tokenProof(files).complete, safeRootSurvives);
+    if (safeRootSurvives) assert.deepEqual(tokenProof(files), { ...tokenProof([root]), lowerBound: true });
     assert.equal(dayProof(files).complete, false);
   }
 });

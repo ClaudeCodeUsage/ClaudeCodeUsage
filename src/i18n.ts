@@ -11,7 +11,9 @@ export interface AchievementCopy {
   tab: string;
   heading: string;
   intro: string;
+  evidenceTitle: string;
   lowerBoundNote: string;
+  lowerBoundDetails: string;
   earned: string;
   locked: string;
   nextTarget: string;
@@ -91,7 +93,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   en: {
     tab: 'Achievements', heading: 'Local achievements',
     intro: 'Milestones from indexed local usage. They describe activity, not skill or productivity.',
-    lowerBoundNote: '≥ marks a conservative total for conflicting Codex copies. Calendar awards need verified retained logs; four-week means skip the first event week. Deleted/rotated logs can leave gaps.',
+    evidenceTitle: 'Evidence details',
+    lowerBoundNote: '≥ Verified lower bound. Conflicting Codex lineages are excluded.',
+    lowerBoundDetails: 'Calendar awards need verified retained logs; four-week means skip the first event week. Deleted/rotated logs can leave gaps.',
     earned: 'Earned', locked: 'In progress', nextTarget: 'Next level',
     seriesCount: '{earned} / {total} series', levelCount: '{earned} / {total} levels', shownCount: '{count} series shown',
     filterLabel: 'Show achievements', filterAll: 'All series', filterNext: 'Next levels', filterEarned: 'Earned series',
@@ -231,7 +235,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   'zh-CN': {
     tab: '成就', heading: '本地成就',
     intro: '依据已索引的本地用量解锁；记录使用经历，不评价能力或生产力。',
-    lowerBoundNote: '≥ 表示 Codex 副本冲突时的累计保守下界。日历成就须核实留存日志；四周均值排除首条事件所在周。删除或轮转的日志可能留下缺口。',
+    evidenceTitle: '数据依据',
+    lowerBoundNote: '≥ 已核验下界，冲突 Codex 谱系不计入。',
+    lowerBoundDetails: '日历成就须核实留存日志；四周均值排除首条事件所在周。删除或轮转的日志可能留下缺口。',
     earned: '已获得', locked: '进行中', nextTarget: '下一等级',
     seriesCount: '{earned} / {total} 个系列', levelCount: '{earned} / {total} 个等级', shownCount: '显示 {count} 个系列',
     filterLabel: '显示范围', filterAll: '全部系列', filterNext: '待解锁等级', filterEarned: '已获得系列',
@@ -370,7 +376,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   },
   'zh-TW': {
     tab: '成就', heading: '本機成就', intro: '根據已索引的本機用量解鎖；記錄使用經歷，不評價能力或生產力。',
-    lowerBoundNote: '≥ 表示 Codex 副本衝突時的累計保守下界。日曆成就須核實留存日誌；四週均值排除首筆事件所在週。刪除或輪替的日誌可能留下缺口。',
+    evidenceTitle: '資料依據',
+    lowerBoundNote: '≥ 已核驗下界，衝突 Codex 譜系不計入。',
+    lowerBoundDetails: '日曆成就須核實留存日誌；四週均值排除首筆事件所在週。刪除或輪替的日誌可能留下缺口。',
     earned: '已獲得', locked: '進行中', nextTarget: '下一等級',
     seriesCount: '{earned} / {total} 個系列', levelCount: '{earned} / {total} 個等級', shownCount: '顯示 {count} 個系列',
     filterLabel: '顯示範圍', filterAll: '全部系列', filterNext: '待解鎖等級', filterEarned: '已獲得系列',
@@ -509,7 +517,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   },
   'de-DE': {
     tab: 'Erfolge', heading: 'Lokale Erfolge', intro: 'Meilensteine aus lokal indexierter Nutzung; keine Bewertung von Können oder Produktivität.',
-    lowerBoundNote: '≥ markiert eine konservative Summe bei Codex-Kopienkonflikten. Kalendererfolge brauchen geprüfte erhaltene Logs; Vierwochenmittel überspringen die erste Ereigniswoche. Gelöschte/rotierte Logs können Lücken hinterlassen.',
+    evidenceTitle: 'Datengrundlage',
+    lowerBoundNote: '≥ Geprüfte Untergrenze. Widersprüchliche Codex-Abstammungen zählen nicht.',
+    lowerBoundDetails: 'Kalendererfolge brauchen geprüfte erhaltene Logs; Vierwochenmittel überspringen die erste Ereigniswoche. Gelöschte/rotierte Logs können Lücken hinterlassen.',
     earned: 'Erreicht', locked: 'In Arbeit', nextTarget: 'Nächste Stufe',
     seriesCount: '{earned} / {total} Serien', levelCount: '{earned} / {total} Stufen', shownCount: '{count} Serien angezeigt',
     filterLabel: 'Erfolge anzeigen', filterAll: 'Alle Serien', filterNext: 'Nächste Stufen', filterEarned: 'Erreichte Serien',
@@ -648,7 +658,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   },
   ja: {
     tab: '実績', heading: 'ローカル実績', intro: '索引済みのローカル利用記録に基づく実績です。能力や生産性の評価ではありません。',
-    lowerBoundNote: '≥ は Codex 複製の競合時の保守的な累計下限です。暦の実績には検証済みの残存ログが必要です。4週平均は最初のイベント週を除外します。削除・ローテーションされたログには欠落があり得ます。',
+    evidenceTitle: 'データの根拠',
+    lowerBoundNote: '≥ 検証済みの下限。競合する Codex 系譜は除外します。',
+    lowerBoundDetails: '暦の実績には検証済みの残存ログが必要です。4週平均は最初のイベント週を除外します。削除・ローテーションされたログには欠落があり得ます。',
     earned: '獲得済み', locked: '進行中', nextTarget: '次のレベル',
     seriesCount: '{earned} / {total} シリーズ', levelCount: '{earned} / {total} レベル', shownCount: '{count} シリーズを表示',
     filterLabel: '表示範囲', filterAll: '全シリーズ', filterNext: '未獲得レベル', filterEarned: '獲得済みシリーズ',
@@ -787,7 +799,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   },
   ko: {
     tab: '업적', heading: '로컬 업적', intro: '색인된 로컬 사용 기록에 기반합니다. 능력이나 생산성을 평가하지 않습니다.',
-    lowerBoundNote: '≥는 Codex 사본 충돌 시 보수적 누적 하한입니다. 달력 업적에는 검증된 잔존 로그가 필요합니다. 4주 평균은 첫 이벤트 주를 제외합니다. 삭제·순환된 로그에는 누락이 있을 수 있습니다.',
+    evidenceTitle: '데이터 근거',
+    lowerBoundNote: '≥ 검증된 하한. 충돌하는 Codex 계보는 제외합니다.',
+    lowerBoundDetails: '달력 업적에는 검증된 잔존 로그가 필요합니다. 4주 평균은 첫 이벤트 주를 제외합니다. 삭제·순환된 로그에는 누락이 있을 수 있습니다.',
     earned: '획득', locked: '진행 중', nextTarget: '다음 단계',
     seriesCount: '{earned} / {total} 시리즈', levelCount: '{earned} / {total} 단계', shownCount: '{count}개 시리즈 표시',
     filterLabel: '표시 범위', filterAll: '전체 시리즈', filterNext: '다음 단계', filterEarned: '획득한 시리즈',
@@ -926,7 +940,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   },
   'pt-BR': {
     tab: 'Conquistas', heading: 'Conquistas locais', intro: 'Marcos do uso local indexado; não medem habilidade nem produtividade.',
-    lowerBoundNote: '≥ marca um total conservador com cópias Codex conflitantes. Conquistas de calendário exigem logs retidos verificados; médias de quatro semanas excluem a primeira semana com evento. Logs apagados/rotacionados podem deixar lacunas.',
+    evidenceTitle: 'Base dos dados',
+    lowerBoundNote: '≥ Limite inferior verificado. Linhagens Codex conflitantes são excluídas.',
+    lowerBoundDetails: 'Conquistas de calendário exigem logs retidos verificados; médias de quatro semanas excluem a primeira semana com evento. Logs apagados/rotacionados podem deixar lacunas.',
     earned: 'Conquistada', locked: 'Em andamento', nextTarget: 'Próximo nível',
     seriesCount: '{earned} / {total} séries', levelCount: '{earned} / {total} níveis', shownCount: '{count} séries exibidas',
     filterLabel: 'Exibir conquistas', filterAll: 'Todas as séries', filterNext: 'Próximos níveis', filterEarned: 'Séries conquistadas',
@@ -1065,7 +1081,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   },
   id: {
     tab: 'Pencapaian', heading: 'Pencapaian lokal', intro: 'Tonggak dari penggunaan lokal yang terindeks; bukan ukuran keterampilan atau produktivitas.',
-    lowerBoundNote: '≥ menandai total konservatif saat salinan Codex bertentangan. Pencapaian kalender perlu log tersimpan terverifikasi; rata-rata empat pekan melewati pekan event pertama. Log dihapus/dirotasi dapat meninggalkan celah.',
+    evidenceTitle: 'Dasar data',
+    lowerBoundNote: '≥ Batas bawah terverifikasi. Silsilah Codex yang bertentangan dikecualikan.',
+    lowerBoundDetails: 'Pencapaian kalender perlu log tersimpan terverifikasi; rata-rata empat pekan melewati pekan event pertama. Log dihapus/dirotasi dapat meninggalkan celah.',
     earned: 'Diraih', locked: 'Berlangsung', nextTarget: 'Tingkat berikutnya',
     seriesCount: '{earned} / {total} seri', levelCount: '{earned} / {total} tingkat', shownCount: '{count} seri ditampilkan',
     filterLabel: 'Tampilkan pencapaian', filterAll: 'Semua seri', filterNext: 'Tingkat berikutnya', filterEarned: 'Seri yang diraih',

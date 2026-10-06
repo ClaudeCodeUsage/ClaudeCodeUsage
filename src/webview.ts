@@ -53,6 +53,7 @@ import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename 
 import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
 import { AchievementSharePreview, highestEarnedAchievements, renderAchievementShareSvg, selectShareAchievements } from './achievementShare';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
+import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import {
   AchievementActivity,
   AchievementFeature,
@@ -4012,9 +4013,11 @@ export class UsageWebviewProvider {
         claudeFamilyTokens[family] += used;
       }
     }
-    // Conflicting copies of one session may both contribute to the visible
-    // subtotal. Keep those totals out of volume awards until deduplication is
-    // complete; a partial index can reveal further conflicts later.
+    // Discover all identities first. Then independently verified lineages may
+    // prove positive milestones without treating ambiguous display totals as
+    // evidence. Calendar claims still need global identity/period completeness.
+    const codexIndexTrusted = !this.revokedAchievementEvidence.has('codex') &&
+      this.codexView?.currentManifestVerified === true && !!this.codexView.coverage.complete;
     const codexVolumeTrusted = !this.revokedAchievementEvidence.has('codex') &&
       this.codexView?.currentManifestVerified === true &&
       !!this.codexView.coverage.complete &&
@@ -4086,7 +4089,9 @@ export class UsageWebviewProvider {
     const active = achievementActiveDayKeys(claudeDayRows, codexDayRows, calendar.codexEvidenceComplete === true);
     const weekRows = [...claudeDayRows, ...codexDayRows];
     const weekCoverageComplete = calendar.peakEvidenceComplete === true;
-    const tokenEvidence = codexVolumeTrusted && this.codexAchievementSignals.tokenEvidence?.complete
+    const codexSubsetTrusted = codexIndexTrusted &&
+      (codexVolumeTrusted || this.codexAchievementSignals.verifiedSubset === true);
+    const tokenEvidence = codexSubsetTrusted && this.codexAchievementSignals.tokenEvidence?.complete
       ? this.codexAchievementSignals.tokenEvidence : undefined;
     const fableCache = this.achievementFableCache;
     const fable = fableCache && fableCache.allTimeData === claude &&
@@ -4128,7 +4133,7 @@ export class UsageWebviewProvider {
       outputHourStreak: Math.max(hours.streak, this.achievementHourEvidence.maxStreak),
       nightOutputPeak: hours.nightPeak,
       activity: this.achievementActivity,
-      codex: codexVolumeTrusted ? this.codexAchievementSignals : {
+      codex: codexSubsetTrusted ? this.codexAchievementSignals : {
         modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 },
       },
     });
@@ -4369,6 +4374,8 @@ export class UsageWebviewProvider {
 
   private renderAchievementData(): string {
     const copy = achievementCopyFor(I18n.getLocale());
+    const compact = (value: number): string => formatAchievementCompact(value, I18n.getLocale());
+    const integer = (value: number): string => formatAchievementInteger(value, I18n.getLocale());
     const results = this.achievementResults();
     const cumulativeLowerBound = this.codexAchievementVolume().lowerBound;
     const unitFor = (id: AchievementId): string =>
@@ -4438,15 +4445,8 @@ export class UsageWebviewProvider {
       const earned = series ? earnedTiers > 0 : result.unlocked || this.achievementGrants.has(result.id);
       const targetUnlocked = nextResult.unlocked || this.achievementGrants.has(nextResult.id);
       const progress = Math.min(nextResult.target, targetUnlocked ? nextResult.target : nextResult.progress);
-      let compactProgress = I18n.formatTokensCompact(progress);
-      const rounded = compactProgress.match(/^([\d.]+)([kMBT])$/);
-      const scale: Record<string, number> = { k: 1e3, M: 1e6, B: 1e9, T: 1e12 };
-      if (progress < nextResult.target && rounded && Number(rounded[1]) * scale[rounded[2]] >= nextResult.target) {
-        compactProgress = progress.toLocaleString(I18n.getLocale(), { maximumFractionDigits: 0 });
-      }
-      const formatted = nextResult.target >= 10_000_000
-        ? compactProgress + ' / ' + I18n.formatTokensCompact(nextResult.target)
-        : I18n.formatNumber(progress) + ' / ' + I18n.formatNumber(nextResult.target);
+      const formatted = compact(progress) + ' / ' + compact(nextResult.target);
+      const exactProgress = integer(progress) + ' / ' + integer(nextResult.target);
       const cumulativeVolume = ['hundred-million-club',
         'billion-token-club', 'ten-billion-token-club', 'hundred-billion-token-club', 'trillion-token-club']
         .includes(result.id);
@@ -4460,7 +4460,7 @@ export class UsageWebviewProvider {
           }
         }
       }
-      const bound = cumulativeLowerBound && cumulativeVolume ? '≥' : '';
+      const bound = cumulativeLowerBound && (cumulativeVolume || result.group === 'codex') ? '≥' : '';
       const levelName = series && earnedTiers > 0
         ? copy.levels[tierOrder.indexOf(tier)] : earned ? copy.milestone : copy.locked;
       const webview = this.panel?.webview;
@@ -4468,9 +4468,7 @@ export class UsageWebviewProvider {
         ? webview.asWebviewUri(vscode.Uri.file(achievementImagePath(result.id))).toString()
         : achievementImageDataUrl(result.id);
       const seriesAttrs = series
-        ? ' data-achievement-series="' + series + '" data-achievement-tier="' + tier +
-          '" aria-label="' + this.escapeHtml(name + ' ' +
-            earnedTiers + ' / ' + tierCount) + '"'
+        ? ' data-achievement-series="' + series + '" data-achievement-tier="' + tier + '"'
         : '';
       const tierMarkers = series
         ? '<div class="achievement-tier-markers" aria-hidden="true">' +
@@ -4485,21 +4483,18 @@ export class UsageWebviewProvider {
           '</span>' : '';
       const key = series ?? result.id;
       const next = series ? hasNextTier : !earned;
-      const compactTarget = nextResult.target >= 10_000_000
-        ? I18n.formatTokensCompact(nextResult.target) : I18n.formatNumber(nextResult.target);
+      const compactTarget = compact(nextResult.target);
       const levelRules = (tiers ?? [result]).map((entry, index) =>
         '<li data-achievement-level="' + entry.id + '"><strong>' +
           this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span>' +
-          this.escapeHtml(copy.titles[entry.id]) + '</span><span>' +
-          this.escapeHtml((entry.target >= 10_000_000 ? I18n.formatTokensCompact(entry.target) :
-            I18n.formatNumber(entry.target)) + ' ' + unitFor(entry.id)) + '</span></li>').join('');
+          this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span></li>').join('');
       return '<article class="achievement-card ' + (earned ? 'earned' : 'locked') +
         '"' + seriesAttrs + ' data-achievement-key="' + key + '" data-achievement-earned="' + earned +
         '" data-achievement-next="' + next + '" data-achievement-id="' + result.id + '">' +
         '<details class="achievement-disclosure" data-persist="achievement:' + key + '"' +
         ' data-persist-aliases="' + (tiers ?? [result]).map(entry => 'achievement:' + entry.id).join(' ') + '">' +
         '<summary aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' + bound + formatted + ' ' +
-          unitFor(result.id)) + '">' +
+          unitFor(result.id) + (series ? ' · ' + earnedTiers + '/' + tierCount : '')) + '">' +
         '<span class="achievement-emblem" aria-hidden="true">' +
         '<img data-achievement-icon="' + result.id + '" data-achievement-artwork="' +
         this.escapeHtml(ACHIEVEMENT_IMAGE_FILES[result.id]) + '" src="' + this.escapeHtml(iconSrc) +
@@ -4509,13 +4504,13 @@ export class UsageWebviewProvider {
         tierPips + '<span class="achievement-next-target">' + this.escapeHtml(next
           ? (series ? copy.nextTarget + ' · ' + compactTarget : copy.milestone) : copy.complete) + '</span></summary>' +
         '<div class="achievement-card-detail">' + tierMarkers +
-        '<p class="achievement-state">' + this.escapeHtml(series && earnedTiers < tierCount && earnedTiers > 0
-          ? `${earnedTiers}/${tierCount} ${copy.earned}` : earned ? copy.earned : copy.locked) + '</p>' +
-        '<label class="achievement-progress-label" for="achievement-progress-' + result.id + '">' +
+        '<label class="achievement-progress-label" for="achievement-progress-' + result.id +
+        '" title="' + this.escapeHtml(bound + exactProgress + ' ' + unitFor(result.id)) + '">' +
         this.escapeHtml((series && earnedTiers > 0 && hasNextTier ? copy.nextTarget + ': ' : '') + bound +
           formatted + ' ' + unitFor(result.id)) + '</label>' +
         '<progress id="achievement-progress-' + result.id + '" max="' + nextResult.target +
-        '" value="' + progress + '"></progress><h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
+        '" value="' + progress + '" aria-valuetext="' + this.escapeHtml(bound + exactProgress +
+          ' ' + unitFor(result.id)) + '"></progress><h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
         '<ol class="achievement-level-rules">' + levelRules + '</ol></div></details></article>';
     };
     const groups: Array<'claude' | 'codex' | 'combined' | 'plugin'> =
@@ -4529,12 +4524,13 @@ export class UsageWebviewProvider {
     const earnedCount = visibleResults.filter(isEarned).length;
     const seriesCount = visibleCards.filter(entry => entry.earnedTiers > 0 || isEarned(entry.result)).length;
     const countLabel = (template: string, earned: number, total: number): string =>
-      template.replace('{earned}', I18n.formatNumber(earned)).replace('{total}', I18n.formatNumber(total));
+      template.replace('{earned}', integer(earned)).replace('{total}', integer(total));
     return '<section class="achievement-collection" aria-label="' + this.escapeHtml(copy.heading) + '">' +
-      '<div class="achievement-intro"><h2>' + this.escapeHtml(copy.heading) + '</h2><p>' +
-      this.escapeHtml(copy.intro) + '</p>' +
-      (cumulativeLowerBound ? '<p class="achievement-evidence-note">' +
-        this.escapeHtml(copy.lowerBoundNote) + '</p>' : '') +
+      '<div class="achievement-intro"><h2>' + this.escapeHtml(copy.heading) + '</h2>' +
+      '<details class="achievement-evidence-note" data-persist="achievement:evidence"><summary>' +
+      this.escapeHtml(copy.evidenceTitle) + '</summary><p>' +
+      this.escapeHtml((cumulativeLowerBound ? copy.lowerBoundNote + ' ' : '') + copy.lowerBoundDetails) +
+      '</p></details>' +
       '<p class="achievement-count">' +
       this.escapeHtml(countLabel(copy.seriesCount, seriesCount, visibleCards.length)) + ' · ' +
       this.escapeHtml(countLabel(copy.levelCount, earnedCount, visibleResults.length)) + '</p>' +
@@ -12311,6 +12307,9 @@ export class UsageWebviewProvider {
       .achievement-intro { max-width: 74ch; }
       .achievement-intro h2 { margin: 0 0 5px; font-size: 1.35rem; }
       .achievement-intro p { margin: 0; color: var(--vscode-descriptionForeground); line-height: 1.5; }
+      .achievement-evidence-note { color: var(--vscode-descriptionForeground); font-size: .85rem; }
+      .achievement-evidence-note > summary { cursor: pointer; }
+      .achievement-evidence-note > p { margin-top: 6px; }
       .achievement-intro .achievement-count { margin-top: 8px; color: var(--vscode-foreground); font-weight: 650; }
       .achievement-actions, .achievement-filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .achievement-filter-toolbar { color: var(--vscode-descriptionForeground); }
@@ -12363,8 +12362,6 @@ export class UsageWebviewProvider {
       .achievement-tier-marker { display: grid; place-items: center; min-width: 19px; height: 17px; padding: 0 3px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; color: var(--vscode-descriptionForeground); font-size: .68rem; line-height: 1; }
       .achievement-tier-marker.complete { border-color: var(--achievement-tier-color); color: var(--achievement-tier-label-color); font-weight: 700; }
       .achievement-tier-marker.next { border-style: dashed; }
-      .achievement-state { margin: 8px 0 6px; color: var(--vscode-descriptionForeground); font-size: .82rem; }
-      .achievement-card.earned .achievement-state { color: var(--vscode-foreground); font-weight: 600; }
       .achievement-progress-label { display: block; margin-bottom: 5px; font-size: .82rem; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
       .achievement-card progress { display: block; width: 100%; height: 5px; accent-color: var(--achievement-accent); }
       .achievement-unlock-notice { position: fixed; inset-inline-end: 16px; bottom: 17px; z-index: 100; display: flex; align-items: center; gap: 10px; max-width: min(360px, calc(100vw - 32px)); padding: 10px 12px; border: 1px solid var(--vscode-focusBorder); border-radius: 9px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); color: var(--vscode-editorWidget-foreground, var(--vscode-foreground)); box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0,0,0,.22)); }

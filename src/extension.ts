@@ -3432,9 +3432,9 @@ export class ClaudeCodeUsageExtension {
       this.codexView = nextView;
       this.codexInsights = buildScopedCodexInsights(nextView);
       this.codexAchievementSignals = codexModelSignals(snapshot.files);
-      const complete = nextView.currentManifestVerified === true &&
-        nextView.coverage.complete && nextView.coverage.identity.complete;
-      this.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(snapshot.files, complete);
+      const indexed = nextView.currentManifestVerified === true && nextView.coverage.complete;
+      const complete = indexed && nextView.coverage.identity.complete;
+      this.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(snapshot.files, indexed);
       this.codexAchievementSignals.dayEvidence = codexAchievementDayEvidence(
         snapshot.files, nextView.periodCoverage.timeZone,
         complete && nextView.periodCoverage.allTime.complete,

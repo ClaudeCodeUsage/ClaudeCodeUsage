@@ -4,6 +4,7 @@ import { CODEX_PERIOD_LINEAGE_VERSION } from './providers/codex/codexPeriodIndex
 import { createCodexParserState } from './providers/codex/codexParser';
 import type { ProviderTokenCounts } from './providers/providerTypes';
 import type { UsageData } from './types';
+import { verifiedCodexAchievementFiles } from './codexAchievementProof';
 
 /** Numeric, already-materialized calendar evidence; no source-log I/O. */
 export interface AchievementDay {
@@ -13,7 +14,7 @@ export interface AchievementDay {
   models: Record<string, { processed: number; output: number }>;
 }
 export interface AchievementDayEvidence { complete: boolean; days: AchievementDay[]; timeZone?: string }
-export interface AchievementTokenEvidence { complete: boolean; output: number; cachedInput: number }
+export interface AchievementTokenEvidence { complete: boolean; output: number; cachedInput: number; lowerBound?: true }
 export interface AchievementCalendarSignals {
   familyDays: Partial<Record<'sonnet' | 'opus' | 'haiku' | 'fable' | 'astra' | 'sol' | 'luna', number>>;
   dualProviderDays: number;
@@ -266,9 +267,12 @@ function validCanonicalFiles(files: readonly CodexFileAggregate[]): boolean {
 /** No date projection is required for all-time output/cache proof. */
 export function codexAchievementTokenEvidence(files: readonly CodexFileAggregate[], complete: boolean): AchievementTokenEvidence {
   const fail = (): AchievementTokenEvidence => ({ complete: false, output: 0, cachedInput: 0 });
-  if (complete !== true || !validCanonicalFiles(files)) return fail();
-  const total = sumTokens(files.map(file => file.total));
-  return total ? { complete: true, output: total.outputTotal, cachedInput: total.cachedInput ?? 0 } : fail();
+  if (complete !== true || !Array.isArray(files)) return fail();
+  const verified = verifiedCodexAchievementFiles(files);
+  if (files.length && !verified.length) return fail();
+  const total = sumTokens(verified.map(file => file.total));
+  return total ? { complete: true, output: total.outputTotal, cachedInput: total.cachedInput ?? 0,
+    ...(verified.length < files.length ? { lowerBound: true as const } : {}) } : fail();
 }
 
 /** Period proof is independent of byDay's legacy UTC projection. */

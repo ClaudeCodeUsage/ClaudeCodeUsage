@@ -68,8 +68,23 @@ test('a compact number cannot make unfinished progress look equal to its target'
     assert.match(card, /Next level: ≥/);
     assert.doesNotMatch(card, /≥Next level/);
     assert.doesNotMatch(card, /1\.0B \/ 1\.0B/);
-    assert.match(card, /999,999,999 \/ 1\.0B/);
+    assert.match(card, /999M \/ 1B/);
     assert.match(card, /summary aria-label="[^\"]*≥/);
+  });
+});
+
+test('achievement chrome uses integer numbers without repeating introductory prose or tier titles', async () => {
+  await gallery(provider => {
+    provider.achievementResults = () => ACHIEVEMENT_DEFINITIONS.map(entry => ({ ...entry,
+      progress: Math.floor(entry.target * 0.372), unlocked: false }));
+    const html = provider.renderAchievementData();
+    const labels = [...html.matchAll(/(?:achievement-progress-label[^>]*>|achievement-next-target">)([^<]*)</g)];
+    assert.ok(labels.length > 40);
+    for (const [, text] of labels) assert.doesNotMatch(text, /\d+[.,]\d+[kMBT]/);
+    assert.doesNotMatch(html, /Milestones from indexed local usage/);
+    assert.doesNotMatch(html, /class="achievement-state"/);
+    const card = html.match(/<article[^>]*data-achievement-series="astra-regular"[\s\S]*?<\/article>/)![0];
+    assert.equal((card.match(/Astra regular/g) ?? []).length, 2, 'name and accessible label, not one repeat per tier');
   });
 });
 
@@ -78,6 +93,20 @@ test('hour rules stay consecutive and Traditional Chinese uses consistent achiev
   assert.match(ACHIEVEMENT_COPY['pt-BR'].units.hours, /consecutivas/);
   assert.doesNotMatch(JSON.stringify(ACHIEVEMENT_COPY['zh-TW']), /實績/);
   for (const copy of Object.values(ACHIEVEMENT_COPY)) assert.doesNotMatch(copy.units.weeklyAverage, /5B/);
+});
+
+test('evidence boundaries stay available in a collapsed disclosure, not permanent introductory prose', async () => {
+  await gallery(provider => {
+    const html = provider.renderAchievementData();
+    const evidence = html.match(/<details class="achievement-evidence-note"[\s\S]*?<\/details>/)?.[0];
+    assert.ok(evidence);
+    assert.match(evidence, /<summary>Evidence details<\/summary>/);
+    assert.doesNotMatch(evidence, /<details[^>]*\bopen\b/);
+    assert.match(evidence, /first event week/);
+    assert.match(evidence, /Deleted\/rotated logs/);
+    provider.codexAchievementVolume = () => ({ lowerBound: true });
+    assert.match(provider.renderAchievementData(), /≥ Verified lower bound/);
+  });
 });
 
 test('tier upgrades keep disclosure keys and canonical card order stable', async () => {

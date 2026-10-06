@@ -2,6 +2,7 @@ import type { CodexFileAggregate } from './providers/codex/codexIndex';
 import type { ProviderTokenCounts } from './providers/providerTypes';
 import type { AchievementActivity } from './achievementActivity';
 import { SAFE_EXPLORATION_FEATURES } from './achievementActivity';
+import { validAchievementBuckets, verifiedCodexAchievementFiles } from './codexAchievementProof';
 import type { AchievementCalendarSignals, AchievementDayEvidence, AchievementTokenEvidence } from './achievementCalendar';
 
 export type CodexModelFamily = 'astra' | 'sol' | 'luna';
@@ -10,6 +11,8 @@ type EffortTier = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
 const SPECTRUM_EFFORTS: readonly EffortTier[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 
 export interface CodexAchievementSignals {
+  /** Produced only from independently validated canonical lineages. */
+  verifiedSubset?: true;
   modelCount: number;
   efforts: string[];
   familyRootCounts: Record<CodexModelFamily, number>;
@@ -466,21 +469,6 @@ function realCodexModel(model: string): string | null {
     ? normalized : null;
 }
 
-/** A corrupt bucket vector cannot prove more volume than the file containing it. */
-function processedBucketProof(rows: Record<string, ProviderTokenCounts>, total: ProviderTokenCounts): boolean {
-  const parts = [total.inputTotal, total.outputTotal];
-  if (!parts.every((part) => Number.isSafeInteger(part) && part >= 0)) return false;
-  let input = 0;
-  let output = 0;
-  for (const tokens of Object.values(rows)) {
-    if (![tokens.inputTotal, tokens.outputTotal].every((part) => Number.isSafeInteger(part) && part >= 0)) return false;
-    input += tokens.inputTotal;
-    output += tokens.outputTotal;
-  }
-  return Number.isSafeInteger(input) && Number.isSafeInteger(output) &&
-    input <= total.inputTotal && output <= total.outputTotal;
-}
-
 /**
  * Uses already-reconciled per-file aggregates. Orphan/cyclic parent chains,
  * inherited fork prefixes, unknown models, and zero usage cannot award.
@@ -516,27 +504,30 @@ export function codexModelSignals(files: readonly CodexFileAggregate[]): CodexAc
   const childrenByRoot = new Map<string, Set<string>>();
   const verifiedChildren = new Set<string>();
   const modelsByRoot = new Map<string, Set<string>>();
+  const rootBySession = new Map<string, string | null>();
   const verifiedRoot = (file: CodexFileAggregate): string | null => {
     let current = file;
     const seen = new Set<string>();
+    let root: string | null = null;
     while (true) {
       const key = current.session.sessionKey;
-      if (!key || seen.has(key) || ambiguousSessions.has(key)) return null;
+      if (!key || seen.has(key) || ambiguousSessions.has(key)) break;
+      if (rootBySession.has(key)) { root = rootBySession.get(key)!; break; }
       seen.add(key);
       const parent = current.session.parentSessionKey;
-      if (!parent) return current.session.role === 'root' ? key : null;
+      if (!parent) { root = current.session.role === 'root' ? key : null; break; }
       const next = bySession.get(parent);
-      if (!next) return null;
+      if (!next) break;
       current = next;
     }
+    for (const key of seen) rootBySession.set(key, root);
+    return root;
   };
-  for (const file of files) {
+  for (const file of verifiedCodexAchievementFiles(files)) {
     const root = verifiedRoot(file);
     if (!root) continue;
-    const modelsProven = processedBucketProof(file.byModel, file.total);
-    // Valid ancestry alone does not prove that the saved usage buckets are
-    // coherent. Apply the same proof to volume and structural achievements.
-    if (!modelsProven) continue;
+    // The subset selector has already verified the complete model vector,
+    // including cached/reasoning counters, before admitting this lineage.
     let hasRealModelUsage = false;
     for (const [rawModel, tokens] of Object.entries(file.byModel)) {
       if (!positiveUsage(tokens)) continue;
@@ -559,7 +550,7 @@ export function codexModelSignals(files: readonly CodexFileAggregate[]): CodexAc
       children.add(key);
       verifiedChildren.add(key);
     }
-    if (!processedBucketProof(file.byEffort, file.total)) continue;
+    if (!validAchievementBuckets(file.byEffort, file.total)) continue;
     for (const [effort, tokens] of Object.entries(file.byEffort)) {
       if (!positiveUsage(tokens) || !['none', 'minimal', ...SPECTRUM_EFFORTS].includes(effort)) continue;
       efforts.add(effort);
@@ -571,6 +562,7 @@ export function codexModelSignals(files: readonly CodexFileAggregate[]): CodexAc
     }
   }
   return {
+    verifiedSubset: true,
     modelCount: models.size,
     efforts: [...efforts].sort(),
     familyProcessedTokens,
@@ -580,8 +572,8 @@ export function codexModelSignals(files: readonly CodexFileAggregate[]): CodexAc
       astra: roots.astra.size, sol: roots.sol.size, luna: roots.luna.size,
     },
     effortRootCounts: Object.fromEntries(SPECTRUM_EFFORTS.map((tier) => [tier, effortRoots[tier].size])),
-    maxVerifiedAgentsPerRoot: Math.max(0, ...[...childrenByRoot.values()].map((children) => children.size)),
-    maxRealModelsPerRoot: Math.max(0, ...[...modelsByRoot.values()].map((rootModels) => rootModels.size)),
+    maxVerifiedAgentsPerRoot: [...childrenByRoot.values()].reduce((max, children) => Math.max(max, children.size), 0),
+    maxRealModelsPerRoot: [...modelsByRoot.values()].reduce((max, rootModels) => Math.max(max, rootModels.size), 0),
     multiAgentRootCount: [...childrenByRoot.values()].filter((children) => children.size >= 3).length,
     verifiedRootCount: modelsByRoot.size,
     verifiedChildCount: verifiedChildren.size,

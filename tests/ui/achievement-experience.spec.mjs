@@ -1,5 +1,29 @@
 import { test, expect, openCodex, openClaude, openCompare } from './support/app.mjs';
 
+test('integer-only progress and folded evidence stay keyboard-accessible without host refreshes', async ({ page }) => {
+  await openCodex(page, { width: 360 });
+  await page.locator('#tab-achievements').click();
+  const disclosure = page.locator('.achievement-evidence-note');
+  await expect(disclosure).not.toHaveAttribute('open');
+  await expect(disclosure.locator('p')).toBeHidden();
+  await disclosure.locator('summary').focus();
+  await disclosure.locator('summary').press('Enter');
+  await expect(disclosure.locator('p')).toContainText('first event week');
+  await page.reload();
+  await expect(disclosure).toHaveAttribute('open');
+  await disclosure.locator('summary').focus();
+  await disclosure.locator('summary').press('Enter');
+  await page.reload();
+  await expect(disclosure).not.toHaveAttribute('open');
+  for (const summary of await page.locator('.achievement-disclosure > summary').all()) await summary.click();
+  const progress = await page.locator('.achievement-progress-label').allTextContents();
+  expect(progress.length).toBe(46);
+  for (const text of progress) expect(text).not.toMatch(/\d+[.,]\d+[kMBT]/);
+  await expect(page.locator('.achievement-state')).toHaveCount(0);
+  const messages = await page.evaluate(() => window.__ccuPostedMessages);
+  expect(messages.some(message => ['refresh', 'updateSetting'].includes(message.command))).toBe(false);
+});
+
 test('gallery filters are local, survive reload, and do not read or refresh logs', async ({ page }) => {
   await openCodex(page);
   await page.locator('#tab-achievements').click();

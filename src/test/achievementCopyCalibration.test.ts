@@ -102,11 +102,14 @@ for (const locale of Object.keys(localeMarkers) as Array<keyof typeof localeMark
   });
 
   test(`${locale}: retained-log limits and first-event-week exclusion never promise complete observation`, () => {
+    const detail = copy.lowerBoundDetails;
     assert.match(copy.lowerBoundNote, /≥/);
-    assert.match(copy.lowerBoundNote, markers.first);
-    assert.match(copy.lowerBoundNote, markers.retention);
-    assert.match(copy.lowerBoundNote, markers.gaps);
-    assert.doesNotMatch(copy.lowerBoundNote, /complete observations|完整观测|完整觀測|完全な観測|완전한 관측/i);
+    assert.ok(copy.evidenceTitle.trim(), 'the optional evidence disclosure needs a localized label');
+    assert.equal(typeof detail, 'string');
+    assert.match(detail, markers.first);
+    assert.match(detail, markers.retention);
+    assert.match(detail, markers.gaps);
+    assert.doesNotMatch(detail, /complete observations|完整观测|完整觀測|完全な観測|완전한 관측/i);
     const publicCopy = JSON.stringify(copy);
     assert.doesNotMatch(publicCopy, /coming soon|planned|future plan|计划推出|規劃推出|近日公開|출시 예정|planejado|direncanakan/i);
   });
