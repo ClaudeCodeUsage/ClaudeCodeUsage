@@ -34,6 +34,9 @@ function validate(plan) {
 function nativeLaunchArguments(plan) {
   const p = validate(plan).directories;
   return ['--new-window', '--disable-extensions', '--disable-updates', '--disable-telemetry',
+    '--use-inmemory-secretstorage', '--skip-add-to-recently-opened',
+    '--disable-crash-reporter', '--disable-experiments',
+    '--sync', 'off',
     '--disable-workspace-trust', '--skip-release-notes', '--skip-welcome',
     '--user-data-dir', p.userData, '--extensions-dir', p.extensions,
     '--shared-data-dir', p.sharedData, '--agent-plugins-dir', p.agentPlugins,

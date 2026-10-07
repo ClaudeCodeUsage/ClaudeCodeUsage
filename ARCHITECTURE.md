@@ -756,6 +756,16 @@ write stops setup. Pure `nativeTestIsolation.test.ts` checks do not launch Code.
 The guard is not a sandbox, a credential scanner, proof of native activation,
 or an installed-VSIX/F5 smoke test. Test files remain excluded from the VSIX.
 
+tests/native/prepare.cjs can stage unchanged compiled modules and media in a
+fresh temporary root with six bounded synthetic logs. Its test-only main first
+runs the actual-context guard, then activates the production extension; the
+native runner exercises real API refresh/panel/dispose behavior. Explicit CLI
+options additionally select in-memory SecretStorage and disable recent-folder
+entries, crash reporting and experiments. Preparation tests never launch Code.
+This small development-host diagnostic is not the final packaged VSIX, pixel
+acceptance, manual F5, long soak, multi-window or Windows evidence. See the
+helper README for normal-state before/after and background-launch requirements.
+
 Weekly API-equivalent history is derived from already-aggregated token usage.
 The newest valid reset observation anchors non-overlapping seven-day display
 buckets; without one, usage-only history uses Monday-to-Monday UTC calendar

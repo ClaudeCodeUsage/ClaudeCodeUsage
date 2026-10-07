@@ -512,6 +512,13 @@ settings.json 不能控制目录中以 globalState 为存储的设置。写入�
 纯 `nativeTestIsolation.test.ts` 不启动 Code；该守卫不是沙箱、凭据扫描器，
 也不是原生激活成功或安装 VSIX／F5 的实测证明。测试文件继续排除出 VSIX。
 
+tests/native/prepare.cjs 可在全新临时根目录中复制不改动的编译模块／media，
+并生成六份有界合成日志。测试专用 main 先执行真实 context 守卫，再激活生产
+扩展；原生 runner 使用真实 API 验证刷新／面板／dispose。显式 CLI 参数还选择
+内存 SecretStorage，并关闭最近目录记录、崩溃上报和实验功能。准备器单测不启动
+Code。这个小语料开发宿主诊断不代表最终 VSIX、像素、手动 F5、长测、多窗口或
+Windows 验收；正常实例前后状态核对和后台启动要求见辅助模块 README。
+
 每周 API 等效价值历史只从已经聚合的 Token 用量生成。最新有效的重置观测用于锚定互不重叠的七天
 展示窗口；没有观测时，仅已用历史按 UTC 周一至周一的自然周分组。真实的额度用量比例观测可以支持
 历史窗口的总额度近似，而不只支持当前窗口。Codex 的 account-wide `codex` series 会纳入同一 home
