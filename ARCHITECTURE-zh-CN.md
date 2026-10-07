@@ -512,7 +512,7 @@ settings.json 不能控制目录中以 globalState 为存储的设置。写入�
 纯 `nativeTestIsolation.test.ts` 不启动 Code；该守卫不是沙箱、凭据扫描器，
 也不是原生激活成功或安装 VSIX／F5 的实测证明。测试文件继续排除出 VSIX。
 
-tests/native/prepare.cjs 可在全新临时根目录中复制不改动的编译模块／media，
+tests/native/prepare.cjs 可在全新临时根目录中复制不改动的编译模块／assets，
 并生成六份有界合成日志。测试专用 main 先执行真实 context 守卫，再激活生产
 扩展；原生 runner 使用真实 API 验证刷新／面板／dispose。显式 CLI 参数还选择
 内存 SecretStorage，并关闭最近目录记录、崩溃上报和实验功能。准备器单测不启动

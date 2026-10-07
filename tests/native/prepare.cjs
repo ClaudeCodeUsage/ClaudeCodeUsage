@@ -81,11 +81,11 @@ async function prepareNativeDiagnostic({ repository, sourceHead } = {}) {
   const plan = buildNativeIsolationPlan(root), p = plan.directories;
   try {
     for (const directory of Object.values(p)) await fs.mkdir(directory);
-    const stage = p.developmentExtension, compiledFiles = [], mediaFiles = [], budget = { files: 0, bytes: 0 };
+    const stage = p.developmentExtension, compiledFiles = [], assetFiles = [], budget = { files: 0, bytes: 0 };
     await copyTree(path.join(repository, 'out'), path.join(stage, 'out'), '',
       (relative, directory) => relative !== 'test' && !relative.startsWith('test/') && (directory || relative.endsWith('.js')),
       compiledFiles, budget);
-    await copyTree(path.join(repository, 'media'), path.join(stage, 'media'), '', () => true, mediaFiles, budget);
+    await copyTree(path.join(repository, 'assets'), path.join(stage, 'assets'), '', () => true, assetFiles, budget);
     for (const [source, target] of [['isolation.cjs', 'native-isolation.cjs'],
       ['bootstrap.cjs', 'native-bootstrap.cjs'], ['runner.cjs', 'native-runner.cjs']]) {
       await fs.writeFile(path.join(stage, target), await regularBytes(path.join(repository, 'tests/native', source)), { flag: 'wx' });
@@ -108,7 +108,7 @@ async function prepareNativeDiagnostic({ repository, sourceHead } = {}) {
     const fixture = await seedFixtures(plan), launchArguments = nativeLaunchArguments(plan);
     const manifest = { kind: 'isolated-native-diagnostic-not-final-vsix', sourceHead,
       packageVersion: pkg.version, nativeExecuted: false, finalInstallF5Passed: false,
-      compiledFiles, mediaFiles, fixture, stagedAt: new Date().toISOString() };
+      compiledFiles, assetFiles, fixture, stagedAt: new Date().toISOString() };
     for (const [target, value] of [
       [path.join(stage, 'package.json'), stagedPackage], [path.join(stage, 'native-plan.json'), plan],
       [path.join(p.userData, 'User/settings.json'), settings], [path.join(root, 'launch-plan.json'), { plan, launchArguments }],

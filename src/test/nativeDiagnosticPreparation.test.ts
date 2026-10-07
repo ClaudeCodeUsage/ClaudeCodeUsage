@@ -11,6 +11,7 @@ async function fixture(t: TestContext): Promise<string> {
   t.after(async () => { await fs.rm(root, { recursive: true, force: true }); });
   await fs.mkdir(path.join(root, 'out/test'), { recursive: true });
   await fs.mkdir(path.join(root, 'media'), { recursive: true });
+  await fs.mkdir(path.join(root, 'assets/achievements'), { recursive: true });
   await fs.mkdir(path.join(root, 'tests/native'), { recursive: true });
   await fs.writeFile(path.join(root, 'package.json'), JSON.stringify({
     name: 'claude-code-usage', publisher: 'GrowthJack', version: '2.1.1', main: './out/extension.js',
@@ -19,6 +20,7 @@ async function fixture(t: TestContext): Promise<string> {
   await fs.writeFile(path.join(root, 'out/extension.js.map'), 'not-a-runtime-file');
   await fs.writeFile(path.join(root, 'out/test/excluded.js'), 'not-a-runtime-test');
   await fs.writeFile(path.join(root, 'media/fixture.png'), 'synthetic-icon');
+  await fs.writeFile(path.join(root, 'assets/achievements/fixture.png'), 'synthetic-achievement-icon');
   for (const file of ['isolation.cjs', 'bootstrap.cjs', 'runner.cjs']) {
     await fs.writeFile(path.join(root, 'tests/native', file), 'synthetic-' + file);
   }
@@ -61,6 +63,12 @@ test('native diagnostic wrapper remains explicitly test-only and does not masque
   assert.equal(manifest.kind, 'isolated-native-diagnostic-not-final-vsix');
   assert.equal(manifest.nativeExecuted, false);
   assert.equal(manifest.finalInstallF5Passed, false);
+});
+
+test('native diagnostic copies the actual bundled assets layout used by achievementImagePath', async t => {
+  const { plan } = await prepared(t), stage = plan.directories.developmentExtension;
+  assert.equal(await fs.readFile(path.join(stage, 'assets/achievements/fixture.png'), 'utf8'), 'synthetic-achievement-icon');
+  await assert.rejects(fs.stat(path.join(stage, 'media')), { code: 'ENOENT' });
 });
 
 test('native diagnostic launch guards in-memory secrets, recent folders, crashes and experiments', async t => {

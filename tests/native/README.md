@@ -7,7 +7,7 @@ acceptance. Production src/ and compiled runtime modules are not modified.
 Compile normally. Call prepareNativeDiagnostic({ repository, sourceHead })
 from prepare.cjs with the absolute repository and its verified local commit.
 Preparation creates a fresh ccu-native-v242-* temporary root, copies regular
-compiled .js files and media, excludes out/test and source maps, and seeds
+compiled .js files and the actual assets/ directory, excludes out/test and source maps, and seeds
 six bounded anonymous synthetic JSONL files. It never launches an app, reads
 normal provider homes, fetches dependencies or installs into daily Code.
 
