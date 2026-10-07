@@ -77,7 +77,11 @@ async function prepareNativeDiagnostic({ repository, sourceHead } = {}) {
   for (const file of ['isolation.cjs', 'bootstrap.cjs', 'runner.cjs']) {
     await regularBytes(path.join(repository, 'tests/native', file));
   }
-  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'ccu-native-v242-')));
+  // macOS's per-user temp path can exceed the observed 103-character IPC
+  // socket limit once Code adds user-data/1.14-main.sock. Use its canonical
+  // short temp directory, without altering HOME or the ordinary app profile.
+  const temporaryParent = process.platform === 'darwin' ? '/private/tmp' : os.tmpdir();
+  const root = await fs.realpath(await fs.mkdtemp(path.join(temporaryParent, 'ccu-native-v242-')));
   const plan = buildNativeIsolationPlan(root), p = plan.directories;
   try {
     for (const directory of Object.values(p)) await fs.mkdir(directory);

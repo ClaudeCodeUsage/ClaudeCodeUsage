@@ -6,13 +6,31 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const vscode = require('vscode');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function bounded(work, milliseconds, reason) {
   let timer;
   try { return await Promise.race([work, new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error('native-test-runner:' + reason)), milliseconds);
   })]); } finally { clearTimeout(timer); }
+}
+async function disposePanelAndWait(view, milliseconds = 10_000) {
+  const panel = view.panel;
+  assert.equal(typeof panel?.onDidDispose, 'function', 'real panel disposal event available');
+  let subscription;
+  const disposed = new Promise(resolve => { subscription = panel.onDidDispose(resolve); });
+  try {
+    panel.dispose();
+    await bounded(disposed, milliseconds, 'panel-dispose-timeout');
+    assert.equal(view.panel, undefined);
+  } finally { subscription?.dispose(); }
+}
+function assertNativePanelCachesCleared(view) {
+  assert.equal(view.dataPanelCache.size, 0);
+  assert.equal(view.pendingAchievementNotice.size, 0);
+  // AchievementSharePreview owns one optional current artifact, not a Map.
+  // Inspect only its known test-observable empty state, never serialize bytes.
+  assert.equal(typeof view.acceptedAchievementPreview?.read, 'function');
+  assert.equal(view.acceptedAchievementPreview.current, undefined);
 }
 async function settle(instance) {
   await bounded(instance.initializationWrites, 60_000, 'initialization-timeout');
@@ -26,6 +44,7 @@ async function settle(instance) {
   await bounded(instance.codexBackgroundStateWrite, 60_000, 'background-write-timeout');
 }
 async function run() {
+  const vscode = require('vscode');
   const plan = JSON.parse(await fs.readFile(path.join(__dirname, 'native-plan.json'), 'utf8'));
   const manifest = JSON.parse(await fs.readFile(path.join(plan.root, 'native-stage-manifest.json'), 'utf8'));
   const samples = [], assertions = [], started = Date.now();
@@ -72,14 +91,15 @@ async function run() {
       assert.ok(view.panel.webview.html.length > 0, 'actual webview HTML set');
       await delay(100);
       sample('panel-open-' + cycle);
-      view.panel.dispose();
-      await delay(100);
-      assert.equal(view.panel, undefined);
-      assert.equal(view.dataPanelCache.size, 0);
-      assert.equal(view.pendingAchievementNotice.size, 0);
-      assert.equal(view.acceptedAchievementPreview.size, 0);
+      // Direct synthetic artifact seed exercises lifecycle retirement only.
+      // It is not an earned selection, user share consent, preview UI or export.
+      view.acceptedAchievementPreview.accept(['astra-regular'], '<svg>synthetic-test-only</svg>', 'en');
+      stage = 'panel-lifecycle-dispose';
+      await disposePanelAndWait(view);
+      assertNativePanelCachesCleared(view);
+      stage = 'panel-lifecycle';
     }
-    assertions.push('twenty actual WebviewPanel open/dispose cycles clear panel-owned caches');
+    assertions.push('twenty actual WebviewPanel disposal events clear map/set caches and directly seeded synthetic preview artifacts, not share-consent/export acceptance');
     stage = 'feature-toggle';
     const originalProvider = api.instance.codexProvider;
     for (const enabled of [false, true]) {
@@ -119,4 +139,4 @@ async function run() {
   }
   if (failureStage) throw new Error('native-test-runner:failed-' + failureStage);
 }
-module.exports = { run };
+module.exports = { run, disposePanelAndWait, assertNativePanelCachesCleared };

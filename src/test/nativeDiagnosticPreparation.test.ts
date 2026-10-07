@@ -45,6 +45,13 @@ test('native diagnostic preparation always owns a fresh root and never replaces 
   assert.deepEqual(await fs.readFile(path.join(source, 'package.json')), before);
 });
 
+test('native diagnostic macOS roots keep the observed IPC socket below the 103-character limit', async t => {
+  if (process.platform !== 'darwin') { t.skip('macOS IPC path limit'); return; }
+  const { plan } = await prepared(t);
+  assert.ok(plan.root.startsWith('/private/tmp/ccu-native-v242-'));
+  assert.ok(path.join(plan.directories.userData, '1.14-main.sock').length <= 103);
+});
+
 test('native diagnostic stage contains unchanged runtime modules but excludes maps and Node unit tests', async t => {
   const { plan, manifest } = await prepared(t), stage = plan.directories.developmentExtension;
   assert.equal(await fs.readFile(path.join(stage, 'out/extension.js'), 'utf8'), "exports.activate = async () => {};\n");

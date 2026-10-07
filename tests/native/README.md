@@ -19,6 +19,8 @@ SecretStorage, no recent-folder entry, disabled crash reporting/experiments,
 disabled telemetry/update/sync-related online entry points, and synthetic
 provider paths complement (but do not replace) actual storage verification.
 Do not set or repurpose HOME or CODEX_HOME.
+On macOS preparation uses a fresh short /private/tmp root, keeping the observed
+Code IPC socket below its 103-character path limit; no system temp setting changes.
 
 bootstrap.cjs is the staged test-only main. It validates real Test-mode
 ExtensionContext/config paths and symlink-free owned directories before any
@@ -32,6 +34,11 @@ the small synthetic cold scan, twenty explicit warm refreshes, twenty actual
 WebviewPanel open/dispose cycles, achievement OFF/ON, and awaited production
 disposal. Reports contain fixed stages, numeric process-memory samples and
 anonymous resource counts, not credentials, logs, paths or instance objects.
+Disposal waits for the real onDidDispose event, not a fixed paint delay. A
+directly seeded synthetic single preview tests retirement, not earned-badge
+selection, share consent, the preview UI or an export. Separate pure helper
+tests use synthetic async events and the actual AchievementSharePreview class;
+they are not native evidence.
 A missing client-ready observation is not pixel acceptance. Process RSS includes
 worker threads; samples are not instantaneous peaks or a post-GC leak verdict.
 
