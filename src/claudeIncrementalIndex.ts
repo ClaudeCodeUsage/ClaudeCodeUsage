@@ -41,7 +41,9 @@ import {
   scanCodexJsonlLines,
 } from './providers/codex/codexJsonlScanner';
 import { CodexRuntimeManifestEntry } from './providers/codex/codexManifest';
-import { LoadUsageDiagnostics } from './refreshDiagnostics';
+import {
+  ClaudeRefreshFailureReason, ClaudeRefreshStage, claudeRefreshFailureReason, LoadUsageDiagnostics,
+} from './refreshDiagnostics';
 import {
   BranchUsage,
   ClaudeUsageRecord,
@@ -245,6 +247,7 @@ export interface ClaudeUsageIndex {
 export interface ClaudeUsageIndexDiagnostics extends LoadUsageDiagnostics {
   bodyReads: number;
   aggregateMutations: number;
+  failureReason?: ClaudeRefreshFailureReason;
   changed: {
     append: number;
     rebuild: number;
@@ -258,6 +261,8 @@ export interface ClaudeUsageIndexUpdateOptions {
   windowDays?: number;
   manifest?: UsageManifest;
   beforeBodyReads?: () => Promise<void>;
+  /** Runtime-only phase counters; no raw file/error metadata or per-row callback. */
+  onStage?: (stage: ClaudeRefreshStage, counters?: Partial<ClaudeUsageIndexDiagnostics>) => void;
   log?: (line: string) => void;
 }
 
@@ -2539,6 +2544,7 @@ export async function updateClaudeUsageIndex(
   // established content-analysis window.
   const analysisCutoffMs = analysisWindowCutoffMs(nowMs, windowDays);
   const manifest = options.manifest ?? await scanUsageManifest([root]);
+  options.onStage?.('planning', { filesDiscovered: manifest.entries.size });
   const currentEntries = stableDiscoveryRanks(previous, [...manifest.entries.values()]);
   const previousByPath = new Map([...previous.files.values()].map((file) => [file.path, file]));
   const seenPrevious = new Set<string>();
@@ -2803,6 +2809,7 @@ export async function updateClaudeUsageIndex(
       (plan.kind === 'rebuild' && !plan.prior && !plan.replacedFileId)),
   );
 
+  options.onStage?.('read-parse');
   await options.beforeBodyReads?.();
   const parsedPlans: ParsedPlan[] = [];
   let bytesRead = 0;
@@ -2931,7 +2938,11 @@ export async function updateClaudeUsageIndex(
       }
     }
   } catch (error) {
-    options.log?.(`incremental loader retained the previous snapshot: ${error instanceof Error ? error.name : 'read-error'}`);
+    const failureReason = claudeRefreshFailureReason(error);
+    options.onStage?.('read-parse', {
+      filesFailed: 1, bytesRead, linesParsed, bodyReads: bodyReads + 1,
+      readParseMs: performance.now() - started,
+    });
     return {
       index: previous,
       records: recordsOf(previous),
@@ -2939,6 +2950,7 @@ export async function updateClaudeUsageIndex(
       diagnostics: {
         filesDiscovered: manifest.entries.size,
         filesFailed: 1,
+        failureReason,
         bytesRead,
         linesParsed,
         readParseMs: performance.now() - started,
@@ -2949,6 +2961,10 @@ export async function updateClaudeUsageIndex(
     };
   }
 
+  options.onStage?.('aggregate', {
+    filesFailed: 0, bytesRead, linesParsed, bodyReads,
+    readParseMs: performance.now() - started,
+  });
   const next = cloneIndexForCommit(previous);
   next.timeZone = configuredTimeZone;
   next.timeKeyers = timeKeyers;
@@ -3041,6 +3057,7 @@ export async function updateClaudeUsageIndex(
     next.dirtyGroups.sessions.add(sessionId);
   }
   recomputeDerivedRows(next);
+  options.onStage?.('content-analysis', { aggregateMutations });
 
   if (!analyzeContent) {
     next.contentAnalysis = null;

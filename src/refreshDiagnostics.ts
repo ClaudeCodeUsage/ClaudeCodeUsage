@@ -12,23 +12,69 @@ export interface LoadUsageDiagnostics {
   readParseMs: number;
 }
 
-export interface RefreshDiagnostic extends LoadUsageDiagnostics {
+export type ClaudeRefreshStage = 'discovery' | 'manifest' | 'planning' | 'read-parse' |
+  'aggregate' | 'content-analysis' | 'materialize' | 'publish' | 'commit';
+export type ClaudeRefreshFailureReason = 'range-error' | 'io-error' | 'read-failed' |
+  'source-unavailable' | 'refresh-failed';
+
+export interface RefreshDiagnostic {
   trigger: RefreshTrigger;
-  filesChanged: number;
-  filesReused: number;
-  filesRemoved: number;
+  filesDiscovered: number | null;
+  filesFailed: number | null;
+  bytesRead: number | null;
+  linesParsed: number | null;
+  readParseMs: number | null;
+  filesChanged: number | null;
+  filesReused: number | null;
+  filesRemoved: number | null;
   watcherEvents: number;
   coalescedTriggers: number;
   quotaWatcherMissingFilenameEvents: number;
-  manifestMs: number;
-  aggregateRenderMs: number;
+  manifestMs: number | null;
+  aggregateRenderMs: number | null;
   totalMs: number;
-  bodyReads?: number;
-  aggregateMutations?: number;
+  bodyReads?: number | null;
+  aggregateMutations?: number | null;
+  failureStage?: ClaudeRefreshStage;
+  failureReason?: ClaudeRefreshFailureReason;
 }
 
-const ms = (value: number | null): string => value === null ? 'unknown' : value.toFixed(1);
-const observedCount = (value: number | null): string => value === null ? 'unknown' : String(value);
+const ms = (value: number | null): string =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value.toFixed(1) : 'unknown';
+const observedCount = (value: number | null | undefined): string =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? String(value) : 'unknown';
+
+const KNOWN_CLAUDE_STAGES = new Set<string>([
+  'discovery', 'manifest', 'planning', 'read-parse', 'aggregate',
+  'content-analysis', 'materialize', 'publish', 'commit',
+]);
+const KNOWN_CLAUDE_FAILURES = new Set<string>([
+  'range-error', 'io-error', 'read-failed', 'source-unavailable', 'refresh-failed',
+]);
+
+/** Never include arbitrary exception names, messages, codes or stacks. */
+export function claudeRefreshFailureReason(error: unknown): ClaudeRefreshFailureReason {
+  if (error instanceof RangeError) return 'range-error';
+  const code = error instanceof Error ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+  if (typeof code === 'string' &&
+      ['ENOENT', 'EACCES', 'EPERM', 'EIO', 'EMFILE', 'ENFILE'].includes(code)) {
+    return 'io-error';
+  }
+  return 'refresh-failed';
+}
+
+/** One diagnostic per fixed phase/reason pair for the entire host lifetime.
+ * There are at most 60 sanitized pairs, independent of paths/exception text. */
+export class ClaudeFailureDiagnosticBudget {
+  private readonly reported = new Set<string>();
+
+  accept(stage: unknown, reason: unknown): boolean {
+    const key = safeEnum(stage, KNOWN_CLAUDE_STAGES) + ':' + safeEnum(reason, KNOWN_CLAUDE_FAILURES);
+    if (this.reported.has(key)) return false;
+    this.reported.add(key);
+    return true;
+  }
+}
 
 const KNOWN_REFRESH_TRIGGERS = new Set<string>([
   'startup',
@@ -79,14 +125,18 @@ const KNOWN_CODEX_QUALITY_FLAGS = new Set([
 export function formatRefreshDiagnostic(value: RefreshDiagnostic): string {
   const incremental = value.bodyReads === undefined && value.aggregateMutations === undefined
     ? ''
-    : `incremental(bodies=${value.bodyReads ?? 0} ` +
-      `aggregate-mutations=${value.aggregateMutations ?? 0}) `;
+    : `incremental(bodies=${observedCount(value.bodyReads)} ` +
+      `aggregate-mutations=${observedCount(value.aggregateMutations)}) `;
+  const failure = value.failureStage === undefined && value.failureReason === undefined ? '' :
+    `failure(stage=${safeEnum(value.failureStage, KNOWN_CLAUDE_STAGES)} ` +
+    `reason=${safeEnum(value.failureReason, KNOWN_CLAUDE_FAILURES)}) `;
   return `refresh: trigger=${safeEnum(value.trigger, KNOWN_REFRESH_TRIGGERS)} ` +
-    `files(discovered=${value.filesDiscovered} changed=${value.filesChanged} ` +
-    `reused=${value.filesReused} removed=${value.filesRemoved} failed=${value.filesFailed}) ` +
-    `io(bytes=${value.bytesRead} lines=${value.linesParsed}) ${incremental}` +
-    `events(watcher=${value.watcherEvents} coalesced=${value.coalescedTriggers} ` +
-    `quota-unnamed=${value.quotaWatcherMissingFilenameEvents}) ` +
+    failure +
+    `files(discovered=${observedCount(value.filesDiscovered)} changed=${observedCount(value.filesChanged)} ` +
+    `reused=${observedCount(value.filesReused)} removed=${observedCount(value.filesRemoved)} failed=${observedCount(value.filesFailed)}) ` +
+    `io(bytes=${observedCount(value.bytesRead)} lines=${observedCount(value.linesParsed)}) ${incremental}` +
+    `events(watcher=${observedCount(value.watcherEvents)} coalesced=${observedCount(value.coalescedTriggers)} ` +
+    `quota-unnamed=${observedCount(value.quotaWatcherMissingFilenameEvents)}) ` +
     `ms(manifest=${ms(value.manifestMs)} read-parse=${ms(value.readParseMs)} ` +
     `aggregate-render=${ms(value.aggregateRenderMs)} total=${ms(value.totalMs)})`;
 }

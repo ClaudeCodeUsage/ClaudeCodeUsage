@@ -1,9 +1,54 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
+  ClaudeFailureDiagnosticBudget,
+  claudeRefreshFailureReason,
   formatCodexIndexDiagnostic,
   formatRefreshDiagnostic,
 } from '../refreshDiagnostics';
+
+test('Claude failure reasons and de-duplication ignore arbitrary names, accessors and labels', () => {
+  assert.equal(claudeRefreshFailureReason(new RangeError('private stack')), 'range-error');
+  const io = Object.assign(new Error('private credential'), { code: 'EACCES' });
+  assert.equal(claudeRefreshFailureReason(io), 'io-error');
+  const accessor = new Error('private');
+  Object.defineProperty(accessor, 'code', { get: () => { throw new Error('private'); } });
+  assert.equal(claudeRefreshFailureReason(accessor), 'refresh-failed');
+  const budget = new ClaudeFailureDiagnosticBudget();
+  assert.equal(budget.accept('aggregate', 'range-error'), true);
+  for (let i = 0; i < 1000; i++) assert.equal(budget.accept('aggregate', 'range-error'), false);
+  assert.equal(budget.accept('/private/first', 'arbitrary first'), true);
+  for (let i = 0; i < 1000; i++) assert.equal(budget.accept('/private/' + i, 'arbitrary' + i), false);
+});
+
+test('failed Claude diagnostics distinguish aggregation from unread or failed files', () => {
+  const line = formatRefreshDiagnostic({
+    trigger: 'watch', filesDiscovered: 4, filesChanged: 1, filesReused: 3,
+    filesRemoved: 0, filesFailed: 0, bytesRead: 1234, linesParsed: 7, bodyReads: 1,
+    aggregateMutations: null, watcherEvents: 2, coalescedTriggers: 0,
+    quotaWatcherMissingFilenameEvents: 0, manifestMs: 2, readParseMs: 3,
+    aggregateRenderMs: null, totalMs: 6, failureStage: 'aggregate', failureReason: 'range-error',
+  } as any);
+  assert.match(line, /failure\(stage=aggregate reason=range-error\)/);
+  assert.match(line, /failed=0/);
+  assert.match(line, /io\(bytes=1234 lines=7\)/);
+  assert.match(line, /aggregate-mutations=unknown/);
+  assert.match(line, /aggregate-render=unknown/);
+});
+
+test('unobserved Claude counts and unsafe failure metadata are never invented or interpolated', () => {
+  const line = formatRefreshDiagnostic({
+    trigger: 'poll', filesDiscovered: null, filesChanged: null, filesReused: null,
+    filesRemoved: null, filesFailed: null, bytesRead: null, linesParsed: null,
+    watcherEvents: 0, coalescedTriggers: 0, quotaWatcherMissingFilenameEvents: 0,
+    manifestMs: null, readParseMs: null, aggregateRenderMs: null, totalMs: 4,
+    failureStage: '/Users/private/session.jsonl', failureReason: 'raw secret credential',
+  } as any);
+  assert.match(line, /failure\(stage=unknown reason=unknown\)/);
+  assert.match(line, /discovered=unknown.*failed=unknown/);
+  assert.match(line, /io\(bytes=unknown lines=unknown\)/);
+  assert.doesNotMatch(line, /Users|private|session|secret|credential|\.jsonl/);
+});
 
 test('refresh diagnostics contain only stage names and anonymous numeric counters', () => {
   const line = formatRefreshDiagnostic({

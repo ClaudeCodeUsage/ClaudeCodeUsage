@@ -374,6 +374,12 @@ Dense tool-result appends likewise add structural events individually: one tool
 ID may have unbounded result envelopes, so array argument expansion is unsafe.
 The 150k-result append regression matches full content analysis and retains
 zero-body-read warm refreshes.
+Claude refresh failures report only fixed phase/reason enums and actually
+observed anonymous counters; unavailable counts/timings say `unknown`.
+Read/parse, aggregate and content-analysis phases remain distinguishable.
+No arbitrary exception name, message, stack or path is logged. Identical
+sanitized phase/reason pairs are reported once per Extension Host lifetime,
+bounded to 60 pairs; verified prior statistics remain authoritative.
 
 Codex discovery is restricted to:
 

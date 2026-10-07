@@ -79,8 +79,12 @@ import {
   WindowActivityGate,
 } from './refreshPolicy';
 import {
+  ClaudeFailureDiagnosticBudget,
+  ClaudeRefreshStage,
+  claudeRefreshFailureReason,
   formatCodexIndexDiagnostic,
   formatRefreshDiagnostic,
+  RefreshDiagnostic,
 } from './refreshDiagnostics';
 import {
   CodexProvider,
@@ -454,6 +458,7 @@ export class ClaudeCodeUsageExtension {
   private readonly watchDebounce = this.createOwnedRefreshDebounce('claude');
   private readonly refreshGate = new RefreshSingleFlight();
   private providerUiSyncFailureReported = false;
+  private claudeFailureDiagnosticBudget: ClaudeFailureDiagnosticBudget | undefined;
   private readonly codexRefreshGate = new RefreshSingleFlight();
   private codexRefreshDrain: Promise<void> | null = null;
   private codexRefreshSuspensionDepth = 0;
@@ -4722,6 +4727,20 @@ export class ClaudeCodeUsageExtension {
     this.credentialsWatcherMissingFilenameEventsSinceRefresh = 0;
     let updateWebview = request.trigger === 'manual';
     let current = () => !this.disposed;
+    let failureStage: ClaudeRefreshStage = 'discovery';
+    const observed: Partial<RefreshDiagnostic> = {};
+    const reportFailure = (reason: RefreshDiagnostic['failureReason']): void => {
+      const budget = this.claudeFailureDiagnosticBudget ??= new ClaudeFailureDiagnosticBudget();
+      if (!budget.accept(failureStage, reason)) return;
+      this.outputChannel.appendLine(formatRefreshDiagnostic({
+        trigger: request.trigger, filesDiscovered: null, filesChanged: null, filesReused: null,
+        filesRemoved: null, filesFailed: null, bytesRead: null, linesParsed: null,
+        bodyReads: null, aggregateMutations: null, manifestMs: null, readParseMs: null,
+        aggregateRenderMs: null, ...observed,
+        watcherEvents, coalescedTriggers, quotaWatcherMissingFilenameEvents,
+        failureStage, failureReason: reason, totalMs: performance.now() - totalStarted,
+      }));
+    };
     try {
       if (this.disposed) return;
       const config = this.getConfiguration();
@@ -4758,23 +4777,7 @@ export class ClaudeCodeUsageExtension {
       }
       if (!dataDirectory) {
         this.handleColdRefreshFailure(updateWebview, request.trigger);
-        this.outputChannel.appendLine(formatRefreshDiagnostic({
-          trigger: request.trigger,
-          filesDiscovered: 0,
-          filesChanged: 0,
-          filesReused: 0,
-          filesRemoved: 0,
-          filesFailed: 0,
-          bytesRead: 0,
-          linesParsed: 0,
-          watcherEvents,
-          coalescedTriggers,
-          quotaWatcherMissingFilenameEvents,
-          manifestMs: 0,
-          readParseMs: 0,
-          aggregateRenderMs: 0,
-          totalMs: performance.now() - totalStarted,
-        }));
+        reportFailure('source-unavailable');
         return;
       }
 
@@ -4784,6 +4787,7 @@ export class ClaudeCodeUsageExtension {
         this.clearClaudeUsageSource();
         indexGeneration = this.claudeIndexGeneration;
       }
+      failureStage = 'manifest';
       const manifest = await scanUsageManifest([dataDirectory]);
       if (!current()) {
         if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
@@ -4791,6 +4795,9 @@ export class ClaudeCodeUsageExtension {
       }
       const delta = diffUsageManifests(this.cache.manifest, manifest);
       const manifestMs = performance.now() - manifestStarted;
+      Object.assign(observed, { filesDiscovered: manifest.entries.size,
+        filesChanged: delta.changed.length, filesReused: delta.reused.length,
+        filesRemoved: delta.removed.length, manifestMs });
       const directoryChanged = this.cache.dataDirectory !== dataDirectory;
       const needFullRefresh = shouldReloadUsage({
         forceReload: request.forceReload,
@@ -4801,6 +4808,7 @@ export class ClaudeCodeUsageExtension {
       });
 
       if (!needFullRefresh) {
+        failureStage = 'materialize';
         const materialized = this.materializeClaudeDashboard(this.cache.claudeIndex, config, snapshotNow);
         this.statusBar.updateContext(materialized.context);
         const timeZone = this.cache.claudeIndex.timeZone;
@@ -4882,14 +4890,20 @@ export class ClaudeCodeUsageExtension {
       const baseIndex = directoryChanged
         ? createClaudeUsageIndex()
         : this.cache.claudeIndex;
+      failureStage = 'planning';
       const loaded = await updateClaudeUsageIndex(baseIndex, dataDirectory, {
         analyzeContent: config.enableContentAnalysis,
         windowDays: config.advicePromptWindowDays,
         manifest,
+        onStage: (stage, counters) => {
+          failureStage = stage;
+          if (counters) Object.assign(observed, counters);
+        },
         log: (line) => this.outputChannel.appendLine(
           `[${new Date().toLocaleTimeString(undefined, { hour12: false })}] ${line}`
         ),
       });
+      Object.assign(observed, loaded.diagnostics);
       const commitLoadedIndex = () => commitRefreshSnapshot(
         manifest,
         { records: loaded.records, contentAnalysis: loaded.contentAnalysis },
@@ -4914,29 +4928,12 @@ export class ClaudeCodeUsageExtension {
       }
       if (!shouldCommitUsageLoad(loaded.diagnostics.filesFailed)) {
         this.handleColdRefreshFailure(updateWebview, request.trigger);
-        this.outputChannel.appendLine(formatRefreshDiagnostic({
-          trigger: request.trigger,
-          filesDiscovered: manifest.entries.size,
-          filesChanged: delta.changed.length,
-          filesReused: delta.reused.length,
-          filesRemoved: delta.removed.length,
-          filesFailed: loaded.diagnostics.filesFailed,
-          bytesRead: loaded.diagnostics.bytesRead,
-          linesParsed: loaded.diagnostics.linesParsed,
-          bodyReads: loaded.diagnostics.bodyReads,
-          aggregateMutations: loaded.diagnostics.aggregateMutations,
-          watcherEvents,
-          coalescedTriggers,
-          quotaWatcherMissingFilenameEvents,
-          manifestMs,
-          readParseMs: loaded.diagnostics.readParseMs,
-          aggregateRenderMs: 0,
-          totalMs: performance.now() - totalStarted,
-        }));
+        reportFailure(loaded.diagnostics.failureReason ?? 'read-failed');
         return;
       }
 
       const aggregateStarted = performance.now();
+      failureStage = 'materialize';
       const records = loaded.records;
       const contentAnalysis = loaded.contentAnalysis;
 
@@ -4982,6 +4979,8 @@ export class ClaudeCodeUsageExtension {
       }
 
       const aggregateRenderMs = performance.now() - aggregateStarted;
+      observed.aggregateRenderMs = aggregateRenderMs;
+      failureStage = 'commit';
       commitLoadedIndex();
       this.recordRefreshState('claude', false, request.trigger);
       this.outputChannel.appendLine(formatRefreshDiagnostic({
@@ -5003,31 +5002,15 @@ export class ClaudeCodeUsageExtension {
         aggregateRenderMs,
         totalMs: performance.now() - totalStarted,
       }));
-    } catch {
+    } catch (error) {
       if (!current()) {
         if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
         return;
       }
-      // Keep the previous records and manifest authoritative. The next trigger
-      // retries scanner/reconciliation failures instead of presenting no data.
+      // Keep verified data authoritative. Report the actual failing phase,
+      // not a fabricated scan/file failure, without exposing arbitrary errors.
       this.handleColdRefreshFailure(updateWebview, request.trigger);
-      this.outputChannel.appendLine(formatRefreshDiagnostic({
-        trigger: request.trigger,
-        filesDiscovered: 0,
-        filesChanged: 0,
-        filesReused: 0,
-        filesRemoved: 0,
-        filesFailed: 1,
-        bytesRead: 0,
-        linesParsed: 0,
-        watcherEvents,
-        coalescedTriggers,
-        quotaWatcherMissingFilenameEvents,
-        manifestMs: 0,
-        readParseMs: 0,
-        aggregateRenderMs: 0,
-        totalMs: performance.now() - totalStarted,
-      }));
+      reportFailure(claudeRefreshFailureReason(error));
     } finally {
       if (!this.disposed) this.syncProviderUiSafely(request.trigger);
       const next = this.refreshGate.complete();

@@ -59,6 +59,61 @@ const {
   initializeQuotaObservationRuntime,
 } = loadExtensionModule();
 
+test('Claude discovery failure reports unknown counters once without raw error metadata', async (t) => {
+  const { extension } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  const logs: string[] = [];
+  extension.outputChannel = { appendLine: (line: string) => logs.push(line) };
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = async () => {
+    throw new Error('/private/fixture/secret prompt credential');
+  };
+  t.after(() => { (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind; });
+  await extension.refreshData(true, 'manual');
+  for (let n = 0; n < 30; n++) await extension.refreshData(false, 'watch');
+  const failures = logs.filter(line => line.includes('failure(stage=discovery'));
+  assert.equal(failures.length, 1, 'same anonymous failure is deduplicated for the host lifetime');
+  assert.match(failures[0], /discovered=unknown.*failed=unknown/);
+  assert.doesNotMatch(JSON.stringify(logs), /private|fixture|secret|prompt|credential/);
+  assert.equal(extension.providerRefreshStates.claude.failed, true);
+});
+
+test('Claude post-read aggregate failure retains measured IO and does not invent a failed file', async (t) => {
+  const { extension, config } = coordinatorHarness(true);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-aggregate-stage-'));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'stage', message: { id: 'stage',
+      model: 'claude-opus-5-5', usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n');
+  config.dataDirectory = root;
+  extension.refreshCodexData = async () => undefined;
+  const logs: string[] = [];
+  extension.outputChannel = { appendLine: (line: string) => logs.push(line) };
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let measured: any;
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    measured = result.diagnostics;
+    (args[2] as any)?.onStage?.('aggregate', measured);
+    throw new RangeError('Maximum call stack size exceeded at /private/secret');
+  };
+  t.after(() => {
+    (indexModule as any).updateClaudeUsageIndex = originalUpdate;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  await extension.refreshData(true, 'manual');
+  const failure = logs.find(line => line.includes('failure(stage=aggregate'));
+  assert.ok(failure);
+  assert.match(failure, /reason=range-error/);
+  assert.match(failure, /discovered=1 changed=1 reused=0 removed=0 failed=0/);
+  assert.ok(failure.includes('bytes=' + measured.bytesRead + ' lines=' + measured.linesParsed));
+  assert.equal(extension.cache.manifest, null);
+  assert.equal(extension.cache.records.length, 0);
+  assert.doesNotMatch(failure, /private|secret|fixture/);
+});
+
 function bareExtension(): any {
   const extension = Object.create(ClaudeCodeUsageExtension.prototype) as any;
   const quotaSalt = 'extension-window-activity-test-salt';
