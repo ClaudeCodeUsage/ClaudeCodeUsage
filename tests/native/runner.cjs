@@ -32,15 +32,53 @@ function assertNativePanelCachesCleared(view) {
   assert.equal(typeof view.acceptedAchievementPreview?.read, 'function');
   assert.equal(view.acceptedAchievementPreview.current, undefined);
 }
+function createRefreshIoProbe() {
+  const counts = {
+    claude: { records: 0, bodyReads: 0, unknownBodyReads: 0, bytesRead: 0, unknownBytesRead: 0 },
+    codex: { records: 0, bodyReads: 0, unknownBodyReads: 0 },
+  };
+  const add = (summary, key, unknownKey, raw) => {
+    const value = raw === undefined || raw === 'unknown' ? NaN : Number(raw);
+    if (!Number.isSafeInteger(value) || value < 0 || !Number.isSafeInteger(summary[key] + value)) {
+      summary[unknownKey]++;
+    } else summary[key] += value;
+  };
+  return Object.freeze({
+    observe(line) {
+      // Never retain raw output, paths, labels, errors or arbitrary objects.
+      if (typeof line !== 'string' || line.length > 4096) return;
+      if (/^refresh: trigger=(startup|poll|credentials|watch|focus|workspace|settings|pricing|manual) /.test(line)) {
+        counts.claude.records++;
+        add(counts.claude, 'bodyReads', 'unknownBodyReads', /incremental\(bodies=(unknown|[0-9]+) /.exec(line)?.[1]);
+        add(counts.claude, 'bytesRead', 'unknownBytesRead', /io\(bytes=(unknown|[0-9]+) /.exec(line)?.[1]);
+      } else if (/^codex-index trigger=(startup|poll|credentials|watch|focus|workspace|settings|pricing|manual) /.test(line)) {
+        counts.codex.records++;
+        add(counts.codex, 'bodyReads', 'unknownBodyReads', / bodyReads=(unknown|[0-9]+) /.exec(line)?.[1]);
+      }
+    },
+    snapshot: () => ({ claude: { ...counts.claude }, codex: { ...counts.codex } }),
+  });
+}
+function assertZeroBodyWarmRefreshes(io, minimum) {
+  for (const provider of ['claude', 'codex']) {
+    assert.ok(io[provider].records >= minimum, 'observed warm refreshes');
+    assert.equal(io[provider].unknownBodyReads, 0, 'known warm I/O');
+    assert.equal(io[provider].bodyReads, 0, 'zero warm body reads');
+  }
+  assert.equal(io.claude.unknownBytesRead, 0, 'known warm I/O');
+  assert.equal(io.claude.bytesRead, 0, 'zero warm body bytes');
+}
 async function settle(instance) {
   await bounded(instance.initializationWrites, 60_000, 'initialization-timeout');
   const deadline = Date.now() + 60_000;
   while (instance.refreshGate.active || instance.activeCodexRefreshes.size ||
-      instance.codexCheckpointHydration || instance.pendingResourceStops.size) {
+      instance.codexCheckpointHydration || instance.pendingResourceStops.size ||
+      instance.codexProviderRetirements.size) {
     if (Date.now() >= deadline) throw new Error('native-test-runner:settle-timeout');
     await delay(25);
   }
   if (instance.initializationWriteFailure) throw new Error('native-test-runner:initialization-write');
+  if (instance.codexProviderRetirementFailure) throw new Error('native-test-runner:provider-retirement');
   await bounded(instance.codexBackgroundStateWrite, 60_000, 'background-write-timeout');
 }
 async function run() {
@@ -48,7 +86,7 @@ async function run() {
   const plan = JSON.parse(await fs.readFile(path.join(__dirname, 'native-plan.json'), 'utf8'));
   const manifest = JSON.parse(await fs.readFile(path.join(plan.root, 'native-stage-manifest.json'), 'utf8'));
   const samples = [], assertions = [], started = Date.now();
-  let api, stage = 'activation', failureStage, stopCompleted = false;
+  let api, stage = 'activation', failureStage, stopCompleted = false, warmIo = null, outputAppend;
   const sample = phase => {
     const owned = api.instance.resourceOwnership.snapshotForTests(), memory = process.memoryUsage();
     samples.push({ phase, rssBytes: memory.rss, heapUsedBytes: memory.heapUsed, externalBytes: memory.external,
@@ -78,11 +116,20 @@ async function run() {
     sample('cold-ready');
     assertions.push('real production Claude and Codex indexes loaded the six synthetic files');
     stage = 'warm-refresh';
+    const ioProbe = createRefreshIoProbe();
+    outputAppend = api.instance.outputChannel.appendLine;
+    api.instance.outputChannel.appendLine = line => {
+      ioProbe.observe(line); outputAppend.call(api.instance.outputChannel, line);
+    };
     // Explicit own-host refresh avoids mistaking a blurred-window poll no-op
     // for an actual warm refresh in this background diagnostic.
     for (let i = 0; i < 20; i++) { await api.instance.refreshData(false, 'manual'); await settle(api.instance); }
+    api.instance.outputChannel.appendLine = outputAppend;
+    outputAppend = undefined;
+    warmIo = ioProbe.snapshot();
+    assertZeroBodyWarmRefreshes(warmIo, 20);
     sample('twenty-warm-refreshes');
-    assertions.push('twenty actual host refreshes settled without owned network or watcher');
+    assertions.push('twenty actual host refreshes observe known zero Claude/Codex body reads and Claude body bytes, without owned network or watcher');
     stage = 'panel-lifecycle';
     const view = api.instance.webviewProvider;
     for (let cycle = 1; cycle <= 20; cycle++) {
@@ -111,6 +158,20 @@ async function run() {
       sample(enabled ? 'achievements-on' : 'achievements-off');
     }
     assertions.push('real own-state achievement OFF/ON preserves the provider instance');
+    stage = 'analysis-provider-retirement';
+    for (let cycle = 0; cycle < 20; cycle++) {
+      const enabled = cycle % 2 !== 0, priorProvider = api.instance.codexProvider;
+      await api.instance.settings.set('enableContentAnalysis', enabled);
+      api.instance.onSettingsChangedFromPanel('enableContentAnalysis');
+      await settle(api.instance);
+      assert.notEqual(api.instance.codexProvider, priorProvider);
+      assert.equal(api.instance.codexProviderRetirements.size, 0);
+      assert.equal(api.instance.getConfiguration().enableContentAnalysis, enabled);
+      await api.instance.refreshData(false, 'manual');
+      await settle(api.instance);
+      sample('content-analysis-toggle-' + (cycle + 1));
+    }
+    assertions.push('twenty actual own-state content-analysis toggles await old provider retirement before refreshing the replacement');
   } catch (error) {
     failureStage = stage;
     // Fixed phase only in report. Do not serialize arbitrary errors, stacks,
@@ -118,6 +179,7 @@ async function run() {
     console.error('CCU isolated native diagnostic failed at ' + stage);
   } finally {
     if (api) {
+      if (outputAppend) api.instance.outputChannel.appendLine = outputAppend;
       stage = 'dispose';
       try {
         await bounded(api.stop(), 60_000, 'dispose-timeout');
@@ -131,12 +193,13 @@ async function run() {
       sourceHead: manifest.sourceHead, stagedRuntimeVersion: manifest.packageVersion,
       vscodeVersion: vscode.version, platform: process.platform,
       outcome: failureStage ? 'fail' : 'pass', failureStage: failureStage ?? null,
-      assertions, samples, stopCompleted, elapsedMs: Date.now() - started,
+      assertions, samples, warmIo, stopCompleted, elapsedMs: Date.now() - started,
       heapLeakConclusionEstablished: false, pixelVisualAcceptancePassed: false, finalInstallF5Passed: false,
-      limits: { sampledHostRssBytes: 2 * 1024 ** 3, panelCycles: 20, warmRefreshes: 20 },
+      limits: { sampledHostRssBytes: 2 * 1024 ** 3, panelCycles: 20, warmRefreshes: 20, contentAnalysisToggles: 20 },
     };
     await fs.writeFile(path.join(plan.root, 'native-result.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   }
   if (failureStage) throw new Error('native-test-runner:failed-' + failureStage);
 }
-module.exports = { run, disposePanelAndWait, assertNativePanelCachesCleared };
+module.exports = { run, disposePanelAndWait, assertNativePanelCachesCleared, settle,
+  createRefreshIoProbe, assertZeroBodyWarmRefreshes };

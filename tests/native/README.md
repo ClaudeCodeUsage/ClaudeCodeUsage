@@ -31,7 +31,8 @@ instance. This wrapper is not shipped as a release candidate.
 
 runner.cjs uses the real native VS Code API, not a mocked webview. It exercises
 the small synthetic cold scan, twenty explicit warm refreshes, twenty actual
-WebviewPanel open/dispose cycles, achievement OFF/ON, and awaited production
+WebviewPanel open/dispose cycles, achievement OFF/ON, twenty content-analysis
+toggles with awaited old-provider retirement, and awaited production
 disposal. Reports contain fixed stages, numeric process-memory samples and
 anonymous resource counts, not credentials, logs, paths or instance objects.
 Disposal waits for the real onDidDispose event, not a fixed paint delay. A
@@ -41,6 +42,11 @@ tests use synthetic async events and the actual AchievementSharePreview class;
 they are not native evidence.
 A missing client-ready observation is not pixel acceptance. Process RSS includes
 worker threads; samples are not instantaneous peaks or a post-GC leak verdict.
+Warm I/O uses a fixed-size numeric-only probe of existing production diagnostic
+formats: unknown is not treated as zero, at least twenty observations per provider
+are required, and no raw channel text is retained. The content-analysis setting
+path legitimately replaces providers; its I/O is separate from unchanged warm
+refreshes and is not asserted to be a presentation-only zero-I/O operation.
 
 Before claiming non-disruption, inspect the normal instance's relevant storage
 metadata/settings and installed-runtime hashes before/after. A separate window,
