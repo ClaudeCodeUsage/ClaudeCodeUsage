@@ -70,6 +70,7 @@ import {
   CODEX_LINEAGE_FINGERPRINT_BYTES,
   CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK,
   CodexLineageTrace,
+  createLineageDepthResolver,
 } from './codexLineage';
 import {
   appendCodexQuotaHistory,
@@ -2001,35 +2002,17 @@ function reconcileLineageContributions(
     }
   }
 
-  const depthMemo = new Map<CodexFileContribution, number>();
-  const depthFor = (
-    contribution: CodexFileContribution,
-    visiting = new Set<CodexFileContribution>(),
-  ): number => {
-    const cached = depthMemo.get(contribution);
-    if (cached !== undefined) {
-      return cached;
-    }
-    if (visiting.has(contribution)) {
-      return 0;
-    }
+  const depthFor = createLineageDepthResolver<CodexFileContribution>((contribution) => {
     const parentKey = contribution.aggregate.session.parentSessionKey;
     if (!parentKey) {
-      depthMemo.set(contribution, 0);
-      return 0;
+      return null;
     }
-    const nextVisiting = new Set(visiting).add(contribution);
-    const parents = (parentCandidates.get(parentKey) ?? []).filter((parent) =>
+    return (parentCandidates.get(parentKey) ?? []).filter((parent) =>
       !contribution.parserState.treeKey ||
       !parent.parserState.treeKey ||
       contribution.parserState.treeKey === parent.parserState.treeKey,
     );
-    const depth = parents.length > 0
-      ? 1 + Math.min(...parents.map((parent) => depthFor(parent, nextVisiting)))
-      : 1;
-    depthMemo.set(contribution, depth);
-    return depth;
-  };
+  });
 
   for (const tree of treeCandidates.values()) {
     const ordered = [...tree].sort((left, right) =>

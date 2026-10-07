@@ -51,6 +51,7 @@ v2.4 第一阶段把既有分享界面收敛为一个预览优先的工作台。
 | `providers/codex/codexParser.ts` | Codex 精确单次请求解析及 cumulative high-water 回退、伪名 lineage metadata、结构计数、quality flag 和 last-observed limit。 |
 | `providers/codex/codexManifest.ts` | Codex 允许目录发现、HMAC file key、fingerprint 和 manifest diff。 |
 | `providers/codex/codexIndex.ts` | schema-3 的 per-file 数字聚合与重放证据持久化、有界 cold/tail parse、独立 aggregate/period/滚动 30 天小时 coverage 和原子存取。 |
+| `providers/codex/codexLineage.ts` | 打包谱系 fingerprint contract 与仅运行期、迭代／记忆化的主统计深度排序；不增长递归调用栈，不新增持久字段。 |
 | `providers/codex/codexQuotaHistory.ts` | 小型、账户中性的每周重置观测缓存；压缩重复本地样本，不保留凭据、账户名或原始标签。 |
 | `providers/codex/codexIndexWorker.ts` / `codexIndexClient.ts` | 后台协调器、recent-first progress、cancel、resume、checkpoint 持久化和 single-flight client。 |
 | `providers/codex/codexFilePassPool.ts` / `codexFilePassWorker.ts` | 未完成回填期间，用于独立 main、lineage、period、current-day 和 identity per-file pass 的自适应受限本地 pool。 |
@@ -281,6 +282,11 @@ Claude 同一失败版本的自动重试等待 30／60／120／240／480 秒，�
 突发与已排队刷新不能绕过。退役任务不能重置其他版本的退避，只有已验证的索引成功
 才恢复普通暖刷新节奏。额度请求继续沿用独立策略。被冷却的手动重试仍提供简短失败
 反馈，不替换已验证用量，也不读取日志正文。
+Codex 主统计的谱系深度排序使用显式 DFS frame 与一个活跃路径集合，保留既有
+memo 优先于循环检测、父分支顺序、孤立节点与根节点语义。不再递归、复制祖先集合或
+展开父节点数组为函数参数。保存／重载后的 1 万层主统计重算回归保持零正文读取；
+受限小图对照核对原排序语义。这与成就证据遍历是两条路径，不改变索引 schema、
+fingerprint、前缀扣除或供应商 Token／成本／额度语义。
 
 AI 密钥初始化在激活前完成一次协议兼容迁移。已有密钥而没有明确的 state／旧配置协议时，
 保留旧 Anthropic 默认；明确的协议不变，新安装无密钥时采用 OpenAI 兼容默认。

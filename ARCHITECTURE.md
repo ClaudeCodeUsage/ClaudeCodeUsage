@@ -64,6 +64,7 @@ only the separate publish action can perform that network operation.
 | `providers/codex/codexParser.ts` | Codex exact-request parsing with cumulative high-water fallback, pseudonymous lineage metadata, structural counters, quality flags, and last-observed limits. |
 | `providers/codex/codexManifest.ts` | Allowlisted Codex directory discovery, HMAC file keys, fingerprints, and manifest diffing. |
 | `providers/codex/codexIndex.ts` | Schema-3 persistent per-file numeric aggregates and replay evidence, bounded cold/tail parsing, independent aggregate/period/rolling-30-day-hour coverage, and atomic save/load. |
+| `providers/codex/codexLineage.ts` | Packed lineage fingerprint contract and runtime-only iterative, memoized primary depth ordering; no recursive stack growth or new persisted fields. |
 | `providers/codex/codexQuotaHistory.ts` | Small account-neutral weekly reset-observation cache; compacts repeated local samples without retaining credentials, account names, or raw labels. |
 | `providers/codex/codexIndexWorker.ts` / `codexIndexClient.ts` | Background coordinator, recent-first progress, cancellation, resume, checkpoint persistence, and single-flight client. |
 | `providers/codex/codexFilePassPool.ts` / `codexFilePassWorker.ts` | Adaptive bounded local pool for independent per-file main, lineage, period, current-day, and identity passes during incomplete backfills. |
@@ -389,6 +390,13 @@ cannot bypass it. Retired work cannot reset another revision's backoff, and only
 verified index success restores ordinary warm-refresh cadence. Quota fetching
 keeps its independent existing policy. Skipped manual retries still deliver
 compact failure feedback without replacing verified usage or reading log bodies.
+Primary Codex lineage depth ordering uses explicit DFS frames and one active-path
+set. It preserves the prior memo-before-cycle, parent order, orphan and root
+semantics without recursive calls, copied ancestor sets or parent-array argument
+spreading. The persisted 10k-depth derived-reconciliation regression reads zero
+source bodies; bounded small-graph oracle tests preserve accounting order. This
+is separate from achievement evidence traversal and does not change index schema,
+fingerprints, prefix subtraction or provider Token/cost/limit semantics.
 
 Codex discovery is restricted to:
 

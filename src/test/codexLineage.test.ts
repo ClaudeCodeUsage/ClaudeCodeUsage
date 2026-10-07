@@ -143,6 +143,63 @@ function fieldsByFile(index: CodexIndexV3, field: 'aggregate' | 'lineage') {
   );
 }
 
+test('persisted deep primary lineage reconciles without source reads or recursive overflow', async () => {
+  const { root, index } = await scanFixture({
+    seed: rollout(sessionMeta('depth-seed', 'depth-tree'), tokenCount(100, 20)),
+  });
+  try {
+    const seed = Object.values(index.files)[0];
+    assert.ok(seed.lineage);
+    assert.ok(seed.parserState.treeKey);
+    const depthCount = 10_000;
+    index.files = {};
+    // Deepest first deliberately defeats incidental parent-before-child memoization.
+    for (let depth = depthCount - 1; depth >= 0; depth -= 1) {
+      const contribution = structuredClone(seed);
+      const fileKey = pseudonymousIdentityKey(SALT, `depth-file-${depth}`);
+      const sessionKey = pseudonymousIdentityKey(SALT, `depth-session-${depth}`);
+      const parentSessionKey = depth > 0
+        ? pseudonymousIdentityKey(SALT, `depth-session-${depth - 1}`)
+        : undefined;
+      contribution.fileKey = fileKey;
+      Object.assign(contribution.parserState, {
+        fileKey, sessionKey, parentSessionKey, role: depth > 0 ? 'subagent' : 'root',
+      });
+      Object.assign(contribution.aggregate.session, {
+        sessionKey, parentSessionKey, role: depth > 0 ? 'subagent' : 'root',
+      });
+      index.files[fileKey] = contribution;
+    }
+    const checkpoint = path.join(root, 'depth-index.json');
+    await saveCodexIndexAtomic(checkpoint, index);
+    const loaded = await loadCodexIndex(checkpoint, 'UTC');
+    // This must exercise derived primary reconciliation, not the warm no-op path.
+    loaded.coverage.complete = false;
+    const files = Object.values(loaded.files).map((contribution) => ({
+      fileKey: contribution.fileKey, sourceArea: contribution.sourceArea ?? 'sessions',
+      size: contribution.size, mtimeMs: contribution.mtimeMs,
+      dev: contribution.dev, ino: contribution.ino,
+      absolutePath: path.join(root, 'synthetic-no-read.jsonl'),
+      nonPersisted: true as const,
+    }));
+    const refreshed = await updateCodexIndex(loaded, {
+      files,
+      persistable: Object.fromEntries(files.map(({ absolutePath: _path, nonPersisted: _marker, ...dto }) => [dto.fileKey, dto])),
+    }, {
+      salt: SALT, timeZone: 'UTC', now: () => NOW,
+      allowHistoricalBackfill: false, allowAchievementHourProof: false,
+      budget: { maxFilePasses: 0, maxBytes: 0 },
+      io: { async *read() { assert.fail('derived reconciliation must not read source bodies'); } },
+    });
+    assert.equal(refreshed.bodyReads, 0);
+    assert.equal(Object.keys(refreshed.index.files).length, depthCount);
+    assert.equal(bySession(refreshed.index, 'depth-session-0')?.lineage?.desiredPrefixEvents, 0);
+    assert.equal(bySession(refreshed.index, `depth-session-${depthCount - 1}`)?.lineage?.desiredPrefixEvents, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('resume appended to one physical rollout keeps the terminal cumulative value', async () => {
   const { root, index } = await scanFixture({
     resume: rollout(
