@@ -503,6 +503,15 @@ external 和 V8 序列化消息字节代理，不保留消息或 heap dump。冻
 只终止测试所属 worker；`--out` 可选择不可变编译版本进行对照。这些是 Node
 诊断，不是原生 Extension Host、面板生命周期、多窗口或 Windows OOM 验收证据。
 
+原生诊断启动另有可选安全守卫 `tests/native/isolation.cjs`：从测试所属根目录
+派生十个不同目录，显式包括 user/extensions/shared、agent 资料和合成
+Claude/Codex home。在任何设置种子写入前核验 Test 模式、Extension Host 的
+实际存储／配置路径与无符号链接逃逸；随后调用者才可在该测试 context 的
+globalState 中先关闭额度／建议相关网络入口，再激活生产代码。仅设置
+settings.json 不能控制目录中以 globalState 为存储的设置。写入失败即停止。
+纯 `nativeTestIsolation.test.ts` 不启动 Code；该守卫不是沙箱、凭据扫描器，
+也不是原生激活成功或安装 VSIX／F5 的实测证明。测试文件继续排除出 VSIX。
+
 每周 API 等效价值历史只从已经聚合的 Token 用量生成。最新有效的重置观测用于锚定互不重叠的七天
 展示窗口；没有观测时，仅已用历史按 UTC 周一至周一的自然周分组。真实的额度用量比例观测可以支持
 历史窗口的总额度近似，而不只支持当前窗口。Codex 的 account-wide `codex` series 会纳入同一 home

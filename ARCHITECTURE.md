@@ -744,6 +744,18 @@ guards stop only test-owned workers. `--out` can select an immutable compiled
 cohort for comparisons. These are Node diagnostics, not native Extension Host,
 panel lifecycle, multi-window or Windows OOM acceptance evidence.
 
+Native diagnostic setup has a separate opt-in safety guard in
+`tests/native/isolation.cjs`. It derives ten distinct test-owned directories,
+including explicit user/extensions/shared and agent stores plus synthetic
+Claude/Codex homes. Before any seed write, it checks Test mode, actual
+Extension Host storage/configuration paths and symlink-free owned paths.
+Only then may its caller seed quota/advice/network-related settings in that
+test context's globalState before production activation; settings.json alone
+does not control settings whose catalog storage is globalState. A failed seed
+write stops setup. Pure `nativeTestIsolation.test.ts` checks do not launch Code.
+The guard is not a sandbox, a credential scanner, proof of native activation,
+or an installed-VSIX/F5 smoke test. Test files remain excluded from the VSIX.
+
 Weekly API-equivalent history is derived from already-aggregated token usage.
 The newest valid reset observation anchors non-overlapping seven-day display
 buckets; without one, usage-only history uses Monday-to-Monday UTC calendar
