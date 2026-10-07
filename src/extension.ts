@@ -64,6 +64,7 @@ import {
   UsageManifest,
 } from './claudeUsageFiles';
 import {
+  ClaudeRefreshRecovery,
   commitRefreshSnapshot,
   codexRefreshProfileForTrigger,
   pollIntervalMs,
@@ -459,6 +460,7 @@ export class ClaudeCodeUsageExtension {
   private readonly refreshGate = new RefreshSingleFlight();
   private providerUiSyncFailureReported = false;
   private claudeFailureDiagnosticBudget: ClaudeFailureDiagnosticBudget | undefined;
+  private claudeRefreshRecovery: ClaudeRefreshRecovery | undefined;
   private readonly codexRefreshGate = new RefreshSingleFlight();
   private codexRefreshDrain: Promise<void> | null = null;
   private codexRefreshSuspensionDepth = 0;
@@ -4727,9 +4729,13 @@ export class ClaudeCodeUsageExtension {
     this.credentialsWatcherMissingFilenameEventsSinceRefresh = 0;
     let updateWebview = request.trigger === 'manual';
     let current = () => !this.disposed;
+    let indexCurrent = () => false;
     let failureStage: ClaudeRefreshStage = 'discovery';
     const observed: Partial<RefreshDiagnostic> = {};
+    const recovery = this.claudeRefreshRecovery ??= new ClaudeRefreshRecovery();
+    let recoveryRevision: string | undefined;
     const reportFailure = (reason: RefreshDiagnostic['failureReason']): void => {
+      if (recoveryRevision !== undefined) recovery.fail(recoveryRevision);
       const budget = this.claudeFailureDiagnosticBudget ??= new ClaudeFailureDiagnosticBudget();
       if (!budget.accept(failureStage, reason)) return;
       this.outputChannel.appendLine(formatRefreshDiagnostic({
@@ -4748,7 +4754,7 @@ export class ClaudeCodeUsageExtension {
       const generation = this.configurationGeneration;
       const source = this.claudeUsageSource;
       let indexGeneration = this.claudeIndexGeneration ?? 0;
-      const indexCurrent = () => !this.disposed && !this.clearingAllLocalData &&
+      indexCurrent = () => !this.disposed && !this.clearingAllLocalData &&
         !this.localDataClearedRequiresReload && indexGeneration === (this.claudeIndexGeneration ?? 0) &&
         source === this.claudeUsageSourceKey(this.getConfiguration().dataDirectory);
       current = () => indexCurrent() && generation === this.configurationGeneration;
@@ -4768,6 +4774,17 @@ export class ClaudeCodeUsageExtension {
         }
       }).catch(() => undefined);
 
+      const timeZone = resolveTimeZone('');
+      const revisionForIndex = () => `${indexGeneration}:${config.enableContentAnalysis ? 1 : 0}:` +
+        `${config.enableContentAnalysis ? config.advicePromptWindowDays : 0}:${timeZone}`;
+      recoveryRevision = revisionForIndex();
+      if (!recovery.admit(recoveryRevision, request.trigger)) {
+        // Keep the last verified numbers and failed authority unchanged. An
+        // explicit rapid retry gets feedback, but not another scan/body read.
+        if (request.trigger === 'manual') this.publishRefreshState('claude', request.trigger, true);
+        return;
+      }
+
       const dataDirectory = await ClaudeDataLoader.findClaudeDataDirectory(
         config.dataDirectory || undefined
       );
@@ -4786,6 +4803,8 @@ export class ClaudeCodeUsageExtension {
         path.resolve(this.cache.dataDirectory) !== path.resolve(dataDirectory)) {
         this.clearClaudeUsageSource();
         indexGeneration = this.claudeIndexGeneration;
+        recoveryRevision = revisionForIndex();
+        recovery.admit(recoveryRevision, request.trigger);
       }
       failureStage = 'manifest';
       const manifest = await scanUsageManifest([dataDirectory]);
@@ -4858,6 +4877,7 @@ export class ClaudeCodeUsageExtension {
         this.cache.manifest = manifest;
         this.cache.dataDirectory = dataDirectory;
         this.recordRefreshState('claude', false, request.trigger);
+        recovery.succeed(recoveryRevision);
         this.outputChannel.appendLine(formatRefreshDiagnostic({
           trigger: request.trigger,
           filesDiscovered: manifest.entries.size,
@@ -4922,7 +4942,15 @@ export class ClaudeCodeUsageExtension {
         // same-source work. The queued settings refresh can reconcile from this
         // index without repeating a cold read. Source, prices, clear-all and
         // disposal still revoke the index itself, including A -> B -> A changes.
-        if (indexCurrent()) commitLoadedIndex();
+        if (indexCurrent()) {
+          if (commitLoadedIndex()) recovery.succeed(recoveryRevision);
+          else {
+            // A presentation generation cannot erase a verified same-source
+            // failure or let the queued settings pass re-read it immediately.
+            this.handleColdRefreshFailure(this.shouldDeliverDashboard(request.trigger), request.trigger);
+            reportFailure(loaded.diagnostics.failureReason ?? 'read-failed');
+          }
+        }
         if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
         return;
       }
@@ -4983,6 +5011,7 @@ export class ClaudeCodeUsageExtension {
       failureStage = 'commit';
       commitLoadedIndex();
       this.recordRefreshState('claude', false, request.trigger);
+      recovery.succeed(recoveryRevision);
       this.outputChannel.appendLine(formatRefreshDiagnostic({
         trigger: request.trigger,
         filesDiscovered: manifest.entries.size,
@@ -5004,6 +5033,10 @@ export class ClaudeCodeUsageExtension {
       }));
     } catch (error) {
       if (!current()) {
+        if (indexCurrent()) {
+          this.handleColdRefreshFailure(this.shouldDeliverDashboard(request.trigger), request.trigger);
+          reportFailure(claudeRefreshFailureReason(error));
+        }
         if (!this.disposed) this.selectClaudeUsageSource(this.getConfiguration().dataDirectory);
         return;
       }

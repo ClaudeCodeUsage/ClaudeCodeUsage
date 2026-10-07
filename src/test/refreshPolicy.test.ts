@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
+  ClaudeRefreshRecovery,
   commitRefreshSnapshot,
   codexRefreshProfileForTrigger,
   CODEX_LIVE_REFRESH_SECONDS,
@@ -16,6 +17,52 @@ import {
   watcherFailureBackoffMs,
   WindowActivityGate,
 } from '../refreshPolicy';
+
+test('Claude recovery bounds automatic retry and manual cooling without scheduling timers', () => {
+  let now = 0;
+  const gate = new ClaudeRefreshRecovery(() => now);
+  assert.equal(gate.admit('revision-a', 'poll'), true);
+  gate.fail('revision-a');
+  for (const trigger of ['poll', 'watch', 'focus', 'workspace', 'settings', 'pricing', 'startup'] as const) {
+    assert.equal(gate.admit('revision-a', trigger), false, trigger);
+  }
+  assert.equal(gate.admit('revision-a', 'manual'), false);
+  now = 4_999;
+  assert.equal(gate.admit('revision-a', 'manual'), false);
+  now = 5_000;
+  assert.equal(gate.admit('revision-a', 'manual'), true);
+  gate.fail('revision-a');
+  now = 64_999;
+  assert.equal(gate.admit('revision-a', 'poll'), false);
+  now = 65_000;
+  assert.equal(gate.admit('revision-a', 'poll'), true);
+  for (const delay of [120_000, 240_000, 480_000, 900_000, 900_000]) {
+    gate.fail('revision-a');
+    now += delay - 1;
+    assert.equal(gate.admit('revision-a', 'poll'), false);
+    now++;
+    assert.equal(gate.admit('revision-a', 'poll'), true);
+  }
+  gate.succeed('revision-a');
+  assert.equal(gate.admit('revision-a', 'poll'), true);
+  gate.fail('revision-a');
+  now += 30_000;
+  assert.equal(gate.admit('revision-a', 'poll'), true, 'success resets the failure streak');
+});
+
+test('Claude recovery retires old revisions and does not retain a source history', () => {
+  const gate = new ClaudeRefreshRecovery(() => 0);
+  gate.admit('revision-a', 'poll');
+  gate.fail('revision-a');
+  assert.equal(gate.admit('revision-b', 'poll'), true);
+  gate.fail('revision-b');
+  gate.succeed('revision-a');
+  gate.fail('revision-a');
+  assert.equal(gate.admit('revision-b', 'manual'), false, 'retired work cannot clear the new failure');
+  assert.equal(gate.admit('revision-c', 'poll'), true);
+  gate.fail('revision-b');
+  assert.equal(gate.admit('revision-c', 'poll'), true, 'retired failure cannot poison a clean revision');
+});
 
 test('window activity emits one suspend and one resume transition', () => {
   const gate = new WindowActivityGate(true);

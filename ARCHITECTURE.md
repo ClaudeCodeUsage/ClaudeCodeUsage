@@ -380,6 +380,15 @@ Read/parse, aggregate and content-analysis phases remain distinguishable.
 No arbitrary exception name, message, stack or path is logged. Identical
 sanitized phase/reason pairs are reported once per Extension Host lifetime,
 bounded to 60 pairs; verified prior statistics remain authoritative.
+A failed Claude revision admits automatic retries after 30/60/120/240/480 seconds,
+then caps at 15 minutes; explicit retries retain a 5-second minimum cooldown.
+This runtime-only gate uses a monotonic clock, holds one current revision and
+adds no timer, scanner or persistent history. Source/price/parse authority changes
+admit new work, while presentation settings, watcher bursts and queued follow-ups
+cannot bypass it. Retired work cannot reset another revision's backoff, and only
+verified index success restores ordinary warm-refresh cadence. Quota fetching
+keeps its independent existing policy. Skipped manual retries still deliver
+compact failure feedback without replacing verified usage or reading log bodies.
 
 Codex discovery is restricted to:
 

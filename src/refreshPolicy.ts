@@ -56,6 +56,45 @@ export function watcherFailureBackoffMs(failStreak: number): number {
   return Math.min(60_000, 1_000 * Math.pow(2, exponent));
 }
 
+/** One runtime revision, not a retry queue or persisted source history. The
+ * normal scheduler supplies attempts; this gate never creates another timer.
+ * A revision changes only with data/price/parse authority, not presentation. */
+export class ClaudeRefreshRecovery {
+  private revision: string | undefined;
+  private failStreak = 0;
+  private automaticRetryAt = 0;
+  private manualRetryAt = 0;
+
+  constructor(private readonly now: () => number = () => performance.now()) {}
+
+  admit(revision: string, trigger: RefreshTrigger): boolean {
+    if (revision !== this.revision) {
+      this.revision = revision;
+      this.reset();
+    }
+    return this.failStreak === 0 || this.now() >=
+      (trigger === 'manual' ? this.manualRetryAt : this.automaticRetryAt);
+  }
+
+  fail(revision: string): void {
+    if (revision !== this.revision) return;
+    this.failStreak = Math.min(6, this.failStreak + 1);
+    const now = this.now();
+    this.automaticRetryAt = now + Math.min(900_000, 30_000 * 2 ** (this.failStreak - 1));
+    this.manualRetryAt = now + 5_000;
+  }
+
+  succeed(revision: string): void {
+    if (revision === this.revision) this.reset();
+  }
+
+  private reset(): void {
+    this.failStreak = 0;
+    this.automaticRetryAt = 0;
+    this.manualRetryAt = 0;
+  }
+}
+
 const TRIGGER_PRIORITY: Record<RefreshTrigger, number> = {
   startup: 0,
   poll: 1,

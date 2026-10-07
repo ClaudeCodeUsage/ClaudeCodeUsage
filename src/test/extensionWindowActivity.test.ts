@@ -6,6 +6,7 @@ import * as path from 'node:path';
 
 import { ClaudeDataLoader } from '../dataLoader';
 import {
+  ClaudeRefreshRecovery,
   RefreshSingleFlight,
   WindowActivityGate,
 } from '../refreshPolicy';
@@ -197,6 +198,148 @@ function completeCoordinatorSnapshot(): ReturnType<typeof snapshotFixture> {
   snapshot.coverage.hourly = snapshot.hourlyCoverage;
   return snapshot;
 }
+
+function recoveryClock(extension: any): (milliseconds: number) => void {
+  let now = 0;
+  extension.claudeRefreshRecovery = new ClaudeRefreshRecovery(() => now);
+  return milliseconds => { now += milliseconds; };
+}
+
+test('Claude automatic trigger storms cannot rescan a failing source; manual retries are cooled', async (t) => {
+  const { extension, config, deliveries } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  const advance = recoveryClock(extension);
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  let discoveries = 0;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = async () => {
+    discoveries++;
+    throw new RangeError('synthetic failure');
+  };
+  t.after(() => { (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind; });
+  await extension.refreshData(false, 'poll');
+  for (let n = 0; n < 100; n++) {
+    config.language = n % 2 ? 'en' : 'zh-CN';
+    extension.configurationGeneration++;
+    await extension.refreshData(false, ['watch', 'focus', 'poll', 'settings'][n % 4] as any);
+  }
+  assert.equal(discoveries, 1, 'presentation settings cannot bypass recovery backoff');
+  const beforeManual = deliveries.filter(d => d.kind === 'refresh:claude').length;
+  await extension.refreshData(true, 'manual');
+  assert.equal(discoveries, 1, 'rapid explicit refresh still has a minimum cooldown');
+  assert.equal(deliveries.filter(d => d.kind === 'refresh:claude').length, beforeManual + 1,
+    'a skipped manual retry still returns compact failure feedback');
+  advance(5_000);
+  await extension.refreshData(true, 'manual');
+  assert.equal(discoveries, 2);
+  advance(59_999);
+  await extension.refreshData(false, 'poll');
+  assert.equal(discoveries, 2);
+  advance(1);
+  await extension.refreshData(false, 'poll');
+  assert.equal(discoveries, 3);
+  config.dataDirectory = '/synthetic/replacement';
+  await extension.refreshData(false, 'settings');
+  assert.equal(discoveries, 4, 'a genuine source replacement is admitted immediately');
+  config.enableContentAnalysis = true;
+  await extension.refreshData(false, 'settings');
+  assert.equal(discoveries, 5, 'a parse-mode replacement gets its own attempt');
+  config.advicePromptWindowDays = 90;
+  await extension.refreshData(false, 'settings');
+  assert.equal(discoveries, 6, 'a content window replacement gets its own attempt');
+  extension.invalidateClaudeUsagePricingCache();
+  await extension.refreshData(false, 'pricing');
+  assert.equal(discoveries, 7, 'price authority revocation gets its own attempt');
+});
+
+test('Claude queued retry after aggregate failure cannot repeat a body read or retire verified data', async (t) => {
+  const { extension, config } = coordinatorHarness(true);
+  extension.refreshCodexData = async () => undefined;
+  const advance = recoveryClock(extension);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-failed-read-recovery-'));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  const file = path.join(project, 'session.jsonl');
+  const row = (id: string) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(),
+    requestId: id, message: { id, model: 'claude-opus-5-5', usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n';
+  fs.writeFileSync(file, row('first'));
+  config.dataDirectory = root;
+  await extension.refreshData(true, 'manual');
+  const verifiedIndex = extension.cache.claudeIndex;
+  const verifiedManifest = extension.cache.manifest;
+  fs.appendFileSync(file, row('tail'));
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let bodyReads = 0;
+  let fail = true;
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    bodyReads += result.diagnostics.bodyReads;
+    if (fail) {
+      if (bodyReads === 1) void extension.refreshData(false, 'watch');
+      throw new RangeError('synthetic post-read failure');
+    }
+    return result;
+  };
+  t.after(() => {
+    (indexModule as any).updateClaudeUsageIndex = originalUpdate;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  await extension.refreshData(false, 'watch');
+  for (let n = 0; n < 100 && extension.refreshGate.active; n++) {
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  assert.equal(extension.refreshGate.active, false, 'the bounded queued pass drains');
+  for (let n = 0; n < 40; n++) await extension.refreshData(false, 'focus');
+  assert.equal(bodyReads, 1);
+  assert.equal(extension.cache.claudeIndex, verifiedIndex);
+  assert.equal(extension.cache.manifest, verifiedManifest);
+  assert.equal(extension.providerRefreshStates.claude.failed, true);
+  fail = false;
+  advance(5_000);
+  await extension.refreshData(false, 'manual');
+  assert.equal(bodyReads, 2);
+  assert.equal(extension.cache.records.length, 2);
+  assert.equal(extension.providerRefreshStates.claude.failed, false);
+  await extension.refreshData(false, 'poll');
+  assert.equal(bodyReads, 2, 'successful recovery returns to zero-body-read warm refreshes');
+});
+
+for (const outcome of ['partial', 'throw'] as const) test(`a display generation change cannot discard same-source failure authority or recovery cooling (${outcome})`, async (t) => {
+  const { extension, config } = coordinatorHarness(true);
+  recoveryClock(extension);
+  extension.refreshCodexData = async () => undefined;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-display-failure-recovery-'));
+  const project = path.join(root, 'projects', '-fixture');
+  fs.mkdirSync(project, { recursive: true });
+  fs.writeFileSync(path.join(project, 'session.jsonl'), JSON.stringify({ type: 'assistant',
+    timestamp: new Date().toISOString(), requestId: 'same-source', message: {
+      id: 'same-source', model: 'claude-opus-5-5', usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n');
+  config.dataDirectory = root;
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  let reads = 0;
+  let withdrawals = 0;
+  extension.webviewProvider.invalidateAchievementEvidence = () => { withdrawals++; };
+  (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+    const result = await originalUpdate(...args);
+    reads += result.diagnostics.bodyReads;
+    config.language = 'zh-CN';
+    extension.configurationGeneration++;
+    if (outcome === 'throw') throw new RangeError('synthetic post-read failure');
+    result.diagnostics.filesFailed = 1;
+    return result;
+  };
+  t.after(() => {
+    (indexModule as any).updateClaudeUsageIndex = originalUpdate;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  await extension.refreshData(false, 'watch');
+  assert.equal(extension.cache.manifest, null);
+  assert.equal(extension.providerRefreshStates.claude.failed, true);
+  assert.equal(withdrawals, 1);
+  for (let n = 0; n < 30; n++) await extension.refreshData(false, 'settings');
+  assert.equal(reads, 1, 'same-source failure remains cooled even after presentation retirement');
+});
 
 function coordinatorHarness(dashboardAutoRefresh = false): {
   extension: any;
@@ -838,6 +981,7 @@ test('coordinator Claude pause keeps append indexing and status active while man
 
 test('coordinator Claude warm manual failures retain data, disclose anonymous state, and clear it on unchanged success', async (t) => {
   const { extension, deliveries, statuses, config } = coordinatorHarness();
+  const advance = recoveryClock(extension);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-coordinator-claude-failure-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const project = path.join(root, 'projects', '-fixture');
@@ -875,6 +1019,7 @@ test('coordinator Claude warm manual failures retain data, disclose anonymous st
     (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind;
   }
   deliveries.length = 0;
+  advance(5_000);
   await extension.refreshData(false, 'manual');
   assert.equal(extension.providerRefreshStates.claude.failed, false);
   assert.ok(extension.providerRefreshStates.claude.lastSuccessfulAt >= previousSuccess);
@@ -1013,6 +1158,7 @@ test('Claude replacement read failure cannot retain the old home, and verified r
   };
   t.after(() => { (indexModule as any).updateClaudeUsageIndex = originalUpdate; });
   const { extension, config } = coordinatorHarness(true);
+  const advance = recoveryClock(extension);
   extension.refreshCodexData = async () => undefined;
   config.dataDirectory = sources[0];
   await extension.refreshData(true, 'manual');
@@ -1022,6 +1168,7 @@ test('Claude replacement read failure cannot retain the old home, and verified r
   assert.equal(extension.cache.records.length, 0);
   assert.equal(extension.providerRefreshStates.claude.lastSuccessfulAt, undefined);
   fail = false;
+  advance(5_000);
   await extension.refreshData(false, 'manual');
   assert.equal(extension.cache.claudeIndex.aggregates.allTime.totalInputTokens, 200);
   assert.equal(extension.cache.dataDirectory, sources[1]);
@@ -3465,6 +3612,7 @@ test('Claude refresh diagnostics drain the unnamed quota-watcher event count', a
 
 test('a failing provider UI cannot reject refreshes or strand the pending refresh gate', async () => {
   const extension = bareExtension();
+  const advance = recoveryClock(extension);
   const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
   let scans = 0;
   let release!: () => void;
@@ -3488,9 +3636,11 @@ test('a failing provider UI cannot reject refreshes or strand the pending refres
     release();
     await assert.doesNotReject(first);
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(scans, 2, 'the coalesced pending request must still run');
+    assert.equal(scans, 1, 'the queued request drains without rescanning the failed source');
+    assert.equal(extension.refreshGate.active, false);
+    advance(5_000);
     await extension.refreshData(false, 'manual');
-    assert.equal(scans, 3, 'subsequent refreshes must not remain permanently busy');
+    assert.equal(scans, 2, 'a cooled explicit retry must not remain permanently busy');
   } finally {
     release();
     (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind;
