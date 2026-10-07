@@ -370,6 +370,10 @@ Timestamp bounds for unbounded Claude project/session/branch/workflow histories
 are calculated in one pass without argument spreading; project merges likewise
 append entries individually. This avoids the independently reproduced 150k-row
 V8 stack overflow without changing deduplication or numeric accounting.
+Dense tool-result appends likewise add structural events individually: one tool
+ID may have unbounded result envelopes, so array argument expansion is unsafe.
+The 150k-result append regression matches full content analysis and retains
+zero-body-read warm refreshes.
 
 Codex discovery is restricted to:
 

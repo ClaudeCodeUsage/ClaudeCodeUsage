@@ -1177,7 +1177,9 @@ function refreshedStructuralRuntime(
     const events = (state.toolEventsById.get(toolId) ?? [])
       .filter((event) => !changedFileIds.has(event.fileId))
       .map((event) => ({ ...event, value: { ...event.value } } as TaggedAnalysisToolEvent));
-    events.push(...(appendedEventsById.get(toolId) ?? []));
+    // One tool ID can have arbitrarily many result envelopes. Passing them
+    // as function arguments hits V8's stack ceiling before analysis completes.
+    for (const event of appendedEventsById.get(toolId) ?? []) events.push(event);
     events.sort(compare);
     const nextBuckets = resolveToolBuckets(events);
     addBucketDelta(

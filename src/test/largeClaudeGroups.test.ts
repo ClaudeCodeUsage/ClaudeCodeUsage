@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, appendFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ClaudeDataLoader } from '../dataLoader';
@@ -16,6 +16,36 @@ const records = Array.from({ length: count }, (_, i): ClaudeUsageRecord => ({
   _gitBranch: 'main', _workflowId: 'synthetic-workflow', _agentId: i % 2 ? 'agent-a' : 'agent-b',
   message: { model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 1 } },
 }));
+
+test('a dense tool-result append has no argument-count ceiling and matches full analysis', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ccu-large-tool-append-'));
+  try {
+    const project = join(root, 'projects', '-fixture-tools');
+    await mkdir(project, { recursive: true });
+    const file = join(project, 'session.jsonl');
+    const timestamp = new Date(end).toISOString();
+    await writeFile(file, JSON.stringify({ type: 'assistant', uuid: 'tool-use', timestamp,
+      requestId: 'tool-use', message: { id: 'tool-use', role: 'assistant', model: 'claude-opus-5-5',
+        usage: { input_tokens: 10, output_tokens: 1 },
+        content: [{ type: 'tool_use', id: 'reused-tool', name: 'Read', input: {} }] } }) + '\n');
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, { analyzeContent: true });
+    const content = Array.from({ length: count }, () => ({
+      type: 'tool_result', tool_use_id: 'reused-tool', content: 'synthetic result',
+    }));
+    await appendFile(file, JSON.stringify({ type: 'user', uuid: 'dense-results', timestamp,
+      message: { role: 'user', content } }) + '\n');
+    const appended = await updateClaudeUsageIndex(cold.index, root, { analyzeContent: true });
+    assert.equal(appended.diagnostics.filesFailed, 0);
+    assert.equal(appended.diagnostics.bodyReads, 1);
+    const full = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
+    assert.deepEqual(appended.contentAnalysis, full.contentAnalysis);
+    const warm = await updateClaudeUsageIndex(appended.index, root, { analyzeContent: true });
+    assert.equal(warm.diagnostics.bodyReads, 0);
+    assert.equal(warm.diagnostics.bytesRead, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('large session and current-session time ranges avoid argument-count stack limits', () => {
   const session = ClaudeDataLoader.getSessionBreakdown(records)[0];
