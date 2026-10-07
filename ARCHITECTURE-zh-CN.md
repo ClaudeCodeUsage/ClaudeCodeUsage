@@ -494,6 +494,15 @@ watcher、worker、network request 与 backfill 的创建者，只在真实 stop
 用户暂停与失败退避仍保留。刷新失败只记录固定白名单错误代码，不记录任意报错、
 路径或调用栈。
 
+可选诊断 `tests/perf/measure-codex-worker-lifecycle.cjs` 使用新建的合成 home、
+索引和 lease 目录，运行已编译的生产索引／file-pass worker。三轮分别请求成就小时
+证明回填 ON/OFF，构造明确不完整的旧 period 投影，每组执行 20 次零正文暖刷新，
+再在真实请求期间 dispose。这个参数是回填请求，不是完整成就／界面开关；旧版本
+可能没有实现它。诊断观察线程退出、线程共享的进程 RSS、按 isolate 采样的 heap／
+external 和 V8 序列化消息字节代理，不保留消息或 heap dump。冻结资源／时间保护
+只终止测试所属 worker；`--out` 可选择不可变编译版本进行对照。这些是 Node
+诊断，不是原生 Extension Host、面板生命周期、多窗口或 Windows OOM 验收证据。
+
 每周 API 等效价值历史只从已经聚合的 Token 用量生成。最新有效的重置观测用于锚定互不重叠的七天
 展示窗口；没有观测时，仅已用历史按 UTC 周一至周一的自然周分组。真实的额度用量比例观测可以支持
 历史窗口的总额度近似，而不只支持当前窗口。Codex 的 account-wide `codex` series 会纳入同一 home

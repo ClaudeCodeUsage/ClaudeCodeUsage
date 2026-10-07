@@ -731,6 +731,19 @@ not arbitrary error messages, paths, or stacks.
 中文：已完成状态遇到已验证覆盖率回退时重新补齐，不要求代次变化或损坏标记；
 用户暂停和失败退避仍保留。失败诊断只记录固定白名单错误代码，不记录原始报错、路径或调用栈。
 
+The opt-in `tests/perf/measure-codex-worker-lifecycle.cjs` diagnostic runs the
+compiled production coordinator/file-pass workers against a fresh synthetic
+home, index and lease directory. Three rounds request achievement-hour backfill
+ON/OFF, exercise an explicitly incomplete legacy period projection, perform
+20 zero-body warm refreshes per group, then dispose during an active request.
+The flag is a backfill request, not a full achievement/UI switch; older cohorts
+may not implement it. It observes worker exits, process-wide RSS (shared by
+threads), sampled per-isolate heap/external usage, and V8-serialized message
+byte proxies without retaining messages or heap dumps. Frozen resource/time
+guards stop only test-owned workers. `--out` can select an immutable compiled
+cohort for comparisons. These are Node diagnostics, not native Extension Host,
+panel lifecycle, multi-window or Windows OOM acceptance evidence.
+
 Weekly API-equivalent history is derived from already-aggregated token usage.
 The newest valid reset observation anchors non-overlapping seven-day display
 buckets; without one, usage-only history uses Monday-to-Monday UTC calendar
