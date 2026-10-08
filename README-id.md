@@ -65,8 +65,8 @@ menyimpan lencana dan catatan belum dibaca tanpa notifikasi melayang; mengaktifk
 
 Tingkat Token Claude/Codex baru yang terbukti menyimpan status belum dibaca dan
 hari pencatatan pertama meski pembaruan dasbor dijeda. Aturan mencakup volume
-keluarga model, output, pembacaan cache, dan volume kumulatif. Impor dan pembangunan
-ulang manual tetap senyap; pembuatan cache dan penghargaan selain Token masih memerlukan bukti asal.
+keluarga model, output, pembacaan cache, pembuatan cache Claude, dan volume kumulatif.
+Impor dan pembangunan ulang manual tetap senyap; penghargaan selain Token masih memerlukan bukti asal.
 
 Catatan penghargaan hanya lokal, maksimal 64 KiB. Tanggal lama tetap tidak diketahui;
 tindakan baru yang tersimpan mempertahankan status belum dibaca dan hari pencatatan pertama

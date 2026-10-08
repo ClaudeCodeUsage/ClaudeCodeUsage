@@ -44,7 +44,7 @@ function snapshot(processed: number, family: keyof typeof models = 'sonnet'): an
     records: [], timeZone: 'UTC' };
 }
 function proof(window: any, processed: number, family: keyof typeof models = 'sonnet'): any {
-  return { ...window, provider: 'claude', processed, output: 0, cacheRead: 0,
+  return { ...window, provider: 'claude', processed, output: 0, cacheRead: 0, cacheCreation: 0,
     families: { sonnet: 0, opus: 0, haiku: 0, fable: 0, [family]: processed } };
 }
 async function accept(host: any, processed: number, addition = 0, family: keyof typeof models = 'sonnet'): Promise<void> {
@@ -159,5 +159,26 @@ test('Claude queued writes retire on source or timezone change without optimisti
     release(); await host.achievementWrite;
     assert.equal((await loadAchievementRecords(file))?.records.some(row => row.unread), false, mode);
     assert.equal(host.usageAchievementReceipts.size, 0, 'retired queued proof releases source references');
+  });
+});
+
+for (const [id, target] of [['claude-cache-creation-bronze', 10_000_000],
+  ['claude-cache-creation-silver', 100_000_000], ['claude-cache-creation-gold', 1_000_000_000]] as const)
+test(`${id} saves only proven native cache creation as dated unread usage`, async () => {
+  await owner(async (host, file) => {
+    const cacheSnapshot = (volume: number) => {
+      const value = snapshot(volume + 1_000);
+      value.allTime.totalInputTokens = 0; value.allTime.totalCacheCreationTokens = volume;
+      value.allTime.modelBreakdown[models.sonnet].inputTokens = 0;
+      value.allTime.modelBreakdown[models.sonnet].cacheCreationTokens = volume;
+      return value;
+    };
+    let handle = await host.beginClaudeAchievementObservation(() => true);
+    host.acceptClaudeAchievementSnapshot(cacheSnapshot(target / 2), handle); await host.achievementWrite;
+    handle = await host.beginClaudeAchievementObservation(() => true);
+    host.acceptClaudeAchievementSnapshot(cacheSnapshot(target * 1.5), handle,
+      { ...proof(handle.window, target), cacheCreation: target }); await host.achievementWrite;
+    const row = (await loadAchievementRecords(file))?.records.find(value => value.id === id);
+    assert.equal(row?.origin, 'usage'); assert.equal(row?.unread, true); assert.equal(row?.timeZone, 'UTC');
   });
 });

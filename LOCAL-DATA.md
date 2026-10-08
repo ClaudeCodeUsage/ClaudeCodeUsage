@@ -191,7 +191,9 @@ The extension-owned ledger contains only the following validated fields:
   Audited old awards migrate quietly with unknown dates. Verified Claude/Codex Token
   crossings and newly crossed, saved local actions retain unread first-record
   days—not inferred original attainment times. Other usage reconciliation stays
-  quiet until its own new source activity can be proved. Claude/Codex observation windows,
+  quiet until its own new source activity can be proved. Claude cache-creation
+  origin adds one safe numeric runtime component, never a persisted field.
+  Claude/Codex observation windows,
   fixed numeric deltas and retry receipts exist only in bounded runtime memory;
   no new source identity or timeline is stored. Claude retains references to the
   already committed materialized inputs, not another copied log corpus. Only late history recorded after

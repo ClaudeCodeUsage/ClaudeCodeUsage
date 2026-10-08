@@ -279,6 +279,7 @@ export interface ClaudeAchievementUsageDelta {
   processed: number;
   output: number;
   cacheRead: number;
+  cacheCreation: number;
   families: Record<'sonnet' | 'opus' | 'haiku' | 'fable', number>;
 }
 
@@ -382,7 +383,7 @@ function acceptedTailUsageDelta(
   if (!verifiedTails.size) return undefined;
   const delta: ClaudeAchievementUsageDelta = {
     provider: 'claude', after: window.after, through: window.through,
-    processed: 0, output: 0, cacheRead: 0,
+    processed: 0, output: 0, cacheRead: 0, cacheCreation: 0,
     families: { sonnet: 0, opus: 0, haiku: 0, fable: 0 },
   };
   let overflow = false;
@@ -407,6 +408,7 @@ function acceptedTailUsageDelta(
     if (!Number.isSafeInteger(sum)) { overflow = true; return; }
     delta.processed = sum;
     delta.output += parts[1];
+    delta.cacheCreation += parts[2];
     delta.cacheRead += parts[3];
     if (family) delta.families[family] += processed;
   };

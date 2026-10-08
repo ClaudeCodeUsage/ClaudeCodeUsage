@@ -21,8 +21,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   lease. Late peer history cannot steal new provenance; pre-existing history is
   not rewritten. Failed saves retain bounded retryable proof, retired sources
   release it. Claude commits its index before handoff and explicit rebuilds stay
-  quiet. Four Claude families, output, cache reads and cumulative volume are
-  supported; cache-creation and non-Token live rules remain pending;
+  quiet. Four Claude families, output, cache reads, cache creation and cumulative
+  volume are supported; non-Token live rules remain pending;
   unsupported or historical crossings stay quiet with unknown dates.
 - **Personal badge pins** — earned badge details can pin or unpin up to three
   showcase series. Atomic intents preserve other windows' choices; pins precede
@@ -45,7 +45,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Display ACK reads only its bounded batch; missed, failed or retired deliveries
   remain unread. Hover/keyboard interaction pauses dismissal without stealing
   focus. Verified Claude/Codex Token crossings use the same delivery guards;
-  cache-creation and non-Token live rule integration remain pending.
+  non-Token live rule integration remains pending.
 - **Bounded durable award records** — a ≤64 KiB canonical file keeps each public
   rule once, with quiet unknown-date migration and unread saved-action records.
   Cross-process leases merge peers' awards; an empty clear-generation fence

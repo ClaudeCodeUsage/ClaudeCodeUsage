@@ -11,7 +11,7 @@ const usageFacts = (volume: number): AchievementFacts => ({
   codex: { modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 } },
 });
 const usageDelta = (processed: number) => ({ provider: 'claude', after: 100, through: 200,
-  processed, output: 0, cacheRead: 0, families: { sonnet: processed, opus: 0, haiku: 0, fable: 0 } });
+  processed, output: 0, cacheRead: 0, cacheCreation: 0, families: { sonnet: processed, opus: 0, haiku: 0, fable: 0 } });
 
 const codexFacts = (volume: number): AchievementFacts => ({ ...usageFacts(0), codexTokens: volume,
   codexOutputTokens: 0, codexCachedInputTokens: 0,
@@ -77,6 +77,21 @@ test('Claude usage crossings require new tokens to be sufficient and necessary f
   const historyAlreadyEnough = evaluateAchievements(usageFacts(1_500_000_000));
   assert.deepEqual(proof.claudeTailAchievementCrossings(before, historyAlreadyEnough,
     usageDelta(400_000_000)), [], 'removing new tokens must remove the new tier');
+});
+
+test('Claude cache-creation proof follows all exact tiers and rejects impossible native components', () => {
+  for (const rule of ACHIEVEMENT_DEFINITIONS.filter(row => row.id.startsWith('claude-cache-creation-'))) {
+    const before = { ...usageFacts(rule.target - 1), claudeCacheCreationTokens: rule.target - 1 };
+    const after = { ...usageFacts(rule.target), claudeCacheCreationTokens: rule.target };
+    const delta = { ...usageDelta(1), cacheCreation: 1 };
+    assert.ok(proof.claudeTailAchievementCrossings(evaluateAchievements(before), evaluateAchievements(after), delta).includes(rule.id));
+    assert.equal(proof.claudeTailAchievementCrossings(evaluateAchievements(before), evaluateAchievements(after),
+      { ...delta, cacheCreation: 0 }).includes(rule.id), false, 'unrelated volume is not cache-creation evidence');
+    for (const value of [undefined, -1, 0.5, 2, NaN, Infinity, Number.MAX_SAFE_INTEGER]) {
+      assert.deepEqual(proof.claudeTailAchievementCrossings(evaluateAchievements(before), evaluateAchievements(after),
+        { ...delta, cacheCreation: value }), [], 'unsafe native components fail closed');
+    }
+  }
 });
 
 test('Claude usage crossings cannot date other families, calendar, sessions, or Codex awards', () => {

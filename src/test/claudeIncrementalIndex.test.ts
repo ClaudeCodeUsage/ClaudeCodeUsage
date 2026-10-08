@@ -78,7 +78,7 @@ test('Claude usage origin proves accepted recent tail tokens without another rea
   });
   assert.deepEqual(result.achievementUsageDelta, {
     provider: 'claude', after: originWindow.after, through: originWindow.through,
-    processed: 6_000_000_012, output: 7, cacheRead: 3,
+    processed: 6_000_000_012, output: 7, cacheRead: 3, cacheCreation: 2,
     families: { sonnet: 6_000_000_012, opus: 0, haiku: 0, fable: 0 },
   });
   assert.equal(result.diagnostics.bodyReads, 1);
@@ -240,6 +240,28 @@ test('Claude usage origin captures its observation window before asynchronous pa
   });
   assert.equal(result.achievementUsageDelta?.processed, 115);
   assert.equal(result.achievementUsageDelta?.after, originWindow.after);
+});
+
+test('Claude cache creation is a deduplicated native tail component, never historical or replayed', async () => {
+  const { root, file, cold } = await originFixture();
+  const line = (id: string, cacheCreation: number, timestamp: string) => {
+    const record = JSON.parse(usageLine(id, 100, 1, { timestamp }));
+    record.message.usage.cache_creation_input_tokens = cacheCreation;
+    return JSON.stringify(record);
+  };
+  const tail = [line('live-cache', 10_000_000, '2026-08-21T08:02:30Z'),
+    line('history-cache', 999_000_000, '2026-08-20T08:02:30Z')].join('\n') + '\n';
+  await appendFile(file, tail);
+  const result = await updateClaudeUsageIndex(cold.index, root, { analyzeContent: false, achievementUsageWindow: originWindow });
+  assert.equal((result.achievementUsageDelta as any)?.cacheCreation, 10_000_000);
+  assert.equal(result.achievementUsageDelta?.processed, 10_000_104, 'native cache creation counted once');
+  assert.equal(result.diagnostics.bodyReads, 1); assert.equal(result.diagnostics.bytesRead, Buffer.byteLength(tail));
+  assert.equal('achievementUsageDelta' in result.index, false);
+  await appendFile(file, line('live-cache', 10_000_000, '2026-08-21T08:02:30Z') + '\n');
+  const replay = await updateClaudeUsageIndex(result.index, root, { analyzeContent: false, achievementUsageWindow: originWindow });
+  assert.equal(replay.achievementUsageDelta, undefined);
+  const warm = await updateClaudeUsageIndex(replay.index, root, { analyzeContent: false, achievementUsageWindow: originWindow });
+  assert.equal(warm.diagnostics.bodyReads, 0); assert.equal(warm.achievementUsageDelta, undefined);
 });
 
 after(async () => {

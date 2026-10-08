@@ -46,8 +46,9 @@ export function claudeTailAchievementCrossings(
   if (!delta || delta.provider !== 'claude' || !count(delta.after) || !count(delta.through) ||
       delta.through > 8.64e15 || delta.through <= delta.after ||
       !count(delta.processed) || delta.processed === 0 || !count(delta.output) ||
-      !count(delta.cacheRead) || !Number.isSafeInteger(delta.output + delta.cacheRead) ||
-      delta.output + delta.cacheRead > delta.processed ||
+      !count(delta.cacheRead) || !count(delta.cacheCreation) ||
+      !Number.isSafeInteger(delta.output + delta.cacheRead + delta.cacheCreation) ||
+      delta.output + delta.cacheRead + delta.cacheCreation > delta.processed ||
       !delta.families || typeof delta.families !== 'object' || Array.isArray(delta.families)) return [];
   let families = 0;
   for (const family of ['sonnet', 'opus', 'haiku', 'fable'] as const) {
@@ -72,6 +73,7 @@ export function claudeTailAchievementCrossings(
       : rule.id.startsWith('haiku-worker') ? delta.families.haiku
       : rule.id.startsWith('fable-volume-') ? delta.families.fable
       : rule.id.startsWith('cache-wizard') ? delta.cacheRead
+      : /^claude-cache-creation-(bronze|silver|gold)$/.test(rule.id) ? delta.cacheCreation
       : /^claude-output-(bronze|silver|gold)$/.test(rule.id) ? delta.output
       : ['hundred-million-club', 'billion-token-club', 'ten-billion-token-club',
         'hundred-billion-token-club', 'trillion-token-club'].includes(rule.id) ? delta.processed : 0;

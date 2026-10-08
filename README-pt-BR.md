@@ -60,8 +60,8 @@ os prêmios e registros não lidos sem avisos flutuantes; reativar não repete a
 
 Novos níveis de Token comprovados de Claude/Codex guardam estado não lido e dia
 do primeiro registro mesmo com o painel pausado. São cobertos volume por família,
-saída, leituras de cache e volume acumulado. Importações e reconstruções manuais
-ficam silenciosas; criação de cache e outros prêmios ao vivo ainda precisam de prova da origem.
+saída, leituras de cache, criação de cache do Claude e volume acumulado. Importações
+e reconstruções manuais ficam silenciosas; outros prêmios ao vivo ainda precisam de prova da origem.
 
 O registro local é limitado a 64 KiB. Datas antigas continuam desconhecidas;
 novas ações salvas mantêm o estado não lido e o dia do primeiro registro mesmo

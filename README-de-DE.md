@@ -63,8 +63,8 @@ Abzeichen und ungelesene Einträge bleiben; erneutes Einschalten spielt keine al
 
 Nachweislich neue Claude-/Codex-Token-Stufen behalten ungelesene Erstaufnahmetage,
 auch bei pausierten Dashboard-Updates. Unterstützt sind Modellfamilien, Ausgabe,
-Cache-Lesezugriffe und Gesamtvolumen. Importe und manuelle Neuindizierung bleiben
-still; Cache-Erstellung und andere Live-Erfolge benötigen noch eigene Ursprungsnachweise.
+Cache-Lesezugriffe, Claude-Cache-Erstellung und Gesamtvolumen. Importe und manuelle
+Neuindizierung bleiben still; andere Live-Erfolge benötigen noch eigene Ursprungsnachweise.
 
 Der lokale Nachweisspeicher ist auf 64 KiB begrenzt. Alte Abzeichen haben kein
 bekanntes Datum; neue gespeicherte Aktionen behalten ungelesene Erstaufnahmetage,

@@ -67,8 +67,8 @@ and unread records without floating notices; re-enabling does not replay them.
 
 Proven new Claude/Codex Token tier crossings save unread first-record days even
 when dashboard updates are paused. Supported rules cover model-family volume,
-output, cache reads and cumulative volume. Imports and explicit rebuilds stay
-quiet; cache creation and non-Token live awards still await their own origin proof.
+output, cache reads, Claude cache creation and cumulative volume. Imports and
+explicit rebuilds stay quiet; non-Token live awards still need their own origin proof.
 
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.
