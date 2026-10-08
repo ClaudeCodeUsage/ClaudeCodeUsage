@@ -24,6 +24,10 @@ export interface AchievementCopy {
   nextGoals: string;
   galleryTitle: string;
   viewBadge: string;
+  recentAwards: string;
+  recordHistory: string;
+  recordedDay: string;
+  historicalAward: string;
   seriesCount: string;
   levelCount: string;
   shownCount: string;
@@ -118,6 +122,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     lowerBoundDetails: 'Calendar awards need verified retained logs; four-week means skip the first event week. Deleted/rotated logs can leave gaps.',
     earned: 'Earned', locked: 'In progress', nextTarget: 'Next level', nextStage: 'Next stage',
     myBadges: 'My badges', nextGoals: 'Next goals', galleryTitle: 'Complete collection', viewBadge: 'View badge',
+    recentAwards: 'Recently earned', recordHistory: 'Recent records', recordedDay: 'First recorded', historicalAward: 'Historical award · date unknown',
     seriesCount: '{earned} / {total} series', levelCount: '{earned} / {total} levels', shownCount: '{count} series shown',
     filterLabel: 'Show achievements', filterAll: 'All series', filterNext: 'Next levels', filterEarned: 'Earned series',
     filterEmpty: 'No series match this view. Choose All series to browse the collection.',
@@ -262,6 +267,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     lowerBoundDetails: '日历成就须核实留存日志；四周均值排除首条事件所在周。删除或轮转的日志可能留下缺口。',
     earned: '已获得', locked: '进行中', nextTarget: '下一等级', nextStage: '下一阶段',
     myBadges: '我的徽章', nextGoals: '下一目标', galleryTitle: '完整图鉴', viewBadge: '查看徽章',
+    recentAwards: '最近获得', recordHistory: '近期记录', recordedDay: '首次记录', historicalAward: '历史成就 · 日期未知',
     seriesCount: '{earned} / {total} 个系列', levelCount: '{earned} / {total} 个等级', shownCount: '显示 {count} 个系列',
     filterLabel: '显示范围', filterAll: '全部系列', filterNext: '待解锁等级', filterEarned: '已获得系列',
     filterEmpty: '当前范围没有成就，选择“全部系列”可查看完整图鉴。',
@@ -405,6 +411,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     lowerBoundDetails: '日曆成就須核實留存日誌；四週均值排除首筆事件所在週。刪除或輪替的日誌可能留下缺口。',
     earned: '已獲得', locked: '進行中', nextTarget: '下一等級', nextStage: '下一階段',
     myBadges: '我的徽章', nextGoals: '下一目標', galleryTitle: '完整圖鑑', viewBadge: '查看徽章',
+    recentAwards: '最近獲得', recordHistory: '近期記錄', recordedDay: '首次記錄', historicalAward: '歷史成就 · 日期未知',
     seriesCount: '{earned} / {total} 個系列', levelCount: '{earned} / {total} 個等級', shownCount: '顯示 {count} 個系列',
     filterLabel: '顯示範圍', filterAll: '全部系列', filterNext: '待解鎖等級', filterEarned: '已獲得系列',
     filterEmpty: '目前範圍沒有成就，選擇「全部系列」可查看完整圖鑑。',
@@ -548,6 +555,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     lowerBoundDetails: 'Kalendererfolge brauchen geprüfte erhaltene Logs; Vierwochenmittel überspringen die erste Ereigniswoche. Gelöschte/rotierte Logs können Lücken hinterlassen.',
     earned: 'Erreicht', locked: 'In Arbeit', nextTarget: 'Nächste Stufe', nextStage: 'Nächstes Etappenziel',
     myBadges: 'Meine Abzeichen', nextGoals: 'Nächste Ziele', galleryTitle: 'Vollständige Sammlung', viewBadge: 'Abzeichen ansehen',
+    recentAwards: 'Zuletzt erhalten', recordHistory: 'Neueste Einträge', recordedDay: 'Erstmals erfasst', historicalAward: 'Historisches Abzeichen · Datum unbekannt',
     seriesCount: '{earned} / {total} Serien', levelCount: '{earned} / {total} Stufen', shownCount: '{count} Serien angezeigt',
     filterLabel: 'Erfolge anzeigen', filterAll: 'Alle Serien', filterNext: 'Nächste Stufen', filterEarned: 'Erreichte Serien',
     filterEmpty: 'Keine Serie in dieser Ansicht. Unter Alle Serien ist die gesamte Sammlung sichtbar.',
@@ -691,6 +699,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     lowerBoundDetails: '暦の実績には検証済みの残存ログが必要です。4週平均は最初のイベント週を除外します。削除・ローテーションされたログには欠落があり得ます。',
     earned: '獲得済み', locked: '進行中', nextTarget: '次のレベル', nextStage: '次の中間目標',
     myBadges: 'マイバッジ', nextGoals: '次の目標', galleryTitle: 'すべてのバッジ', viewBadge: 'バッジを見る',
+    recentAwards: '最近の獲得', recordHistory: '最近の記録', recordedDay: '初回記録日', historicalAward: '過去の実績 · 日付不明',
     seriesCount: '{earned} / {total} シリーズ', levelCount: '{earned} / {total} レベル', shownCount: '{count} シリーズを表示',
     filterLabel: '表示範囲', filterAll: '全シリーズ', filterNext: '未獲得レベル', filterEarned: '獲得済みシリーズ',
     filterEmpty: 'この範囲に実績はありません。「全シリーズ」で図鑑を表示できます。',
@@ -834,6 +843,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     lowerBoundDetails: '달력 업적에는 검증된 잔존 로그가 필요합니다. 4주 평균은 첫 이벤트 주를 제외합니다. 삭제·순환된 로그에는 누락이 있을 수 있습니다.',
     earned: '획득', locked: '진행 중', nextTarget: '다음 단계', nextStage: '다음 중간 목표',
     myBadges: '내 배지', nextGoals: '다음 목표', galleryTitle: '전체 배지', viewBadge: '배지 보기',
+    recentAwards: '최근 획득', recordHistory: '최근 기록', recordedDay: '최초 기록일', historicalAward: '과거 업적 · 날짜 미상',
     seriesCount: '{earned} / {total} 시리즈', levelCount: '{earned} / {total} 단계', shownCount: '{count}개 시리즈 표시',
     filterLabel: '표시 범위', filterAll: '전체 시리즈', filterNext: '다음 단계', filterEarned: '획득한 시리즈',
     filterEmpty: '이 범위에 업적이 없습니다. 전체 시리즈에서 도감을 확인하세요.',
@@ -977,6 +987,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     lowerBoundDetails: 'Conquistas de calendário exigem logs retidos verificados; médias de quatro semanas excluem a primeira semana com evento. Logs apagados/rotacionados podem deixar lacunas.',
     earned: 'Conquistada', locked: 'Em andamento', nextTarget: 'Próximo nível', nextStage: 'Próxima etapa',
     myBadges: 'Minhas medalhas', nextGoals: 'Próximas metas', galleryTitle: 'Coleção completa', viewBadge: 'Ver medalha',
+    recentAwards: 'Conquistas recentes', recordHistory: 'Registros recentes', recordedDay: 'Primeiro registro', historicalAward: 'Conquista histórica · data desconhecida',
     seriesCount: '{earned} / {total} séries', levelCount: '{earned} / {total} níveis', shownCount: '{count} séries exibidas',
     filterLabel: 'Exibir conquistas', filterAll: 'Todas as séries', filterNext: 'Próximos níveis', filterEarned: 'Séries conquistadas',
     filterEmpty: 'Nenhuma série nesta visualização. Selecione Todas as séries para ver a coleção.',
@@ -1120,6 +1131,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     lowerBoundDetails: 'Pencapaian kalender perlu log tersimpan terverifikasi; rata-rata empat pekan melewati pekan event pertama. Log dihapus/dirotasi dapat meninggalkan celah.',
     earned: 'Diraih', locked: 'Berlangsung', nextTarget: 'Tingkat berikutnya', nextStage: 'Tahap berikutnya',
     myBadges: 'Lencana saya', nextGoals: 'Target berikutnya', galleryTitle: 'Koleksi lengkap', viewBadge: 'Lihat lencana',
+    recentAwards: 'Baru diperoleh', recordHistory: 'Catatan terbaru', recordedDay: 'Pertama dicatat', historicalAward: 'Pencapaian lama · tanggal tidak diketahui',
     seriesCount: '{earned} / {total} seri', levelCount: '{earned} / {total} tingkat', shownCount: '{count} seri ditampilkan',
     filterLabel: 'Tampilkan pencapaian', filterAll: 'Semua seri', filterNext: 'Tingkat berikutnya', filterEarned: 'Seri yang diraih',
     filterEmpty: 'Tidak ada seri dalam tampilan ini. Pilih Semua seri untuk melihat koleksi.',

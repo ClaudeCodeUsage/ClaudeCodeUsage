@@ -49,6 +49,45 @@ async function withAchievementStorage(run: (directory: string) => Promise<void>)
   try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
+test('saved records render recent awards and an unknown-date history without reading them or selecting shares', async () => {
+  const language = I18n.getCurrentLanguage();
+  try {
+    await withAchievementStorage(async directory => {
+      await withProvider(achievementPersistenceState(), async provider => {
+        await prepareAchievementNoticeProvider(provider);
+        provider.achievementResults();
+        await settleAchievementWrites(provider);
+        const repository = provider.achievementRecordRepository;
+        const saved = await repository.append(provider.achievementRecordState.generation, [
+          { id: 'local-share-export', origin: 'activity', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' },
+          { id: 'hundred-million-club', origin: 'history', recordedDay: null, timeZone: null },
+          { id: 'astra-regular', origin: 'usage', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' },
+        ]);
+        provider.achievementRecordState = saved.store;
+        provider.achievementGrants = new Set(saved.store.records.map((row: any) => row.id));
+        const bytes = await readFile(repository.file, 'utf8');
+        for (const locale of Object.keys(ACHIEVEMENT_COPY)) {
+          I18n.setLanguage(locale as any);
+          const html = provider.renderAchievementData();
+          const recent = html.match(/<section[^>]*data-achievement-overview="recent"[\s\S]*?<\/section>/)?.[0] ?? '';
+          assert.match(recent, /data-achievement-record="local-share-export"/);
+          assert.doesNotMatch(recent, /hundred-million-club|astra-regular/);
+          assert.match(html, /data-persist="achievement:records"/);
+          const copy = (ACHIEVEMENT_COPY as any)[locale];
+          for (const key of ['recentAwards', 'recordHistory', 'recordedDay', 'historicalAward']) {
+            assert.equal(typeof copy[key], 'string');
+            assert.ok(html.includes(copy[key]), `${locale}: ${key}`);
+          }
+          assert.ok(html.includes('2026-10-08'));
+          assert.doesNotMatch(html, /undefined|noticeId|recordedAt/);
+        }
+        assert.equal(await readFile(repository.file, 'utf8'), bytes, 'rendering is not a display ACK');
+        assert.equal(provider.achievementShareSelection, undefined);
+      }, undefined, directory);
+    });
+  } finally { I18n.setLanguage(language); }
+});
+
 test('production storage writes a quiet canonical award and never writes a legacy grant mirror', async () => {
   await withAchievementStorage(async directory => {
     const state = achievementPersistenceState();

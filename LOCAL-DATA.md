@@ -172,9 +172,12 @@ The extension-owned ledger contains only the following validated fields:
   updates the shared five-minute cooldown, not unread state. Only foreground display
   confirmation with a current opaque runtime token reads its represented IDs through
   the issued sequence; other/later awards remain unread. Failed delivery, OFF, blur,
-  clear or a replaced document cannot confirm a retired notice. Pins/recent UI and
+  clear or a replaced document cannot confirm a retired notice. Pin UI and
   the missed-notice summary remain pending.
-  The recent projection selects at most 30 records without deleting awards.
+  The gallery shows at most three recent non-historical series and a folded
+  thirty-row record projection without deleting awards. Dates are first-record
+  days in their saved zones, not inferred attainment dates. Old records explicitly
+  retain unknown dates; ordinary browsing is not a read ACK or sharing consent.
   Audited old awards migrate quietly with unknown dates; current usage
   reconciliation likewise stays quiet until new source activity can be proved.
   Only a newly crossed, successfully saved local action records its first-record

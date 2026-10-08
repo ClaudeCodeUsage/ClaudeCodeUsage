@@ -595,6 +595,21 @@ exports.renderHarness = async function renderHarness({
     );
     provider.currentProvider = selectedProvider;
 
+    if (fixture === 'achievement-records' || fixture === 'achievement-history-only') {
+      // Validated synthetic local records, not claimed personal achievement dates.
+      const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
+      const ids = ['local-share-export', 'settings-explorer-bronze', 'settings-explorer-silver', 'local-advice-feedback', 'hundred-million-club'];
+      provider.achievementRecordState = parseAchievementRecordStore({ schemaVersion: 1, generation: 1,
+        sequence: ids.length, lastNoticeAt: 0, pins: [],
+        records: ids.map((id, index) => {
+          const historical = fixture === 'achievement-history-only' || id === 'hundred-million-club';
+          return { id, seq: index + 1, ruleVersion: 1, origin: historical ? 'history' : 'activity',
+            unread: !historical, recordedDay: historical ? null : '2026-07-20', timeZone: historical ? null : 'Asia/Hong_Kong' };
+        }), auxiliary: { activity: { schemaVersion: 2, settingKeys: [], features: [] },
+          hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null } });
+      provider.achievementGrants = new Set(ids);
+    }
+
     if (/^\d{4}-\d{2}$/.test(codexMonth)) {
       const rows = view.allTimeDaily
         .filter((row) => row.day.startsWith(codexMonth + '-'))

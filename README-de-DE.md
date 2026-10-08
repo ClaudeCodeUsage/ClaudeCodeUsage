@@ -65,6 +65,10 @@ hinterlässt eine leere Generationssperre gegen veraltete Schreibvorgänge.
 Hinweise erscheinen nur im sichtbaren Vordergrundpanel, höchstens alle fünf Minuten
 über Fenster und Neustarts hinweg. Nur bestätigte Anzeigen markieren ihre Gruppe
 als gelesen; verpasste bleiben ungelesen. Maus- und Tastaturfokus pausieren das Ausblenden.
+Zuletzt erhalten zeigt höchstens drei neue Serien; die einklappbaren Einträge umfassen
+bis zu dreißig Stufen mit Regellinks. Daten bezeichnen die erste Erfassung, nicht die
+ursprüngliche Erlangung; alte Daten bleiben unbekannt. Beim Ansehen werden Einträge
+nicht als gelesen markiert und nicht zum Teilen ausgewählt.
 
 Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
 neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.

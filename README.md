@@ -188,6 +188,9 @@ Concurrent windows merge awards; clearing retains an empty fence against stale w
 Badge notices appear only in the visible foreground panel, at most once per five
 minutes across windows/restarts. Display confirmation reads only that batch; missed
 notices stay unread. Hovering or keyboard focus pauses dismissal.
+Recently earned shows at most three new series; Recent records folds up to thirty
+saved levels and links to their rules. Dates mean first recorded, not inferred
+attainment; historical dates remain unknown. Browsing does not mark records read or select sharing.
 
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.

@@ -47,6 +47,8 @@ const server = createServer(async (request, response) => {
       'session-timezone-boundaries',
       'local-currency',
       'achievement-token-stages',
+      'achievement-records',
+      'achievement-history-only',
     ].includes(requestedFixture)
       ? requestedFixture
       : 'default';

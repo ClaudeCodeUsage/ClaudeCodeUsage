@@ -66,6 +66,10 @@ meski notifikasi terlewat. Antarjendela menggabungkan penghargaan; penghapusan m
 Notifikasi hanya tampil di panel yang terlihat di depan, maksimal sekali per lima
 menit antarjendela dan setelah mulai ulang. Hanya kelompok yang dikonfirmasi tampil
 ditandai dibaca; yang terlewat tetap belum dibaca. Hover atau fokus papan ketik menunda penutupan.
+Baru diperoleh menampilkan maksimal tiga seri baru; catatan yang dapat dilipat
+memuat maksimal tiga puluh tingkat dengan tautan aturan. Tanggal adalah pencatatan
+pertama, bukan perkiraan pencapaian asli; tanggal lama tetap tidak diketahui.
+Melihat catatan tidak menandainya sebagai sudah dibaca atau memilihnya untuk dibagikan.
 
 Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
 yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.

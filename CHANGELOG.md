@@ -7,11 +7,15 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Recent award views** — up to three actually recorded new series, plus a
+  collapsible thirty-row list linked to the existing rules. First-record dates
+  stay distinct from historical unknown dates; browsing neither marks records
+  read nor selects sharing. Manual pins and missed-notice summaries remain pending.
 - **Quiet confirmed notices** — only the visible foreground panel can show new
   action awards, with a shared five-minute cooldown across windows/restarts.
   Display ACK reads only its bounded batch; missed, failed or retired deliveries
   remain unread. Hover/keyboard interaction pauses dismissal without stealing
-  focus. Recent records, pins, unread summaries and usage-origin wiring remain pending.
+  focus. Pins, unread summaries and usage-origin wiring remain pending.
 - **Bounded durable award records** — a ≤64 KiB canonical file keeps each public
   rule once, with quiet unknown-date migration and unread saved-action records.
   Cross-process leases merge peers' awards; an empty clear-generation fence
@@ -19,7 +23,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   proof. Existing bounded local-action/hour/calendar proof is merged in the same
   envelope, not mirrored into stale window caches. Invalid/future
   input remains untouched; OFF does not initialize it. Inventory and Clear All
-  cover the file. Recent/pin UI is still being integrated.
+  cover the file. Pin UI is still being integrated.
 - **Badge overview** — up to three representative earned badges and three
   reachable goals precede the complete collection. Selection favors distinct
   themes and current-provider ties, and stays stable during browsing. Unused,

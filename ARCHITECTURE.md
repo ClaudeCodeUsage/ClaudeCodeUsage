@@ -408,7 +408,7 @@ opaque token binds display confirmation to only the represented IDs and maximum
 issued sequence. Other or later unread records survive. False/rejected/slow delivery
 does not block award writes or clear. The client confirms only after visible insertion,
 without focus theft, and pauses its six-second dismissal during hover/keyboard use.
-Lost batches never replay as live notices. Recent/pin UI, foreground unread summary
+Lost batches never replay as live notices. Pin UI, foreground unread summary
 and producer-origin usage remain pending; sharing consent is still explicit.
 
 `achievementOverview.ts` now prepares read-only record projections: at most three
@@ -417,7 +417,11 @@ level IDs. Recording order is not inferred attainment time, and projection evict
 does not remove awards. Optional earned pins precede automatic showcase selection
 without changing next goals. `setPinned` applies one idempotent intent under the
 filesystem lease, rejects unearned keys, and never exceeds three slots or overwrites
-a peer's unrelated pins. These prepared helpers are not yet connected to client UI.
+a peer's unrelated pins. The record projection is now rendered with up to three
+recent series and a folded thirty-row history. Each row keeps the exact public
+level and first-record day/zone or an explicit historical unknown-date label;
+clicks only open existing rules and never acknowledge records or select sharing.
+The disclosure survives replacement. Pin intents are not yet connected to client UI.
 
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable

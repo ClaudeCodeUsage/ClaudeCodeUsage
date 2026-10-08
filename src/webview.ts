@@ -56,10 +56,10 @@ import { AchievementSharePreview, highestEarnedAchievements, renderAchievementSh
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import { nextAchievementStage } from './achievementStages';
-import { AchievementOverviewSelection, selectAchievementOverview, retainAchievementOverview } from './achievementOverview';
+import { AchievementOverviewSelection, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline } from './achievementEvidence';
-import { ACHIEVEMENT_RECORD_FILE, AchievementAuxiliaryProof, AchievementRecordRepository, AchievementRecordStore } from './achievementRecordStore';
+import { ACHIEVEMENT_RECORD_FILE, AchievementAuxiliaryProof, AchievementRecordRepository, AchievementRecordStore, AchievementRecord } from './achievementRecordStore';
 import {
   AchievementActivity,
   AchievementFeature,
@@ -4893,6 +4893,30 @@ export class UsageWebviewProvider {
     };
     const visibleResults = results.filter(visibleResult);
     const isEarned = (result: AchievementResult): boolean => result.unlocked || this.achievementGrants.has(result.id);
+    const records = projectAchievementRecords(this.achievementRecordState?.records ?? [],
+      visibleResults.filter(isEarned).map(row => row.id));
+    const recordButton = (record: AchievementRecord): string => {
+      const key = seriesForId.get(record.id) ?? record.id;
+      const iconSrc = this.panel?.webview?.asWebviewUri && this.context.extensionPath
+        ? this.panel.webview.asWebviewUri(vscode.Uri.file(achievementImagePath(record.id))).toString()
+        : achievementImageDataUrl(record.id);
+      const stamp = record.recordedDay === null ? this.escapeHtml(copy.historicalAward)
+        : '<time datetime="' + record.recordedDay + '" title="' + this.escapeHtml(record.timeZone ?? '') + '">' +
+          this.escapeHtml(copy.recordedDay + ': ' + record.recordedDay) + '</time>';
+      const spokenStamp = record.recordedDay === null ? copy.historicalAward
+        : copy.recordedDay + ': ' + record.recordedDay + ' (' + record.timeZone + ')';
+      return '<button class="achievement-record-badge" data-achievement-record="' + record.id +
+        '" data-achievement-open="' + key + '" onclick="openAchievementDetail(this.dataset.achievementOpen)"' +
+        ' aria-label="' + this.escapeHtml(copy.viewBadge + ': ' + copy.titles[record.id] + ' · ' + spokenStamp) + '">' +
+        '<img src="' + this.escapeHtml(iconSrc) + '" alt="" loading="lazy"><span class="achievement-record-name">' +
+        this.escapeHtml(copy.titles[record.id]) + '</span><small>' + stamp + '</small></button>';
+    };
+    const recentSection = records.recent.length ? '<section class="achievement-overview" data-achievement-overview="recent"><h3>' +
+      this.escapeHtml(copy.recentAwards) + '</h3><div class="achievement-recent-grid">' +
+      records.recent.map(recordButton).join('') + '</div></section>' : '';
+    const historySection = records.history.length ? '<details class="achievement-record-history" data-persist="achievement:records"><summary>' +
+      this.escapeHtml(copy.recordHistory) + '</summary><ul class="achievement-records-list">' +
+      records.history.map(record => '<li>' + recordButton(record) + '</li>').join('') + '</ul></details>' : '';
     const earnedCount = visibleResults.filter(isEarned).length;
     const seriesCount = visibleCards.filter(entry => entry.earnedTiers > 0 || isEarned(entry.result)).length;
     const countLabel = (template: string, earned: number, total: number): string =>
@@ -4912,7 +4936,7 @@ export class UsageWebviewProvider {
           this.escapeHtml(copy.shareTitle) + '</button>' : '') +
       '<button class="btn-secondary btn-small" onclick="openAchievementSettings()">' +
         this.escapeHtml(copy.settingsTitle) + '</button></div></div>' +
-      overviewSection('badges', copy.myBadges) + overviewSection('next', copy.nextGoals) +
+      overviewSection('badges', copy.myBadges) + recentSection + overviewSection('next', copy.nextGoals) + historySection +
       '<h3 class="achievement-gallery-heading">' + this.escapeHtml(copy.galleryTitle) + '</h3>' +
       '<div class="achievement-filter-toolbar"><label for="achievementFilter">' + this.escapeHtml(copy.filterLabel) +
       '</label><select id="achievementFilter" onchange="filterAchievements(this.value, true)">' +
@@ -12691,6 +12715,19 @@ export class UsageWebviewProvider {
       .achievement-overview-badge[data-overview-rank="silver"] .achievement-overview-rank { color: var(--vscode-charts-blue); }
       .achievement-overview-badge[data-overview-rank="gold"] .achievement-overview-rank { color: var(--vscode-charts-yellow); }
       .achievement-overview-badge:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
+      .achievement-recent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .achievement-record-badge { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px;
+        row-gap: 4px; align-items: center; width: 100%; padding: 8px 0; border: 0; background: transparent;
+        color: var(--vscode-foreground); text-align: left; }
+      .achievement-record-badge img { width: 56px; height: 56px; object-fit: contain; grid-row: 1 / span 2; }
+      .achievement-record-name { font-weight: 600; overflow-wrap: anywhere; }
+      .achievement-record-badge small { color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+      .achievement-record-badge:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
+      .achievement-record-history > summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
+      .achievement-records-list { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
+      .achievement-records-list .achievement-record-badge { grid-template-columns: 40px minmax(0, 1fr); }
+      .achievement-records-list img { width: 40px; height: 40px; }
+      @media (max-width: 720px) { .achievement-recent-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
       @media (max-width: 480px) {
         .achievement-overview-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
         .achievement-overview-badge { display: grid; grid-template-columns: 80px minmax(0, 1fr); text-align: left; column-gap: 14px; }
