@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -131,6 +131,7 @@ function bareExtension(): any {
   extension.codexBackgroundStateWrite = Promise.resolve();
   extension.configurationGeneration = 0;
   extension.claudeIndexGeneration = 0;
+  extension.fileWatcherSetupGeneration = 0;
   extension.fileWatcherGeneration = 0;
   extension.codexWatcherGeneration = 0;
   extension.credentialsWatcherGeneration = 0;
@@ -2925,6 +2926,149 @@ test('Claude recursive watcher forwards nested subagent JSONL writes to a watch 
   assert.equal(watcherClosed, 1);
 });
 
+function mockClaudeWatcherLifecycle(t: TestContext): {
+  extension: any;
+  root: string;
+  watchers: Array<{
+    directory: string;
+    event: (eventType: string, filename: string | Buffer | null) => void;
+    errors: Array<(error: Error) => void>;
+    closed: number;
+  }>;
+  refreshes: string[];
+} {
+  const extension = bareExtension();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-watch-lifecycle-'));
+  fs.mkdirSync(path.join(root, 'projects'));
+  const originalFind = ClaudeDataLoader.findClaudeDataDirectory;
+  const originalWatch = fs.watch;
+  const watchers: Array<{
+    directory: string;
+    event: (eventType: string, filename: string | Buffer | null) => void;
+    errors: Array<(error: Error) => void>;
+    closed: number;
+  }> = [];
+  const refreshes: string[] = [];
+  extension.windowActivity = new WindowActivityGate(true);
+  extension.watchDebounce = {
+    clear: () => undefined,
+    push: (_delay: number, callback: () => void) => callback(),
+  };
+  extension.watchedDir = null;
+  extension.getConfiguration = () => ({ fileWatchSeconds: 1, dataDirectory: '' });
+  extension.refreshData = async (_forceReload: boolean, trigger: string) => {
+    refreshes.push(trigger);
+  };
+  (ClaudeDataLoader as any).findClaudeDataDirectory = async () => root;
+  (fs as any).watch = (directory: string, _options: unknown,
+    event: (eventType: string, filename: string | Buffer | null) => void) => {
+    const entry = { directory, event, errors: [] as Array<(error: Error) => void>, closed: 0 };
+    watchers.push(entry);
+    const watcher = {
+      close: () => { entry.closed += 1; },
+      on: (kind: string, callback: (error: Error) => void) => {
+        if (kind === 'error') entry.errors.push(callback);
+        return watcher;
+      },
+    };
+    return watcher;
+  };
+  t.after(async () => {
+    extension.stopFileWatching();
+    await extension.drainResourceStops();
+    (ClaudeDataLoader as any).findClaudeDataDirectory = originalFind;
+    (fs as any).watch = originalWatch;
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  return { extension, root, watchers, refreshes };
+}
+
+test('same-directory Claude watcher setup preserves the installed event callback', async (t) => {
+  const { extension, watchers, refreshes } = mockClaudeWatcherLifecycle(t);
+  await extension.startFileWatching();
+  watchers[0].event('change', 'session.jsonl');
+  await extension.startFileWatching();
+  watchers[0].event('change', 'session.jsonl');
+  await Promise.resolve();
+  assert.deepEqual(refreshes, ['watch', 'watch']);
+  assert.equal(watchers.length, 1, 'a no-op setup does not create another handle');
+  assert.equal(watchers[0].closed, 0);
+  assert.equal(extension.resourceOwnership.snapshotForTests().byKind.watcher, 1);
+});
+
+test('pending Claude watcher lookup does not silence an installed event callback', async (t) => {
+  const { extension, root, watchers, refreshes } = mockClaudeWatcherLifecycle(t);
+  await extension.startFileWatching();
+  let resolveDirectory!: (value: string) => void;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = () => new Promise<string>((resolve) => {
+    resolveDirectory = resolve;
+  });
+  const pending = extension.startFileWatching();
+  watchers[0].event('change', 'session.jsonl');
+  await Promise.resolve();
+  assert.deepEqual(refreshes, ['watch'], 'the installed watcher stays live while discovery awaits');
+  resolveDirectory(root);
+  await pending;
+  watchers[0].event('change', 'session.jsonl');
+  await Promise.resolve();
+  assert.deepEqual(refreshes, ['watch', 'watch']);
+  assert.equal(watchers.length, 1);
+});
+
+test('same-directory Claude watcher setup preserves error recovery', async (t) => {
+  const { extension, watchers } = mockClaudeWatcherLifecycle(t);
+  const recoveries: string[] = [];
+  extension.scheduleWatcherRecovery = (provider: string) => { recoveries.push(provider); };
+  await extension.startFileWatching();
+  await extension.startFileWatching();
+  watchers[0].errors[0](new Error('synthetic watcher failure'));
+  await extension.drainResourceStops();
+  assert.deepEqual(recoveries, ['claude']);
+  assert.equal(watchers[0].closed, 1);
+  assert.equal(extension.fileWatcher, undefined);
+  assert.equal(extension.resourceOwnership.snapshotForTests().activeCount, 0);
+});
+
+test('overlapping Claude watcher lookups install only the newest request', async (t) => {
+  const { extension, root, watchers, refreshes } = mockClaudeWatcherLifecycle(t);
+  const newestRoot = path.join(root, 'newest');
+  fs.mkdirSync(path.join(newestRoot, 'projects'), { recursive: true });
+  const resolveDirectories: Array<(value: string) => void> = [];
+  (ClaudeDataLoader as any).findClaudeDataDirectory = () => new Promise<string>((resolve) => {
+    resolveDirectories.push(resolve);
+  });
+  const older = extension.startFileWatching();
+  const newer = extension.startFileWatching();
+  resolveDirectories[1](newestRoot);
+  await newer;
+  resolveDirectories[0](root);
+  await older;
+  assert.equal(watchers.length, 1);
+  assert.equal(watchers[0].directory, path.join(newestRoot, 'projects'));
+  watchers[0].event('change', 'session.jsonl');
+  await Promise.resolve();
+  assert.deepEqual(refreshes, ['watch']);
+});
+
+test('stopping Claude watching cancels pending lookups and installed callbacks', async (t) => {
+  const { extension, root, watchers, refreshes } = mockClaudeWatcherLifecycle(t);
+  await extension.startFileWatching();
+  let resolveDirectory!: (value: string) => void;
+  (ClaudeDataLoader as any).findClaudeDataDirectory = () => new Promise<string>((resolve) => {
+    resolveDirectory = resolve;
+  });
+  const pending = extension.startFileWatching();
+  extension.stopFileWatching('feature-disabled');
+  resolveDirectory(root);
+  await pending;
+  watchers[0].event('change', 'session.jsonl');
+  await extension.drainResourceStops();
+  assert.equal(watchers.length, 1, 'a retired lookup cannot recreate the stopped watcher');
+  assert.equal(watchers[0].closed, 1);
+  assert.deepEqual(refreshes, []);
+  assert.equal(extension.resourceOwnership.snapshotForTests().activeCount, 0);
+});
+
 test('Claude watcher errors back off, recover, and cannot rearm after disposal', async () => {
   const extension = bareExtension();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-claude-watch-error-'));
@@ -3895,6 +4039,8 @@ test('real Claude filesystem events flow through manifest, index, and dashboard 
       return;
     }
     const activeWatcher = extension.fileWatcher as fs.FSWatcher;
+    await extension.startFileWatching();
+    assert.equal(extension.fileWatcher, activeWatcher, 'same-directory setup keeps the real handle');
 
     // Recursive fs.watch can drop the first event for a just-created nested
     // file while macOS is attaching its directory handle. Rewriting that

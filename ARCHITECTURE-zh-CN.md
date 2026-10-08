@@ -445,6 +445,9 @@ rank。时间戳相同的文件若 `discoveryIndex` 相对顺序改变，也属�
 debounce（默认 30 秒，可选 Off/10/30/60/120/300）。
 Claude log、Codex log 与 Claude credentials directory watcher 都只作为 `fs.watch` 加速路径：
 异步 watcher error 会关闭受影响 handle，并在 polling 继续可用时按有上限的指数退避重新挂载。
+Claude 目录发现使用独立于已安装 watcher 的 setup generation。同目录的重复 setup 不会
+使现有事件或错误回调失效；更新的目录查询会淘汰旧查询。关闭 watcher 会同时使待完成
+查询和已退役回调失效，避免失焦、关闭功能、切换来源或销毁后的迟到查询重新挂载。
 如果失败的 credentials watcher 重试时 profile directory 暂时不存在，同一有界链只会在窗口聚焦且
 额度跟踪仍启用时继续；目录重建后只恢复一个 watcher。只有 credentials watcher 接受操作系统省略
 filename 的事件，因为这可能表示 credential file 被原子替换；该类事件仅以匿名计数进入诊断。

@@ -591,6 +591,8 @@ export class ClaudeCodeUsageExtension {
   private configurationGeneration = 0;
   /** Source/pricing invalidation is separate from presentation settings. */
   private claudeIndexGeneration = 0;
+  /** Pending discovery must not retire callbacks on the installed watcher. */
+  private fileWatcherSetupGeneration = 0;
   private fileWatcherGeneration = 0;
   private codexWatcherGeneration = 0;
   private credentialsWatcherGeneration = 0;
@@ -3877,7 +3879,8 @@ export class ClaudeCodeUsageExtension {
     if (!recoveryAttempt) {
       this.resetWatcherRecovery('claude', 'cancelled');
     }
-    const requestGeneration = ++this.fileWatcherGeneration;
+    const requestGeneration = ++this.fileWatcherSetupGeneration;
+    const installedGeneration = this.fileWatcherGeneration;
     if (!this.windowActivity.focused) {
       this.stopFileWatching('window-blur');
       return;
@@ -3891,14 +3894,18 @@ export class ClaudeCodeUsageExtension {
     try {
       dataDirectory = await ClaudeDataLoader.findClaudeDataDirectory(config.dataDirectory || undefined);
     } catch (error) {
-      if (requestGeneration === this.fileWatcherGeneration) {
+      if (
+        requestGeneration === this.fileWatcherSetupGeneration &&
+        installedGeneration === this.fileWatcherGeneration
+      ) {
         this.scheduleWatcherRecovery('claude', error);
       }
       return;
     }
     if (
       this.disposed ||
-      requestGeneration !== this.fileWatcherGeneration
+      requestGeneration !== this.fileWatcherSetupGeneration ||
+      installedGeneration !== this.fileWatcherGeneration
     ) {
       return;
     }
@@ -3976,6 +3983,7 @@ export class ClaudeCodeUsageExtension {
       'cancelled' | 'window-blur' | 'feature-disabled' | 'extension-dispose' | 'settings-change' | 'profile-change'
     > = 'settings-change',
   ): void {
+    this.fileWatcherSetupGeneration += 1;
     this.fileWatcherGeneration += 1;
     this.watchDebounce.clear();
     const watcher = this.fileWatcher;

@@ -26,6 +26,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
+- **Repeated Claude watcher setup** — directory discovery no longer invalidates
+  an already installed watcher's event or error callbacks when the watched
+  directory is unchanged. Overlapping setup still accepts only the newest
+  request; blur, disabling and disposal cancel pending setup and retire callbacks.
 - **Codex awards blocked by unrelated identity conflicts** — after complete current
   indexing, independently verified token/model/effort/agent lineages can prove
   positive milestones. Conflicting copies and affected descendants are excluded;

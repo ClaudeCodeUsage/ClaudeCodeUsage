@@ -660,6 +660,11 @@ is focused and quota tracking remains enabled; recreating the directory restores
 one watcher. A filename omitted by the operating system is accepted only by the
 credentials watcher, where the event can represent an atomic credential-file
 replacement and is counted anonymously for diagnosis.
+Claude directory discovery has a separate setup generation from the installed
+watcher generation. A redundant same-directory setup leaves installed event and
+error callbacks live; a newer lookup supersedes an older lookup. Closing the
+watcher invalidates both pending discovery and retired callbacks, so stopping on
+blur, disabling, source change or disposal cannot be undone by a late lookup.
 
 Codex history is designed for multi-gigabyte local corpora:
 
