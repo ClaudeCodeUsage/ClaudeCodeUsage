@@ -979,6 +979,69 @@ test('coordinator Claude pause keeps append indexing and status active while man
   assert.equal(deliveries.filter(value => value.kind === 'claude').slice(-1)[0]?.value.allTime.totalInputTokens, 20);
 });
 
+test('Claude unchanged-manifest diagnostics report proven zero body I/O and aggregate mutations', async (t) => {
+  const fileApi = require('node:fs/promises') as typeof import('node:fs/promises');
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalOpen = fileApi.open, originalUpdate = indexModule.updateClaudeUsageIndex;
+  for (const analyzeContent of [false, true]) {
+    for (const empty of [false, true]) {
+      const { extension, config } = coordinatorHarness(true);
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-warm-diagnostic-'));
+      t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+      const project = path.join(root, 'projects', '-synthetic');
+      fs.mkdirSync(project, { recursive: true });
+      const source = path.join(project, 'session.jsonl');
+      const row = (id: string) => JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(),
+        requestId: id, message: { id, model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Synthetic output.' }],
+          usage: { input_tokens: 100, output_tokens: 10 } } });
+      if (!empty) fs.writeFileSync(source, row('cold') + '\n');
+      config.dataDirectory = root;
+      config.enableContentAnalysis = analyzeContent;
+      extension.refreshCodexData = async () => undefined;
+      const logs: string[] = [];
+      extension.outputChannel = { appendLine: (line: string) => logs.push(line) };
+      await extension.refreshData(true, 'manual');
+      assert.ok(extension.cache.manifest);
+      const currentIndex = extension.cache.claudeIndex;
+      logs.length = 0;
+      let jsonlOpenAttempts = 0, indexUpdates = 0;
+      (fileApi as any).open = (...args: Parameters<typeof originalOpen>) => {
+        if (typeof args[0] === 'string' && args[0].startsWith(root + path.sep) && args[0].endsWith('.jsonl')) {
+          jsonlOpenAttempts++;
+        }
+        return originalOpen(...args);
+      };
+      (indexModule as any).updateClaudeUsageIndex = (...args: Parameters<typeof originalUpdate>) => {
+        indexUpdates++;
+        return originalUpdate(...args);
+      };
+      try {
+        for (let i = 0; i < 20; i++) await extension.refreshData(false, 'manual');
+        assert.equal(jsonlOpenAttempts, 0, 'known host JSONL-open path is not entered');
+        assert.equal(indexUpdates, 0, 'existing aggregates are reused without an index pass');
+        assert.equal(extension.cache.claudeIndex, currentIndex);
+        const warm = logs.filter(line => line.startsWith('refresh: trigger=manual'));
+        assert.equal(warm.length, 20);
+        for (const diagnostic of warm) {
+          assert.match(diagnostic, /io\(bytes=0 lines=0\)/);
+          assert.match(diagnostic, /incremental\(bodies=0 aggregate-mutations=0\)/);
+        }
+        if (!empty) {
+          logs.length = 0;
+          fs.appendFileSync(source, row('append') + '\n');
+          await extension.refreshData(false, 'manual');
+          assert.ok(jsonlOpenAttempts > 0);
+          assert.equal(indexUpdates, 1);
+          assert.ok(logs.some(line => /incremental\(bodies=1 /.test(line)), 'append remains a real body read');
+        }
+      } finally {
+        (fileApi as any).open = originalOpen;
+        (indexModule as any).updateClaudeUsageIndex = originalUpdate;
+      }
+    }
+  }
+});
+
 test('coordinator Claude warm manual failures retain data, disclose anonymous state, and clear it on unchanged success', async (t) => {
   const { extension, deliveries, statuses, config } = coordinatorHarness();
   const advance = recoveryClock(extension);

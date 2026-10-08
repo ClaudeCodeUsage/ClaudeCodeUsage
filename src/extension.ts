@@ -4887,6 +4887,10 @@ export class ClaudeCodeUsageExtension {
           filesFailed: 0,
           bytesRead: 0,
           linesParsed: 0,
+          // No index pass occurs on this unchanged-manifest path: no source
+          // bodies are opened and the existing aggregates are reused.
+          bodyReads: 0,
+          aggregateMutations: 0,
           watcherEvents,
           coalescedTriggers,
           quotaWatcherMissingFilenameEvents,
