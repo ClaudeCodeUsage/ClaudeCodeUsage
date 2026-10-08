@@ -10,7 +10,22 @@ const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const { nativeLaunchArguments } = require(path.basename(__filename) === 'native-soak.cjs'
   ? './native-isolation.cjs' : './isolation.cjs');
-const fail = reason => { throw new Error('native-soak:' + reason); };
+const failureReasons = new WeakMap();
+const allowedFailureReasons = new Set(['invalid-options', 'invalid-activity', 'nonregular-target', 'activity-budget',
+  'invalid-sample', 'resource-budget', 'sample-budget', 'operation-timeout', 'wait-timeout',
+  'setup-claude-watch-setting', 'setup-codex-watch-setting', 'setup-watchers']);
+function failureError(reason) {
+  const error = new Error('native-soak:' + reason);
+  if (allowedFailureReasons.has(reason)) failureReasons.set(error, reason);
+  return error;
+}
+const fail = reason => { throw failureError(reason); };
+function diagnosticFailureReason(error) {
+  // Identity-only provenance: never inspect an arbitrary exception's code,
+  // name, message, stack, getters or proxy properties to classify the report.
+  return error !== null && (typeof error === 'object' || typeof error === 'function')
+    ? failureReasons.get(error) ?? 'assertion-or-stage-failure' : 'assertion-or-stage-failure';
+}
 const kinds = ['timer', 'watcher', 'worker', 'network', 'backfill'];
 const finiteCount = value => Number.isSafeInteger(value) && value >= 0;
 const limits = Object.freeze({ hostRssBytes: 2 * 1024 ** 3, hostHeapBytes: 512 * 1024 ** 2,
@@ -21,7 +36,7 @@ async function bounded(work, milliseconds = 60000) {
   let timer;
   try {
     return await Promise.race([work, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('native-soak:operation-timeout')), milliseconds);
+      timer = setTimeout(() => reject(failureError('operation-timeout')), milliseconds);
     })]);
   } finally { clearTimeout(timer); }
 }
@@ -37,6 +52,11 @@ function failureFocusObservation(logicalFocused, nativeFocused, watcherCount) {
   if (typeof logicalFocused !== 'boolean' || typeof nativeFocused !== 'boolean' ||
     !finiteCount(watcherCount)) return null;
   return { logicalFocused, nativeFocused, watcherCount };
+}
+function assertRecurringReady(configuration, resources) {
+  if (configuration.fileWatchSeconds !== 1) fail('setup-claude-watch-setting');
+  if (configuration.codexFileWatchSeconds !== 10) fail('setup-codex-watch-setting');
+  if (resources.byKind.watcher !== 2) fail('setup-watchers');
 }
 function sampleOwnedResources(memory, resources, elapsedMs, achievementsEnabled, panelOpen, panelCacheEntries, pendingNoticeEntries) {
   if (![memory.rss, memory.heapUsed, memory.external, memory.arrayBuffers, resources.activeCount,
@@ -108,7 +128,7 @@ async function run(plan, rawOptions) {
     appendBytes: 0, claudeWatchRefreshes: 0, codexWatchRefreshes: 0 };
   let api, append, warmMode, timer, focusObserver, failureStage, failureReason,
     failureFocus = null, stage = 'activation', stopCompleted = false;
-  let soakStarted, completedSoakMs = 0, watchdogFailure = false;
+  let soakStarted, completedSoakMs = 0, watchdogFailure = null;
   const elapsed = () => Math.floor(performance.now() - started);
   const sample = () => {
     const instance = api.instance, view = instance.webviewProvider;
@@ -133,7 +153,7 @@ async function run(plan, rawOptions) {
   const waitUntil = async (predicate, milliseconds) => {
     const deadline = performance.now() + milliseconds;
     while (!predicate()) {
-      if (watchdogFailure) fail('resource-budget');
+      if (watchdogFailure) fail(watchdogFailure);
       if (performance.now() >= deadline) fail('wait-timeout');
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -184,19 +204,17 @@ async function run(plan, rawOptions) {
     await instance.settings.set('codex.fileWatchSeconds', '10');
     instance.onSettingsChangedFromPanel('fileWatchSeconds');
     await bounded(settle(instance), 65000); await focus(true);
-    assert.equal(instance.getConfiguration().fileWatchSeconds, 1);
-    assert.equal(instance.getConfiguration().codexFileWatchSeconds, 10);
-    assert.equal(instance.resourceOwnership.snapshotForTests().byKind.watcher, 2);
+    assertRecurringReady(instance.getConfiguration(), instance.resourceOwnership.snapshotForTests());
     sample();
     timer = setInterval(() => {
       try {
         if (elapsed() > options.durationMs + 240000) fail('operation-timeout');
         sample();
-      } catch { watchdogFailure = true; }
+      } catch (error) { watchdogFailure = diagnosticFailureReason(error); }
     }, limits.sampleEveryMs);
     soakStarted = performance.now();
     while (performance.now() - soakStarted < options.durationMs || counters.cycles < 2) {
-      if (watchdogFailure) fail('resource-budget');
+      if (watchdogFailure) fail(watchdogFailure);
       await markStage('feature-toggle');
       const enabled = counters.cycles % 2 === 1, provider = instance.codexProvider;
       await instance.settings.set('enableAchievements', enabled);
@@ -250,9 +268,9 @@ async function run(plan, rawOptions) {
       'twenty known-zero manual warm refreshes per cycle with whole achievements ON and OFF',
       'actual panel disposal and production focus-handler suspension release panel caches/watchers/timers',
       'achievement presentation toggles do not replace the provider and do not stop basic usage');
-  } catch {
+  } catch (error) {
     failureStage = stage;
-    failureReason = watchdogFailure ? 'resource-budget' : 'assertion-or-stage-failure';
+    failureReason = watchdogFailure ?? diagnosticFailureReason(error);
     try {
       failureFocus = failureFocusObservation(api?.instance?.windowActivity?.focused,
         vscode.window?.state?.focused, api?.instance?.resourceOwnership.snapshotForTests().byKind.watcher);
@@ -285,4 +303,5 @@ async function run(plan, rawOptions) {
   if (failureStage) fail('failed-' + failureStage);
 }
 module.exports = { run, validateSoakOptions, longSoakDurationPassed, sampleOwnedResources,
-  assertResourceBudget, appendBoundedSample, appendSyntheticActivity, bounded, failureFocusObservation };
+  assertResourceBudget, appendBoundedSample, appendSyntheticActivity, bounded, failureFocusObservation,
+  assertRecurringReady, diagnosticFailureReason };

@@ -79,6 +79,53 @@ test('native soak failure focus observation never coerces unavailable values to 
   }
 });
 
+test('native soak recurring-readiness failures identify the exact fixed assertion without persisting settings', () => {
+  const config = { fileWatchSeconds: 1, codexFileWatchSeconds: 10 };
+  helper().assertRecurringReady(config, owned);
+  for (const [configuration, resources, expected] of [
+    [{ ...config, fileWatchSeconds: 2 }, owned, 'setup-claude-watch-setting'],
+    [{ ...config, codexFileWatchSeconds: 30 }, owned, 'setup-codex-watch-setting'],
+    [config, { ...owned, byKind: { ...owned.byKind, watcher: 1 } }, 'setup-watchers'],
+  ]) {
+    let caught: unknown;
+    try { helper().assertRecurringReady(configuration, resources); } catch (error) { caught = error; }
+    assert.ok(caught);
+    assert.equal(helper().diagnosticFailureReason(caught), expected);
+  }
+});
+
+test('native soak failure reasons distinguish its own resource, sample and operation guards', async () => {
+  const sample = helper().sampleOwnedResources(memory, owned, 0, false, false, 0, 0);
+  const work = [
+    [() => helper().assertResourceBudget({ ...sample, rssBytes: 2 * 1024 ** 3 }), 'resource-budget'],
+    [() => helper().sampleOwnedResources({ ...memory, rss: undefined }, owned, 0, false, false, 0, 0), 'invalid-sample'],
+    [() => helper().appendBoundedSample(Array(1024).fill(sample), sample), 'sample-budget'],
+  ] as const;
+  for (const [run, expected] of work) {
+    let caught: unknown;
+    try { run(); } catch (error) { caught = error; }
+    assert.equal(helper().diagnosticFailureReason(caught), expected);
+  }
+  await assert.rejects(helper().bounded(new Promise(() => undefined), 10), (error: unknown) => {
+    assert.equal(helper().diagnosticFailureReason(error), 'operation-timeout');
+    return true;
+  });
+});
+
+test('native soak rejects message-spoofed reason codes instead of parsing untrusted exceptions', () => {
+  for (const error of [new Error('native-soak:resource-budget'), new Error('private-file-path'),
+    { code: 'resource-budget', reason: 'setup-watchers' }, null, undefined, 'resource-budget']) {
+    assert.equal(helper().diagnosticFailureReason(error), 'assertion-or-stage-failure');
+  }
+});
+
+test('native soak diagnostic classification never reads arbitrary exception getters or proxy properties', () => {
+  let reads = 0;
+  const error = new Proxy({}, { get() { reads++; throw new Error('private-getter-detail'); } });
+  assert.equal(helper().diagnosticFailureReason(error), 'assertion-or-stage-failure');
+  assert.equal(reads, 0);
+});
+
 test('native soak preserves anonymous entry and failure reports when activation rejects', async t => {
   const { plan } = await fixtures(t);
   await fs.writeFile(path.join(plan.root, 'native-stage-manifest.json'), JSON.stringify({ sourceHead: 'fea8879' }));
@@ -97,6 +144,7 @@ test('native soak preserves anonymous entry and failure reports when activation 
     assert.equal(progress.stage, 'activation');
     assert.equal(report.outcome, 'fail');
     assert.equal(report.failureStage, 'activation');
+    assert.equal(report.failureReason, 'assertion-or-stage-failure');
     assert.equal(report.stopCompleted, false);
     assert.equal(report.longSoakDurationPassed, false);
     assert.equal(report.failureFocus, null);

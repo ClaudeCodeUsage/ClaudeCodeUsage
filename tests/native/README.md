@@ -67,6 +67,12 @@ marker does not identify a product crash or satisfy any resource-duration gate.
 Failures additionally record only exact logical/native focus booleans and a
 known watcher count, or null when unavailable. Real window transitions are
 counted, never suppressed to make simultaneous background windows appear active.
+Failure reasons distinguish only helper-owned guards and fixed readiness assertions:
+resource/sample limits, operation/wait timeout and the Claude/Codex watcher setup.
+Classification uses private error-object identity, not exception messages/codes/getters;
+unrecognised errors stay assertion-or-stage-failure. Setting values are not reported.
+This additional diagnostic does not relax budgets, suppress native events or establish
+the cause of a previously incomplete run.
 
 Each minute the runner switches the whole achievement feature ON/OFF, appends
 one bounded synthetic record to each of two exact regular fixture files, waits
@@ -92,6 +98,10 @@ conclusion. Sampled host heap without forced GC is not a retained-heap leak test
 未完成，不能凭最后阶段标记认定产品崩溃或算持续运行门通过。
 失败时仅补充逻辑／原生焦点布尔值及已知监听数量，未知记null；计数真实窗口
 状态变化，不屏蔽它们来让多个后台窗口看似同时活跃。
+失败原因仅细分辅助程序自身的资源／采样上限、操作／等待超时和固定监听初始化
+断言；按错误对象的私有身份分类，不读取任意异常消息、code、getter等属性。
+未知仍记assertion-or-stage-failure，不保存设置值，不放宽预算或屏蔽真实事件，
+新增诊断也不能倒推此前未完成运行的根因。
 每分钟开关整个成就功能，向两个精确的自有常规合成文件各追加一条有界记录，等待真实文件监听
 诊断与精确用量更新，再执行20次有明确零正文计数的手动暖刷新，并等待真实面板
 销毁事件。模拟焦点只调用既有生产处理器、检验暂停/重新安装，不切到前台，也不
