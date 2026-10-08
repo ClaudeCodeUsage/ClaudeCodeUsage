@@ -1,5 +1,91 @@
 import { test, expect, openCodex, openClaude, openCompare } from './support/app.mjs';
 
+const modelExperienceNames = {
+  en: ['Models in one task', 'Multi-model tasks', 'Fable same-session'],
+  'zh-CN': ['同任务模型', '多模型任务', 'Fable 同会话'],
+  'zh-TW': ['同任務模型', '多模型任務', 'Fable 同會話'],
+  'de-DE': ['Modelle je Aufgabe', 'Mehrmodell-Aufgaben', 'Fable: gemeinsame Sitzung'],
+  ja: ['同一タスクのモデル', '複数モデルのタスク', 'Fable 同一セッション'],
+  ko: ['한 작업의 모델', '다중 모델 작업', 'Fable 같은 세션'],
+  'pt-BR': ['Modelos por tarefa', 'Tarefas multimodelo', 'Fable na mesma sessão'],
+  id: ['Model dalam satu tugas', 'Tugas multimodel', 'Fable dalam sesi yang sama'],
+};
+
+// Compare exposes its share workspace, not a provider achievement/settings tab.
+for (const [provider, open] of [['claude', openClaude], ['codex', openCodex]]) {
+  test(`${provider} reselecting the current tab preserves expanded rules and sends no duplicate host work`, async ({ page }) => {
+    await open(page, { width: 360 });
+    await page.locator('#tab-achievements').click();
+    const card = page.locator('.achievement-card').first();
+    await card.locator('summary').focus();
+    await card.locator('summary').press('Enter');
+    await page.clock.runFor(200);
+    const before = await page.evaluate(() => ({
+      state: JSON.parse(localStorage.getItem('__ccu-vscode-state')),
+      messages: window.__ccuPostedMessages.length,
+    }));
+    expect(before.state.openDetails.length).toBeGreaterThan(0);
+    await page.locator('#tab-achievements').click();
+    await page.clock.runFor(200);
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('__ccu-vscode-state')).openDetails))
+      .toEqual(before.state.openDetails);
+    expect(await page.evaluate(() => window.__ccuPostedMessages.length)).toBe(before.messages);
+    // Focus/scroll may independently save UI state; only host work and the
+    // exact disclosure set must stay unchanged on current-tab reselection.
+    await page.reload();
+    await expect(card.locator('details')).toHaveAttribute('open');
+    await page.locator('#tab-settings').click();
+    const inventoryRequests = await page.evaluate(() => window.__ccuPostedMessages.filter(message =>
+      message.command === 'requestLocalDataInventory').length);
+    // The basic renderer fixture omits the host-backed inventory section.
+    expect(await page.evaluate(() => window.__ccuPostedMessages.filter(message =>
+      message.command === 'tabChanged' && message.tab === 'settings').length)).toBe(1);
+    const settingsMessages = await page.evaluate(() => window.__ccuPostedMessages.length);
+    await page.locator('#tab-settings').click();
+    expect(await page.evaluate(() => window.__ccuPostedMessages.filter(message =>
+      message.command === 'requestLocalDataInventory').length)).toBe(inventoryRequests);
+    expect(await page.evaluate(() => window.__ccuPostedMessages.length)).toBe(settingsMessages);
+    await page.locator('#tab-achievements').click();
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('__ccu-vscode-state')).openDetails)).toEqual([]);
+  });
+}
+
+for (const [locale, names] of Object.entries(modelExperienceNames)) {
+  test(`${locale} model experience cards distinguish breadth, repeated tasks and same-session Fable`, async ({ page }, testInfo) => {
+    for (const theme of ['dark', 'light']) {
+      await openClaude(page, { locale, width: 320, theme, fixture: 'achievement-token-stages' });
+      await page.locator('#tab-achievements').click();
+      const keys = ['same-root-models', 'model-relay-roots', 'fable-relay'];
+      for (const [index, key] of keys.entries()) {
+        const card = page.locator(`.achievement-card[data-achievement-key="${key}"]`);
+        await expect(card.locator('h4')).toHaveText(names[index]);
+        await card.locator('summary').focus();
+        // The second theme visit deliberately retains the first visit's state.
+        if (!(await card.locator('details').evaluate(element => element.open))) {
+          await card.locator('summary').press('Enter');
+        }
+        await expect(card.locator('details')).toHaveAttribute('open');
+        await expect(card.locator('[data-achievement-level]')).toHaveCount(index === 2 ? 1 : 3);
+      }
+      // Flush native toggle tasks before reload; the harness freezes its clock.
+      await page.clock.runFor(200);
+      await expect.poll(() => page.evaluate(() => {
+        const state = JSON.parse(localStorage.getItem('__ccu-vscode-state') || '{}');
+        return ['same-root-models', 'model-relay-roots', 'fable-relay'].every(key =>
+          state.openDetails?.includes(`achievement:${key}`));
+      })).toBe(true);
+      await page.reload();
+      for (const key of keys) await expect(page.locator(`.achievement-card[data-achievement-key="${key}"] details`)).toHaveAttribute('open');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      expect(await page.evaluate(() => window.__ccuPostedMessages.some(message =>
+        ['refresh', 'updateSetting', 'previewAchievementShare', 'exportAchievementShare'].includes(message.command)))).toBe(false);
+      await page.locator('.achievement-card[data-achievement-key="same-root-models"]').screenshot({
+        path: testInfo.outputPath(`model-breadth-320-${theme}.png`),
+      });
+    }
+  });
+}
+
 for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
   test(`${locale} overview badge opens the canonical rule without refreshing or selecting a share`, async ({ page }, testInfo) => {
     for (const [width, theme] of [[320, 'dark'], [360, 'light']]) {

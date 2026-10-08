@@ -13,6 +13,26 @@ const earned: AchievementResult[] = [
   { id: 'active-day-streak', group: 'combined', progress: 7, target: 7, unlocked: true },
 ];
 
+for (const [locale, copy] of Object.entries(ACHIEVEMENT_COPY)) {
+  test(`${locale}: model experience sharing preserves exact selected rules and their non-sequential names`, () => {
+    const selected = ['same-root-models-silver', 'model-relay-roots-bronze', 'fable-relay'] as const;
+    const results = ACHIEVEMENT_DEFINITIONS.filter(entry => selected.some(id => id === entry.id))
+      .map(entry => ({ ...entry, progress: entry.target, unlocked: true }));
+    assert.deepEqual(new Set(selectShareAchievements(results, [...selected])), new Set(selected));
+    const svg = renderAchievementShareSvg({ selected, titles: copy.titles,
+      heading: copy.shareTitle, subtitle: copy.intro, groups: copy.groups,
+      levels: copy.levels, milestone: copy.milestone, footer: copy.heading });
+    for (const id of selected) {
+      assert.ok(svg.includes(copy.titles[id]), id);
+      assert.ok(svg.includes(`data-achievement-icon="${id}"`), id);
+    }
+    // Internal persisted IDs remain compatible; only public names drop relay.
+    assert.doesNotMatch(selected.map(id => copy.titles[id]).join(' '),
+      /relay|接力|Staffel|Modellwechsel|revezamento|estafet|bergantian/i);
+    assert.doesNotMatch(svg, /<script|animate|https:/i);
+  });
+}
+
 test('share selection accepts only earned allowlisted ids, in canonical order', () => {
   assert.deepEqual(selectShareAchievements(earned, ['active-day-streak', 'sol-regular', 'unknown', 'astra-regular', 'astra-regular']), [
     'astra-regular', 'active-day-streak',

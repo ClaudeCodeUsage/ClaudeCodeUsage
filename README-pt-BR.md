@@ -55,6 +55,10 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Conquistas locais (candidato)
 
+Modelos por tarefa e o total de tarefas multimodelo são experiências distintas.
+Fable na mesma sessão exige saída de Fable e outra família Claude reconhecida
+na mesma sessão, sem pressupor ordem de execução.
+
 Desative **Mostrar avisos de conquistas** (`showAchievementNotices`) para manter
 os prêmios e registros não lidos sem avisos flutuantes; reativar não repete avisos antigos.
 

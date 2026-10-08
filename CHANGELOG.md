@@ -7,6 +7,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Accurate model experience names** — all eight locales and share cards now
+  distinguish model breadth within one task, repeated multi-model tasks and
+  same-session Fable output. Names no longer imply an unproven sequential relay;
+  rule identities, thresholds, artwork and saved awards are unchanged.
+- **Current-tab reselection** — clicking the already selected dashboard tab no
+  longer clears saved expanded rules or repeats host tab/inventory requests.
+  Real tab switches keep their existing reset behavior.
 - **Separate notice opt-out** — turn off Show achievement notices without hiding
   the gallery, stopping grants or deleting unread records. It dismisses an active
   notice, retires queued delivery and its old ACK, and never replays missed notices

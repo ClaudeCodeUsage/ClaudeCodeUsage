@@ -182,6 +182,10 @@ real account or an installed-VSIX capture.*
 
 ## Local achievements (candidate)
 
+Model experiences distinguish models recorded within one task from repeated
+multi-model tasks. Fable same-session requires output from Fable and another
+recognized Claude family. These names do not imply a sequence or hand-off.
+
 Turn off **Show achievement notices** (`showAchievementNotices`) to keep badges
 and unread records without floating notices; re-enabling does not replay them.
 

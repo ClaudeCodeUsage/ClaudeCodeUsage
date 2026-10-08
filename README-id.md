@@ -60,6 +60,10 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Pencapaian lokal (kandidat)
 
+Model dalam satu tugas dibedakan dari jumlah tugas multimodel yang terkumpul.
+Fable dalam sesi yang sama memerlukan output Fable dan keluarga Claude lain
+yang dikenali dalam satu sesi, tanpa menyiratkan urutan eksekusi.
+
 Matikan **Tampilkan notifikasi pencapaian** (`showAchievementNotices`) untuk tetap
 menyimpan lencana dan catatan belum dibaca tanpa notifikasi melayang; mengaktifkan kembali tidak memutar ulangnya.
 

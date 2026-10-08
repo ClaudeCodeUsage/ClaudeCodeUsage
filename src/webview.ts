@@ -14963,6 +14963,13 @@ function restoreTableSorts(root) {
 
 function showTab(tabName, restoring) {
   try {
+    // Reselecting the current view is not a tab switch. Preserve disclosures
+    // and avoid repeating host tab/inventory work; restoration still reconciles.
+    var currentTab = document.getElementById('tab-' + tabName);
+    var currentContent = document.getElementById(tabName);
+    if (!restoring && currentTab && currentContent &&
+        currentTab.getAttribute('aria-selected') === 'true' &&
+        currentContent.classList.contains('active') && !currentContent.hidden) { return; }
     // Keep the visual state and the WAI-ARIA tab contract in lockstep.
     document.querySelectorAll('.tabs [role="tab"]').forEach(function(tab) {
       tab.classList.remove('active');

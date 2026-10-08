@@ -27,6 +27,17 @@ const localeMarkers = {
 const million = /1M\+|100\s*万|100萬|100만\+|1 milhão\+|1 juta\+/;
 const halfMillion = /500K\+|50\s*万|50萬|50만\+|500 mil\+|500 ribu\+/;
 
+const modelExperienceMarkers = {
+  en: [/Models in one task/, /Multi-model tasks/, /same-session/],
+  'zh-CN': [/同任务模型/, /多模型任务/, /同会话/],
+  'zh-TW': [/同任務模型/, /多模型任務/, /同會話/],
+  'de-DE': [/Modelle je Aufgabe/, /Mehrmodell-Aufgaben/, /gemeinsame Sitzung/],
+  ja: [/同一タスクのモデル/, /複数モデルのタスク/, /同一セッション/],
+  ko: [/한 작업의 모델/, /다중 모델 작업/, /같은 세션/],
+  'pt-BR': [/Modelos por tarefa/, /Tarefas multimodelo/, /mesma sessão/],
+  id: [/Model dalam satu tugas/, /Tugas multimodel/, /sesi yang sama/],
+} as const;
+
 test('copy covers exactly eight public locales, 124 rules and 46 gallery items', () => {
   assert.deepEqual(Object.keys(ACHIEVEMENT_COPY).sort(), Object.keys(localeMarkers).sort());
   assert.equal(ACHIEVEMENT_DEFINITIONS.length, 124);
@@ -38,6 +49,19 @@ test('copy covers exactly eight public locales, 124 rules and 46 gallery items',
 for (const locale of Object.keys(localeMarkers) as Array<keyof typeof localeMarkers>) {
   const copy = ACHIEVEMENT_COPY[locale];
   const markers = localeMarkers[locale];
+
+  test(`${locale}: model breadth and repeated experience titles do not invent sequential relay`, () => {
+    const [breadth, repeated, sameSession] = modelExperienceMarkers[locale];
+    for (const id of ['multi-core-human', 'same-root-models-silver', 'same-root-models-gold'] as const) {
+      assert.match(copy.titles[id], breadth, id);
+    }
+    for (const id of ['model-relay-roots-bronze', 'model-relay-roots-silver', 'model-relay-roots-gold'] as const) {
+      assert.match(copy.titles[id], repeated, id);
+    }
+    assert.match(copy.titles['fable-relay'], sameSession);
+    assert.doesNotMatch([copy.titles['multi-core-human'], copy.titles['fable-relay'],
+      copy.titles['model-relay-roots-bronze']].join(' '), /relay|接力|Staffel|Modellwechsel|revezamento|estafet|bergantian/i);
+  });
 
   test(`${locale}: tier titles use the existing localized Ordinary/Silver/Gold labels`, () => {
     assert.equal(achievementCopyFor(locale), copy);

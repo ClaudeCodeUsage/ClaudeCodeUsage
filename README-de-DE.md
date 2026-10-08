@@ -58,6 +58,10 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Lokale Erfolge (Kandidat)
 
+Modelle je Aufgabe und die Anzahl von Mehrmodell-Aufgaben sind getrennte Erlebnisse.
+Fable: gemeinsame Sitzung verlangt Ausgabe von Fable und einer weiteren erkannten
+Claude-Familie in derselben Sitzung, nicht eine bestimmte Reihenfolge.
+
 **Erfolgshinweise anzeigen** (`showAchievementNotices`) lässt sich separat ausschalten.
 Abzeichen und ungelesene Einträge bleiben; erneutes Einschalten spielt keine alten Hinweise ab.
 
