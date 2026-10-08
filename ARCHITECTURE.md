@@ -366,6 +366,23 @@ quietly reconciled calibrated history, later levels are no longer permanently
 silenced by the migration recheck set. These latches are memory-only; they do not
 yet constitute a durable missed-notice journal or cross-host coordination.
 
+The Claude index has a preparatory runtime-only tail-origin contract. An explicit
+accepted-observation window is copied before asynchronous work; existing physical
+file/prefix/EOF verification supplies offsets before content-analysis plans may
+expand. After global response deduplication, only new canonical winners beyond
+those offsets, with safe native token vectors and timestamps in that window,
+contribute to a fixed total/output/cache-read/four-family numeric lower bound.
+Cold builds, discovered imports, replacements, incomplete tails and timezone
+retirement do not supply live origin. Mixed history retains only independently
+verified additions. No source identities enter the result, no index field is
+persisted, and no additional body read or timer is introduced. The rule helper
+uses the existing formal targets and requires these additions to be sufficient
+against the previous progress and necessary against the new progress, per exact
+level; calendar/session/agent rules are not inferred from volume. This foundation
+is not yet wired to accepted host windows, Codex workers or atomic usage awards;
+production usage grants remain quiet history with unknown dates until that
+handoff and its source/clear/shared-lease guards are completed.
+
 Plugin-action provenance compares the committed before/after activity ledger
 through the canonical rule evaluator. Only newly crossed plugin targets enter
 a bounded six-ID runtime set; hydration and imported ledgers do not. Successful

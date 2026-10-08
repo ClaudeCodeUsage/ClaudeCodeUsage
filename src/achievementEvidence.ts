@@ -1,4 +1,52 @@
-import type { AchievementResult } from './achievements';
+import { ACHIEVEMENT_DEFINITIONS, AchievementId, AchievementResult } from './achievements';
+import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
+
+/** Proven tail additions are a lower bound, not permission to date all awards
+ * in a mixed refresh. Certify only volume rules where this addition is both
+ * sufficient against the prior baseline and necessary against the new total.
+ * The caller still owns readiness, accepted producer window and lease fencing. */
+export function claudeTailAchievementCrossings(
+  before: readonly AchievementResult[], after: readonly AchievementResult[],
+  delta: ClaudeAchievementUsageDelta | undefined,
+): AchievementId[] {
+  const count = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+  if (!delta || delta.provider !== 'claude' || !count(delta.after) || !count(delta.through) ||
+      delta.through > 8.64e15 || delta.through <= delta.after ||
+      !count(delta.processed) || delta.processed === 0 || !count(delta.output) ||
+      !count(delta.cacheRead) || !Number.isSafeInteger(delta.output + delta.cacheRead) ||
+      delta.output + delta.cacheRead > delta.processed ||
+      !delta.families || typeof delta.families !== 'object' || Array.isArray(delta.families)) return [];
+  let families = 0;
+  for (const family of ['sonnet', 'opus', 'haiku', 'fable'] as const) {
+    const value = delta.families[family];
+    if (!count(value)) return [];
+    families += value;
+  }
+  if (!Number.isSafeInteger(families) || families > delta.processed ||
+      before.length > ACHIEVEMENT_DEFINITIONS.length || after.length > ACHIEVEMENT_DEFINITIONS.length) return [];
+  const previous = new Map(before.map((row) => [row.id, row]));
+  const current = new Map(after.map((row) => [row.id, row]));
+  if (previous.size !== before.length || current.size !== after.length) return [];
+  const ids: AchievementId[] = [];
+  for (const rule of ACHIEVEMENT_DEFINITIONS) {
+    const old = previous.get(rule.id), next = current.get(rule.id);
+    if (!old || !next || old.target !== rule.target || next.target !== rule.target ||
+        old.group !== rule.group || next.group !== rule.group ||
+        !count(old.progress) || !count(next.progress) ||
+        old.progress >= rule.target || next.progress < rule.target) continue;
+    const addition = rule.id.startsWith('sonnet-main') ? delta.families.sonnet
+      : rule.id.startsWith('opus-cannon') ? delta.families.opus
+      : rule.id.startsWith('haiku-worker') ? delta.families.haiku
+      : rule.id.startsWith('fable-volume-') ? delta.families.fable
+      : rule.id.startsWith('cache-wizard') ? delta.cacheRead
+      : /^claude-output-(bronze|silver|gold)$/.test(rule.id) ? delta.output
+      : ['hundred-million-club', 'billion-token-club', 'ten-billion-token-club',
+        'hundred-billion-token-club', 'trillion-token-club'].includes(rule.id) ? delta.processed : 0;
+    if (addition <= 0 || addition > next.progress || !Number.isSafeInteger(old.progress + addition)) continue;
+    if (old.progress + addition >= rule.target && next.progress - addition < rule.target) ids.push(rule.id);
+  }
+  return ids;
+}
 
 export const ACHIEVEMENT_EVIDENCE_DOMAINS = [
   'claude-usage', 'codex-lineage', 'codex-tokens', 'claude-calendar',

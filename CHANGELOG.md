@@ -64,6 +64,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
+- **Usage-origin foundation (internal)** — Claude's existing append verification
+  now supports an optional runtime-only, deduplicated numeric delta. Per-level
+  checks cannot turn unrelated live tokens into dated historical awards. Analysis
+  reparsing keeps verified tail boundaries; observation windows are captured before
+  asynchronous work. Host/Codex/atomic-award wiring is still pending, so this does
+  not yet enable usage notices or new dates. No new scan, timer or index field.
 - **Retired dashboard messages** — readiness, tab changes and unread receipts
   carry a runtime document identity. Full replacement and failed-patch fallback
   retire the old identity; ordinary in-place patches retain it. A late old page

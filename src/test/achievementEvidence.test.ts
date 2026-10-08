@@ -1,9 +1,79 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { ACHIEVEMENT_DEFINITIONS } from '../achievements';
+import { ACHIEVEMENT_DEFINITIONS, evaluateAchievements, AchievementFacts } from '../achievements';
 
 const proof = require('../achievementEvidence') as any;
 const ready = () => Object.fromEntries(proof.ACHIEVEMENT_EVIDENCE_DOMAINS.map((domain: string) => [domain, 'ready']));
+
+const usageFacts = (volume: number): AchievementFacts => ({
+  claudeTokens: volume, codexTokens: 0, activeDays: 0, claudeFamilies: ['sonnet'],
+  claudeFamilyTokens: { sonnet: volume }, claudeOutputTokens: 0, claudeCacheReadTokens: 0,
+  codex: { modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 } },
+});
+const usageDelta = (processed: number) => ({ provider: 'claude', after: 100, through: 200,
+  processed, output: 0, cacheRead: 0, families: { sonnet: processed, opus: 0, haiku: 0, fable: 0 } });
+
+test('Claude usage crossings require new tokens to be sufficient and necessary for each exact tier', () => {
+  const before = evaluateAchievements(usageFacts(600_000_000));
+  const after = evaluateAchievements(usageFacts(6_600_000_000));
+  const ids = proof.claudeTailAchievementCrossings(before, after, usageDelta(6_000_000_000));
+  assert.ok(ids.includes('sonnet-main-silver'));
+  assert.equal(ids.includes('sonnet-main-gold'), false, 'gold still requires the approved 10B');
+  assert.ok(ids.includes('billion-token-club'));
+  assert.equal(ids.includes('sonnet-main'), false, 'an already earned tier is never new');
+  assert.equal(ids.includes('active-days-bronze'), false);
+  assert.deepEqual(proof.claudeTailAchievementCrossings(before, after, usageDelta(1)), [],
+    'an unrelated one-token append cannot date the historical import');
+  const assistedByHistory = evaluateAchievements(usageFacts(1_000_000_000));
+  assert.deepEqual(proof.claudeTailAchievementCrossings(before, assistedByHistory,
+    usageDelta(100_000_000)), [], 'new usage alone must cross the old verified baseline');
+  const historyAlreadyEnough = evaluateAchievements(usageFacts(1_500_000_000));
+  assert.deepEqual(proof.claudeTailAchievementCrossings(before, historyAlreadyEnough,
+    usageDelta(400_000_000)), [], 'removing new tokens must remove the new tier');
+});
+
+test('Claude usage crossings cannot date other families, calendar, sessions, or Codex awards', () => {
+  const before = evaluateAchievements(usageFacts(600_000_000));
+  const facts = usageFacts(6_600_000_000);
+  facts.claudeFamilyTokens!.opus = 10_000_000_000;
+  facts.claudeOutputSessions = 10_000;
+  facts.activeDays = 1_000;
+  facts.codex.familyProcessedTokens = { astra: 10_000_000_000, sol: 0, luna: 0 };
+  const ids = proof.claudeTailAchievementCrossings(before, evaluateAchievements(facts), usageDelta(6_000_000_000));
+  assert.ok(ids.includes('sonnet-main-silver'));
+  assert.equal(ids.some((id: string) => /opus|days|sessions|astra/.test(id)), false);
+});
+
+test('Claude usage crossings follow every approved volume tier without a duplicate threshold table', () => {
+  for (const rule of ACHIEVEMENT_DEFINITIONS.filter((row) => row.id.startsWith('sonnet-main'))) {
+    const before = evaluateAchievements(usageFacts(rule.target - 1));
+    const after = evaluateAchievements(usageFacts(rule.target));
+    assert.ok(proof.claudeTailAchievementCrossings(before, after, usageDelta(1)).includes(rule.id), rule.id);
+    assert.equal(proof.claudeTailAchievementCrossings(after, after, usageDelta(1)).includes(rule.id), false);
+  }
+});
+
+test('Claude usage crossings fail closed for malformed proof, mismatched targets and unsafe sums', () => {
+  const before = evaluateAchievements(usageFacts(60_000_000));
+  const after = evaluateAchievements(usageFacts(120_000_000));
+  for (const delta of [undefined, { ...usageDelta(60_000_000), provider: 'codex' },
+    { ...usageDelta(60_000_000), output: -1 }, { ...usageDelta(60_000_000), through: 50 },
+    { ...usageDelta(60_000_000), output: 60_000_000, cacheRead: 60_000_000 },
+    { ...usageDelta(60_000_000), families: { ...usageDelta(60_000_000).families, opus: 1 } },
+    { ...usageDelta(60_000_000), processed: 0.5 }]) {
+    assert.deepEqual(proof.claudeTailAchievementCrossings(before, after, delta), []);
+  }
+  const mismatched = after.map((row) => ({ ...row, target: row.target + 1 }));
+  assert.deepEqual(proof.claudeTailAchievementCrossings(before, mismatched, usageDelta(60_000_000)), []);
+  const duplicate = [...before, before[0]];
+  assert.deepEqual(proof.claudeTailAchievementCrossings(duplicate, after, usageDelta(60_000_000)), []);
+  const unsafeBefore = before.map((row) => row.id === 'trillion-token-club'
+    ? { ...row, progress: 999_999_999_999 } : row);
+  const unsafeAfter = after.map((row) => row.id === 'trillion-token-club'
+    ? { ...row, progress: Number.MAX_SAFE_INTEGER } : row);
+  assert.equal(proof.claudeTailAchievementCrossings(unsafeBefore, unsafeAfter,
+    usageDelta(Number.MAX_SAFE_INTEGER)).includes('trillion-token-club'), false);
+});
 
 test('every achievement level has the correct independent evidence domain', () => {
   for (const rule of ACHIEVEMENT_DEFINITIONS) {

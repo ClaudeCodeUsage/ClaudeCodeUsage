@@ -22,6 +22,8 @@ import { UsageManifest } from '../claudeUsageFiles';
 import { ClaudeDataLoader } from '../dataLoader';
 import { I18n } from '../i18n';
 import { ClaudeUsageRecord } from '../types';
+import { evaluateAchievements } from '../achievements';
+import { claudeTailAchievementCrossings } from '../achievementEvidence';
 
 test('achievement evidence keeps all indexed sessions beyond the Sessions tab cap', () => {
   const index = createClaudeUsageIndex();
@@ -49,6 +51,197 @@ test('achievement evidence keeps all indexed sessions beyond the Sessions tab ca
 
 const roots: string[] = [];
 
+const originWindow = {
+  after: Date.parse('2026-08-21T08:02:00Z'),
+  through: Date.parse('2026-08-21T08:03:00Z'),
+};
+
+async function originFixture() {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-origin-'));
+  roots.push(root);
+  const project = path.join(root, 'projects', '-fixture');
+  await mkdir(project, { recursive: true });
+  const file = path.join(project, 'session.jsonl');
+  await writeFile(file, usageLine('baseline', 600_000_000, 1) + '\n');
+  const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+    analyzeContent: false,
+  });
+  return { root, project, file, cold };
+}
+
+test('Claude usage origin proves accepted recent tail tokens without another read', async () => {
+  const { root, file, cold } = await originFixture();
+  const tail = usageLine('new', 6_000_000_000, 7, { timestamp: '2026-08-21T08:02:30Z' }) + '\n';
+  await appendFile(file, tail);
+  const result = await updateClaudeUsageIndex(cold.index, root, {
+    analyzeContent: false, achievementUsageWindow: originWindow,
+  });
+  assert.deepEqual(result.achievementUsageDelta, {
+    provider: 'claude', after: originWindow.after, through: originWindow.through,
+    processed: 6_000_000_012, output: 7, cacheRead: 3,
+    families: { sonnet: 6_000_000_012, opus: 0, haiku: 0, fable: 0 },
+  });
+  assert.equal(result.diagnostics.bodyReads, 1);
+  assert.equal(result.diagnostics.bytesRead, Buffer.byteLength(tail));
+  assert.equal('achievementUsageDelta' in result.index, false, 'provenance must not be an index field');
+  assert.equal(cold.index.aggregates.allTime.totalInputTokens, 600_000_000);
+  const rules = (index: typeof cold.index) => {
+    const totals = index.aggregates.allTime;
+    const volume = totals.totalInputTokens + totals.totalOutputTokens +
+      totals.totalCacheCreationTokens + totals.totalCacheReadTokens;
+    return evaluateAchievements({ claudeTokens: volume, codexTokens: 0, activeDays: 0,
+      claudeFamilies: ['sonnet'], claudeFamilyTokens: { sonnet: volume },
+      codex: { modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 } } });
+  };
+  const crossings = claudeTailAchievementCrossings(rules(cold.index), rules(result.index), result.achievementUsageDelta);
+  assert.ok(crossings.includes('sonnet-main-silver'));
+  assert.equal(crossings.includes('sonnet-main-gold'), false);
+  await assertMatchesFull(root, result.records);
+  const unchanged = await updateClaudeUsageIndex(result.index, root, {
+    analyzeContent: false, achievementUsageWindow: originWindow,
+  });
+  assert.equal(unchanged.achievementUsageDelta, undefined);
+  assert.equal(unchanged.diagnostics.bodyReads, 0);
+});
+
+test('Claude usage origin isolates new tokens from mixed historical tails and imported files', async () => {
+  const { root, project, file, cold } = await originFixture();
+  await appendFile(file, [
+    usageLine('historical', 9_000_000_000, 9),
+    usageLine('new', 100, 10, { timestamp: '2026-08-21T08:02:30Z' }),
+    usageLine('future', 9_000_000_000, 9, { timestamp: '2026-08-21T08:04:00Z' }),
+  ].join('\n') + '\n');
+  await writeFile(path.join(project, 'imported.jsonl'),
+    usageLine('import', 9_000_000_000, 9, { timestamp: '2026-08-21T08:02:30Z' }) + '\n');
+  const result = await updateClaudeUsageIndex(cold.index, root, {
+    analyzeContent: false, achievementUsageWindow: originWindow,
+  });
+  assert.equal(result.achievementUsageDelta?.processed, 115,
+    'a current timestamp in a newly discovered file does not prove live creation');
+  assert.equal(result.diagnostics.bodyReads, 2);
+  await assertMatchesFull(root, result.records);
+});
+
+test('Claude usage origin cannot turn duplicate or identity remapping into new volume', async () => {
+  const { root, file, cold } = await originFixture();
+  await appendFile(file, usageLine('baseline', 6_000_000_000, 7,
+    { timestamp: '2026-08-21T08:02:30Z' }) + '\n');
+  const duplicate = await updateClaudeUsageIndex(cold.index, root, {
+    analyzeContent: false, achievementUsageWindow: originWindow,
+  });
+  assert.equal(duplicate.achievementUsageDelta, undefined);
+  // Re-keying an existing request-less message must not resemble a new record.
+  await appendFile(file, usageLine('ambiguous', 100, 10, { requestId: null }) + '\n');
+  const baseline = await updateClaudeUsageIndex(duplicate.index, root, { analyzeContent: false });
+  await appendFile(file, usageLine('ambiguous', 200, 20,
+    { timestamp: '2026-08-21T08:02:30Z', requestId: 'new-request' }) + '\n');
+  const remapped = await updateClaudeUsageIndex(baseline.index, root, {
+    analyzeContent: false, achievementUsageWindow: originWindow,
+  });
+  assert.equal(remapped.achievementUsageDelta, undefined);
+  await assertMatchesFull(root, remapped.records);
+});
+
+test('Claude usage origin requires a valid caller window and an established complete tail', async () => {
+  for (const mode of ['cold', 'absent', 'reverse', 'fractional', 'incomplete', 'replace'] as const) {
+    const { root, file, cold } = await originFixture();
+    const tail = usageLine('new', 100, 10, { timestamp: '2026-08-21T08:02:30Z' }) + '\n';
+    let previous = cold.index;
+    if (mode === 'cold') previous = createClaudeUsageIndex();
+    if (mode === 'incomplete') {
+      await appendFile(file, '{"type":');
+      previous = (await updateClaudeUsageIndex(previous, root, { analyzeContent: false })).index;
+      await appendFile(file, '"ignored"}\n');
+    }
+    if (mode === 'replace') await writeFile(file, tail);
+    else await appendFile(file, tail);
+    const window = mode === 'absent' ? undefined : mode === 'reverse'
+      ? { after: originWindow.through, through: originWindow.after }
+      : mode === 'fractional' ? { ...originWindow, after: originWindow.after + 0.5 } : originWindow;
+    const result = await updateClaudeUsageIndex(previous, root, {
+      analyzeContent: false, achievementUsageWindow: window,
+    });
+    assert.equal(result.achievementUsageDelta, undefined, mode);
+  }
+});
+
+test('Claude usage origin survives analysis-only full parsing but excludes the replaced source', async () => {
+  const { root, project, file, cold } = await originFixture();
+  const other = path.join(project, 'other.jsonl');
+  await writeFile(other, usageLine('other-baseline', 10, 1) + '\n');
+  const baseline = await updateClaudeUsageIndex(cold.index, root, { analyzeContent: true });
+  await appendFile(file, usageLine('live', 100, 10, { timestamp: '2026-08-21T08:02:30Z' }) + '\n');
+  await writeFile(other, usageLine('replaced', 9_000_000, 9,
+    { timestamp: '2026-08-21T08:02:30Z' }) + '\n');
+  const result = await updateClaudeUsageIndex(baseline.index, root, {
+    analyzeContent: true, achievementUsageWindow: originWindow,
+  });
+  assert.equal(result.achievementUsageDelta?.processed, 115);
+  await assertMatchesFull(root, result.records);
+});
+
+test('Claude usage origin keeps four families distinct and rejects invalid or zero vectors', async () => {
+  const { root, file, cold } = await originFixture();
+  const lines = [
+    usageLine('sonnet', 10, 1, { model: 'claude-sonnet-5-5' }),
+    usageLine('opus', 20, 2, { model: 'claude-opus-5-5' }),
+    usageLine('haiku', 30, 3, { model: 'claude-haiku-4-5' }),
+    usageLine('fable', 40, 4, { model: 'claude-fable-5' }),
+    usageLine('unknown', 50, 5, { model: 'future-model' }),
+    usageLine('negative', -10, 1), usageLine('fractional', 0.5, 1),
+    usageLine('unsafe', Number.MAX_SAFE_INTEGER, 1), usageLine('zero', 0, 0),
+  ].map((line) => {
+    const value = JSON.parse(line);
+    value.timestamp = '2026-08-21T08:02:30Z';
+    if (value.message.id === 'message-zero') {
+      value.message.usage.cache_creation_input_tokens = 0;
+      value.message.usage.cache_read_input_tokens = 0;
+    }
+    return JSON.stringify(value);
+  });
+  await appendFile(file, lines.join('\n') + '\n');
+  const result = await updateClaudeUsageIndex(cold.index, root, {
+    analyzeContent: false, achievementUsageWindow: originWindow,
+  });
+  assert.equal(result.achievementUsageDelta?.processed, 190);
+  assert.deepEqual(result.achievementUsageDelta?.families, { sonnet: 16, opus: 27, haiku: 38, fable: 49 });
+  assert.equal(result.achievementUsageDelta?.output, 15);
+  assert.equal(result.achievementUsageDelta?.cacheRead, 15);
+  assert.ok(JSON.stringify(result.achievementUsageDelta).length < 300);
+});
+
+test('Claude usage origin rejects timezone retirement and a partial current tail', async () => {
+  const savedZone = I18n.getTimezone();
+  try {
+    I18n.setTimezone('UTC');
+    const { root, file, cold } = await originFixture();
+    await appendFile(file, usageLine('live', 100, 10, { timestamp: '2026-08-21T08:02:30Z' }) + '\n');
+    I18n.setTimezone('Asia/Hong_Kong');
+    const retired = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: false, achievementUsageWindow: originWindow,
+    });
+    assert.equal(retired.achievementUsageDelta, undefined);
+    await appendFile(file, usageLine('live-next', 100, 10,
+      { timestamp: '2026-08-21T08:02:30Z' }) + '\n{"unfinished":');
+    const partial = await updateClaudeUsageIndex(retired.index, root, {
+      analyzeContent: false, achievementUsageWindow: originWindow,
+    });
+    assert.equal(partial.achievementUsageDelta, undefined);
+  } finally { I18n.setTimezone(savedZone); }
+});
+
+test('Claude usage origin captures its observation window before asynchronous parsing', async () => {
+  const { root, file, cold } = await originFixture();
+  await appendFile(file, usageLine('live', 100, 10, { timestamp: '2026-08-21T08:02:30Z' }) + '\n');
+  const mutableWindow = { ...originWindow };
+  const result = await updateClaudeUsageIndex(cold.index, root, {
+    analyzeContent: false, achievementUsageWindow: mutableWindow,
+    beforeBodyReads: async () => { mutableWindow.after = originWindow.through; },
+  });
+  assert.equal(result.achievementUsageDelta?.processed, 115);
+  assert.equal(result.achievementUsageDelta?.after, originWindow.after);
+});
+
 after(async () => {
   await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -63,6 +256,7 @@ function usageLine(
     messageId?: string;
     cwd?: string;
     branch?: string;
+    model?: string;
   } = {},
 ): string {
   const value: Record<string, unknown> = {
@@ -72,7 +266,7 @@ function usageLine(
     gitBranch: options.branch ?? 'main',
     message: {
       id: options.messageId ?? `message-${id}`,
-      model: 'claude-sonnet-4-5',
+      model: options.model ?? 'claude-sonnet-4-5',
       content: [{ type: 'text', text: `answer-${id}` }],
       usage: {
         input_tokens: input,
