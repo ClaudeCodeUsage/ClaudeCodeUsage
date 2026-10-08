@@ -60,6 +60,10 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Pencapaian lokal (kandidat)
 
+Tingkat Token Codex baru yang terbukti menyimpan status belum dibaca dan hari
+pencatatan pertama meski pembaruan dasbor dijeda. Impor riwayat tetap senyap;
+integrasi asal untuk Claude dan penghargaan langsung selain Token masih menunggu.
+
 Catatan penghargaan hanya lokal, maksimal 64 KiB. Tanggal lama tetap tidak diketahui;
 tindakan baru yang tersimpan mempertahankan status belum dibaca dan hari pencatatan pertama
 meski notifikasi terlewat. Antarjendela menggabungkan penghargaan; penghapusan menyisakan penanda generasi kosong untuk menolak penulisan lama.

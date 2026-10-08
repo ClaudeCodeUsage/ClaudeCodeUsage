@@ -415,6 +415,72 @@ function coordinatorHarness(dashboardAutoRefresh = false): {
   return { extension, deliveries, statuses, config, snapshot };
 }
 
+test('real paused host routes worker tail proof through the facade into shared unread silver awards', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-real-usage-host-'));
+  const previousZone = I18n.getTimezone();
+  const { CodexProvider } = require('../providers/codex/codexProvider');
+  const { AchievementRecordRepository, loadAchievementRecords } = require('../achievementRecordStore');
+  const { UsageWebviewProvider } = require('../webview');
+  let provider: any;
+  try {
+    I18n.setTimezone('UTC');
+    const { extension, config, deliveries } = coordinatorHarness(false);
+    const home = path.join(root, 'home'), sessions = path.join(home, 'sessions');
+    fs.mkdirSync(sessions, { recursive: true });
+    const token = (input: number, output: number, timestamp: number) => JSON.stringify({
+      timestamp: new Date(timestamp).toISOString(), type: 'event_msg', payload: { type: 'token_count',
+        info: { total_token_usage: { input_tokens: input, output_tokens: output,
+          cached_input_tokens: input / 2, reasoning_output_tokens: output / 2, total_tokens: input + output } } },
+    });
+    const header = (id: string) => JSON.stringify({ type: 'session_meta', payload: { id } }) + '\n' +
+      JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-6.1-astra', effort: 'max' } }) + '\n';
+    const log = path.join(sessions, 'live.jsonl');
+    fs.writeFileSync(log, header('synthetic-live') + token(500_000_000, 100_000_000, Date.now() - 3_600_000) + '\n');
+    for (const [n, input] of [[1, 10], [2, 20]]) fs.writeFileSync(path.join(sessions, 'conflict-' + n + '.jsonl'),
+      header('synthetic-conflict') + token(input, 2, Date.now() - 3_600_000) + '\n');
+    config.codexDataDirectory = home; config.timezone = 'UTC'; config.enableAchievements = true;
+    const file = path.join(root, 'achievements-v1.json');
+    const owner = new UsageWebviewProvider({ globalState: { get: () => undefined, update: async () => undefined } }) as any;
+    await owner.achievementWrite;
+    owner.achievementRecordRepository = new AchievementRecordRepository(file);
+    owner.achievementRecordState = await owner.achievementRecordRepository.initialize([]);
+    owner.settings = { get: (key: string) => key === 'enableAchievements' };
+    owner.updateWebview = () => assert.fail('paused data handoff cannot render');
+    owner.updateAdviceEffectivenessData = () => undefined;
+    owner.updateProviderData = () => assert.fail('paused host cannot deliver a data panel');
+    extension.webviewProvider = owner;
+    provider = new CodexProvider({ enabled: true, codexHome: home, indexPath: path.join(root, 'isolated-index.json'),
+      salt: 'synthetic-isolated-salt', timeZone: 'UTC', allowAchievementHourProof: true });
+    extension.codexProvider = provider;
+    const refresh = provider.refresh.bind(provider);
+    const responses: any[] = [];
+    provider.refresh = async (...args: any[]) => { const result = await refresh(...args); responses.push(result); return result; };
+    await extension.runCodexRefresh('poll');
+    await owner.achievementWrite;
+    assert.equal(extension.codexView.coverage.complete, true);
+    assert.equal(extension.codexView.coverage.identity.complete, false);
+    assert.equal(extension.codexAchievementSignals.familyProcessedTokens.astra, 600_000_000);
+    assert.equal((await loadAchievementRecords(file)).records.find((row: any) => row.id === 'astra-regular').origin, 'history');
+    fs.appendFileSync(log, token(5_500_000_000, 1_100_000_000, Date.now()) + '\n');
+    await extension.runCodexRefresh('poll');
+    await owner.achievementWrite;
+    assert.equal(responses[responses.length - 1].achievementUsageDelta.processed, 6_000_000_000);
+    const silver = (await loadAchievementRecords(file)).records.find((row: any) => row.id === 'astra-regular-silver');
+    assert.equal(silver.origin, 'usage'); assert.equal(silver.unread, true);
+    assert.equal(silver.timeZone, 'UTC'); assert.match(silver.recordedDay, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal((await loadAchievementRecords(file)).records.some((row: any) => row.id === 'weekly-volume-bronze'), false);
+    await extension.runCodexRefresh('poll'); await owner.achievementWrite;
+    assert.equal(responses[responses.length - 1].diagnostic.bodyReads, 0);
+    assert.equal(responses[responses.length - 1].achievementUsageDelta, undefined);
+    assert.equal((await loadAchievementRecords(file)).records.filter((row: any) => row.id === silver.id).length, 1);
+    assert.equal(deliveries.filter(row => row.kind === 'provider').length, 0);
+    await owner.achievementHourWrite; await owner.achievementCalendarWrite; await owner.achievementNoticeWrite;
+  } finally {
+    await provider?.dispose(); I18n.setTimezone(previousZone);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('coordinator paused refresh still invalidates prepared advice source revisions without delivering panels', () => {
   const { extension, deliveries } = coordinatorHarness();
   const sourceRevision = 'current-verified-source';
@@ -426,6 +492,23 @@ test('coordinator paused refresh still invalidates prepared advice source revisi
   extension.syncProviderUi('watch');
   assert.equal(preparedHandleValid, false);
   assert.equal(deliveries.filter(value => value.kind === 'provider').length, 0);
+});
+
+test('retirement while waiting for the achievement receipt cannot strand a worker that never started', async () => {
+  const { extension } = coordinatorHarness(false);
+  let entered!: () => void, release!: () => void;
+  const enteredPromise = new Promise<void>(resolve => { entered = resolve; });
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  extension.webviewProvider.beginCodexAchievementObservation = async () => { entered(); await waiting; return undefined; };
+  let calls = 0;
+  extension.codexProvider.refresh = async () => { calls++; return { outcome: 'unavailable' }; };
+  const refresh = extension.runCodexRefresh('poll');
+  await enteredPromise;
+  extension.configurationGeneration++;
+  release(); await refresh;
+  assert.equal(calls, 0);
+  assert.equal(extension.codexWorkerLease?.active ?? false, false);
+  assert.equal(extension.codexBackfillLease?.active ?? false, false);
 });
 
 test('coordinator dashboard pause suppresses automatic Codex data, insights and progress but keeps indexing and status', async () => {

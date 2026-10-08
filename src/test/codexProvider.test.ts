@@ -198,6 +198,28 @@ function workerResult(index = partialIndex()): CodexWorkerResult {
   };
 }
 
+test('facade copies the accepted usage window and exposes only matching successful producer proof', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-provider-origin-'));
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    const window = { after: 100, through: 200 };
+    const delta = { ...window, provider: 'codex' as const, processed: 100, output: 20,
+      cacheRead: 30, families: { astra: 100, sol: 0, luna: 0 } };
+    let captured: any;
+    const provider = new CodexProvider({ enabled: true, codexHome: root, indexPath: 'unused', salt: 'salt', timeZone: 'UTC' }, () => ({
+      refresh: async input => { captured = input; window.through = 300;
+        const index = partialIndex(); index.coverage.complete = true;
+        return { ...workerResult(index), failedFiles: 0, achievementUsageDelta: delta }; }, dispose: () => undefined,
+    }));
+    const result = await (provider.refresh as any)('background', undefined, true, window);
+    assert.deepEqual(captured.achievementUsageWindow, { after: 100, through: 200 });
+    assert.deepEqual(result.achievementUsageDelta, delta);
+    assert.notEqual(result.achievementUsageDelta, delta);
+    assert.equal((await (provider.refresh as any)('background', undefined, true, window)).achievementUsageDelta, undefined);
+    await provider.dispose();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('disabled or unavailable providers do not create a worker client', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-provider-off-'));
   try {

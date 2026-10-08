@@ -2369,6 +2369,7 @@ export class ClaudeCodeUsageExtension {
     this.codexProgress = null;
     this.codexProgressLastRenderedAt = 0;
     this.codexDashboardHydrated = false;
+    this.tryProviderUiUpdate(() => this.webviewProvider.invalidateAchievementEvidence?.('codex'));
     this.providerRefreshStates.codex = { failed: false };
     delete this.deliveredRefreshStates.codex;
     this.tryProviderUiUpdate(() => this.webviewProvider.updateRefreshState?.('codex', { failed: false }));
@@ -3106,6 +3107,7 @@ export class ClaudeCodeUsageExtension {
         this.codexRefreshing = false;
         this.codexProgress = null;
         this.codexProgressLastRenderedAt = 0;
+        this.tryProviderUiUpdate(() => this.webviewProvider.invalidateAchievementEvidence?.('codex'));
         return;
       }
       const available = await provider.isAvailable();
@@ -3250,10 +3252,20 @@ export class ClaudeCodeUsageExtension {
           this.codexWorkerLease = ownedWorkerLease;
           this.codexWorkerCancellationRequested = false;
         }
+        let achievementObservation: Awaited<ReturnType<UsageWebviewProvider['beginCodexAchievementObservation']>>;
+        // No worker has started while this optional bounded receipt read waits.
+        // Retirement here may release the registered-but-unused ownership.
+        workerStoppedSafely = true;
+        try {
+          achievementObservation = await this.webviewProvider.beginCodexAchievementObservation?.(ownsCurrentSource);
+        } catch { /* Optional achievement receipt failure never stops indexing. */ }
+        if (!ownsCurrentSource()) return;
+        workerStoppedSafely = false;
         const result = await provider.refresh(
           workerMode,
           (progress) => { if (ownsCurrentSource()) this.onCodexIndexProgress(progress, trigger); },
           historicalAttempt,
+          achievementObservation?.window,
         );
         workerStoppedSafely = true;
         if (!ownsCurrentSource()) {
@@ -3316,6 +3328,8 @@ export class ClaudeCodeUsageExtension {
           // its checkpoint too. It is not evidence that the failed work resumed
           // or succeeded, and cannot clear the stale-data marker/time.
           this.recordRefreshState('codex', false, trigger);
+          this.tryProviderUiUpdate(() => this.webviewProvider.acceptCodexAchievementSnapshot?.(
+            this.codexView, this.codexAchievementSignals, achievementObservation, result.achievementUsageDelta));
         } else {
           this.recordRefreshState('codex', true, trigger);
         }
@@ -3587,6 +3601,7 @@ export class ClaudeCodeUsageExtension {
     }
     if (key && ClaudeCodeUsageExtension.DASHBOARD_ONLY_SETTINGS.has(key)) {
       if (key === 'enableAchievements') {
+        this.webviewProvider.retireAchievementUsageObservations?.();
         if (this.getConfiguration().enableAchievements === false) {
           this.codexAchievementRevision = undefined;
           this.codexAchievementSignals = EMPTY_CODEX_ACHIEVEMENT_SIGNALS;

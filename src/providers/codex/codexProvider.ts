@@ -43,6 +43,8 @@ import {
   safeCodexIndexErrorCode,
 } from './codexWorkerProtocol';
 import { CodexSessionTitleCache } from './codexIdentity';
+import { CodexAchievementUsageDelta, CodexAchievementUsageWindow,
+  copyCodexUsageWindow, copyCodexUsageDelta } from './codexAchievementOrigin';
 import { classifyCodexSessionDuplicates } from './codexDedup';
 import {
   equivalentUsageFromProviderTokens,
@@ -93,6 +95,8 @@ export interface CodexProviderResult {
   failureCode?: CodexProviderFailureCode;
   snapshot: CodexProviderSnapshot;
   progress?: CodexIndexProgress;
+  /** Runtime-only proof for this caller's accepted observation window. */
+  achievementUsageDelta?: CodexAchievementUsageDelta;
   diagnostic?: {
     bodyReads: number;
     failedFiles: number;
@@ -476,7 +480,9 @@ export class CodexProvider {
     profile: 'background' | 'foreground' = 'background',
     onProgress?: (progress: CodexIndexProgress) => void,
     allowHistoricalBackfill: boolean = true,
+    achievementUsageWindow?: CodexAchievementUsageWindow,
   ): Promise<CodexProviderResult> {
+    const usageWindow = copyCodexUsageWindow(achievementUsageWindow);
     if (this.disposed) {
       return {
         outcome: 'unavailable',
@@ -503,6 +509,7 @@ export class CodexProvider {
           profile,
           allowHistoricalBackfill,
           allowAchievementHourProof: this.options.allowAchievementHourProof !== false,
+          achievementUsageWindow: usageWindow,
         },
         (progress) => {
           this.lastProgress = progress;
@@ -537,6 +544,8 @@ export class CodexProvider {
         outcome,
         snapshot: this.currentSnapshot,
         progress: this.lastProgress,
+        achievementUsageDelta: result.failedFiles === 0 && result.index.coverage.complete
+          ? copyCodexUsageDelta(result.achievementUsageDelta, usageWindow) : undefined,
         diagnostic: {
           bodyReads: result.bodyReads,
           failedFiles: result.failedFiles,

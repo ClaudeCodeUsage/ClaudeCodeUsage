@@ -182,6 +182,10 @@ real account or an installed-VSIX capture.*
 
 ## Local achievements (candidate)
 
+Proven new Codex Token tier crossings save unread first-record days even when
+dashboard updates are paused. Imports stay quiet; Claude and non-Token live
+awards still await their own origin integration.
+
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.
 Concurrent windows merge awards; clearing retains an empty fence against stale writes.

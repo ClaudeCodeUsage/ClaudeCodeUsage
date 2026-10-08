@@ -188,10 +188,15 @@ The extension-owned ledger contains only the following validated fields:
   thirty-row record projection without deleting awards. Dates are first-record
   days in their saved zones, not inferred attainment dates. Old records explicitly
   retain unknown dates; ordinary browsing is not a read ACK or sharing consent.
-  Audited old awards migrate quietly with unknown dates; current usage
-  reconciliation likewise stays quiet until new source activity can be proved.
-  Only a newly crossed, successfully saved local action records its first-record
-  day—not the inferred original achievement time. No action timeline is retained.
+  Audited old awards migrate quietly with unknown dates. Verified Codex Token
+  crossings and newly crossed, saved local actions retain unread first-record
+  days—not inferred original attainment times. Other usage reconciliation stays
+  quiet until its own new source activity can be proved. Codex observation windows,
+  fixed numeric deltas and retry receipts exist only in bounded runtime memory;
+  no new source identity or timeline is stored. Only late history recorded after
+  the observation's canonical sequence can be replaced by proven live origin;
+  pre-existing history is not rewritten. Retired/disabled/cleared sources discard
+  pending proof. No action timeline is retained.
   Transactions merge the latest bytes under a cross-process lease, with flushed
   private temporary files and atomic rename. Missing-state initialization waits
   for legacy audits and does not run while OFF. Unknown/future/malformed/oversized

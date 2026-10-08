@@ -278,6 +278,30 @@ export class AchievementRecordRepository {
     const result = await this.mutate(generation, guard, store => appendRecords(store, drafts));
     return { store: result.store, added: result.value };
   }
+  /** The host supplies exact producer-proven crossings and the canonical sequence
+   * accepted BEFORE observing that growth. Only later peer history can be repaired;
+   * established history/existing/activity/usage records are never redated. */
+  async recordUsage(generation: number, baselineSequence: number, values: readonly AchievementId[],
+    recording: { recordedDay: string; timeZone: string }, guard: WriteGuard = () => true): Promise<{
+      store: AchievementRecordStore; added: AchievementRecord[];
+    }> {
+    if (!integer(baselineSequence)) return invalid();
+    const selection = recordIds(values);
+    if (selection.some(id => ACHIEVEMENT_DEFINITIONS.find(row => row.id === id)?.group === 'plugin')) return invalid();
+    const stamp = object(recording, ['recordedDay', 'timeZone']);
+    if (!validDay(stamp.recordedDay) || !validZone(stamp.timeZone)) return invalid();
+    const drafts = selection.map(id => draft({ id, origin: 'usage',
+      recordedDay: stamp.recordedDay, timeZone: stamp.timeZone }));
+    const result = await this.mutate(generation, guard, store => {
+      if (baselineSequence > store.sequence) return invalid();
+      const repair = new Set(selection);
+      store.records = store.records.filter(row => !(repair.has(row.id) &&
+        row.origin === 'history' && row.seq > baselineSequence));
+      // Reissued sequence also fences ACKs issued for the preempting history.
+      return appendRecords(store, drafts);
+    });
+    return { store: result.store, added: result.value };
+  }
   async acknowledge(generation: number, sequence: number, guard: WriteGuard = () => true): Promise<AchievementRecordStore> {
     return (await this.mutate(generation, guard, store => {
       if (!integer(sequence) || sequence > store.sequence) return invalid();

@@ -380,8 +380,8 @@ persisted, and no additional body read or timer is introduced. The rule helper
 uses the existing formal targets and requires these additions to be sufficient
 against the previous progress and necessary against the new progress, per exact
 level; calendar/session/agent rules are not inferred from volume. This foundation
-is not yet wired to accepted host windows or atomic usage awards;
-production usage grants remain quiet history with unknown dates until that
+is not yet wired to accepted Claude host windows or atomic usage awards;
+Claude usage grants remain quiet history with unknown dates until that
 handoff and its source/clear/shared-lease guards are completed.
 
 Codex now has the corresponding producer/worker foundation. Only established
@@ -399,8 +399,22 @@ cannot supply it. Final atomic-save failure never delivers a successful result.
 Proof is ephemeral and warm zero-body refreshes never replay it. The per-level
 helper uses existing approved targets with the same necessary-and-sufficient
 volume test; it does not infer calendar, effort breadth, sessions or agent awards.
-Accepted host windows, non-rendering handoff and shared atomic usage-award writes
-remain pending; this is not yet a production usage-notification claim.
+The Codex facade copies the window before asynchronous work and returns only
+matching successful proof. Before each observation the webview owner rereads the
+canonical award generation/sequence under the shared lease. The extension hands
+off accepted snapshots without rendering, including when dashboard updates are
+paused. Separate accepted references feed the evaluator without changing the
+displayed snapshot. Source, setting, timezone, clear and disposal guards retire
+proof; an unrelated Claude failure cannot erase sound Codex additions. The fixed
+Token crossing set commits first-record day/zone and unread state through
+`recordUsage`. Only selected history rows written after the accepted baseline
+sequence may be superseded; older history, action provenance and existing usage
+remain unchanged. Superseding advances sequence, fencing old display ACKs.
+Failed writes retain at most the catalog's ID count of runtime receipts for an
+ordinary-refresh retry; retired receipts release their source guards. No new
+index fields, body reads, watcher or timer are added. Foreground notice delivery
+uses the existing shared cooldown and ACK guards. Claude and non-Token live
+rules still reconcile quietly until their own origin integration is complete.
 
 Plugin-action provenance compares the committed before/after activity ledger
 through the canonical rule evaluator. Only newly crossed plugin targets enter
@@ -425,8 +439,9 @@ closed until reload. Action/hour/calendar writes check their adopted generation.
 Unknown, future, oversized or symlink inputs remain untouched and do not fall
 back to a legacy grant mirror. Disabled achievements do not initialize the file.
 Actual saved local actions retain unread records even when hidden or delivery
-fails. Usage awards currently reconcile quietly with unknown dates: ready-domain
-growth alone does not establish producer-origin evidence. The envelope also owns
+fails. Proven Codex Token crossings also save unread first-record days; other
+usage awards reconcile quietly with unknown dates. Ready-domain growth alone
+does not establish producer-origin evidence. The envelope also owns
 the existing bounded activity/hour/calendar proof: activity unions the 29 safe
 keys/four enums, hours retain a maximum ≤48, and calendar maxima merge only within
 the same measurement context. Legacy auxiliary Memento entries are migration
@@ -445,7 +460,7 @@ issued sequence. Other or later unread records survive. False/rejected/slow deli
 does not block award writes or clear. The client confirms only after visible insertion,
 without focus theft, and pauses its six-second dismissal during hover/keyboard use.
 Lost batches never replay as live notices. A foreground unread summary now provides
-explicit bounded confirmation; producer-origin usage remains pending. Sharing
+explicit bounded confirmation; Claude and non-Token live origin remain pending. Sharing
 consent is still explicit.
 
 `achievementOverview.ts` now prepares read-only record projections: at most three

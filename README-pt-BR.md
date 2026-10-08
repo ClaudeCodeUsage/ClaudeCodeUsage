@@ -55,6 +55,10 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Conquistas locais (candidato)
 
+Novos níveis de Token do Codex comprovados guardam estado não lido e dia do
+primeiro registro mesmo com o painel pausado. Importações históricas ficam
+silenciosas; a integração da origem para Claude e outros prêmios ao vivo ainda está pendente.
+
 O registro local é limitado a 64 KiB. Datas antigas continuam desconhecidas;
 novas ações salvas mantêm o estado não lido e o dia do primeiro registro mesmo
 sem aviso. Janelas mesclam conquistas; a limpeza deixa uma barreira de geração vazia contra gravações antigas.

@@ -16,6 +16,94 @@ async function withStore(run: (file: string) => Promise<void>): Promise<void> {
   finally { await rm(directory, { recursive: true, force: true }); }
 }
 const local = (id = 'local-share-export') => ({ id, origin: 'activity', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' });
+const recording = { recordedDay: '2026-10-09', timeZone: 'UTC' };
+
+test('usage transaction repairs only peer history written after its accepted baseline', async () => {
+  await withStore(async file => {
+    const api = storeApi();
+    const host = new api.AchievementRecordRepository(file), peer = new api.AchievementRecordRepository(file);
+    const initial = await host.initialize(['hundred-million-club']);
+    await peer.append(initial.generation, [
+      { id: 'astra-regular', origin: 'history', recordedDay: null, timeZone: null },
+      { id: 'astra-regular-silver', origin: 'history', recordedDay: null, timeZone: null },
+    ]);
+    const accepted = await host.recordUsage(initial.generation, initial.sequence,
+      ['hundred-million-club', 'astra-regular-silver', 'sol-regular'], recording);
+    assert.deepEqual(accepted.added.map((row: any) => row.id), ['astra-regular-silver', 'sol-regular']);
+    const saved = api.parseAchievementRecordStore(await api.loadAchievementRecords(file));
+    assert.deepEqual(saved.records.map((row: any) => [row.id, row.origin, row.seq, row.unread]), [
+      ['hundred-million-club', 'existing', 1, false], ['astra-regular', 'history', 2, false],
+      ['astra-regular-silver', 'usage', 4, true], ['sol-regular', 'usage', 5, true],
+    ]);
+    assert.equal(saved.records[2].recordedDay, recording.recordedDay);
+    await host.acknowledgeRecords(initial.generation, 3, ['astra-regular-silver']);
+    assert.equal((await api.loadAchievementRecords(file)).records[2].unread, true, 'old receipt cannot read promoted usage');
+    const again = await peer.recordUsage(initial.generation, initial.sequence, ['astra-regular-silver'], recording);
+    assert.equal(again.added.length, 0, 'duplicate producer receipt is idempotent');
+  });
+});
+
+test('usage transaction does not rewrite history already present at baseline or activity provenance', async () => {
+  await withStore(async file => {
+    const api = storeApi(), host = new api.AchievementRecordRepository(file);
+    const initial = await host.initialize([]);
+    const baseline = (await host.append(initial.generation, [
+      { id: 'astra-regular', origin: 'history', recordedDay: null, timeZone: null }, local(),
+    ])).store;
+    const bytes = await readFile(file, 'utf8');
+    assert.equal((await host.recordUsage(initial.generation, baseline.sequence, ['astra-regular'], recording)).added.length, 0);
+    assert.equal(await readFile(file, 'utf8'), bytes);
+    for (const args of [[-1, ['sol-regular']], [baseline.sequence + 1, ['sol-regular']],
+      [0, ['sol-regular', 'sol-regular']], [0, ['local-share-export']], [0, ['private-canary']]]) {
+      await assert.rejects(host.recordUsage(initial.generation, args[0], args[1], recording), /invalid/);
+      assert.equal(await readFile(file, 'utf8'), bytes);
+    }
+  });
+});
+
+test('usage proof waits under the real shared lease and OFF or clear retires it', async () => {
+  await withStore(async file => {
+    const api = storeApi(), host = new api.AchievementRecordRepository(file);
+    const initial = await host.initialize([]);
+    const bytes = await readFile(file, 'utf8');
+    const lease = await acquireCodexIndexLease(file);
+    let enabled = true;
+    try {
+      const pending = host.recordUsage(initial.generation, initial.sequence, ['astra-regular-silver'], recording, () => enabled);
+      const rejected = assert.rejects(pending, /cancelled/);
+      enabled = false;
+      await rejected;
+    } finally { await lease.release(); }
+    assert.equal(await readFile(file, 'utf8'), bytes);
+    await host.clear();
+    await assert.rejects(host.recordUsage(initial.generation, initial.sequence, ['astra-regular-silver'], recording), /generation/);
+  });
+});
+
+test('separate processes cannot preempt proven usage with late quiet reconciliation', async () => {
+  await withStore(async file => {
+    const api = storeApi(), host = new api.AchievementRecordRepository(file);
+    const initial = await host.initialize([]);
+    const run = (usage: boolean): Promise<void> => new Promise((resolve, reject) => {
+      const source = `const {AchievementRecordRepository}=require(process.argv[1]);
+        (async()=>{const r=new AchievementRecordRepository(process.argv[2]);
+        if(process.argv[3]==='usage')await r.recordUsage(1,0,['astra-regular-silver'],{recordedDay:'2026-10-09',timeZone:'UTC'});
+        else await r.append(1,[{id:'astra-regular-silver',origin:'history',recordedDay:null,timeZone:null}]);})()
+        .catch(()=>{process.exitCode=1;});`;
+      const child = spawn(process.execPath, ['-e', source, require.resolve('../achievementRecordStore'), file,
+        usage ? 'usage' : 'history'], { stdio: 'ignore' });
+      child.on('error', reject);
+      child.on('exit', code => code === 0 ? resolve() : reject(new Error('fixture child failed')));
+    });
+    await run(false);
+    await Promise.all([run(true), run(true), run(false)]);
+    const saved = await api.loadAchievementRecords(file);
+    assert.equal(saved.records.length, 1);
+    assert.equal(saved.records[0].origin, 'usage');
+    assert.equal(saved.records[0].unread, true);
+    assert.equal(saved.sequence, initial.sequence + 2);
+  });
+});
 
 test('pin actions merge concurrent hosts, are idempotent and preserve the three-slot bound', async () => {
   await withStore(async file => {
