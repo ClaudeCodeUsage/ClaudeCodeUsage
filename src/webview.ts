@@ -54,6 +54,8 @@ import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
 import { AchievementSharePreview, highestEarnedAchievements, renderAchievementShareSvg, selectShareAchievements } from './achievementShare';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
+import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
+  AchievementNoticeBaseline } from './achievementEvidence';
 import {
   AchievementActivity,
   AchievementFeature,
@@ -1026,7 +1028,8 @@ export class UsageWebviewProvider {
   private achievementPersistenceEpoch = 0;
   private usageAchievementEvidenceEpoch = 0;
   private revokedAchievementEvidence = new Set<SettingProvider>();
-  private achievementNoticeBaselineReady = false;
+  private readonly achievementNoticeBaseline = new AchievementNoticeBaseline();
+  private achievementEvidenceStates?: AchievementEvidenceStates;
   private clearingAchievements = false;
   private achievementWrite: Promise<unknown> = Promise.resolve();
   private achievementActivity: AchievementActivity = emptyAchievementActivity();
@@ -2963,7 +2966,7 @@ export class UsageWebviewProvider {
 
   /** Drop every source-owned artifact before a replacement source is verified. */
   clearClaudeSource(): void {
-    this.achievementNoticeBaselineReady = false;
+    this.achievementNoticeBaseline.reset();
     this.usageLimits = null;
     this.claudeWeeklyQuotaHistory = [];
     this.invalidatePreparedAiRequests();
@@ -2999,7 +3002,7 @@ export class UsageWebviewProvider {
     achievementTimeZone?: string,
   ): void {
     if (achievementTimeZone && this.achievementCalendarTimeZone &&
-        achievementTimeZone !== this.achievementCalendarTimeZone) this.achievementNoticeBaselineReady = false;
+        achievementTimeZone !== this.achievementCalendarTimeZone) this.achievementNoticeBaseline.reset();
     if (error) this.invalidateAchievementEvidence('claude');
     else if (this.revokedAchievementEvidence.delete('claude')) this.achievementHourCache = undefined;
     this.currentSessionData = sessionData;
@@ -3059,7 +3062,7 @@ export class UsageWebviewProvider {
     if ((this.codexView && !codexView) ||
         (codexView && this.codexView &&
           codexView.periodCoverage.timeZone !== this.codexView.periodCoverage.timeZone) ||
-        !this.setting<boolean>('enableAchievements', true)) this.achievementNoticeBaselineReady = false;
+        !this.setting<boolean>('enableAchievements', true)) this.achievementNoticeBaseline.reset();
     if (!awardEvidenceCurrent) this.invalidateAchievementEvidence('codex');
     else if (codexView?.currentManifestVerified === true && this.revokedAchievementEvidence.delete('codex')) {
       this.achievementHourCache = undefined;
@@ -3113,6 +3116,9 @@ export class UsageWebviewProvider {
   invalidateAchievementEvidence(provider: SettingProvider): void {
     if (this.revokedAchievementEvidence.has(provider)) return;
     this.revokedAchievementEvidence.add(provider);
+    this.achievementNoticeBaseline.reset(provider === 'claude'
+      ? ['claude-usage', 'claude-calendar', 'combined-usage', 'combined-calendar', 'hours']
+      : ['codex-lineage', 'codex-tokens', 'codex-calendar', 'combined-usage', 'combined-calendar', 'hours']);
     this.usageAchievementEvidenceEpoch += 1;
     this.pendingAchievementGrants.clear();
     this.pendingAchievementNotice.clear();
@@ -3989,10 +3995,10 @@ export class UsageWebviewProvider {
 
   private achievementResults(): AchievementResult[] {
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true)) {
-      this.achievementNoticeBaselineReady = false;
+      this.achievementNoticeBaseline.reset();
+      this.achievementEvidenceStates = undefined;
       return [];
     }
-    const notifyNewProgress = this.achievementNoticeBaselineReady;
     const hours = this.achievementHourSignals();
     const claude = this.revokedAchievementEvidence.has('claude') ? null : this.allTimeData;
     const claudeTokens = claude
@@ -4114,6 +4120,27 @@ export class UsageWebviewProvider {
         sessions: this.sessionBreakdown, evidence: this.achievementSessionEvidence, value: fable,
       };
     }
+    const state = (provider: SettingProvider, complete: boolean): AchievementEvidenceState =>
+      this.revokedAchievementEvidence.has(provider) ? 'stale' : complete ? 'ready' : 'pending';
+    const hasProvider = this.providerAvailability.claude || this.providerAvailability.codex;
+    const combinedStale = (this.providerAvailability.claude && this.revokedAchievementEvidence.has('claude')) ||
+      (this.providerAvailability.codex && this.revokedAchievementEvidence.has('codex'));
+    const hourMigrationSettled = !this.providerAvailability.codex ||
+      this.codexView?.outputHourProof?.complete === true ||
+      this.codexView?.outputHourProof?.backfillableFiles === 0;
+    this.achievementEvidenceStates = {
+      'claude-usage': state('claude', !!claude),
+      'codex-lineage': state('codex', codexSubsetTrusted),
+      'codex-tokens': state('codex', tokenEvidence?.complete === true),
+      'claude-calendar': state('claude', claudeComplete),
+      'codex-calendar': state('codex', codexComplete),
+      'combined-usage': combinedStale ? 'stale' : (claude || codexSubsetTrusted ||
+        this.codexAchievementVolume().processed > 0) ? 'ready' : 'pending',
+      'combined-calendar': combinedStale ? 'stale' : hasProvider && claudeComplete && codexComplete ? 'ready' : 'pending',
+      hours: combinedStale ? 'stale' : hasProvider && claudeComplete && hourMigrationSettled ? 'ready' : 'pending',
+      plugin: 'ready',
+    };
+    const notifyDomains = this.achievementNoticeBaseline.accept(this.achievementEvidenceStates);
     const results = evaluateAchievements({
       claudeTokens,
       claudeOutputTokens: claude?.totalOutputTokens ?? 0,
@@ -4141,21 +4168,22 @@ export class UsageWebviewProvider {
       result.unlocked && !this.achievementGrants.has(result.id) &&
       !this.pendingAchievementGrants.has(result.id),
     );
-    // Existing logs are not newly completed work. Wait for the first current,
-    // complete provider baseline (including any dedicated hour migration)
-    // before allowing later increments to create a notice.
-    const hourMigrationSettled = !this.providerAvailability.codex ||
-      this.codexView?.outputHourProof?.complete === true ||
-      this.codexView?.outputHourProof?.backfillableFiles === 0;
-    if ((this.providerAvailability.claude || this.providerAvailability.codex) &&
-        claudeComplete && codexComplete && hourMigrationSettled) {
-      this.achievementNoticeBaselineReady = true;
+    // Calibration silences the first reconciliation, not future levels for
+    // the entire Extension Host lifetime. Retire only a ready, quiet domain's
+    // usage rechecks; explicit local-action provenance is handled separately.
+    for (const result of results) {
+      const domain = achievementEvidenceDomain(result);
+      if (domain !== 'plugin' && this.achievementEvidenceStates[domain] === 'ready' && !notifyDomains.has(domain)) {
+        this.silentAchievementRechecks.delete(result.id);
+      }
     }
+    // Each proof domain establishes its own quiet history baseline. A pending
+    // calendar/hour migration cannot silence independently verified Tokens.
     if (newlyEarned.length > 0 && this.context.globalState) {
       const ids = newlyEarned.map((result) => result.id);
       // Deliberate plugin actions remain newly observed even without a usage
       // corpus; only imported usage milestones wait for the quiet baseline.
-      const noticeIds = newlyEarned.filter(result => notifyNewProgress || result.group === 'plugin')
+      const noticeIds = newlyEarned.filter(result => notifyDomains.has(achievementEvidenceDomain(result)) || result.group === 'plugin')
         .map(result => result.id);
       const epoch = this.achievementPersistenceEpoch;
       const evidenceEpoch = this.usageAchievementEvidenceEpoch;
@@ -4180,6 +4208,7 @@ export class UsageWebviewProvider {
           this.dispatchAchievementNotice();
         } catch {
           // No optimistic grant or notice survives a failed durable write.
+          this.achievementNoticeBaseline.reset();
         } finally {
           if (epoch === this.achievementPersistenceEpoch && evidenceEpoch === this.usageAchievementEvidenceEpoch) {
             for (const id of ids) this.pendingAchievementGrants.delete(id);
@@ -4229,7 +4258,7 @@ export class UsageWebviewProvider {
     let cleared = false;
     this.clearingAchievements = true;
     this.achievementPersistenceEpoch += 1;
-    this.achievementNoticeBaselineReady = false;
+    this.achievementNoticeBaseline.reset();
     this.pendingAchievementNotice.clear();
     this.pendingAchievementGrants.clear();
     this.acceptedAchievementPreview.clear();
@@ -4444,6 +4473,9 @@ export class UsageWebviewProvider {
       hasNextTier, tier }: typeof presentation[number]): string => {
       const earned = series ? earnedTiers > 0 : result.unlocked || this.achievementGrants.has(result.id);
       const targetUnlocked = nextResult.unlocked || this.achievementGrants.has(nextResult.id);
+      const evidenceState = this.achievementEvidenceStates?.[achievementEvidenceDomain(nextResult)] ?? 'ready';
+      const proofReady = evidenceState === 'ready';
+      const proofLabel = evidenceState === 'stale' ? copy.evidenceStale : copy.evidencePending;
       const progress = Math.min(nextResult.target, targetUnlocked ? nextResult.target : nextResult.progress);
       const formatted = compact(progress) + ' / ' + compact(nextResult.target);
       const exactProgress = integer(progress) + ' / ' + integer(nextResult.target);
@@ -4460,7 +4492,7 @@ export class UsageWebviewProvider {
           }
         }
       }
-      const bound = cumulativeLowerBound && (cumulativeVolume || result.group === 'codex') ? '≥' : '';
+      const bound = proofReady && cumulativeLowerBound && (cumulativeVolume || result.group === 'codex') ? '≥' : '';
       const levelName = series && earnedTiers > 0
         ? copy.levels[tierOrder.indexOf(tier)] : earned ? copy.milestone : copy.locked;
       const webview = this.panel?.webview;
@@ -4490,27 +4522,32 @@ export class UsageWebviewProvider {
           this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span></li>').join('');
       return '<article class="achievement-card ' + (earned ? 'earned' : 'locked') +
         '"' + seriesAttrs + ' data-achievement-key="' + key + '" data-achievement-earned="' + earned +
-        '" data-achievement-next="' + next + '" data-achievement-id="' + result.id + '">' +
+        '" data-achievement-next="' + (next && proofReady) + '" data-achievement-proof="' + evidenceState +
+        '" data-achievement-id="' + result.id + '">' +
         '<details class="achievement-disclosure" data-persist="achievement:' + key + '"' +
         ' data-persist-aliases="' + (tiers ?? [result]).map(entry => 'achievement:' + entry.id).join(' ') + '">' +
-        '<summary aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' + bound + formatted + ' ' +
-          unitFor(result.id) + (series ? ' · ' + earnedTiers + '/' + tierCount : '')) + '">' +
+        '<summary aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' +
+          (proofReady ? bound + formatted + ' ' + unitFor(result.id) : proofLabel) +
+          (series ? ' · ' + earnedTiers + '/' + tierCount : '')) + '">' +
         '<span class="achievement-emblem" aria-hidden="true">' +
         '<img data-achievement-icon="' + result.id + '" data-achievement-artwork="' +
         this.escapeHtml(ACHIEVEMENT_IMAGE_FILES[result.id]) + '" src="' + this.escapeHtml(iconSrc) +
         '" alt="" loading="lazy"></span>' +
         '<h4>' + this.escapeHtml(baseName) + '</h4>' +
         (earned ? '<span class="achievement-rank">' + this.escapeHtml(levelName) + '</span>' : '') +
-        tierPips + '<span class="achievement-next-target">' + this.escapeHtml(next
+        tierPips + '<span class="achievement-next-target">' + this.escapeHtml(!proofReady && next ? proofLabel : next
           ? (series ? copy.nextTarget + ' · ' + compactTarget : copy.milestone) : copy.complete) + '</span></summary>' +
         '<div class="achievement-card-detail">' + tierMarkers +
+        (proofReady ?
         '<label class="achievement-progress-label" for="achievement-progress-' + result.id +
         '" title="' + this.escapeHtml(bound + exactProgress + ' ' + unitFor(result.id)) + '">' +
         this.escapeHtml((series && earnedTiers > 0 && hasNextTier ? copy.nextTarget + ': ' : '') + bound +
           formatted + ' ' + unitFor(result.id)) + '</label>' +
         '<progress id="achievement-progress-' + result.id + '" max="' + nextResult.target +
         '" value="' + progress + '" aria-valuetext="' + this.escapeHtml(bound + exactProgress +
-          ' ' + unitFor(result.id)) + '"></progress><h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
+          ' ' + unitFor(result.id)) + '"></progress>' :
+          '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p>') +
+        '<h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
         '<ol class="achievement-level-rules">' + levelRules + '</ol></div></details></article>';
     };
     const groups: Array<'claude' | 'codex' | 'combined' | 'plugin'> =
@@ -12310,6 +12347,7 @@ export class UsageWebviewProvider {
       .achievement-evidence-note { color: var(--vscode-descriptionForeground); font-size: .85rem; }
       .achievement-evidence-note > summary { cursor: pointer; }
       .achievement-evidence-note > p { margin-top: 6px; }
+      .achievement-proof-status { color: var(--vscode-descriptionForeground); font-size: .8rem; }
       .achievement-intro .achievement-count { margin-top: 8px; color: var(--vscode-foreground); font-weight: 650; }
       .achievement-actions, .achievement-filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .achievement-filter-toolbar { color: var(--vscode-descriptionForeground); }

@@ -17,7 +17,14 @@ test('integer-only progress and folded evidence stay keyboard-accessible without
   await expect(disclosure).not.toHaveAttribute('open');
   for (const summary of await page.locator('.achievement-disclosure > summary').all()) await summary.click();
   const progress = await page.locator('.achievement-progress-label').allTextContents();
-  expect(progress.length).toBe(46);
+  const verified = page.locator('.achievement-card[data-achievement-proof="ready"]');
+  const pending = page.locator('.achievement-card[data-achievement-proof="pending"]');
+  expect(progress.length).toBe(await verified.count());
+  expect(await pending.count()).toBeGreaterThan(0);
+  await expect(pending.locator('progress,.achievement-progress-label')).toHaveCount(0);
+  for (const summary of await pending.locator('summary').all()) {
+    await expect(summary).toHaveAttribute('aria-label', /Evidence pending/);
+  }
   for (const text of progress) expect(text).not.toMatch(/\d+[.,]\d+[kMBT]/);
   await expect(page.locator('.achievement-state')).toHaveCount(0);
   const messages = await page.evaluate(() => window.__ccuPostedMessages);
@@ -61,7 +68,7 @@ test('a gallery settings shortcut focuses the existing opt-out without changing 
 test('a tier update keeps its series disclosure, filter, card order and keyboard focus', async ({ page }) => {
   await openCodex(page);
   await page.locator('#tab-achievements').click();
-  await page.locator('#achievementFilter').selectOption('next');
+  await page.locator('#achievementFilter').selectOption('all');
   const card = page.locator('[data-achievement-series="astra-regular"]');
   await card.locator('summary').click();
   await card.locator('summary').focus();
@@ -83,11 +90,11 @@ test('a tier update keeps its series disclosure, filter, card order and keyboard
     message.command === 'dashboardDataPatchAck' && message.revision === 1 && message.ok))).toBe(true);
   await expect(card.locator('details')).toHaveAttribute('open');
   await expect(card.locator('summary')).toBeFocused();
-  await expect(page.locator('#achievementFilter')).toHaveValue('next');
+  await expect(page.locator('#achievementFilter')).toHaveValue('all');
   expect(await page.locator('.achievement-card').evaluateAll(cards => cards.map(card => card.dataset.achievementKey))).toEqual(order);
   await page.reload();
   await expect(card.locator('details')).toHaveAttribute('open');
-  await expect(page.locator('#achievementFilter')).toHaveValue('next');
+  await expect(page.locator('#achievementFilter')).toHaveValue('all');
 });
 
 test('closing a disclosure restored from an old level key remains closed after reload', async ({ page }) => {

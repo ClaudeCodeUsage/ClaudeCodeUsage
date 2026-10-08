@@ -71,6 +71,8 @@ Astra/Sol/Luna progression is primarily token-based; effort, agents, active days
 cache/output, and a few deliberate plugin actions add variety.
 Each series has distinct artwork, with one emblem shared by its colored tiers.
 Achievement numbers use integers; detailed conditions and data caveats stay expandable.
+Pending or outdated evidence is labelled, not shown as zero progress, and excluded
+from Next level filtering; earned badges remain saved.
 
 Cumulative processed tokens use one series: **100M → 1B → 10B → 100B → 1T**.
 Calendar-week peaks use **500M / 2B / 10B**; the highest average across four

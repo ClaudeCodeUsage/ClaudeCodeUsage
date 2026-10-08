@@ -51,7 +51,8 @@ test('achievements are on by default and remain selected after reload', async ({
 test('gallery leads with artwork and reveals numeric progress on demand', async ({ page }) => {
   await openCodex(page, { theme: 'dark' });
   await page.locator('#tab-achievements').click();
-  const tile = page.locator('[data-achievement-series="astra-regular"]');
+  const tile = page.locator('.achievement-card[data-achievement-proof="ready"]').first();
+  const series = await tile.getAttribute('data-achievement-series');
   const detail = tile.locator('details[data-persist]');
   const icon = tile.locator('img[data-achievement-icon]');
   await expect(detail).not.toHaveAttribute('open');
@@ -61,7 +62,7 @@ test('gallery leads with artwork and reveals numeric progress on demand', async 
   await expect(detail).toHaveAttribute('open');
   await expect(tile.locator('.achievement-progress-label')).toBeVisible();
   await page.reload();
-  await expect(page.locator('[data-achievement-series="astra-regular"] details')).toHaveAttribute('open');
+  await expect(page.locator(`[data-achievement-series="${series}"] details`)).toHaveAttribute('open');
 });
 
 test('turning achievements off removes its tab and setting remains available', async ({ page }) => {

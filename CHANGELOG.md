@@ -26,6 +26,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
+- **Unknown progress is not zero** — pending/outdated evidence is visible on the
+  badge and excluded from Next filtering, without deleting earned tiers. Independent
+  quiet baselines prevent incomplete calendar proof from suppressing later verified
+  Token upgrades; migration rechecks no longer silence all future usage levels.
 - **Proof changes without chart refreshes** — refreshed Codex period lineage
   evidence and effort validation now reach achievements even when chart data is
   identical. Display-only changes reuse proof; disabling achievements skips this

@@ -190,6 +190,8 @@ Next level / Earned filters survive reload; upgrading a tier keeps its disclosur
 It records usage experience, not skill, productivity, billing or account entitlement.
 Each series has distinct artwork; tiers share that emblem and use level colors.
 Achievement numbers use integers. Rules and data caveats are available on demand.
+Pending or outdated evidence is labelled, not shown as zero progress, and excluded
+from Next level filtering; earned badges remain saved.
 
 - **Token-led progression:** Claude Sonnet/Opus/Haiku/Fable and Codex Astra/Sol/Luna,
   output, cache, model/effort exploration, agents, active days and repeat experiences.

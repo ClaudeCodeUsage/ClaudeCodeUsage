@@ -63,6 +63,7 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 Kandidat 2.4.2 yang belum dirilis berfokus pada ikon: 46 seri dan 124 kondisi tingkat, meliputi token model,
 output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
 Setiap seri memiliki gambar berbeda, dipakai bersama oleh tingkatnya dengan warna tingkat. Angka hanya bilangan bulat; batas data dapat dibuka.
+Bukti belum lengkap atau kedaluwarsa ditandai, bukan dianggap progres nol, dan dikecualikan dari target berikutnya; lencana yang diperoleh tetap tersimpan.
 Setelah indeks terkini lengkap, silsilah Codex tanpa konflik dapat membuktikan tonggak token/agen; pencapaian kalender tetap memerlukan verifikasi identitas dan tanggal lengkap.
 Seri dan tingkat dihitung terpisah. Filter lokal bertahan setelah muat ulang;
 target berikutnya tampil di kartu, semua aturan tingkat ada di bagian yang dapat dibuka.

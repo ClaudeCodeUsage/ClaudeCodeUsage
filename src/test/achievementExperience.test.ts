@@ -57,6 +57,27 @@ test('all displayed level requirements carry a unit or a qualified condition', a
   });
 });
 
+test('missing and stale proof are not zero progress, while an earned badge remains earned', async () => {
+  await gallery(provider => {
+    provider.achievementEvidenceStates = { 'codex-calendar': 'pending', 'codex-lineage': 'ready' };
+    provider.achievementGrants = new Set(['astra-days-bronze']);
+    const card = () => provider.renderAchievementData()
+      .match(/<article[^>]*data-achievement-series="astra-days"[\s\S]*?<\/article>/)![0];
+    const pending = card();
+    assert.match(pending, /data-achievement-earned="true"/);
+    assert.match(pending, /data-achievement-proof="pending"/);
+    assert.match(pending, /Evidence pending/);
+    assert.doesNotMatch(pending, /<progress|0 \/ 30|class="achievement-progress-label"/);
+    assert.match(pending, /data-achievement-next="false"/);
+    provider.achievementEvidenceStates['codex-calendar'] = 'stale';
+    const stale = card();
+    assert.match(stale, /data-achievement-earned="true"/);
+    assert.match(stale, /data-achievement-proof="stale"/);
+    assert.match(stale, /Evidence outdated/);
+    assert.doesNotMatch(stale, /<progress/);
+  });
+});
+
 test('a compact number cannot make unfinished progress look equal to its target', async () => {
   await gallery(provider => {
     provider.achievementGrants = new Set(['hundred-million-club']);

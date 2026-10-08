@@ -336,6 +336,16 @@ integer progress remains in tooltips and accessibility text. Detailed data cavea
 are in a persisted, initially collapsed disclosure. Embedded export images are
 cached by filename rather than repeated for every tier ID.
 
+`achievementEvidence.ts` classifies rules into nine independent runtime evidence
+domains. Ready, pending and stale proof is separate from saved award identity:
+pending/stale cards retain earned tiers but omit numeric progress and are excluded
+from Next filtering. Each domain establishes a quiet baseline on first/recovered
+proof; incomplete calendar proof does not suppress subsequent verified Token
+awards. Provider retirement resets only affected domains. Once a usage domain has
+quietly reconciled calibrated history, later levels are no longer permanently
+silenced by the migration recheck set. These latches are memory-only; they do not
+yet constitute a durable missed-notice journal or cross-host coordination.
+
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable
 selected IDs but never add badges. Restore reuses matching accepted bytes. Export

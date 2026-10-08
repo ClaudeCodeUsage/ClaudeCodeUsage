@@ -124,6 +124,11 @@ It separates proof changes from chart changes without retaining a second index
 or reading logs. Turning achievements off skips this projection and evaluation;
 source replacement retires the cached proof. Existing grants remain saved.
 
+Nine fixed, memory-only evidence-domain latches distinguish first/recovered
+history from later eligible awards. Pending or stale proof is shown explicitly,
+not as zero usage; saved awards remain independent. No action history, new
+persistent key, source identifier or network request is added by these latches.
+
 The gallery's persisted filter is only an `all` / `next` / `earned` enum in the
 existing Webview UI state; disclosure keys are public series IDs. The sharing
 return route remembers only a Claude/Codex enum and a one-shot focus boolean. They contain no

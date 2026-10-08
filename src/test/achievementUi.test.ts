@@ -92,7 +92,9 @@ async function prepareAchievementNoticeProvider(provider: any, ready = true): Pr
   };
   provider.webviewClientReady = ready;
   // Notification tests start after the first verified historical baseline.
-  provider.achievementNoticeBaselineReady = true;
+  const { ACHIEVEMENT_EVIDENCE_DOMAINS } = require('../achievementEvidence');
+  provider.achievementNoticeBaseline.accept(Object.fromEntries(
+    ACHIEVEMENT_EVIDENCE_DOMAINS.map((domain: string) => [domain, 'ready'])));
   // These tests cover durable awards/notices, not rendering or P3/P4.
   provider.updateWebview = () => undefined;
   return notices;
@@ -119,14 +121,14 @@ test('first verified historical awards stay quiet even while the gallery is visi
   const state = achievementPersistenceState();
   await withProvider(state, async (provider) => {
     const notices = await prepareAchievementNoticeProvider(provider);
-    provider.achievementNoticeBaselineReady = false;
+    provider.achievementNoticeBaseline.reset();
     provider.achievementCalendarTimeZone = resolveTimeZone(I18n.getTimezone());
     setSingleVolumeAchievementFact(provider);
     evaluateAndDispatchAchievementNotice(provider);
     await settleAchievementWrites(provider);
     assert.equal(hasDurableAchievement(state, 'hundred-million-club'), true);
     assert.equal(notices.length, 0, 'backfill does not celebrate old milestones');
-    assert.equal(provider.achievementNoticeBaselineReady, true);
+    assert.equal(provider.achievementNoticeBaseline.isReady('combined-usage'), true);
     provider.allTimeData = { ...provider.allTimeData, totalInputTokens: 1_000_000_000 };
     evaluateAndDispatchAchievementNotice(provider);
     await settleAchievementWrites(provider);
@@ -914,6 +916,8 @@ test('output and cache cards use their specific Token units in every locale', as
       await withProvider(achievementPersistenceState(), async (provider) => {
         provider.settings = { get: () => true };
         provider.providerAvailability = { claude: true, codex: false, codexData: false };
+        provider.allTimeData = { totalInputTokens: 0, totalOutputTokens: 0,
+          totalCacheCreationTokens: 0, totalCacheReadTokens: 0, modelBreakdown: {} };
         const html = provider.renderAchievementData();
         for (const [series, unit] of [
           ['claude-output', copy.units.outputTokens],
@@ -1301,7 +1305,9 @@ test('a retained high-level grant displays its actual tier without inventing mis
       ?.replace(/src="[^"]*"/g, 'src="[omitted]"') ?? '';
     assert.match(card, /data-achievement-id="hundred-billion-token-club"/);
     assert.match(card, /data-achievement-tier="platinum"/);
-    assert.match(card, /max="1000000000000"/);
+    assert.match(card, /data-achievement-proof="pending"/);
+    assert.doesNotMatch(card, /<progress/);
+    assert.match(card, /1T processed tokens/);
     assert.match(card, /achievement-tier-marker complete">IV<\/span>/);
     assert.match(card, /achievement-tier-marker next">V<\/span>/);
     assert.doesNotMatch(card, /achievement-tier-marker complete">I<\/span>/);

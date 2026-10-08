@@ -106,6 +106,12 @@ test('production gallery grants safe Codex milestones despite unrelated identity
     await provider.achievementWrite;
     provider.settings = { get: () => true };
     provider.providerAvailability = { claude: false, codex: true, codexData: true };
+    const notices: any[] = [];
+    provider.panel = { visible: true, active: true, webview: { postMessage: async (message: any) => {
+      if (message.command === 'achievementUnlockNotice') notices.push(message);
+      return true;
+    } } };
+    provider.webviewClientReady = true;
     provider.codexAchievementSignals = codexModelSignals(corpus());
     provider.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(corpus(), true);
     provider.codexView = {
@@ -125,6 +131,16 @@ test('production gallery grants safe Codex milestones despite unrelated identity
     }
     await provider.achievementWrite;
     assert.ok((state.get('ccu.achievements.grants.v5') as string[]).includes('astra-regular'));
+    assert.equal(notices.length, 0, 'first observed subset history is quiet');
+    const increased = corpus();
+    increased[0] = file('safe', 6_000_000_000);
+    provider.codexAchievementSignals = codexModelSignals(increased);
+    provider.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(increased, true);
+    provider.codexView.allTime.total.processed = 8_000_000_000;
+    assert.equal(read().get('astra-regular-silver').unlocked, true);
+    await provider.achievementWrite;
+    assert.equal(notices.length, 1, 'independent model growth is not silenced by unrelated date/identity ambiguity');
+    assert.equal(read().get('weekly-volume-bronze').unlocked, false);
     provider.invalidateAchievementEvidence('codex');
     assert.equal(read().get('astra-regular').progress, 0, 'failed refresh revokes new authority');
     assert.equal(provider.achievementGrants.has('astra-regular'), true, 'durable awards survive');
