@@ -411,6 +411,14 @@ without focus theft, and pauses its six-second dismissal during hover/keyboard u
 Lost batches never replay as live notices. Recent/pin UI, foreground unread summary
 and producer-origin usage remain pending; sharing consent is still explicit.
 
+`achievementOverview.ts` now prepares read-only record projections: at most three
+recent non-historical series, thirty recording-order rows and exact visible unread
+level IDs. Recording order is not inferred attainment time, and projection eviction
+does not remove awards. Optional earned pins precede automatic showcase selection
+without changing next goals. `setPinned` applies one idempotent intent under the
+filesystem lease, rejects unearned keys, and never exceeds three slots or overwrites
+a peer's unrelated pins. These prepared helpers are not yet connected to client UI.
+
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable
 selected IDs but never add badges. Restore reuses matching accepted bytes. Export

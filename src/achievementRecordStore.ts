@@ -310,6 +310,18 @@ export class AchievementRecordRepository {
     const selection = pins(values);
     return (await this.mutate(generation, guard, store => { store.pins = selection; })).store;
   }
+  /** Apply one deliberate pin intent against fresh peer state, not a stale whole list. */
+  async setPinned(generation: number, key: string, selected: boolean,
+    guard: WriteGuard = () => true): Promise<AchievementRecordStore> {
+    if (typeof key !== 'string' || !keys.has(key) || typeof selected !== 'boolean') return invalid();
+    return (await this.mutate(generation, guard, store => {
+      if (!selected) { store.pins = store.pins.filter(value => value !== key); return; }
+      if (!store.records.some(row => row.id === key || ACHIEVEMENT_SERIES[key]?.includes(row.id))) return invalid();
+      if (store.pins.includes(key)) return;
+      if (store.pins.length === 3) throw new Error('achievement-record:pin-limit');
+      store.pins.push(key);
+    })).store;
+  }
   async clear(resetRelatedState?: () => Promise<void>): Promise<AchievementRecordStore> {
     return this.transaction(() => true, async () => {
       const current = await loadAchievementRecords(this.file);

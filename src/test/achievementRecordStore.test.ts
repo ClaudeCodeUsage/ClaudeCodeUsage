@@ -17,6 +17,43 @@ async function withStore(run: (file: string) => Promise<void>): Promise<void> {
 }
 const local = (id = 'local-share-export') => ({ id, origin: 'activity', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' });
 
+test('pin actions merge concurrent hosts, are idempotent and preserve the three-slot bound', async () => {
+  await withStore(async file => {
+    const a = new (storeApi().AchievementRecordRepository)(file), b = new (storeApi().AchievementRecordRepository)(file);
+    const initial = await a.initialize(['local-share-export', 'local-advice-feedback', 'astra-regular', 'sol-regular']);
+    await Promise.all([a.setPinned(initial.generation, 'local-share-export', true), b.setPinned(initial.generation, 'astra-regular', true)]);
+    await a.setPinned(initial.generation, 'local-advice-feedback', true);
+    let saved = await storeApi().loadAchievementRecords(file);
+    assert.equal(saved.pins.length, 3);
+    assert.ok(saved.pins.includes('local-share-export') && saved.pins.includes('astra-regular'));
+    const bytes = await readFile(file, 'utf8');
+    await a.setPinned(initial.generation, 'astra-regular', true);
+    assert.equal(await readFile(file, 'utf8'), bytes);
+    await assert.rejects(b.setPinned(initial.generation, 'sol-regular', true), /pin-limit/);
+    assert.equal(await readFile(file, 'utf8'), bytes);
+    await b.setPinned(initial.generation, 'astra-regular', false);
+    saved = await a.setPinned(initial.generation, 'sol-regular', true);
+    assert.deepEqual(new Set(saved.pins), new Set(['local-share-export', 'local-advice-feedback', 'sol-regular']));
+    assert.ok(saved.records.every((record: any) => !record.unread));
+  });
+});
+
+test('pin requests reject unearned or malformed keys and old clear generations without changing proof', async () => {
+  await withStore(async file => {
+    const repository = new (storeApi().AchievementRecordRepository)(file);
+    const initial = await repository.initialize(['local-share-export']);
+    const bytes = await readFile(file, 'utf8');
+    for (const key of ['astra-regular', 'private-canary', '__proto__', 'astra-regular-bronze']) {
+      await assert.rejects(repository.setPinned(initial.generation, key, true), /invalid/);
+    }
+    await assert.rejects(repository.setPinned(initial.generation, 'local-share-export', 'true'), /invalid/);
+    await assert.rejects(repository.setPinned(initial.generation, 'local-share-export', true, () => false), /cancelled/);
+    assert.equal(await readFile(file, 'utf8'), bytes);
+    await repository.clear();
+    await assert.rejects(repository.setPinned(initial.generation, 'local-share-export', true), /generation/);
+  });
+});
+
 test('notice reservations merge peers and retain unread until an exact scoped ACK', async () => {
   await withStore(async file => {
     const a = new (storeApi().AchievementRecordRepository)(file);

@@ -1,6 +1,8 @@
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES, AchievementGroup } from './achievements';
 import type { AchievementEvidenceState } from './achievementEvidence';
 import { nextAchievementStage } from './achievementStages';
+import type { AchievementId } from './achievements';
+import type { AchievementRecord } from './achievementRecordStore';
 
 export interface AchievementOverviewCandidate {
   key: string;
@@ -16,6 +18,26 @@ export interface AchievementOverviewSelection { badges: string[]; next: string[]
 const seriesFor = new Map(Object.entries(ACHIEVEMENT_SERIES).flatMap(([key, ids]) => ids.map(id => [id, key] as const)));
 const order = [...new Set(ACHIEVEMENT_DEFINITIONS.map(rule => seriesFor.get(rule.id) ?? rule.id))];
 const known = new Set(order);
+const knownAwardIds = new Set<string>(ACHIEVEMENT_DEFINITIONS.map(rule => rule.id));
+
+/** Read-only views of validated local records; chronology is recording order, not inferred attainment time. */
+export function projectAchievementRecords(records: readonly AchievementRecord[], visibleIds: readonly string[]): {
+  recent: AchievementRecord[]; history: AchievementRecord[]; unreadIds: AchievementId[];
+} {
+  const visible = new Set(visibleIds.filter(id => knownAwardIds.has(id)));
+  const rows = records.filter(row => visible.has(row.id));
+  const recent: AchievementRecord[] = [], seen = new Set<string>();
+  const latest = rows.slice().sort((a, b) => b.seq - a.seq);
+  for (const row of latest) {
+    if (row.origin !== 'usage' && row.origin !== 'activity') continue;
+    const key = seriesFor.get(row.id) ?? row.id;
+    if (seen.has(key)) continue;
+    seen.add(key); recent.push({ ...row });
+    if (recent.length === 3) break;
+  }
+  return { recent, history: latest.slice(0, 30).map(row => ({ ...row })),
+    unreadIds: rows.filter(row => row.unread).map(row => row.id) };
+}
 
 /** Similar counters share one showcase slot, not one award identity. */
 export function achievementOverviewTopic(key: string): string {
@@ -37,10 +59,11 @@ function reachable(row: AchievementOverviewCandidate): boolean {
   return valid(row) && row.next && row.proof === 'ready' && row.progress > 0 && row.progress < row.target &&
     row.key !== 'output-hours' && row.key !== 'night-output-peak';
 }
-function diversify(rows: AchievementOverviewCandidate[]): string[] {
-  const topics = new Set<string>();
-  const selected: string[] = [];
+function diversify(rows: AchievementOverviewCandidate[], pinned: string[] = []): string[] {
+  const topics = new Set(pinned.map(achievementOverviewTopic));
+  const selected: string[] = pinned.slice();
   for (const row of rows) {
+    if (selected.length === 3) break;
     const topic = achievementOverviewTopic(row.key);
     if (topics.has(topic)) continue;
     topics.add(topic); selected.push(row.key);
@@ -52,14 +75,17 @@ function diversify(rows: AchievementOverviewCandidate[]): string[] {
 /** Only already-collapsed, enabled-provider rows enter this display-only selector. */
 export function selectAchievementOverview(
   rows: readonly AchievementOverviewCandidate[], preferred: 'claude' | 'codex' | 'compare',
+  pins: readonly string[] = [],
 ): AchievementOverviewSelection {
+  const earned = new Set(rows.filter(row => valid(row) && row.earned).map(row => row.key));
+  const pinned = [...new Set(pins.filter(key => earned.has(key)))].slice(0, 3);
   const tie = (a: AchievementOverviewCandidate, b: AchievementOverviewCandidate): number =>
     Number(b.group === preferred) - Number(a.group === preferred) || order.indexOf(a.key) - order.indexOf(b.key);
   const fraction = (row: AchievementOverviewCandidate): number => row.progress /
     (nextAchievementStage(row.key, row.progress, row.target, true) ?? row.target);
   return {
     badges: diversify(rows.filter(row => valid(row) && row.earned)
-      .sort((a, b) => b.earnedLevel - a.earnedLevel || tie(a, b))),
+      .sort((a, b) => b.earnedLevel - a.earnedLevel || tie(a, b)), pinned),
     next: diversify(rows.filter(reachable).sort((a, b) => fraction(b) - fraction(a) || tie(a, b))),
   };
 }
