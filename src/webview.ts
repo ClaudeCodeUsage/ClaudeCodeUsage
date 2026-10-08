@@ -57,6 +57,7 @@ import { AchievementSharePreview, highestEarnedAchievements, renderAchievementSh
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import { nextAchievementStage } from './achievementStages';
+import { ACHIEVEMENT_GALLERY, achievementGalleryKey } from './achievementGallery';
 import { AchievementOverviewSelection, AchievementUnreadBatch, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords, selectUnreadAchievementBatch } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline, codexTailAchievementCrossings, claudeTailAchievementCrossings } from './achievementEvidence';
@@ -5148,38 +5149,44 @@ export class UsageWebviewProvider {
       id.startsWith('model-rainbow') ? copy.units.families :
       id === 'multi-core-human' || id.startsWith('same-root-models-') ? copy.units.models : copy.units.tokens;
     const byId = new Map(results.map((result) => [result.id, result]));
-    const seriesResults = new Map<string, AchievementResult[]>();
-    const seriesForId = new Map<AchievementId, string>();
-    for (const [key, ids] of Object.entries(ACHIEVEMENT_SERIES)) {
-      const tiers = ids.map((id) => byId.get(id));
-      if (tiers.some((entry) => !entry)) continue;
-      seriesResults.set(key, tiers as AchievementResult[]);
-      for (const id of ids) seriesForId.set(id, key);
-    }
     const tierOrder = ['bronze', 'silver', 'gold', 'platinum', 'legendary'];
-    const presentation = results.filter((result) => {
-      const series = seriesForId.get(result.id);
-      return !series || ACHIEVEMENT_SERIES[series][0] === result.id;
-    }).map((result) => {
-      const series = seriesForId.get(result.id);
-      const tiers = series ? seriesResults.get(series) : undefined;
-      if (!tiers) return { result, nextResult: result, series: undefined, tiers: undefined, tierCount: 0, earnedTiers: 0,
+    const isEarned = (result: AchievementResult): boolean => result.unlocked || this.achievementGrants.has(result.id);
+    const presentation = ACHIEVEMENT_GALLERY.filter(entry => entry.levelIds.every(id => byId.has(id)))
+      .map(({ key, levelIds, milestoneIds }) => {
+      const result = byId.get(levelIds[0])!;
+      const milestones = milestoneIds.map(id => byId.get(id)).filter((entry): entry is AchievementResult => !!entry);
+      const series = levelIds.length > 1 ? key : undefined;
+      const tiers = series ? levelIds.map(id => byId.get(id)!) : undefined;
+      if (!tiers) return { key, milestones, result, nextResult: result, series: undefined, tiers: undefined, tierCount: 0, earnedTiers: 0,
         earnedLevels: [] as boolean[], nextTierIndex: 0, hasNextTier: false, tier: '' };
-      const earnedLevels = tiers.map((entry) => entry.unlocked || this.achievementGrants.has(entry.id));
+      const earnedLevels = tiers.map(isEarned);
       const earnedTiers = earnedLevels.filter(Boolean).length;
       const highestEarnedIndex = earnedLevels.lastIndexOf(true);
       const nextTierIndex = Math.min(highestEarnedIndex + 1, tiers.length - 1);
       return {
-        result: tiers[Math.max(0, highestEarnedIndex)],
+        key, milestones,
+        result: highestEarnedIndex >= 0 ? tiers[highestEarnedIndex] : milestones.find(isEarned) ?? tiers[0],
         nextResult: tiers[nextTierIndex],
         series, tiers, tierCount: tiers.length, earnedTiers, earnedLevels, nextTierIndex,
         hasNextTier: highestEarnedIndex < tiers.length - 1,
-        tier: tierOrder[Math.max(0, highestEarnedIndex)],
+        tier: highestEarnedIndex < 0 && milestones.some(isEarned) ? '' : tierOrder[Math.max(0, highestEarnedIndex)],
       };
     });
-    const card = ({ result, nextResult, series, tiers, tierCount, earnedTiers, earnedLevels, nextTierIndex,
+    const themeName = (key: string, result: AchievementResult): string => {
+      let name = key === 'active-day-streak' ? copy.streakTheme :
+        key === 'dual-provider-days' ? copy.sharedDaysTheme : copy.titles[result.id];
+      if (ACHIEVEMENT_SERIES[key]) {
+        for (const level of copy.levels) {
+          if (name.endsWith(level) && /[\s·・]$/u.test(name.slice(0, -level.length))) {
+            name = name.slice(0, -level.length).replace(/[\s·・]+$/u, ''); break;
+          }
+        }
+      }
+      return name;
+    };
+    const card = ({ key, milestones, result, nextResult, series, tiers, tierCount, earnedTiers, earnedLevels, nextTierIndex,
       hasNextTier, tier }: typeof presentation[number]): string => {
-      const earned = series ? earnedTiers > 0 : result.unlocked || this.achievementGrants.has(result.id);
+      const earned = earnedTiers > 0 || isEarned(result) || milestones.some(isEarned);
       const targetUnlocked = nextResult.unlocked || this.achievementGrants.has(nextResult.id);
       const evidenceState = this.achievementEvidenceStates?.[achievementEvidenceDomain(nextResult)] ?? 'ready';
       const proofReady = evidenceState === 'ready';
@@ -5190,16 +5197,7 @@ export class UsageWebviewProvider {
       const cumulativeVolume = ['hundred-million-club',
         'billion-token-club', 'ten-billion-token-club', 'hundred-billion-token-club', 'trillion-token-club']
         .includes(result.id);
-      const name = copy.titles[result.id];
-      let baseName = name;
-      if (series) {
-        for (const level of copy.levels) {
-          if (baseName.endsWith(level) && /[\s·・]$/u.test(baseName.slice(0, -level.length))) {
-            baseName = baseName.slice(0, -level.length).replace(/[\s·・]+$/u, '');
-            break;
-          }
-        }
-      }
+      const baseName = themeName(key, result);
       const bound = proofReady && cumulativeLowerBound && (cumulativeVolume || result.group === 'codex') ? '≥' : '';
       const levelName = series && earnedTiers > 0
         ? copy.levels[tierOrder.indexOf(tier)] : earned ? copy.milestone : copy.locked;
@@ -5221,9 +5219,21 @@ export class UsageWebviewProvider {
           earnedLevels.map((complete, index) => '<span class="achievement-tier-pip' +
             (complete ? ' complete' : index === nextTierIndex ? ' next' : '') + '"></span>').join('') +
           '</span>' : '';
-      const key = series ?? result.id;
-      const pinned = this.achievementRecordState?.pins.includes(key) === true;
-      const canPin = this.achievementRecordState?.records.some(row => (tiers ?? [result]).some(entry => entry.id === row.id)) === true;
+      const allResults = [...(tiers ?? [result]), ...milestones];
+      const savedPins = (this.achievementRecordState?.pins ?? []).filter(pin => achievementGalleryKey(pin) === key);
+      const canPin = this.achievementRecordState?.records.some(row => allResults.some(entry => entry.id === row.id)) === true;
+      // Existing milestone pins stay exact saved keys, including individually removable duplicates.
+      const pinKey = this.achievementRecordState?.records.some(row => (tiers ?? [result]).some(entry => entry.id === row.id))
+        ? key : milestones.find(entry => this.achievementRecordState?.records.some(row => row.id === entry.id))?.id ?? key;
+      const pinButtons = (savedPins.length ? savedPins : canPin ? [pinKey] : []).map(pin => {
+        const pinned = savedPins.includes(pin);
+        const ids = ACHIEVEMENT_SERIES[pin];
+        const name = copy.titles[(ids ? ids[0] : pin) as AchievementId];
+        return '<button id="achievement-pin-' + pin + '" class="achievement-pin" data-achievement-pin="' + pin +
+          '" data-achievement-generation="' + this.achievementRecordState!.generation + '" aria-pressed="' + pinned +
+          '" aria-describedby="achievementPinStatus" title="' + this.escapeHtml(copy.pinLimit) + '" onclick="requestAchievementPin(this)">' +
+          this.escapeHtml((pinned ? copy.unpinBadge : copy.pinBadge) + (savedPins.length > 1 ? ' · ' + name : '')) + '</button>';
+      }).join('');
       const next = series ? hasNextTier : !earned;
       const stage = series && next ? nextAchievementStage(series, nextResult.progress, nextResult.target, proofReady) : undefined;
       const faceProgress = proofReady && next
@@ -5237,12 +5247,21 @@ export class UsageWebviewProvider {
         '<li data-achievement-level="' + entry.id + '"><strong>' +
           this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span>' +
           this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span></li>').join('');
+      const milestoneRules = milestones.length ? '<h5>' + this.escapeHtml(copy.milestone) +
+        '</h5><ul class="achievement-level-rules achievement-milestones">' + milestones.map(entry => {
+          const src = webview?.asWebviewUri && this.context.extensionPath
+            ? webview.asWebviewUri(vscode.Uri.file(achievementImagePath(entry.id))).toString() : achievementImageDataUrl(entry.id);
+          return '<li data-achievement-milestone="' + entry.id + '" data-achievement-level="' + entry.id + '">' +
+            '<img src="' + this.escapeHtml(src) + '" alt="" loading="lazy"><strong>' + this.escapeHtml(copy.titles[entry.id]) +
+            '</strong><small>' + this.escapeHtml(isEarned(entry) ? copy.earned : copy.locked) + '</small><span>' +
+            this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span></li>';
+        }).join('') + '</ul>' : '';
       return '<article class="achievement-card ' + (earned ? 'earned' : 'locked') +
         '"' + seriesAttrs + ' data-achievement-key="' + key + '" data-achievement-earned="' + earned +
         '" data-achievement-next="' + (next && proofReady) + '" data-achievement-proof="' + evidenceState +
         '" data-achievement-id="' + result.id + '">' +
         '<details class="achievement-disclosure" data-persist="achievement:' + key + '"' +
-        ' data-persist-aliases="' + (tiers ?? [result]).map(entry => 'achievement:' + entry.id).join(' ') + '">' +
+        ' data-persist-aliases="' + allResults.map(entry => 'achievement:' + entry.id).join(' ') + '">' +
         '<summary aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' +
           (proofReady ? bound + formatted + ' ' + unitFor(result.id) : proofLabel) +
           (series ? ' · ' + earnedTiers + '/' + tierCount : '')) + '">' +
@@ -5256,10 +5275,7 @@ export class UsageWebviewProvider {
         (proofReady && next ? '<span class="achievement-progress-track" aria-hidden="true"><span style="width:' +
           Math.min(100, Math.max(0, progress / nextResult.target * 100)) + '%"></span></span>' : '') + '</summary>' +
         '<div class="achievement-card-detail">' + tierMarkers +
-        (canPin ? '<button id="achievement-pin-' + key + '" class="achievement-pin" data-achievement-pin="' + key +
-          '" data-achievement-generation="' + this.achievementRecordState!.generation + '" aria-pressed="' + pinned +
-          '" aria-describedby="achievementPinStatus" title="' + this.escapeHtml(copy.pinLimit) + '" onclick="requestAchievementPin(this)">' +
-          this.escapeHtml(pinned ? copy.unpinBadge : copy.pinBadge) + '</button>' : '') +
+        pinButtons +
         (proofReady ?
         '<label class="achievement-progress-label" for="achievement-progress-' + result.id +
         '" title="' + this.escapeHtml(bound + exactProgress + ' ' + unitFor(result.id)) + '">' +
@@ -5270,7 +5286,7 @@ export class UsageWebviewProvider {
           ' ' + unitFor(result.id)) + '"></progress>' :
           '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p>') +
         '<h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
-        '<ol class="achievement-level-rules">' + levelRules + '</ol></div></details></article>';
+        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + '</div></details></article>';
     };
     const groups: Array<'claude' | 'codex' | 'combined' | 'plugin'> =
       ['claude', 'codex', 'combined', 'plugin'];
@@ -5279,15 +5295,15 @@ export class UsageWebviewProvider {
       (!result.id.startsWith('dual-provider-') || (this.providerAvailability.claude && this.providerAvailability.codex));
     const visibleCards = presentation.filter(entry => visibleResult(entry.result));
     const overviewRows = visibleCards.map(entry => ({
-      key: entry.series ?? entry.result.id, group: entry.result.group,
+      key: entry.key, group: entry.result.group,
       earnedLevel: entry.series ? entry.earnedLevels.lastIndexOf(true) + 1 : 1,
-      earned: entry.earnedTiers > 0 || entry.result.unlocked || this.achievementGrants.has(entry.result.id),
+      earned: entry.earnedTiers > 0 || isEarned(entry.result) || entry.milestones.some(isEarned),
       next: entry.series ? entry.hasNextTier : !(entry.result.unlocked || this.achievementGrants.has(entry.result.id)),
       progress: entry.nextResult.progress, target: entry.nextResult.target,
       proof: this.achievementEvidenceStates?.[achievementEvidenceDomain(entry.nextResult)] ?? 'ready',
     }));
     const pins = this.achievementRecordState?.pins ?? [];
-    const hiddenPins = pins.filter(key => !visibleCards.some(entry => (entry.series ?? entry.result.id) === key));
+    const hiddenPins = pins.filter(key => !visibleCards.some(entry => entry.key === achievementGalleryKey(key)));
     const hiddenPinSection = hiddenPins.length ? '<details class="achievement-record-history" data-persist="achievement:hidden-pins"><summary id="achievement-hidden-pins-summary">' +
       '<span id="achievement-hidden-pins-label">' + this.escapeHtml(copy.hiddenPins) + ' · ' + integer(hiddenPins.length) + '</span></summary><ul class="achievement-hidden-pins">' +
       hiddenPins.map(key => {
@@ -5311,15 +5327,10 @@ export class UsageWebviewProvider {
       if (!overview[kind].length) return '';
       return '<section class="achievement-overview" data-achievement-overview="' + kind + '"><h3>' +
         this.escapeHtml(heading) + '</h3><div class="achievement-overview-grid">' + overview[kind].map(key => {
-          const entry = visibleCards.find(entry => (entry.series ?? entry.result.id) === key)!;
+          const entry = visibleCards.find(entry => entry.key === key)!;
           const state = overviewRows.find(row => row.key === key)!;
-          let name = copy.titles[entry.result.id];
-          for (const level of copy.levels) {
-            if (name.endsWith(level) && /[\s·・]$/u.test(name.slice(0, -level.length))) {
-              name = name.slice(0, -level.length).replace(/[\s·・]+$/u, ''); break;
-            }
-          }
-          const rank = entry.series && state.earned ? copy.levels[state.earnedLevel - 1] :
+          const name = themeName(key, entry.result);
+          const rank = entry.series && state.earnedLevel > 0 ? copy.levels[state.earnedLevel - 1] :
             state.earned ? copy.milestone : copy.locked;
           const proofLabel = state.proof === 'stale' ? copy.evidenceStale : copy.evidencePending;
           const progress = (state.proof === 'ready' ?
@@ -5341,11 +5352,10 @@ export class UsageWebviewProvider {
         }).join('') + '</div></section>';
     };
     const visibleResults = results.filter(visibleResult);
-    const isEarned = (result: AchievementResult): boolean => result.unlocked || this.achievementGrants.has(result.id);
     const records = projectAchievementRecords(this.achievementRecordState?.records ?? [],
       visibleResults.filter(isEarned).map(row => row.id));
     const recordButton = (record: AchievementRecord): string => {
-      const key = seriesForId.get(record.id) ?? record.id;
+      const key = achievementGalleryKey(record.id)!;
       const iconSrc = this.panel?.webview?.asWebviewUri && this.context.extensionPath
         ? this.panel.webview.asWebviewUri(vscode.Uri.file(achievementImagePath(record.id))).toString()
         : achievementImageDataUrl(record.id);
@@ -5375,7 +5385,7 @@ export class UsageWebviewProvider {
       this.escapeHtml(copy.recordHistory) + '</summary><ul class="achievement-records-list">' +
       records.history.map(record => '<li>' + recordButton(record) + '</li>').join('') + '</ul></details>' : '';
     const earnedCount = visibleResults.filter(isEarned).length;
-    const seriesCount = visibleCards.filter(entry => entry.earnedTiers > 0 || isEarned(entry.result)).length;
+    const seriesCount = overviewRows.filter(entry => entry.earned).length;
     const countLabel = (template: string, earned: number, total: number): string =>
       template.replace('{earned}', integer(earned)).replace('{total}', integer(total));
     return '<section class="achievement-collection" aria-label="' + this.escapeHtml(copy.heading) + '">' +
@@ -13222,7 +13232,7 @@ export class UsageWebviewProvider {
       .achievement-group-codex { --achievement-accent: var(--vscode-charts-blue); }
       .achievement-group h3 { margin: 0 0 12px; font-size: 1.05rem; font-weight: 650; }
       .achievement-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: 10px; align-items: start; }
-      .achievement-card { min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 11px; background: var(--vscode-editor-background); overflow: hidden; }
+      .achievement-card { --achievement-tier-color: var(--achievement-accent); min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 11px; background: var(--vscode-editor-background); overflow: hidden; }
       .achievement-card.earned { border-color: var(--achievement-accent); }
       .achievement-card[data-achievement-tier="bronze"] { --achievement-tier-color: var(--vscode-charts-orange); }
       .achievement-card[data-achievement-tier="silver"] { --achievement-tier-color: var(--vscode-descriptionForeground); }
@@ -13255,6 +13265,9 @@ export class UsageWebviewProvider {
       .achievement-level-rules { min-width: 0; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .achievement-level-rules li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
       .achievement-level-rules li span { color: var(--vscode-descriptionForeground); }
+      .achievement-milestones li { grid-template-columns: 40px minmax(0, 1fr); column-gap: 8px; }
+      .achievement-milestones img { grid-row: 1 / span 3; width: 40px; height: 40px; object-fit: contain; }
+      .achievement-milestones strong, .achievement-milestones small, .achievement-milestones span { grid-column: 2; }
       .achievement-share-choice-icon { flex: none; width: 32px; height: 32px; object-fit: contain; }
       .achievement-share-presentation .sc-check { min-width: 0; }
       .achievement-share-presentation .sc-check span { overflow-wrap: anywhere; }
@@ -13872,7 +13885,9 @@ function restoreAchievementFilter() {
 }
 function openAchievementDetail(key) {
   var card = Array.from(document.querySelectorAll('.achievement-card')).find(function(card) {
-    return card.dataset.achievementKey === key;
+    var detail = card.querySelector('details');
+    return card.dataset.achievementKey === key || (detail &&
+      (detail.dataset.persistAliases || '').split(' ').includes('achievement:' + key));
   });
   if (!card) { return; }
   filterAchievements('all', true);

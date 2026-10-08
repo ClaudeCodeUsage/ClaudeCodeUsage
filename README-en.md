@@ -94,7 +94,7 @@ attainment; historical dates remain unknown. Browsing does not mark records read
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.
 
-The unreleased 2.4.2 candidate's icon-first gallery groups **46 series and 124 level conditions** into ordinary,
+The unreleased 2.4.2 candidate's icon-first gallery groups **44 themes and 124 award conditions** into ordinary,
 silver and gold tiers, with platinum/legendary cumulative milestones. Expand a card
 for every level's rule; the next target is visible on the card. Series and unlocked
 levels are counted separately. Local All / Next level / Earned filters survive reload,
@@ -103,6 +103,8 @@ Astra/Sol/Luna progression is primarily token-based; effort, agents, active days
 cache/output, and a few deliberate plugin actions add variety.
 Each series has distinct artwork, with one emblem shared by its colored tiers.
 Achievement numbers use integers; detailed conditions and data caveats stay expandable.
+All 46 artwork groups remain. Fourteen-day and first shared-day milestones sit
+inside their growing themes; old awards, pins and exact share choices are preserved.
 Pending or outdated evidence is labelled, not shown as zero progress, and excluded
 from Next level filtering; earned badges remain saved.
 Closed cards show current / next-level progress. Long Token ladders include

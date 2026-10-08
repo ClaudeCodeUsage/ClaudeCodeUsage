@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } from '../achievements';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl } from '../achievementIcons';
 import { createHash } from 'node:crypto';
+import { achievementGalleryKey } from '../achievementGallery';
 
 const { achievementCatalog, renderCatalogGroup, renderCatalogMarkdown } = require(resolve(
   __dirname, '../../tests/ui/support/achievement-catalog.cjs',
@@ -17,6 +18,8 @@ test('mobile review catalog covers every live rule exactly once without placehol
   assert.equal(catalog.filter((card: any) => card.levels.length > 1).length,
     Object.keys(ACHIEVEMENT_SERIES).length);
   assert.ok(catalog.every((card: any) => card.title && card.metric && card.note));
+  for (const card of catalog) assert.equal(card.displayKey, achievementGalleryKey(card.key));
+  assert.equal(new Set(catalog.map((card: any) => card.displayKey)).size, 44);
 });
 
 test('different achievement series have distinct artwork; every tier within a series shares its emblem', () => {

@@ -23,8 +23,8 @@ test('achievements are on by default and remain selected after reload', async ({
   await page.locator('#tab-achievements').click();
   await expect(page.locator('#achievements')).toBeVisible();
   // Tiered series occupy one card, including the five-level cumulative ladder.
-  await expect(page.locator('.achievement-card')).toHaveCount(46);
-  await expect(page.locator('.achievement-card img[data-achievement-icon]')).toHaveCount(46);
+  await expect(page.locator('.achievement-card')).toHaveCount(44);
+  await expect(page.locator('.achievement-card img[data-achievement-icon]')).toHaveCount(44);
   await expect(page.locator('.achievement-count')).toContainText('/ 124');
   await expect(page.locator('[data-achievement-id="astra-regular"]')).toContainText('Astra regular');
   await expect(page.locator('[data-achievement-series="effort-breadth"]')).toContainText('Effort explorer');
@@ -152,7 +152,7 @@ test('share choices visibly enforce the nine-badge card capacity', async ({ page
 test('turning sharing off keeps achievements but removes the share action', async ({ page }) => {
   await openCodex(page, { shareStudio: false });
   await page.locator('#tab-achievements').click();
-  await expect(page.locator('.achievement-card')).toHaveCount(46);
+  await expect(page.locator('.achievement-card')).toHaveCount(44);
   await expect(page.getByRole('button', { name: 'Achievement card' })).toHaveCount(0);
 });
 
@@ -316,7 +316,7 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       expect(sizes.body, sizes).toBeLessThanOrEqual(sizes.viewport + 1);
       expect(sizes.cards.every((overflow) => overflow <= 1), sizes).toBe(true);
       const icons = page.locator('.achievement-card img[data-achievement-icon]');
-      await expect(icons).toHaveCount(46);
+      await expect(icons).toHaveCount(44);
       // Walk the gallery in small batches, preserving production lazy loading.
       // Offscreen PNGs must decode before a full-gallery evidence screenshot;
       // capturing first would show blank emblems that are not a product defect.

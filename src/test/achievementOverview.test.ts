@@ -3,6 +3,23 @@ import * as assert from 'node:assert/strict';
 
 const overview = require('../achievementOverview') as any;
 
+test('recent records collapse display themes but retain exact milestone identity and unread levels', () => {
+  const records = ['active-day-streak', 'streak-machine', 'dual-provider-days-bronze', 'dual-provider-day']
+    .map((id, index) => ({ id, seq: index + 1, origin: 'usage', unread: true, ruleVersion: 1,
+      recordedDay: '2026-10-09', timeZone: 'UTC' }));
+  const result = overview.projectAchievementRecords(records, records.map(row => row.id));
+  assert.deepEqual(result.recent.map((row: any) => row.id), ['dual-provider-day', 'streak-machine']);
+  assert.equal(result.history.length, 4);
+  assert.deepEqual(result.unreadIds, records.map(row => row.id));
+});
+
+test('old milestone pin keys select their canonical display theme without duplicate showcase slots', () => {
+  const rows = ['active-day-streak', 'dual-provider-days'].map(key => ({ key, group: 'combined',
+    earnedLevel: 0, earned: true, next: true, progress: 0, target: 7, proof: 'ready' }));
+  assert.deepEqual(overview.selectAchievementOverview(rows, 'claude',
+    ['streak-machine', 'active-day-streak', 'dual-provider-day']).badges, ['active-day-streak', 'dual-provider-days']);
+});
+
 test('unread batches keep six exact levels, omit hidden and quiet awards, and read beyond history cap', () => {
   const { ACHIEVEMENT_DEFINITIONS } = require('../achievements');
   const records = ACHIEVEMENT_DEFINITIONS.map((rule: any, index: number) => ({ id: rule.id, seq: index + 1,

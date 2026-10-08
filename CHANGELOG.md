@@ -7,6 +7,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Growing themes without duplicate cards** — the default gallery has 44 theme
+  cards, with all 124 rules and 46 artwork groups intact. The fourteen-day and
+  first shared-day milestones live inside their growing themes, not as extra
+  tiers. Old disclosure links and pins still work; duplicate old pins can be
+  removed separately. Recent views collapse themes but preserve exact records,
+  unread levels, dates and independent share choices.
 - **Accurate model experience names** — all eight locales and share cards now
   distinguish model breadth within one task, repeated multi-model tasks and
   same-session Fable output. Names no longer imply an unproven sequential relay;
@@ -70,7 +76,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   the next formal tier; long Token ladders include display-only 1/2/5 stage targets.
   These are not extra awards, notifications or sharing choices, and do not change
   any formal threshold. Pending/outdated proof never fabricates stage progress.
-- **Tiered local achievements** — 46 icon-first series and 124 level conditions,
+- **Tiered local achievements** — 44 icon-first themes and 124 award conditions,
   with distinct bundled artwork per series, shared by its colored tiers. Token-led Claude Sonnet/Opus/Haiku/Fable and Codex
   Astra/Sol/Luna progression, output/cache, model/effort and agent experiences,
   calendar activity, weekly peaks, completed four-week averages, and a few safe

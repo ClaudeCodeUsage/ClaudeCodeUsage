@@ -38,7 +38,7 @@ const modelExperienceMarkers = {
   id: [/Model dalam satu tugas/, /Tugas multimodel/, /sesi yang sama/],
 } as const;
 
-test('copy covers exactly eight public locales, 124 rules and 46 gallery items', () => {
+test('copy covers exactly eight public locales, 124 rules and 46 artwork groups', () => {
   assert.deepEqual(Object.keys(ACHIEVEMENT_COPY).sort(), Object.keys(localeMarkers).sort());
   assert.equal(ACHIEVEMENT_DEFINITIONS.length, 124);
   const collapsedRules = Object.values(ACHIEVEMENT_SERIES).reduce((sum, ids) => sum + ids.length - 1, 0);

@@ -318,7 +318,7 @@ credentials or make a network call to refresh it.
 
 ### Local achievements (2.4.2 candidate)
 
-The gallery has 46 series and 124 level conditions. `enableAchievements` defaults
+The gallery has 44 display themes and 124 award conditions. `enableAchievements` defaults
 on, but an existing opt-out wins; a once-only non-modal upgrade announcement offers
 view/disable actions without opening the gallery automatically. Historical grants
 establish a quiet baseline. Subsequent eligible in-panel notices have no sound or
@@ -336,6 +336,15 @@ are floored integer abbreviations, never rounded up to an unmet target; full
 integer progress remains in tooltips and accessibility text. Detailed data caveats
 are in a persisted, initially collapsed disclosure. Embedded export images are
 cached by filename rather than repeated for every tier ID.
+
+`achievementGallery.ts` is a pure display-ownership map, not a rule or ledger
+migration. Fourteen-day (`streak-machine`) and first shared-day (`dual-provider-day`)
+milestones live in their canonical growing themes. Every formal rule appears once
+in details; milestones keep their own icon, status and condition without an extra
+tier pip. A milestone-only award is earned but has zero earned formal tiers.
+Overview/recent/disclosure aliases use this map. Saved pin keys remain exact; old
+duplicate pins are individually removable in the same card. Sharing, grant IDs,
+dates and unread batches are unchanged; rendering neither writes nor reads logs.
 
 `achievementStages.ts` adds display-only 1/2/5 integer nodes between formal
 Token tiers, not before the first tier or after the last. Closed cards show current

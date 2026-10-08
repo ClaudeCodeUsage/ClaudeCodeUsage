@@ -1,4 +1,5 @@
-import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES, AchievementGroup } from './achievements';
+import { ACHIEVEMENT_DEFINITIONS, AchievementGroup } from './achievements';
+import { ACHIEVEMENT_GALLERY, achievementGalleryKey } from './achievementGallery';
 import type { AchievementEvidenceState } from './achievementEvidence';
 import { nextAchievementStage } from './achievementStages';
 import type { AchievementId } from './achievements';
@@ -15,8 +16,7 @@ export interface AchievementOverviewCandidate {
   proof: AchievementEvidenceState;
 }
 export interface AchievementOverviewSelection { badges: string[]; next: string[] }
-const seriesFor = new Map(Object.entries(ACHIEVEMENT_SERIES).flatMap(([key, ids]) => ids.map(id => [id, key] as const)));
-const order = [...new Set(ACHIEVEMENT_DEFINITIONS.map(rule => seriesFor.get(rule.id) ?? rule.id))];
+const order = ACHIEVEMENT_GALLERY.map(entry => entry.key);
 const known = new Set(order);
 const knownAwardIds = new Set<string>(ACHIEVEMENT_DEFINITIONS.map(rule => rule.id));
 
@@ -53,7 +53,7 @@ export function projectAchievementRecords(records: readonly AchievementRecord[],
   const latest = rows.slice().sort((a, b) => b.seq - a.seq);
   for (const row of latest) {
     if (row.origin !== 'usage' && row.origin !== 'activity') continue;
-    const key = seriesFor.get(row.id) ?? row.id;
+    const key = achievementGalleryKey(row.id)!;
     if (seen.has(key)) continue;
     seen.add(key); recent.push({ ...row });
     if (recent.length === 3) break;
@@ -101,7 +101,8 @@ export function selectAchievementOverview(
   pins: readonly string[] = [],
 ): AchievementOverviewSelection {
   const earned = new Set(rows.filter(row => valid(row) && row.earned).map(row => row.key));
-  const pinned = [...new Set(pins.filter(key => earned.has(key)))].slice(0, 3);
+  const pinned = [...new Set(pins.map(achievementGalleryKey)
+    .filter((key): key is string => key !== undefined && earned.has(key)))].slice(0, 3);
   const tie = (a: AchievementOverviewCandidate, b: AchievementOverviewCandidate): number =>
     Number(b.group === preferred) - Number(a.group === preferred) || order.indexOf(a.key) - order.indexOf(b.key);
   const fraction = (row: AchievementOverviewCandidate): number => row.progress /

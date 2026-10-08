@@ -267,7 +267,7 @@ function addClaudeData(provider, { fixture = 'default', enableContent = false } 
   const now = new Date(CODEX_WEBVIEW_NOW);
   const completedWeeklyFixture = fixture === 'weekly-claude-completed';
   const completedResetAt = CODEX_WEBVIEW_NOW - 24 * 60 * 60_000;
-  const combinedHeatmapRecords = fixture === 'combined-heatmap'
+  const combinedHeatmapRecords = fixture === 'combined-heatmap' || fixture.startsWith('achievement-theme-')
     ? [
         {
           timestamp: '2026-07-19T10:00:00.000Z',
@@ -615,6 +615,22 @@ exports.renderHarness = async function renderHarness({
           return { id, seq: index + 1, ruleVersion: 1, origin: historical ? 'history' : 'activity',
             unread: !historical && fixture !== 'achievement-records-read', recordedDay: historical ? null : '2026-07-20', timeZone: historical ? null : 'Asia/Hong_Kong' };
         }), auxiliary: { activity: { schemaVersion: 2, settingKeys: [], features: [] },
+          hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null } });
+      provider.achievementGrants = new Set(ids);
+    }
+
+    if (fixture.startsWith('achievement-theme-')) {
+      const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
+      const milestoneOnly = fixture === 'achievement-theme-milestones';
+      const ids = milestoneOnly ? ['streak-machine', 'dual-provider-day']
+        : ['active-day-streak', 'streak-machine', 'dual-provider-days-bronze', 'dual-provider-day'];
+      provider.achievementRecordState = parseAchievementRecordStore({ schemaVersion: 1, generation: 1,
+        sequence: ids.length, lastNoticeAt: 0,
+        pins: milestoneOnly ? ['streak-machine', 'dual-provider-day'] : fixture === 'achievement-theme-pins-released'
+          ? ['active-day-streak', 'dual-provider-day'] : ['streak-machine', 'active-day-streak', 'dual-provider-day'],
+        records: ids.map((id, index) => ({ id, seq: index + 1, ruleVersion: 1,
+          origin: 'usage', unread: true, recordedDay: '2026-07-20', timeZone: 'Asia/Hong_Kong' })),
+        auxiliary: { activity: { schemaVersion: 2, settingKeys: [], features: [] },
           hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null } });
       provider.achievementGrants = new Set(ids);
     }

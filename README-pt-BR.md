@@ -87,7 +87,7 @@ Medalhas fixadas ocultas podem ser desafixadas na lista recolhível sem reativar
 Registros importados de uso do plugin não geram avisos. Novas ações salvas com sucesso
 podem desbloquear emblemas com o painel fechado, sem abrir nem atualizar painéis ocultos.
 
-O candidato 2.4.2, ainda não lançado, tem 46 séries de ícones e 124 condições de nível: tokens por modelo, saída/cache,
+O candidato 2.4.2, ainda não lançado, tem 44 temas e 124 condições de desbloqueio: tokens por modelo, saída/cache,
 atividade, recordes semanais e algumas ações deliberadas no plugin.
 Cada série tem arte própria, compartilhada entre seus níveis coloridos. Os números são inteiros; limites dos dados ficam na seção expansível.
 Evidências pendentes ou desatualizadas substituem o progresso zero e ficam fora do próximo alvo; emblemas conquistados são preservados.

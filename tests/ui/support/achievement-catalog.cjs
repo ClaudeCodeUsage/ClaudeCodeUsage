@@ -2,6 +2,7 @@
 const { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } = require('../../../out/achievements');
 const { achievementCopyFor } = require('../../../out/i18n');
 const { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl } = require('../../../out/achievementIcons');
+const { ACHIEVEMENT_GALLERY, achievementGalleryKey } = require('../../../out/achievementGallery');
 
 // Units and evidence notes, not independently maintained award thresholds.
 const evidence = {
@@ -45,7 +46,7 @@ const evidence = {
   'active-days': ['累计活跃日', 'distinct active days', '跨供应商按日期去重，不要求连续。', 'Dates deduplicated across providers; no consecutive-day requirement.'],
   'model-rainbow': ['达标模型家族', 'qualified model families', '仅计 Sonnet／Opus／Fable／Haiku／Astra／Sol／Luna 七个家族，每家族均须 ≥500K 已处理 Token；Codex 仅计完整当前索引中独立核验通过的谱系。', 'Only Sonnet/Opus/Fable/Haiku/Astra/Sol/Luna count; 500K+ processed tokens per family. Codex counts independently verified lineages in the complete current index only.'],
   'night-output-peak': ['30 日内的夜间画像', 'night-time pattern over 30 days', '≥14 输出日、≥5 夜间输出日；22–06 点有输出小时数比另两时段均高 ≥20%。静默。', '14+ output days, 5+ night days; 22–06 output-positive hours exceed both other bands by 20%+. Quiet.'],
-  'streak-machine': ['连续活跃日', 'consecutive active days', '保留原十四日单次徽章，不替代三级连续日系列。', 'Legacy fourteen-day single badge alongside the tiered streak family.'],
+  'streak-machine': ['连续活跃日', 'consecutive active days', '保留原十四日单次徽章，放入连续活跃主题详情，不替代三级连续日系列。', 'Legacy fourteen-day single badge inside the active streak details, not a replacement for its three tiers.'],
   'settings-explorer': ['主动修改的不同安全设置项', 'distinct deliberately changed safe settings', '只计成功保存；不计默认、迁移、重置或重复操作。', 'Successful deliberate changes only; defaults, migrations, resets and repeats excluded.'],
   'safe-feature-explorer': ['安全体验步骤', 'safe feature steps', '查看成就页 → 主动预览分享卡 → 成功本地导出。', 'View gallery, deliberately preview sharing, successfully export locally.'],
   'local-share-export': ['成功本地 SVG 导出', 'successful local SVG export', '预览不算；无需 GitHub 或公开发布。', 'Preview is not export; no GitHub access or public publication required.'],
@@ -80,7 +81,7 @@ function achievementCatalog(locale = 'zh-CN') {
     if (key === 'active-day-streak') title = zh ? '连续活跃日' : 'Active-day streak';
     if (key === 'cumulative-volume') title = zh ? '累计 Token' : 'Cumulative tokens';
     cards.push({
-      key, group: definition.group, title,
+      key, displayKey: achievementGalleryKey(key), group: definition.group, title,
       metric: detail[zh ? 0 : 1], note: detail[zh ? 2 : 3],
       levels: ids.map((id, index) => ({
         id, target: byId.get(id).target, title: copy.titles[id],
@@ -126,8 +127,8 @@ function renderCatalogMarkdown(catalog, locale = 'zh-CN') {
   const fiveTierCount = catalog.filter(card => card.levels.length === 5).length;
   const singleCount = catalog.filter(card => card.levels.length === 1).length;
   const lines = [`# ${zh ? 'v2.4.2 成就与图标审阅清单' : 'v2.4.2 achievement and artwork review'}`, '',
-    zh ? `${threeTierCount} 个三级系列 + ${fiveTierCount} 个五级系列 + ${singleCount} 个单次成就，共 ${catalog.length} 张卡、${catalog.reduce((sum, card) => sum + card.levels.length, 0)} 个可解锁等级。图鉴不是个人获奖记录。门槛与图片直接来自编译后的候选代码；每个系列图案独立，各等级共用同一徽章。` :
-      `${threeTierCount} three-tier series + ${fiveTierCount} five-tier series + ${singleCount} single awards: ${catalog.length} cards and ${catalog.reduce((sum, card) => sum + card.levels.length, 0)} unlockable awards. This catalog is not personal award history. Targets and artwork come directly from the compiled candidate; each series has distinct artwork shared by its tiers.`, ''];
+    zh ? `${threeTierCount} 个三级系列 + ${fiveTierCount} 个五级系列 + ${singleCount} 个单次成就，共 ${catalog.length} 套图案、${catalog.reduce((sum, card) => sum + card.levels.length, 0)} 个解锁条件；默认界面归为 ${ACHIEVEMENT_GALLERY.length} 张主题卡。十四日与双供应商首日保留原图，进入对应主题详情。图鉴不是个人获奖记录。门槛与图片直接来自编译后的候选代码；每个系列图案独立，各等级共用同一徽章。` :
+      `${threeTierCount} three-tier series + ${fiveTierCount} five-tier series + ${singleCount} single awards: ${catalog.length} artwork groups and ${catalog.reduce((sum, card) => sum + card.levels.length, 0)} award conditions in ${ACHIEVEMENT_GALLERY.length} default theme cards. Fourteen-day and first shared-day milestones retain their art inside theme details. This catalog is not personal award history. Targets and artwork come directly from the compiled candidate; each series has distinct artwork shared by its tiers.`, ''];
   for (const group of ['claude', 'codex', 'combined', 'plugin']) {
     lines.push(`## ${copy.groups[group]}`, '', zh ? '| 成就 | 等级门槛（低→高） | 计量与条件 | 原图 |' :
       '| Achievement | Level targets (low to high) | Evidence | Artwork |', '|:--|:--|:--|:--|');

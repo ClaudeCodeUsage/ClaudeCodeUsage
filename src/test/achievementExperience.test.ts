@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import Module = require('node:module');
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } from '../achievements';
+import { achievementGalleryKey } from '../achievementGallery';
 import { ACHIEVEMENT_COPY, I18n } from '../i18n';
 
 async function gallery(run: (provider: any) => void): Promise<void> {
@@ -21,16 +22,71 @@ async function gallery(run: (provider: any) => void): Promise<void> {
   } finally { I18n.setLanguage(locale as Parameters<typeof I18n.setLanguage>[0]); (Module as any)._load = load; }
 }
 
+test('default gallery folds legacy milestones into their themes without dropping any formal rule', async () => {
+  await gallery(provider => {
+    const html = provider.renderAchievementData();
+    assert.equal((html.match(/data-achievement-key=/g) ?? []).length, 44);
+    assert.doesNotMatch(html, /data-achievement-key="(?:streak-machine|dual-provider-day)"/);
+    const ids = [...html.matchAll(/data-achievement-level="([^"]+)"/g)].map(match => match[1]);
+    assert.equal(new Set(ids).size, 124);
+    assert.deepEqual(ids.sort(), ACHIEVEMENT_DEFINITIONS.map(row => row.id).sort());
+    for (const [theme, milestone] of [['active-day-streak', 'streak-machine'], ['dual-provider-days', 'dual-provider-day']]) {
+      const card = html.match(new RegExp(`<article[^>]*data-achievement-key="${theme}"[\\s\\S]*?<\\/article>`))![0];
+      assert.match(card, new RegExp(`data-achievement-milestone="${milestone}"`));
+      assert.ok(card.includes(`achievement:${milestone}`), 'old disclosure alias still opens the owning theme');
+      assert.match(card, new RegExp(`data-achievement-level="${milestone}"`));
+      assert.equal((card.match(/achievement-tier-pip(?: complete| next)?"/g) ?? []).length, 3,
+        'an old single milestone is not a new tier');
+    }
+  });
+});
+
+test('milestone-only history stays earned and pinned without fabricating tier grants', async () => {
+  await gallery(provider => {
+    provider.achievementGrants = new Set(['streak-machine', 'dual-provider-day']);
+    provider.achievementRecordState = { generation: 1, pins: ['streak-machine', 'dual-provider-day'],
+      records: ['streak-machine', 'dual-provider-day'].map((id, index) => ({ id, seq: index + 1,
+        origin: 'usage', unread: true, recordedDay: '2026-10-09', timeZone: 'UTC', ruleVersion: 1 })) };
+    const before = JSON.stringify(provider.achievementRecordState);
+    const html = provider.renderAchievementData();
+    const card = html.match(/<article[^>]*data-achievement-key="active-day-streak"[\s\S]*?<\/article>/)![0];
+    assert.match(card, /data-achievement-earned="true"/);
+    assert.match(card, /data-achievement-pin="streak-machine"[^>]*aria-pressed="true"/);
+    assert.match(card, /data-achievement-icon="streak-machine"/);
+    assert.doesNotMatch(card, /achievement-tier-pip complete/);
+    assert.match(card, /data-achievement-tier=""/, 'an old milestone alone must not wear a formal tier color');
+    assert.match(html, /data-achievement-open="active-day-streak"/);
+    assert.doesNotMatch(html, /data-achievement-open="streak-machine"|data-achievement-open="dual-provider-day"/);
+    assert.equal(JSON.stringify(provider.achievementRecordState), before);
+  });
+});
+
+test('duplicate legacy theme pins remain individually removable within one default card', async () => {
+  await gallery(provider => {
+    provider.achievementGrants = new Set(['active-day-streak', 'streak-machine']);
+    provider.achievementRecordState = { generation: 1, pins: ['streak-machine', 'active-day-streak'],
+      records: [...provider.achievementGrants].map((id, index) => ({ id, seq: index + 1,
+        origin: 'history', unread: false, recordedDay: null, timeZone: null, ruleVersion: 1 })) };
+    const html = provider.renderAchievementData();
+    const card = html.match(/<article[^>]*data-achievement-key="active-day-streak"[\s\S]*?<\/article>/)![0];
+    for (const key of provider.achievementRecordState.pins) {
+      assert.match(card, new RegExp(`data-achievement-pin="${key}"[^>]*aria-pressed="true"`));
+    }
+    const overview = html.match(/data-achievement-overview="badges"[\s\S]*?<\/section>/)![0];
+    assert.equal((overview.match(/data-achievement-open="active-day-streak"/g) ?? []).length, 1);
+    assert.doesNotMatch(html, /id="achievement-hidden-pins-summary"/);
+  });
+});
+
 test('gallery separates series and levels and excludes disabled providers from both denominators', async () => {
   await gallery(provider => {
     const html = provider.renderAchievementData();
-    assert.match(html, /0 \/ 46 series/);
+    assert.match(html, /0 \/ 44 series/);
     assert.match(html, /0 \/ 124 levels/);
     provider.providerAvailability.claude = false;
     const filtered = provider.renderAchievementData();
     const ids = ACHIEVEMENT_DEFINITIONS.filter(entry => entry.group !== 'claude' && !entry.id.startsWith('dual-provider-'));
-    const series = new Set(ids.map(entry => Object.entries(ACHIEVEMENT_SERIES)
-      .find(([, levels]) => levels.includes(entry.id))?.[0] ?? entry.id));
+    const series = new Set(ids.map(entry => achievementGalleryKey(entry.id)));
     assert.ok(filtered.includes(`0 / ${series.size} series`));
     assert.ok(filtered.includes(`0 / ${ids.length} levels`));
     assert.doesNotMatch(filtered, /data-achievement-id="dual-provider-/);
@@ -196,7 +252,7 @@ test('tier upgrades keep disclosure keys and canonical card order stable', async
     const after = provider.renderAchievementData();
     for (const html of [before, after]) assert.match(html, /data-persist="achievement:sol-regular"/);
     const order = (html: string) => [...html.matchAll(/data-achievement-key="([^"]+)"/g)].map(match => match[1]);
-    assert.equal(order(before).length, 46);
+    assert.equal(order(before).length, 44);
     assert.deepEqual(order(after), order(before));
     assert.match(after, /data-persist-aliases="achievement:sol-regular achievement:sol-regular-silver achievement:sol-regular-gold"/);
   });

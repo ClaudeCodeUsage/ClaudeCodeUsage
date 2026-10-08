@@ -214,7 +214,9 @@ attainment; historical dates remain unknown. Browsing does not mark records read
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.
 
-The unreleased 2.4.2 candidate adds an icon-first gallery: **46 series and 124 level conditions**,
+The unreleased 2.4.2 candidate adds an icon-first gallery: **44 display themes and 124 award conditions**,
+with all 46 artwork groups retained. Fourteen-day and first shared-day milestones
+live inside their growing themes; exact awards, old pins and share choices remain intact.
 with ordinary, silver and gold tiers, plus platinum/legendary cumulative milestones.
 One card shows each series and its compact next target; expand it for every level's
 rule and evidence. Series and unlocked levels are counted separately. Local All /

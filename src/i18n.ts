@@ -73,6 +73,8 @@ export interface AchievementCopy {
   groups: { claude: string; codex: string; combined: string; plugin: string };
   levels: readonly [string, string, string, string, string];
   milestone: string;
+  streakTheme: string;
+  sharedDaysTheme: string;
   units: {
     outputTokens: string;
     cacheReadTokens: string;
@@ -154,6 +156,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     disableFailed: 'Could not save the OFF preference. Achievements remain enabled; please try again in dashboard Settings.',
     groups: { claude: 'Claude', codex: 'Codex', combined: 'Combined activity', plugin: 'Extension exploration' },
     levels: ['Ordinary', 'Silver', 'Gold', 'Platinum', 'Legendary'], milestone: 'Milestone',
+    streakTheme: 'Active streak', sharedDaysTheme: 'Shared active days',
     units: {
       outputTokens: 'output tokens',
       cacheReadTokens: 'cache-read tokens',
@@ -303,6 +306,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     disableFailed: '未能保存关闭设置。成就仍开启，请在面板设置中重试。',
     groups: { claude: 'Claude', codex: 'Codex', combined: '综合活动', plugin: '插件探索' },
     levels: ['普通', '银色', '金色', '铂金', '传奇'], milestone: '里程碑',
+    streakTheme: '连续活跃', sharedDaysTheme: '双供应商活跃',
     units: {
       outputTokens: '输出 Token',
       cacheReadTokens: '缓存读取 Token',
@@ -451,6 +455,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     disableFailed: '無法儲存關閉設定。成就仍開啟，請在面板設定中重試。',
     groups: { claude: 'Claude', codex: 'Codex', combined: '綜合活動', plugin: '擴充功能探索' },
     levels: ['一般', '銀色', '金色', '鉑金', '傳奇'], milestone: '里程碑',
+    streakTheme: '連續活躍', sharedDaysTheme: '雙供應商活躍',
     units: {
       outputTokens: '輸出 Token',
       cacheReadTokens: '快取讀取 Token',
@@ -599,6 +604,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     disableFailed: 'Deaktivierung konnte nicht gespeichert werden. Erfolge bleiben aktiviert. Bitte in den Dashboard-Einstellungen erneut versuchen.',
     groups: { claude: 'Claude', codex: 'Codex', combined: 'Gemeinsame Aktivität', plugin: 'Erweiterung erkunden' },
     levels: ['Basis', 'Silber', 'Gold', 'Platin', 'Legendär'], milestone: 'Meilenstein',
+    streakTheme: 'Aktivitätsserie', sharedDaysTheme: 'Gemeinsame aktive Tage',
     units: {
       outputTokens: 'Ausgabe-Token',
       cacheReadTokens: 'Cache-Lese-Token',
@@ -747,6 +753,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     disableFailed: '無効設定を保存できませんでした。実績は有効のままです。ダッシュボードの設定で再試行してください。',
     groups: { claude: 'Claude', codex: 'Codex', combined: '統合アクティビティ', plugin: '拡張機能の探索' },
     levels: ['通常', 'シルバー', 'ゴールド', 'プラチナ', 'レジェンド'], milestone: 'マイルストーン',
+    streakTheme: '連続アクティブ日', sharedDaysTheme: '両プロバイダーの活動日',
     units: {
       outputTokens: '出力トークン',
       cacheReadTokens: 'キャッシュ読み取りトークン',
@@ -895,6 +902,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     disableFailed: '비활성화 설정을 저장하지 못했습니다. 업적은 계속 활성화됩니다. 대시보드 설정에서 다시 시도하세요.',
     groups: { claude: 'Claude', codex: 'Codex', combined: '통합 활동', plugin: '확장 기능 탐색' },
     levels: ['일반', '실버', '골드', '플래티넘', '전설'], milestone: '이정표',
+    streakTheme: '연속 활동', sharedDaysTheme: '두 공급자 활동일',
     units: {
       outputTokens: '출력 토큰',
       cacheReadTokens: '캐시 읽기 토큰',
@@ -1043,6 +1051,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     disableFailed: 'Não foi possível salvar a desativação. As conquistas continuam ativas; tente novamente nas configurações do painel.',
     groups: { claude: 'Claude', codex: 'Codex', combined: 'Atividade combinada', plugin: 'Exploração da extensão' },
     levels: ['Básico', 'Prata', 'Ouro', 'Platina', 'Lendário'], milestone: 'Marco',
+    streakTheme: 'Sequência de atividade', sharedDaysTheme: 'Dias de atividade conjunta',
     units: {
       outputTokens: 'tokens de saída',
       cacheReadTokens: 'tokens de leitura de cache',
@@ -1191,6 +1200,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     disableFailed: 'Pilihan nonaktif tidak dapat disimpan. Pencapaian tetap aktif; coba lagi di Pengaturan dasbor.',
     groups: { claude: 'Claude', codex: 'Codex', combined: 'Aktivitas gabungan', plugin: 'Jelajah ekstensi' },
     levels: ['Dasar', 'Perak', 'Emas', 'Platina', 'Legendaris'], milestone: 'Tonggak',
+    streakTheme: 'Aktivitas beruntun', sharedDaysTheme: 'Hari aktif kedua penyedia',
     units: {
       outputTokens: 'token keluaran',
       cacheReadTokens: 'token baca cache',
