@@ -32,6 +32,7 @@ export interface AchievementCopy {
   unpinBadge: string;
   pinLimit: string;
   pinFailed: string;
+  hiddenPins: string;
   seriesCount: string;
   levelCount: string;
   shownCount: string;
@@ -128,6 +129,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     myBadges: 'My badges', nextGoals: 'Next goals', galleryTitle: 'Complete collection', viewBadge: 'View badge',
     recentAwards: 'Recently earned', recordHistory: 'Recent records', recordedDay: 'First recorded', historicalAward: 'Historical award · date unknown',
     pinBadge: 'Pin badge', unpinBadge: 'Unpin badge', pinLimit: 'Pin up to 3 badges.', pinFailed: 'Could not save the pin. Try again.',
+    hiddenPins: 'Hidden pinned badges',
     seriesCount: '{earned} / {total} series', levelCount: '{earned} / {total} levels', shownCount: '{count} series shown',
     filterLabel: 'Show achievements', filterAll: 'All series', filterNext: 'Next levels', filterEarned: 'Earned series',
     filterEmpty: 'No series match this view. Choose All series to browse the collection.',
@@ -274,6 +276,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     myBadges: '我的徽章', nextGoals: '下一目标', galleryTitle: '完整图鉴', viewBadge: '查看徽章',
     recentAwards: '最近获得', recordHistory: '近期记录', recordedDay: '首次记录', historicalAward: '历史成就 · 日期未知',
     pinBadge: '固定徽章', unpinBadge: '取消固定', pinLimit: '最多固定 3 个徽章。', pinFailed: '固定选择未保存，请重试。',
+    hiddenPins: '已隐藏的固定徽章',
     seriesCount: '{earned} / {total} 个系列', levelCount: '{earned} / {total} 个等级', shownCount: '显示 {count} 个系列',
     filterLabel: '显示范围', filterAll: '全部系列', filterNext: '待解锁等级', filterEarned: '已获得系列',
     filterEmpty: '当前范围没有成就，选择“全部系列”可查看完整图鉴。',
@@ -419,6 +422,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     myBadges: '我的徽章', nextGoals: '下一目標', galleryTitle: '完整圖鑑', viewBadge: '查看徽章',
     recentAwards: '最近獲得', recordHistory: '近期記錄', recordedDay: '首次記錄', historicalAward: '歷史成就 · 日期未知',
     pinBadge: '固定徽章', unpinBadge: '取消固定', pinLimit: '最多固定 3 個徽章。', pinFailed: '固定選擇未儲存，請重試。',
+    hiddenPins: '已隱藏的固定徽章',
     seriesCount: '{earned} / {total} 個系列', levelCount: '{earned} / {total} 個等級', shownCount: '顯示 {count} 個系列',
     filterLabel: '顯示範圍', filterAll: '全部系列', filterNext: '待解鎖等級', filterEarned: '已獲得系列',
     filterEmpty: '目前範圍沒有成就，選擇「全部系列」可查看完整圖鑑。',
@@ -564,6 +568,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     myBadges: 'Meine Abzeichen', nextGoals: 'Nächste Ziele', galleryTitle: 'Vollständige Sammlung', viewBadge: 'Abzeichen ansehen',
     recentAwards: 'Zuletzt erhalten', recordHistory: 'Neueste Einträge', recordedDay: 'Erstmals erfasst', historicalAward: 'Historisches Abzeichen · Datum unbekannt',
     pinBadge: 'Abzeichen anheften', unpinBadge: 'Abzeichen lösen', pinLimit: 'Bis zu 3 Abzeichen anheften.', pinFailed: 'Anheften nicht gespeichert. Erneut versuchen.',
+    hiddenPins: 'Ausgeblendete angeheftete Abzeichen',
     seriesCount: '{earned} / {total} Serien', levelCount: '{earned} / {total} Stufen', shownCount: '{count} Serien angezeigt',
     filterLabel: 'Erfolge anzeigen', filterAll: 'Alle Serien', filterNext: 'Nächste Stufen', filterEarned: 'Erreichte Serien',
     filterEmpty: 'Keine Serie in dieser Ansicht. Unter Alle Serien ist die gesamte Sammlung sichtbar.',
@@ -709,6 +714,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     myBadges: 'マイバッジ', nextGoals: '次の目標', galleryTitle: 'すべてのバッジ', viewBadge: 'バッジを見る',
     recentAwards: '最近の獲得', recordHistory: '最近の記録', recordedDay: '初回記録日', historicalAward: '過去の実績 · 日付不明',
     pinBadge: '実績を固定', unpinBadge: '固定を解除', pinLimit: '最大3件の実績を固定できます。', pinFailed: '固定を保存できませんでした。再試行してください。',
+    hiddenPins: '非表示の固定済み実績',
     seriesCount: '{earned} / {total} シリーズ', levelCount: '{earned} / {total} レベル', shownCount: '{count} シリーズを表示',
     filterLabel: '表示範囲', filterAll: '全シリーズ', filterNext: '未獲得レベル', filterEarned: '獲得済みシリーズ',
     filterEmpty: 'この範囲に実績はありません。「全シリーズ」で図鑑を表示できます。',
@@ -854,6 +860,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     myBadges: '내 배지', nextGoals: '다음 목표', galleryTitle: '전체 배지', viewBadge: '배지 보기',
     recentAwards: '최근 획득', recordHistory: '최근 기록', recordedDay: '최초 기록일', historicalAward: '과거 업적 · 날짜 미상',
     pinBadge: '배지 고정', unpinBadge: '고정 해제', pinLimit: '배지는 최대 3개까지 고정할 수 있습니다.', pinFailed: '고정을 저장하지 못했습니다. 다시 시도하세요.',
+    hiddenPins: '숨겨진 고정 배지',
     seriesCount: '{earned} / {total} 시리즈', levelCount: '{earned} / {total} 단계', shownCount: '{count}개 시리즈 표시',
     filterLabel: '표시 범위', filterAll: '전체 시리즈', filterNext: '다음 단계', filterEarned: '획득한 시리즈',
     filterEmpty: '이 범위에 업적이 없습니다. 전체 시리즈에서 도감을 확인하세요.',
@@ -999,6 +1006,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     myBadges: 'Minhas medalhas', nextGoals: 'Próximas metas', galleryTitle: 'Coleção completa', viewBadge: 'Ver medalha',
     recentAwards: 'Conquistas recentes', recordHistory: 'Registros recentes', recordedDay: 'Primeiro registro', historicalAward: 'Conquista histórica · data desconhecida',
     pinBadge: 'Fixar medalha', unpinBadge: 'Desafixar medalha', pinLimit: 'Fixe até 3 medalhas.', pinFailed: 'Não foi possível salvar. Tente novamente.',
+    hiddenPins: 'Medalhas fixadas ocultas',
     seriesCount: '{earned} / {total} séries', levelCount: '{earned} / {total} níveis', shownCount: '{count} séries exibidas',
     filterLabel: 'Exibir conquistas', filterAll: 'Todas as séries', filterNext: 'Próximos níveis', filterEarned: 'Séries conquistadas',
     filterEmpty: 'Nenhuma série nesta visualização. Selecione Todas as séries para ver a coleção.',
@@ -1144,6 +1152,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     myBadges: 'Lencana saya', nextGoals: 'Target berikutnya', galleryTitle: 'Koleksi lengkap', viewBadge: 'Lihat lencana',
     recentAwards: 'Baru diperoleh', recordHistory: 'Catatan terbaru', recordedDay: 'Pertama dicatat', historicalAward: 'Pencapaian lama · tanggal tidak diketahui',
     pinBadge: 'Sematkan lencana', unpinBadge: 'Lepas sematan', pinLimit: 'Sematkan hingga 3 lencana.', pinFailed: 'Sematan gagal disimpan. Coba lagi.',
+    hiddenPins: 'Lencana tersemat yang tersembunyi',
     seriesCount: '{earned} / {total} seri', levelCount: '{earned} / {total} tingkat', shownCount: '{count} seri ditampilkan',
     filterLabel: 'Tampilkan pencapaian', filterAll: 'Semua seri', filterNext: 'Tingkat berikutnya', filterEarned: 'Seri yang diraih',
     filterEmpty: 'Tidak ada seri dalam tampilan ini. Pilih Semua seri untuk melihat koleksi.',

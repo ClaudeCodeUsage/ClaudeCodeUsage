@@ -176,6 +176,8 @@ The extension-owned ledger contains only the following validated fields:
   summary remains pending. Earned badge details save one pin/unpin intent under the
   shared lease, with at most three public keys; no award, read status or share choice
   is changed. Failed saves retain the old preference; old/OFF/clear requests are rejected.
+  Disabled-source pins can be removed explicitly from a folded list of at most
+  three saved public keys; this does not enable a provider or read its logs.
   The gallery shows at most three recent non-historical series and a folded
   thirty-row record projection without deleting awards. Dates are first-record
   days in their saved zones, not inferred attainment dates. Old records explicitly

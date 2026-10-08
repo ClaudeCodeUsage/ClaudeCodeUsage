@@ -11,6 +11,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   showcase series. Atomic intents preserve other windows' choices; pins precede
   automatic representatives without changing goals or sharing consent. Only a
   saved host preference updates the UI; failed saves retain the old choice.
+  Disabled-source pins remain removable from a folded management list without
+  re-enabling that source, reading logs or deleting other saved pins.
 - **Recent award views** — up to three actually recorded new series, plus a
   collapsible thirty-row list linked to the existing rules. First-record dates
   stay distinct from historical unknown dates; browsing neither marks records

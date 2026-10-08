@@ -595,12 +595,17 @@ exports.renderHarness = async function renderHarness({
     );
     provider.currentProvider = selectedProvider;
 
-    if (fixture === 'achievement-records' || fixture === 'achievement-history-only' || fixture === 'achievement-pins') {
+    if (fixture === 'achievement-records' || fixture === 'achievement-history-only' || fixture === 'achievement-pins' || fixture.startsWith('achievement-hidden-pins')) {
       // Validated synthetic local records, not claimed personal achievement dates.
       const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
       const ids = ['local-share-export', 'settings-explorer-bronze', 'settings-explorer-silver', 'local-advice-feedback', 'hundred-million-club'];
+      const hiddenPins = fixture.startsWith('achievement-hidden-pins');
+      if (hiddenPins) ids.push('astra-regular', 'sol-regular', 'luna-regular');
       provider.achievementRecordState = parseAchievementRecordStore({ schemaVersion: 1, generation: 1,
-        sequence: ids.length, lastNoticeAt: 0, pins: fixture === 'achievement-pins' ? ['local-share-export'] : [],
+        sequence: ids.length, lastNoticeAt: 0, pins: hiddenPins
+          ? fixture === 'achievement-hidden-pins-last' ? ['astra-regular']
+            : fixture === 'achievement-hidden-pins-released' ? ['sol-regular', 'luna-regular'] : ['astra-regular', 'sol-regular', 'luna-regular']
+          : fixture === 'achievement-pins' ? ['local-share-export'] : [],
         records: ids.map((id, index) => {
           const historical = fixture === 'achievement-history-only' || id === 'hundred-million-club';
           return { id, seq: index + 1, ruleVersion: 1, origin: historical ? 'history' : 'activity',

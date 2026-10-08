@@ -71,6 +71,8 @@ ursprüngliche Erlangung; alte Daten bleiben unbekannt. Beim Ansehen werden Eint
 nicht als gelesen markiert und nicht zum Teilen ausgewählt.
 In den Details erhaltener Abzeichen lassen sich bis zu drei Vertreter anheften.
 Die Auswahl bleibt nach einem Neustart erhalten und ist keine Freigabe zum Teilen.
+Ausgeblendete angeheftete Abzeichen können in einer einklappbaren Liste gelöst werden,
+ohne den deaktivierten Anbieter wieder einzuschalten.
 
 Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
 neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.

@@ -391,6 +391,15 @@ function ccuCaptureRefreshContext(panel) {
     ? document.activeElement
     : null;
   var focus = ccuRefreshDescriptor(focused, panel, true);
+  // A deliberately removed control may nominate at most two existing focus targets.
+  // These are transient DOM descriptors, never client state or host commands.
+  var focusFallbacks = focused && focused.getAttribute ?
+    (focused.getAttribute('data-refresh-focus-fallback') || '').split(' ').slice(0, 2).map(function(id) {
+      if (!id || id.length > 256) { return null; }
+      var target = document.getElementById(id);
+      if (!target || !panel.contains(target) || !target.matches(__ccuFocusableSelector)) { return null; }
+      return { descriptor: { kind: 'id', value: id }, top: target.getBoundingClientRect().top };
+    }).filter(Boolean) : [];
   var controls = [];
   var seen = [];
   [focused, document.getElementById('optDraft'), document.getElementById('optResolve'),
@@ -403,6 +412,7 @@ function ccuCaptureRefreshContext(panel) {
     });
   return {
     focus: focus,
+    focusFallbacks: focusFallbacks,
     anchor: ccuCaptureRefreshAnchor(panel, focus),
     controls: controls,
     advicePreviews: ccuCaptureAdvicePreviews(panel),
@@ -433,19 +443,28 @@ function ccuRestoreRefreshPosition(context, panel) {
       var anchor = context.anchor
         ? ccuResolveRefreshDescriptor(context.anchor.descriptor, panel)
         : null;
+      var fallback = (context.focusFallbacks || []).find(function(saved) {
+        return !!ccuResolveRefreshDescriptor(saved.descriptor, panel);
+      });
+      var anchorTop = context.anchor ? context.anchor.top : 0;
+      if (!anchor && fallback) {
+        anchor = ccuResolveRefreshDescriptor(fallback.descriptor, panel);
+        anchorTop = fallback.top;
+      }
       if (anchor) {
-        window.scrollBy(0, anchor.getBoundingClientRect().top - context.anchor.top);
+        window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop);
       } else {
         window.scrollTo(0, context.scrollY);
       }
       ccuRestoreLocalScrollPositions(context.localScrollPositions, panel);
-      var focused = ccuResolveRefreshDescriptor(context.focus, panel);
+      var focused = ccuResolveRefreshDescriptor(context.focus, panel) ||
+        (fallback ? ccuResolveRefreshDescriptor(fallback.descriptor, panel) : null);
       if (focused && typeof focused.focus === 'function') {
         try { focused.focus({ preventScroll: true }); } catch (e) { focused.focus(); }
       }
       ccuRestoreLocalScrollPositions(context.localScrollPositions, panel);
       if (anchor) {
-        window.scrollBy(0, anchor.getBoundingClientRect().top - context.anchor.top);
+        window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop);
       }
       __ccuUiReady = true;
     });

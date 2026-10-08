@@ -1,4 +1,86 @@
-import { test, expect, openCodex } from './support/app.mjs';
+import { test, expect, openCodex, openClaude } from './support/app.mjs';
+
+for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
+  test(`${locale} hidden pins can be removed with disabled Codex and no implicit side effects`, async ({ page }, testInfo) => {
+    for (const theme of ['light', 'dark']) {
+      await openClaude(page, { fixture: 'achievement-hidden-pins', claudeOnly: true, locale, theme, width: 320 });
+      // Theme iterations start fresh; reload preservation is asserted separately below.
+      await page.evaluate(() => localStorage.removeItem('__ccu-vscode-state'));
+      await page.reload();
+      await page.locator('#tab-achievements').click();
+      const manager = page.locator('[data-persist="achievement:hidden-pins"]');
+      await expect(manager).not.toHaveAttribute('open');
+      await manager.locator('summary').click();
+      await expect(manager.locator('button')).toHaveCount(3);
+      await expect(page.locator('[data-achievement-key="astra-regular"]')).toHaveCount(0);
+      const button = page.locator('#achievement-unpin-astra-regular');
+      await page.evaluate(() => { window.__ccuPostedMessages = []; });
+      await button.focus(); await button.press('Enter');
+      expect(await page.evaluate(() => window.__ccuPostedMessages)).toEqual([
+        { command: 'setAchievementPinned', key: 'astra-regular', selected: false, generation: 1 },
+      ]);
+      await expect(button).toHaveAttribute('aria-pressed', 'true');
+      await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        command: 'achievementPinResult', key: 'astra-regular', ok: false, reason: 'failed', message: '/private/raw/path',
+      } })));
+      await expect(page.locator('#achievementPinStatus')).not.toBeEmpty();
+      await expect(page.locator('#achievementPinStatus')).not.toContainText('/private/raw/path');
+      await expect(button).toBeFocused();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`hidden-pins-${locale}-${theme}.png`) });
+      // Renderer fixtures simulate durable host state; provider tests reopen a real isolated store.
+      const confirmedUrl = new URL(page.url()); confirmedUrl.searchParams.set('fixture', 'achievement-hidden-pins-released');
+      const response = await page.context().request.get(confirmedUrl.href);
+      expect(response.ok()).toBe(true);
+      // Leave scroll headroom: deleting inline feedback at scrollY=0 cannot
+      // preserve an anchor's old position because browsers clamp negative scrolling.
+      await manager.locator('summary').evaluate(element => element.scrollIntoView({ block: 'center' }));
+      await page.clock.runFor(200);
+      const summaryTop = await manager.locator('summary').evaluate(element => element.getBoundingClientRect().top);
+      await page.evaluate(nextHtml => {
+        const next = new DOMParser().parseFromString(nextHtml, 'text/html').getElementById('provider-panel');
+        window.__ccuPostedMessages = [];
+        window.__hiddenPinDocument = document.documentElement;
+        window.dispatchEvent(new MessageEvent('message', { data: { command: 'dashboardDataPatch', provider: 'claude',
+          tab: 'achievements', revision: 1, html: next.innerHTML, claudeLast30HoursByDay: {}, adviceSnapshotIds: {} } }));
+      }, await response.text());
+      await expect(button).toHaveCount(0);
+      await expect(manager).toHaveAttribute('open');
+      await expect(manager.locator('button')).toHaveCount(2);
+      await page.clock.runFor(200);
+      await expect(manager.locator('summary')).toBeFocused();
+      expect(Math.abs(await manager.locator('summary').evaluate(element => element.getBoundingClientRect().top) - summaryTop)).toBeLessThanOrEqual(1);
+      expect(await page.evaluate(() => document.documentElement === window.__hiddenPinDocument)).toBe(true);
+      const commands = await page.evaluate(() => window.__ccuPostedMessages.map(message => message.command));
+      for (const command of ['refresh', 'achievementNoticeAck', 'previewAchievementShare', 'exportAchievementShare', 'updateSetting'])
+        expect(commands).not.toContain(command);
+      await page.goto(confirmedUrl.href); await page.reload();
+      await expect(manager).toHaveAttribute('open');
+      await expect(manager.locator('button')).toHaveCount(2);
+    }
+  });
+}
+
+test('removing the final hidden pin returns keyboard focus to achievements without refresh or consent', async ({ page }) => {
+  await openClaude(page, { fixture: 'achievement-hidden-pins-last', claudeOnly: true, width: 320 });
+  await page.locator('#tab-achievements').click();
+  await page.locator('[data-persist="achievement:hidden-pins"] summary').click();
+  await page.locator('#achievement-unpin-astra-regular').focus();
+  await page.locator('#achievement-unpin-astra-regular').press('Enter');
+  const confirmedUrl = new URL(page.url()); confirmedUrl.searchParams.set('fixture', 'achievement-records');
+  const response = await page.context().request.get(confirmedUrl.href);
+  expect(response.ok()).toBe(true);
+  await page.evaluate(nextHtml => {
+    const next = new DOMParser().parseFromString(nextHtml, 'text/html').getElementById('provider-panel');
+    window.__ccuPostedMessages = [];
+    window.dispatchEvent(new MessageEvent('message', { data: { command: 'dashboardDataPatch', provider: 'claude',
+      tab: 'achievements', revision: 1, html: next.innerHTML, claudeLast30HoursByDay: {}, adviceSnapshotIds: {} } }));
+  }, await response.text());
+  await expect(page.locator('[data-persist="achievement:hidden-pins"]')).toHaveCount(0);
+  await page.clock.runFor(200);
+  await expect(page.locator('#tab-achievements')).toBeFocused();
+  expect(await page.evaluate(() => window.__ccuPostedMessages.map(message => message.command))).toEqual(['dashboardDataPatchAck']);
+});
 
 test('pin button sends a generation-bound preference only and failures stay inline', async ({ page }) => {
   await openCodex(page, { fixture: 'achievement-records', width: 360 });

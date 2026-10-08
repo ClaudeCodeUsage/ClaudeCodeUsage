@@ -79,6 +79,66 @@ test('manual pin saves only an earned showcase preference and survives a new pro
   });
 });
 
+test('disabled provider pins remain removable without awards, reads or losing peer preferences', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      const added = await repository.append(provider.achievementRecordState.generation,
+        ['astra-regular', 'sol-regular', 'luna-regular', 'local-share-export'].map(id =>
+          ({ id, origin: 'history', recordedDay: null, timeZone: null })));
+      let saved = added.store;
+      for (const key of ['astra-regular', 'sol-regular', 'luna-regular']) saved = await repository.setPinned(saved.generation, key, true);
+      provider.achievementRecordState = saved;
+      provider.achievementGrants = new Set(saved.records.map((row: any) => row.id));
+      await provider.handleAchievementPinMessage({ key: 'astra-regular', selected: false, generation: saved.generation });
+      const released = JSON.parse(await readFile(repository.file, 'utf8'));
+      assert.deepEqual(released.pins, ['sol-regular', 'luna-regular']);
+      assert.deepEqual(released.records, saved.records);
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: saved.generation });
+      const replaced = JSON.parse(await readFile(repository.file, 'utf8'));
+      assert.deepEqual(replaced.pins, ['sol-regular', 'luna-regular', 'local-share-export']);
+      assert.deepEqual(replaced.records, saved.records);
+      assert.deepEqual(replaced.auxiliary, saved.auxiliary);
+      assert.equal(provider.providerAvailability.codex, false);
+      assert.equal(provider.achievementShareSelection, undefined);
+    }, undefined, directory);
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      assert.deepEqual(provider.achievementRecordState.pins, ['sol-regular', 'luna-regular', 'local-share-export']);
+    }, undefined, directory);
+  });
+});
+
+test('hidden pin management is folded, bounded and localized without re-enabling a source', async () => {
+  const language = I18n.getCurrentLanguage();
+  try { await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      const added = await repository.append(provider.achievementRecordState.generation,
+        [{ id: 'astra-regular', origin: 'history', recordedDay: null, timeZone: null }]);
+      provider.achievementRecordState = await repository.setPinned(added.store.generation, 'astra-regular', true);
+      provider.achievementGrants = new Set(['astra-regular']);
+      const bytes = await readFile(repository.file, 'utf8');
+      for (const locale of Object.keys(ACHIEVEMENT_COPY)) {
+        I18n.setLanguage(locale as any);
+        const html = provider.renderAchievementData();
+        assert.match(html, /<details[^>]*data-persist="achievement:hidden-pins"/);
+        assert.match(html, /id="achievement-unpin-astra-regular"[^>]*aria-pressed="true"/);
+        assert.doesNotMatch(html, /id="achievement-pin-astra-regular"/);
+        assert.ok(html.includes((ACHIEVEMENT_COPY as any)[locale].hiddenPins));
+        assert.equal((html.match(/id="achievement-unpin-/g) ?? []).length, 1);
+      }
+      assert.equal(await readFile(repository.file, 'utf8'), bytes);
+      assert.equal(provider.providerAvailability.codex, false);
+    }, undefined, directory);
+  }); } finally { I18n.setLanguage(language); }
+});
+
 test('pin messages reject missing generation, nonboolean intent, unearned or hidden badges and OFF without writes', async () => {
   await withAchievementStorage(async directory => {
     await withProvider(achievementPersistenceState(), async provider => {
@@ -148,6 +208,26 @@ test('a failed pin render never misreports a successful durable preference save'
       assert.deepEqual(JSON.parse(await readFile(repository.file, 'utf8')).pins, ['local-share-export']);
       assert.deepEqual(provider.achievementRecordState.pins, ['local-share-export']);
       assert.deepEqual(messages, []);
+    }, undefined, directory);
+  });
+});
+
+test('disabling a provider retires queued pin acquisition but not explicit cancellation', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.providerAvailability.codex = true;
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      const added = await repository.append(provider.achievementRecordState.generation,
+        [{ id: 'astra-regular', origin: 'history', recordedDay: null, timeZone: null }]);
+      provider.achievementRecordState = added.store;
+      const pending = deferredAchievementSave();
+      provider.achievementWrite = pending.promise;
+      const pin = provider.handleAchievementPinMessage({ key: 'astra-regular', selected: true, generation: added.store.generation });
+      provider.providerAvailability.codex = false;
+      pending.resolve(); await pin;
+      assert.deepEqual(JSON.parse(await readFile(repository.file, 'utf8')).pins, []);
     }, undefined, directory);
   });
 });

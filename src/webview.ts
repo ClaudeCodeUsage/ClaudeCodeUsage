@@ -4499,13 +4499,17 @@ export class UsageWebviewProvider {
     if (!repository || !state || typeof key !== 'string' || typeof selected !== 'boolean' || generation !== state.generation) return;
     const ids = ACHIEVEMENT_SERIES[key] ?? [key];
     const rule = ACHIEVEMENT_DEFINITIONS.find(row => row.id === ids[0]);
-    if (!rule || (rule.group === 'claude' || rule.group === 'codex') && !this.providerAvailability[rule.group] ||
-        key.startsWith('dual-provider-') && !(this.providerAvailability.claude && this.providerAvailability.codex)) return;
+    if (!rule) return;
+    // Disabled sources cannot acquire a pin, but their saved preferences remain removable.
+    const sourceAllowed = () => !selected ||
+      ((rule.group !== 'claude' && rule.group !== 'codex' || this.providerAvailability[rule.group]) &&
+        (!key.startsWith('dual-provider-') || this.providerAvailability.claude && this.providerAvailability.codex));
+    if (!sourceAllowed()) return;
     if (selected && !state.records.some(row => ids.includes(row.id))) return;
     const epoch = this.achievementPersistenceEpoch, panel = this.panel;
     const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
       this.setting<boolean>('enableAchievements', true) && !!panel && this.panel === panel &&
-      panel.visible && this.webviewClientReady && this.achievementWindowFocused;
+      panel.visible && this.webviewClientReady && this.achievementWindowFocused && sourceAllowed();
     if (!canWrite()) return;
     let reason: 'limit' | 'failed' | undefined;
     const operation = this.achievementWrite.catch(() => undefined).then(async () => {
@@ -4900,6 +4904,17 @@ export class UsageWebviewProvider {
       proof: this.achievementEvidenceStates?.[achievementEvidenceDomain(entry.nextResult)] ?? 'ready',
     }));
     const pins = this.achievementRecordState?.pins ?? [];
+    const hiddenPins = pins.filter(key => !visibleCards.some(entry => (entry.series ?? entry.result.id) === key));
+    const hiddenPinSection = hiddenPins.length ? '<details class="achievement-record-history" data-persist="achievement:hidden-pins"><summary id="achievement-hidden-pins-summary">' +
+      '<span id="achievement-hidden-pins-label">' + this.escapeHtml(copy.hiddenPins) + ' · ' + integer(hiddenPins.length) + '</span></summary><ul class="achievement-hidden-pins">' +
+      hiddenPins.map(key => {
+        const ids = ACHIEVEMENT_SERIES[key] ?? [key];
+        const id = [...ids].reverse().find(id => this.achievementRecordState!.records.some(record => record.id === id)) ?? ids[0];
+        return '<li><span>' + this.escapeHtml(copy.titles[id as AchievementId]) + '</span><button id="achievement-unpin-' + key +
+          '" class="achievement-pin" data-achievement-pin="' + key + '" data-achievement-generation="' + this.achievementRecordState!.generation +
+          '" aria-pressed="true" aria-describedby="achievementPinStatus" data-refresh-focus-fallback="achievement-hidden-pins-summary tab-achievements" onclick="requestAchievementPin(this)">' +
+          this.escapeHtml(copy.unpinBadge) + '</button></li>';
+      }).join('') + '</ul></details>' : '';
     const pinsSignature = JSON.stringify(pins);
     if (!this.achievementOverviewSelection || this.achievementOverviewProvider !== this.currentProvider) {
       this.achievementOverviewSelection = selectAchievementOverview(overviewRows, this.currentProvider, pins);
@@ -4987,7 +5002,8 @@ export class UsageWebviewProvider {
           this.escapeHtml(copy.shareTitle) + '</button>' : '') +
       '<button class="btn-secondary btn-small" onclick="openAchievementSettings()">' +
         this.escapeHtml(copy.settingsTitle) + '</button></div></div>' +
-      overviewSection('badges', copy.myBadges) + recentSection + overviewSection('next', copy.nextGoals) + historySection +
+      '<p id="achievementPinStatus" class="table-hint" role="status"></p>' +
+      overviewSection('badges', copy.myBadges) + hiddenPinSection + recentSection + overviewSection('next', copy.nextGoals) + historySection +
       '<h3 class="achievement-gallery-heading">' + this.escapeHtml(copy.galleryTitle) + '</h3>' +
       '<div class="achievement-filter-toolbar"><label for="achievementFilter">' + this.escapeHtml(copy.filterLabel) +
       '</label><select id="achievementFilter" onchange="filterAchievements(this.value, true)">' +
@@ -4995,7 +5011,6 @@ export class UsageWebviewProvider {
       this.escapeHtml(copy.filterNext) + '</option><option value="earned">' + this.escapeHtml(copy.filterEarned) +
       '</option></select><span id="achievementShownCount" role="status"></span></div>' +
       '<p id="achievementFilterEmpty" class="table-hint" hidden>' + this.escapeHtml(copy.filterEmpty) + '</p>' +
-      '<p id="achievementPinStatus" class="table-hint" role="status"></p>' +
       visibleGroups
         .map((group) => '<section class="achievement-group achievement-group-' + group + '"><h3>' +
           this.escapeHtml(copy.groups[group]) + '</h3><div class="achievement-grid">' +
@@ -12769,6 +12784,10 @@ export class UsageWebviewProvider {
       .achievement-overview-badge:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
       .achievement-recent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
       #achievementPinStatus:empty { display: none; }
+      .achievement-hidden-pins { list-style: none; padding: 0; }
+      .achievement-hidden-pins li { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+      .achievement-hidden-pins li span { min-width: 0; overflow-wrap: anywhere; }
+      .achievement-hidden-pins .achievement-pin { flex-shrink: 0; margin: 0; max-width: 50%; }
       .achievement-pin { margin: 8px 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere;
         background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); }
       .achievement-record-badge { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px;
@@ -15254,7 +15273,9 @@ window.addEventListener('message', async function(event) {
   }
   if (message.command === 'achievementPinResult' && message.ok === false &&
       (message.reason === 'limit' || message.reason === 'failed') &&
-      typeof message.key === 'string' && document.getElementById('achievement-pin-' + message.key)) {
+      typeof message.key === 'string' && Array.from(document.querySelectorAll('[data-achievement-pin]')).some(function(button) {
+        return button.dataset.achievementPin === message.key;
+      })) {
     var pinStatus = document.getElementById('achievementPinStatus');
     if (pinStatus) { pinStatus.textContent = message.reason === 'limit' ? __achievementCopy.pinLimit : __achievementCopy.pinFailed; }
     return;

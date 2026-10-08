@@ -72,6 +72,7 @@ pertama, bukan perkiraan pencapaian asli; tanggal lama tetap tidak diketahui.
 Melihat catatan tidak menandainya sebagai sudah dibaca atau memilihnya untuk dibagikan.
 Detail lencana yang diperoleh dapat menyematkan atau melepas hingga tiga lencana utama.
 Pilihan bertahan setelah mulai ulang dan tidak memilih lencana untuk dibagikan.
+Lencana tersemat yang tersembunyi dapat dilepas melalui daftar lipat tanpa mengaktifkan kembali penyedia.
 
 Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
 yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.

@@ -427,6 +427,23 @@ are enabled. After a successful save, existing dashboard patches hydrate pressed
 state and the showcase without modifying next goals or sharing. Stable control IDs
 preserve focus/anchor; save failure preserves the old preference and uses fixed
 localized inline feedback. A render failure is not reported as a failed durable save.
+Disabled-source guards apply to pin acquisition, not to deliberate cancellation
+of a known public key. A folded list exposes at most three hidden saved pins;
+canceling one preserves peers' unrelated preferences under the same lease, without
+provider activation, log reads, awards or read acknowledgement. Error dispatch
+matches existing data keys, including hidden controls, without constructing selectors.
+Removing a focused hidden-pin control uses up to two transient, existing DOM
+focus descriptors: the management summary, then the achievement tab if the list
+disappears. The surviving target supplies the scroll anchor; no preference or
+client state is added. Acquisition rechecks source availability when the queued
+transaction executes, not only when the message arrives.
+
+关闭供应商只阻止新增固定，不阻止明确取消已保存的公开键。折叠入口最多列出三个
+隐藏固定项，共享 lease 下仅移除选中项，不启用供应商、不读日志、不改变奖章、
+未读及分享；错误反馈匹配既有数据键，兼容隐藏项按钮，不拼接任意选择器。
+取消按钮消失时，焦点优先回到管理组摘要，列表消失则回到成就页签；最多两个
+既有 DOM 描述符仅存于运行期，保留幸存锚点，不新增偏好或客户端状态。
+排队保存前也复核供应商是否仍启用，避免请求发出后关闭供应商仍新增固定。
 
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable

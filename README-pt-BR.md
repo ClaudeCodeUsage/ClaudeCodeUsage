@@ -66,6 +66,7 @@ até trinta níveis com links para as regras. Datas indicam o primeiro registro,
 conquista original; datas históricas continuam desconhecidas. Consultar não marca como lido nem seleciona para compartilhar.
 Os detalhes das medalhas conquistadas permitem fixar ou desafixar até três destaques.
 A escolha persiste após reiniciar e não seleciona medalhas para compartilhar.
+Medalhas fixadas ocultas podem ser desafixadas na lista recolhível sem reativar o provedor.
 
 Registros importados de uso do plugin não geram avisos. Novas ações salvas com sucesso
 podem desbloquear emblemas com o painel fechado, sem abrir nem atualizar painéis ocultos.

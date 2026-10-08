@@ -50,6 +50,9 @@ const server = createServer(async (request, response) => {
       'achievement-records',
       'achievement-history-only',
       'achievement-pins',
+      'achievement-hidden-pins',
+      'achievement-hidden-pins-released',
+      'achievement-hidden-pins-last',
     ].includes(requestedFixture)
       ? requestedFixture
       : 'default';
