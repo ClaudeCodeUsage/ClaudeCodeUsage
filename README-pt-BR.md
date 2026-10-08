@@ -58,9 +58,10 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 Desative **Mostrar avisos de conquistas** (`showAchievementNotices`) para manter
 os prêmios e registros não lidos sem avisos flutuantes; reativar não repete avisos antigos.
 
-Novos níveis de Token do Codex comprovados guardam estado não lido e dia do
-primeiro registro mesmo com o painel pausado. Importações históricas ficam
-silenciosas; a integração da origem para Claude e outros prêmios ao vivo ainda está pendente.
+Novos níveis de Token comprovados de Claude/Codex guardam estado não lido e dia
+do primeiro registro mesmo com o painel pausado. São cobertos volume por família,
+saída, leituras de cache e volume acumulado. Importações e reconstruções manuais
+ficam silenciosas; criação de cache e outros prêmios ao vivo ainda precisam de prova da origem.
 
 O registro local é limitado a 64 KiB. Datas antigas continuam desconhecidas;
 novas ações salvas mantêm o estado não lido e o dia do primeiro registro mesmo

@@ -185,9 +185,10 @@ real account or an installed-VSIX capture.*
 Turn off **Show achievement notices** (`showAchievementNotices`) to keep badges
 and unread records without floating notices; re-enabling does not replay them.
 
-Proven new Codex Token tier crossings save unread first-record days even when
-dashboard updates are paused. Imports stay quiet; Claude and non-Token live
-awards still await their own origin integration.
+Proven new Claude/Codex Token tier crossings save unread first-record days even
+when dashboard updates are paused. Supported rules cover model-family volume,
+output, cache reads and cumulative volume. Imports and explicit rebuilds stay
+quiet; cache creation and non-Token live awards still await their own origin proof.
 
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.

@@ -11,16 +11,18 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   the gallery, stopping grants or deleting unread records. It dismisses an active
   notice, retires queued delivery and its old ACK, and never replays missed notices
   when re-enabled. The local preference does not restart providers or indexing.
-- **Verified Codex usage awards** — Claude and Codex tail parsers can return bounded,
+- **Verified new-Token awards** — Claude and Codex tail parsers can return bounded,
   runtime-only new-Token proof without extra log reads or persisted index fields.
   Codex verifies settled canonical lineages and transports only fixed numeric
   fields through local workers; imports, recovery, foreign requests and failed
   saves cannot fabricate live origin. Exact-tier helpers retain approved targets.
-  Accepted Codex snapshots now hand off independently of dashboard refresh; proven
+  Accepted Claude/Codex snapshots now hand off independently of dashboard refresh; proven
   Token tier crossings save first-record days and unread state under the shared
   lease. Late peer history cannot steal new provenance; pre-existing history is
   not rewritten. Failed saves retain bounded retryable proof, retired sources
-  release it. Claude host integration and non-Token live rules remain pending;
+  release it. Claude commits its index before handoff and explicit rebuilds stay
+  quiet. Four Claude families, output, cache reads and cumulative volume are
+  supported; cache-creation and non-Token live rules remain pending;
   unsupported or historical crossings stay quiet with unknown dates.
 - **Personal badge pins** — earned badge details can pin or unpin up to three
   showcase series. Atomic intents preserve other windows' choices; pins precede
@@ -42,8 +44,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   action awards, with a shared five-minute cooldown across windows/restarts.
   Display ACK reads only its bounded batch; missed, failed or retired deliveries
   remain unread. Hover/keyboard interaction pauses dismissal without stealing
-  focus. Verified Codex Token crossings use the same delivery guards; Claude and
-  non-Token live rule integration remain pending.
+  focus. Verified Claude/Codex Token crossings use the same delivery guards;
+  cache-creation and non-Token live rule integration remain pending.
 - **Bounded durable award records** — a ≤64 KiB canonical file keeps each public
   rule once, with quiet unknown-date migration and unread saved-action records.
   Cross-process leases merge peers' awards; an empty clear-generation fence

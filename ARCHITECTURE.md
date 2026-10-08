@@ -367,7 +367,7 @@ quietly reconciled calibrated history, later levels are no longer permanently
 silenced by the migration recheck set. These latches are memory-only; they do not
 yet constitute a durable missed-notice journal or cross-host coordination.
 
-The Claude index has a preparatory runtime-only tail-origin contract. An explicit
+The Claude index has a runtime-only tail-origin contract. An explicit
 accepted-observation window is copied before asynchronous work; existing physical
 file/prefix/EOF verification supplies offsets before content-analysis plans may
 expand. After global response deduplication, only new canonical winners beyond
@@ -379,10 +379,14 @@ verified additions. No source identities enter the result, no index field is
 persisted, and no additional body read or timer is introduced. The rule helper
 uses the existing formal targets and requires these additions to be sufficient
 against the previous progress and necessary against the new progress, per exact
-level; calendar/session/agent rules are not inferred from volume. This foundation
-is not yet wired to accepted Claude host windows or atomic usage awards;
-Claude usage grants remain quiet history with unknown dates until that
-handoff and its source/clear/shared-lease guards are completed.
+level; calendar/session/agent rules are not inferred from volume. The host now
+captures the canonical award fence before parsing and commits the accepted index
+before handing off existing materialized references, independently of rendering.
+Four-family, output, cache-read and cumulative crossings use atomic usage awards;
+cache-creation and non-Token rules remain quiet pending their own origin proof.
+Explicit rebuilds never provide a live window. Retiring only presentation does not
+discard a sound source commit; source/failure/clear/OFF/timezone/disposal guards do.
+Display-zone volume receipts do not relabel calendar evidence from another zone.
 
 Codex now has the corresponding producer/worker foundation. Only established
 physical-file appends from a complete prior base index receive a copied explicit
@@ -413,8 +417,9 @@ remain unchanged. Superseding advances sequence, fencing old display ACKs.
 Failed writes retain at most the catalog's ID count of runtime receipts for an
 ordinary-refresh retry; retired receipts release their source guards. No new
 index fields, body reads, watcher or timer are added. Foreground notice delivery
-uses the existing shared cooldown and ACK guards. Claude and non-Token live
-rules still reconcile quietly until their own origin integration is complete.
+uses the existing shared cooldown and ACK guards. Claude uses the same bounded
+receipt queue and lease; either provider's failure retires only its own proofs.
+Cache-creation and non-Token live rules still reconcile quietly pending origin proof.
 
 Plugin-action provenance compares the committed before/after activity ledger
 through the canonical rule evaluator. Only newly crossed plugin targets enter
@@ -460,7 +465,7 @@ issued sequence. Other or later unread records survive. False/rejected/slow deli
 does not block award writes or clear. The client confirms only after visible insertion,
 without focus theft, and pauses its six-second dismissal during hover/keyboard use.
 Lost batches never replay as live notices. A foreground unread summary now provides
-explicit bounded confirmation; Claude and non-Token live origin remain pending. Sharing
+explicit bounded confirmation; cache-creation and non-Token live origin remain pending. Sharing
 consent is still explicit.
 
 `showAchievementNotices` is a default-on local presentation preference alongside

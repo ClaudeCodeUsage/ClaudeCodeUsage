@@ -415,6 +415,84 @@ function coordinatorHarness(dashboardAutoRefresh = false): {
   return { extension, deliveries, statuses, config, snapshot };
 }
 
+for (const mode of ['live', 'display-retired', 'rebuild', 'failed', 'source-retired'] as const)
+for (const paused of [true, false]) test(`real Claude host commits before non-rendering Token handoff (${mode}, paused=${paused})`, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-real-claude-usage-host-'));
+  const zone = I18n.getTimezone();
+  const { AchievementRecordRepository, loadAchievementRecords } = require('../achievementRecordStore');
+  const { UsageWebviewProvider } = require('../webview');
+  const indexModule = require('../claudeIncrementalIndex') as typeof import('../claudeIncrementalIndex');
+  const originalUpdate = indexModule.updateClaudeUsageIndex;
+  const diagnostics: any[] = [];
+  let owner: any;
+  try {
+    I18n.setTimezone('UTC');
+    const { extension, config, deliveries } = coordinatorHarness(!paused);
+    const project = path.join(root, 'projects', '-fixture'), file = path.join(project, 'session.jsonl');
+    fs.mkdirSync(project, { recursive: true });
+    const row = (id: string, multiplier: number) => JSON.stringify({ type: 'assistant', requestId: id,
+      timestamp: new Date().toISOString(), sessionId: 'fixture', message: { id, model: 'claude-sonnet-5',
+        usage: { input_tokens: 100_000_000 * multiplier, output_tokens: 1_000_000 * multiplier,
+          cache_creation_input_tokens: 199_000_000 * multiplier, cache_read_input_tokens: 200_000_000 * multiplier } } }) + '\n';
+    fs.writeFileSync(file, row('base', 1));
+    config.dataDirectory = root; config.enableAchievements = true;
+    extension.refreshCodexData = async () => undefined;
+    owner = new UsageWebviewProvider({ globalState: { get: () => undefined, update: async () => undefined } });
+    await owner.achievementWrite;
+    const store = path.join(root, 'private-derived', 'achievements-v1.json');
+    owner.achievementRecordRepository = new AchievementRecordRepository(store);
+    owner.achievementRecordState = await owner.achievementRecordRepository.initialize([]);
+    owner.settings = { get: (key: string) => key === 'enableAchievements' };
+    owner.providerAvailability = { claude: false, codex: false, codexData: false };
+    owner.updateWebview = () => assert.fail('host handoff must not paint');
+    const begin = owner.beginClaudeAchievementObservation?.bind(owner);
+    const accept = owner.acceptClaudeAchievementSnapshot?.bind(owner);
+    assert.equal(typeof begin, 'function'); assert.equal(typeof accept, 'function');
+    let handoffs = 0;
+    extension.webviewProvider.beginClaudeAchievementObservation = begin;
+    extension.webviewProvider.invalidateAchievementEvidence = owner.invalidateAchievementEvidence.bind(owner);
+    extension.webviewProvider.clearClaudeSource = owner.clearClaudeSource.bind(owner);
+    extension.webviewProvider.acceptClaudeAchievementSnapshot = (snapshot: any, handle: any, proof: any) => {
+      assert.equal(snapshot.records, extension.cache.records, 'only a committed cache may be delivered');
+      assert.deepEqual(snapshot.allTime, extension.cache.claudeIndex.aggregates.allTime);
+      handoffs++; accept(snapshot, handle, proof);
+    };
+    (indexModule as any).updateClaudeUsageIndex = async (...args: Parameters<typeof originalUpdate>) => {
+      const result = await originalUpdate(...args); diagnostics.push(result);
+      if (diagnostics.length === 2) {
+        if (mode === 'display-retired') extension.configurationGeneration++;
+        if (mode === 'source-retired') config.dataDirectory = path.join(root, 'replacement');
+        if (mode === 'failed') result.diagnostics.filesFailed = 1;
+      }
+      return result;
+    };
+    await extension.refreshData(false, 'watch'); await owner.achievementWrite;
+    assert.equal(handoffs, 1);
+    assert.equal((await loadAchievementRecords(store)).records.find((entry: any) => entry.id === 'sonnet-main').origin, 'history');
+    fs.appendFileSync(file, row('tail', 2));
+    await extension.refreshData(mode === 'rebuild', 'watch'); await owner.achievementWrite;
+    if (mode === 'rebuild') assert.equal(diagnostics[diagnostics.length - 1].achievementUsageDelta, undefined);
+    else assert.equal(diagnostics[diagnostics.length - 1].achievementUsageDelta.processed, 1_000_000_000);
+    const silver = (await loadAchievementRecords(store)).records.find((entry: any) => entry.id === 'sonnet-main-silver');
+    if (mode === 'failed' || mode === 'source-retired') {
+      assert.equal(handoffs, 1); assert.equal(silver, undefined);
+      return;
+    }
+    assert.equal(silver.origin, mode === 'rebuild' ? 'history' : 'usage');
+    assert.equal(silver.unread, mode !== 'rebuild');
+    assert.equal(silver.timeZone, mode === 'rebuild' ? null : 'UTC');
+    await extension.refreshData(false, 'poll'); await owner.achievementWrite;
+    assert.equal(handoffs, 3);
+    assert.equal(diagnostics.length, 2, 'unchanged warm pass bypasses the parser');
+    assert.equal((await loadAchievementRecords(store)).records.filter((entry: any) => entry.id === silver.id).length, 1);
+    if (paused && mode !== 'rebuild') assert.equal(deliveries.filter(entry => entry.kind === 'claude').length, 0);
+  } finally {
+    (indexModule as any).updateClaudeUsageIndex = originalUpdate;
+    await owner?.achievementWrite; await owner?.achievementHourWrite; await owner?.achievementCalendarWrite;
+    I18n.setTimezone(zone); fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('real paused host routes worker tail proof through the facade into shared unread silver awards', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccu-real-usage-host-'));
   const previousZone = I18n.getTimezone();

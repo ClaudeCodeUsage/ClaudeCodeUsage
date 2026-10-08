@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import type { ClaudeUsageRecord } from './types';
+import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
 import { I18n, achievementCopyFor } from './i18n';
 import {
   ACHIEVEMENT_DEFINITIONS,
@@ -58,7 +59,7 @@ import { formatAchievementCompact, formatAchievementInteger } from './achievemen
 import { nextAchievementStage } from './achievementStages';
 import { AchievementOverviewSelection, AchievementUnreadBatch, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords, selectUnreadAchievementBatch } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
-  AchievementNoticeBaseline, codexTailAchievementCrossings } from './achievementEvidence';
+  AchievementNoticeBaseline, codexTailAchievementCrossings, claudeTailAchievementCrossings } from './achievementEvidence';
 import { CodexAchievementUsageWindow, CodexAchievementUsageDelta, copyCodexUsageWindow,
   copyCodexUsageDelta } from './providers/codex/codexAchievementOrigin';
 import { ACHIEVEMENT_RECORD_FILE, AchievementAuxiliaryProof, AchievementRecordRepository, AchievementRecordStore, AchievementRecord } from './achievementRecordStore';
@@ -995,6 +996,17 @@ function projectMatrixUiCopy(locale: string): ProjectMatrixUiCopy {
   return copies[locale] ?? copies.en;
 }
 
+/** References to already-materialized, committed Claude inputs. Never another
+ * index, copied corpus or persisted provenance payload. */
+export interface ClaudeAchievementSnapshot {
+  allTime: UsageData | null;
+  days: { date: string; data: UsageData }[];
+  sessions: SessionUsage[];
+  sessionEvidence: ClaudeSessionAchievementEvidence;
+  records: ClaudeUsageRecord[];
+  timeZone: string;
+}
+
 export class UsageWebviewProvider {
   private panel: vscode.WebviewPanel | undefined;
   private webviewClientReady = false;
@@ -1038,6 +1050,14 @@ export class UsageWebviewProvider {
   private usageAchievementEvidenceEpoch = 0;
   private achievementNoticePreferenceEpoch = 0;
   private codexUsageObservationEpoch = 0;
+  private claudeUsageObservationEpoch = 0;
+  private acceptedClaudeAchievement?: ClaudeAchievementSnapshot;
+  private claudeAchievementObservedThrough?: number;
+  private claudeAchievementObservation?: {
+    handle: { readonly window?: { readonly after: number; readonly through: number } };
+    before: AchievementResult[]; generation?: number; sequence?: number;
+    through: number; timeZone: string; guard: () => boolean;
+  };
   // References to accepted materialized inputs, not another index or paused UI.
   private acceptedCodexAchievement?: { view: CodexUsageView; signals: CodexAchievementSignals };
   private codexAchievementObservedThrough?: number;
@@ -3045,6 +3065,7 @@ export class UsageWebviewProvider {
 
   /** Drop every source-owned artifact before a replacement source is verified. */
   clearClaudeSource(): void {
+    this.invalidateAchievementEvidence('claude');
     this.achievementNoticeBaseline.reset();
     this.usageLimits = null;
     this.claudeWeeklyQuotaHistory = [];
@@ -3194,12 +3215,22 @@ export class UsageWebviewProvider {
 
   /** Non-rendering revocation: stale display data is useful but is not new award proof. */
   invalidateAchievementEvidence(provider: SettingProvider): void {
+    if (provider === 'claude') {
+      this.claudeUsageObservationEpoch += 1;
+      this.claudeAchievementObservation = undefined;
+      this.claudeAchievementObservedThrough = undefined;
+      this.acceptedClaudeAchievement = undefined;
+    }
     if (provider === 'codex') {
       this.codexUsageObservationEpoch += 1;
       this.codexAchievementObservation = undefined;
-      this.usageAchievementReceipts.clear();
       this.codexAchievementObservedThrough = undefined;
       this.acceptedCodexAchievement = undefined;
+    }
+    // A failed provider must not erase another provider's independently proven
+    // receipt waiting for durable storage. Its own guard has already retired.
+    for (const [id, receipt] of this.usageAchievementReceipts) {
+      if (!receipt.guard()) this.usageAchievementReceipts.delete(id);
     }
     if (this.revokedAchievementEvidence.has(provider)) return;
     this.revokedAchievementEvidence.add(provider);
@@ -4107,6 +4138,70 @@ export class UsageWebviewProvider {
       : { processed: 0, lowerBound: false };
   }
 
+  async beginClaudeAchievementObservation(current: () => boolean): Promise<{
+    readonly window?: { readonly after: number; readonly through: number };
+  } | undefined> {
+    const epoch = this.achievementPersistenceEpoch, evidenceEpoch = this.claudeUsageObservationEpoch;
+    const timeZone = resolveTimeZone(I18n.getTimezone());
+    const enabled = this.setting<boolean>('enableAchievements', true);
+    const guard = () => current() && epoch === this.achievementPersistenceEpoch &&
+      evidenceEpoch === this.claudeUsageObservationEpoch && resolveTimeZone(I18n.getTimezone()) === timeZone &&
+      !this.clearingAchievements && this.setting<boolean>('enableAchievements', true);
+    this.claudeAchievementObservation = undefined;
+    if (!enabled || !guard()) {
+      this.claudeAchievementObservedThrough = undefined;
+      if (!enabled) this.usageAchievementReceipts.clear();
+      return undefined;
+    }
+    this.ensureAchievementRecords();
+    await this.achievementWrite.catch(() => undefined);
+    if (!guard()) return undefined;
+    let state: AchievementRecordStore | undefined;
+    try {
+      if (this.achievementRecordRepository && this.achievementRecordState) {
+        state = await this.achievementRecordRepository.initialize([], guard);
+        if (!guard() || state.generation !== this.achievementRecordState.generation) return undefined;
+        this.achievementRecordState = state;
+        this.achievementGrants = new Set(state.records.map(row => row.id));
+      }
+    } catch { /* Provenance failure never blocks ordinary usage refresh. */ }
+    if (!guard()) return undefined;
+    const before = this.achievementResults(), through = Date.now(), after = this.claudeAchievementObservedThrough;
+    const window = state && this.acceptedClaudeAchievement && !this.revokedAchievementEvidence.has('claude') &&
+      after !== undefined && Number.isSafeInteger(after) && after >= 0 &&
+      Number.isSafeInteger(through) && through <= 8.64e15 && through > after
+      ? Object.freeze({ after, through }) : undefined;
+    const handle = Object.freeze({ window });
+    this.claudeAchievementObservation = { handle, before, generation: state?.generation,
+      sequence: state?.sequence, through, timeZone, guard };
+    this.queueUsageAchievementReceipts();
+    return handle;
+  }
+
+  /** Only the host can hand off a successfully committed index; UI delivery is
+   * optional. Aggregate growth alone does not establish new activity. */
+  acceptClaudeAchievementSnapshot(snapshot: ClaudeAchievementSnapshot,
+    handle: { readonly window?: { readonly after: number; readonly through: number } } | undefined,
+    delta?: ClaudeAchievementUsageDelta): void {
+    const observation = this.claudeAchievementObservation;
+    if (!observation || observation.handle !== handle || !observation.guard()) return;
+    this.claudeAchievementObservation = undefined;
+    this.acceptedClaudeAchievement = snapshot;
+    this.revokedAchievementEvidence.delete('claude');
+    const after = this.achievementResults();
+    const window = handle?.window;
+    const ids = window && delta?.after === window.after && delta.through === window.through
+      ? claudeTailAchievementCrossings(observation.before, after, delta) : [];
+    this.claudeAchievementObservedThrough = observation.through;
+    if (ids.length && observation.generation !== undefined && observation.sequence !== undefined) {
+      const receipt = { ids, generation: observation.generation, sequence: observation.sequence,
+        recordedDay: dayKeyInZone(new Date(), observation.timeZone), timeZone: observation.timeZone,
+        guard: observation.guard };
+      for (const id of ids) if (!this.usageAchievementReceipts.has(id)) this.usageAchievementReceipts.set(id, receipt);
+    }
+    this.queueUsageAchievementReceipts();
+  }
+
   /** Read the canonical receipt fence before the producer's observation window.
    * This does not render, read logs, or add a watcher/timer. Failed receipt reads
    * withhold live provenance, but never prevent the ordinary usage refresh. */
@@ -4121,7 +4216,8 @@ export class UsageWebviewProvider {
     this.codexAchievementObservation = undefined;
     if (!enabled || !guard()) {
       this.codexAchievementObservedThrough = undefined;
-      this.usageAchievementReceipts.clear(); return undefined;
+      if (!enabled) this.usageAchievementReceipts.clear();
+      return undefined;
     }
     this.ensureAchievementRecords();
     await this.achievementWrite.catch(() => undefined);
@@ -4216,6 +4312,10 @@ export class UsageWebviewProvider {
   /** Opt-out/source disposal fences old proof even if OFF→ON is rapid. */
   retireAchievementUsageObservations(): void {
     this.usageAchievementEvidenceEpoch += 1;
+    this.claudeUsageObservationEpoch += 1;
+    this.claudeAchievementObservation = undefined;
+    this.claudeAchievementObservedThrough = undefined;
+    this.acceptedClaudeAchievement = undefined;
     this.codexUsageObservationEpoch += 1;
     this.codexAchievementObservation = undefined;
     this.codexAchievementObservedThrough = undefined;
@@ -4307,6 +4407,8 @@ export class UsageWebviewProvider {
 
   private achievementResults(): AchievementResult[] {
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true)) {
+      this.claudeAchievementObservedThrough = undefined;
+      this.claudeAchievementObservation = undefined;
       this.codexAchievementObservedThrough = undefined;
       this.codexAchievementObservation = undefined;
       this.usageAchievementReceipts.clear();
@@ -4323,9 +4425,15 @@ export class UsageWebviewProvider {
     const codexView = this.acceptedCodexAchievement?.view ?? this.codexView;
     const codexSignals = this.acceptedCodexAchievement?.signals ?? this.codexAchievementSignals;
     const availability = { ...this.providerAvailability,
+      claude: this.acceptedClaudeAchievement ? this.acceptedClaudeAchievement.allTime !== null : this.providerAvailability.claude,
       codex: this.acceptedCodexAchievement ? true : this.providerAvailability.codex };
     const hours = this.achievementHourSignals();
-    const claude = this.revokedAchievementEvidence.has('claude') ? null : this.allTimeData;
+    const claude = this.revokedAchievementEvidence.has('claude') ? null
+      : this.acceptedClaudeAchievement ? this.acceptedClaudeAchievement.allTime : this.allTimeData;
+    const claudeDays = this.acceptedClaudeAchievement?.days ?? this.dailyDataForEveryDay;
+    const claudeSessions = this.acceptedClaudeAchievement?.sessions ?? this.sessionBreakdown;
+    const claudeSessionEvidence = this.acceptedClaudeAchievement?.sessionEvidence ?? this.achievementSessionEvidence;
+    const claudeTimeZone = this.acceptedClaudeAchievement?.timeZone ?? this.achievementCalendarTimeZone;
     const claudeTokens = claude
       ? claude.totalInputTokens + claude.totalOutputTokens +
         claude.totalCacheCreationTokens + claude.totalCacheReadTokens
@@ -4357,22 +4465,21 @@ export class UsageWebviewProvider {
     const timeZone = resolveTimeZone(I18n.getTimezone());
     const asOfDay = dayKeyInZone(new Date(), timeZone);
     const dayEvidence = codexSignals.dayEvidence;
-    const claudeComplete = !this.providerAvailability.claude ||
-      (!!claude && this.achievementCalendarTimeZone === timeZone);
+    const claudeComplete = !availability.claude || (!!claude && claudeTimeZone === timeZone);
     const codexComplete = !availability.codex ||
       (codexVolumeTrusted && codexView?.periodCoverage.allTime.complete === true &&
         codexView.periodCoverage.timeZone === timeZone &&
         dayEvidence?.complete === true && dayEvidence.timeZone === timeZone);
     const calendarCache = this.achievementCalendarCache;
-    const reusableCalendar = calendarCache && calendarCache.days === this.dailyDataForEveryDay &&
+    const reusableCalendar = calendarCache && calendarCache.days === claudeDays &&
       calendarCache.codexEvidence === dayEvidence && calendarCache.timeZone === timeZone &&
       calendarCache.asOfDay === asOfDay && calendarCache.claudeComplete === claudeComplete &&
       calendarCache.codexComplete === codexComplete &&
-      calendarCache.claudeEnabled === this.providerAvailability.claude &&
+      calendarCache.claudeEnabled === availability.claude &&
       calendarCache.codexEnabled === availability.codex;
     const claudeProof: AchievementDayEvidence = reusableCalendar ? calendarCache.claudeProof
-      : this.providerAvailability.claude
-        ? claudeAchievementDayEvidence(this.dailyDataForEveryDay, timeZone, claudeComplete)
+      : availability.claude
+        ? claudeAchievementDayEvidence(claudeDays, timeZone, claudeComplete)
         : { complete: true, days: [], timeZone };
     const codexProof: AchievementDayEvidence = reusableCalendar ? calendarCache.codexProof
       : availability.codex
@@ -4381,13 +4488,13 @@ export class UsageWebviewProvider {
     const calendar = reusableCalendar ? calendarCache.value
       : achievementCalendarSignals({ claude: claudeProof, codex: codexProof, asOfDay });
     this.achievementCalendarCache = {
-      days: this.dailyDataForEveryDay, codexEvidence: dayEvidence, timeZone, asOfDay,
+      days: claudeDays, codexEvidence: dayEvidence, timeZone, asOfDay,
       claudeComplete, codexComplete, value: calendar,
       claudeProof, codexProof,
-      claudeEnabled: this.providerAvailability.claude, codexEnabled: availability.codex,
+      claudeEnabled: availability.claude, codexEnabled: availability.codex,
     };
     const peakContext = calendarPeakContext(timeZone,
-      this.providerAvailability.claude, availability.codex);
+      availability.claude, availability.codex);
     const peakComplete = calendar.peakEvidenceComplete === true;
     const retainedPeak = readCalendarPeakEvidence(this.achievementCalendarPeak, peakContext, peakComplete);
     const calendarFacts = { ...calendar, peakFourWeekAverage: Math.max(calendar.peakFourWeekAverage, retainedPeak) };
@@ -4401,7 +4508,8 @@ export class UsageWebviewProvider {
         // Recheck context at execution time: a queued old-zone snapshot cannot
         // overwrite a maximum after a settings/provider change.
         const current = calendarPeakContext(resolveTimeZone(I18n.getTimezone()),
-          this.providerAvailability.claude, this.acceptedCodexAchievement ? true : this.providerAvailability.codex);
+          this.acceptedClaudeAchievement ? this.acceptedClaudeAchievement.allTime !== null : this.providerAvailability.claude,
+          this.acceptedCodexAchievement ? true : this.providerAvailability.codex);
         if (JSON.stringify(current) !== JSON.stringify(peakContext)) return;
         const next = updateCalendarPeakEvidence(this.achievementCalendarPeak, peakContext, peak, true);
         if (next === this.achievementCalendarPeak) return;
@@ -4427,29 +4535,29 @@ export class UsageWebviewProvider {
       ? codexSignals.tokenEvidence : undefined;
     const fableCache = this.achievementFableCache;
     const fable = fableCache && fableCache.allTimeData === claude &&
-      fableCache.days === this.dailyDataForEveryDay &&
-      fableCache.sessions === this.sessionBreakdown &&
-      fableCache.evidence === this.achievementSessionEvidence
+      fableCache.days === claudeDays &&
+      fableCache.sessions === claudeSessions &&
+      fableCache.evidence === claudeSessionEvidence
       ? fableCache.value
       : fableAchievementSignals({
         allTimeModels: claude?.modelBreakdown ?? {},
-        days: claude ? this.dailyDataForEveryDay : [],
-        sessions: claude ? this.sessionBreakdown : [],
-        sessionEvidence: claude ? this.achievementSessionEvidence : undefined,
+        days: claude ? claudeDays : [],
+        sessions: claude ? claudeSessions : [],
+        sessionEvidence: claude ? claudeSessionEvidence : undefined,
       });
     if (!fableCache || fableCache.allTimeData !== claude ||
-        fableCache.days !== this.dailyDataForEveryDay ||
-        fableCache.sessions !== this.sessionBreakdown ||
-        fableCache.evidence !== this.achievementSessionEvidence) {
+        fableCache.days !== claudeDays ||
+        fableCache.sessions !== claudeSessions ||
+        fableCache.evidence !== claudeSessionEvidence) {
       this.achievementFableCache = {
-        allTimeData: claude, days: this.dailyDataForEveryDay,
-        sessions: this.sessionBreakdown, evidence: this.achievementSessionEvidence, value: fable,
+        allTimeData: claude, days: claudeDays,
+        sessions: claudeSessions, evidence: claudeSessionEvidence, value: fable,
       };
     }
     const state = (provider: SettingProvider, complete: boolean): AchievementEvidenceState =>
       this.revokedAchievementEvidence.has(provider) ? 'stale' : complete ? 'ready' : 'pending';
-    const hasProvider = this.providerAvailability.claude || availability.codex;
-    const combinedStale = (this.providerAvailability.claude && this.revokedAchievementEvidence.has('claude')) ||
+    const hasProvider = availability.claude || availability.codex;
+    const combinedStale = (availability.claude && this.revokedAchievementEvidence.has('claude')) ||
       (availability.codex && this.revokedAchievementEvidence.has('codex'));
     const hourMigrationSettled = !availability.codex ||
       codexView?.outputHourProof?.complete === true ||
@@ -4805,6 +4913,9 @@ export class UsageWebviewProvider {
     this.clearingAchievements = true;
     this.achievementOverviewSelection = undefined;
     this.achievementPersistenceEpoch += 1;
+    this.claudeAchievementObservation = undefined;
+    this.claudeAchievementObservedThrough = undefined;
+    this.acceptedClaudeAchievement = undefined;
     this.codexAchievementObservation = undefined;
     this.codexAchievementObservedThrough = undefined;
     this.acceptedCodexAchievement = undefined;
@@ -4873,11 +4984,12 @@ export class UsageWebviewProvider {
     const timeZone = resolveTimeZone(I18n.getTimezone());
     const asOfUtcHour = Math.floor(Date.now() / 3_600_000);
     const cached = this.achievementHourCache;
+    const records = this.acceptedClaudeAchievement?.records ?? this.allRecords;
     const codex = this.acceptedCodexAchievement?.view ?? this.codexView;
-    if (cached && cached.records === this.allRecords && cached.codex === codex &&
+    if (cached && cached.records === records && cached.codex === codex &&
         cached.timeZone === timeZone && cached.asOfUtcHour === asOfUtcHour) return cached;
     const claudeHours = this.revokedAchievementEvidence.has('claude')
-      ? [] : collectClaudeOutputHours(this.allRecords);
+      ? [] : collectClaudeOutputHours(records);
     const codexRows = Object.fromEntries(Object.entries(codex?.last30DaysHourlyByDay ?? {})
       .map(([day, rows]) => [day, rows.map((row) => ({ hour: row.hour, output: row.total.output }))]));
     const manifestVerified = !this.revokedAchievementEvidence.has('codex') &&
@@ -4895,11 +5007,11 @@ export class UsageWebviewProvider {
     // Compare equal observation windows; a single old token-heavy task cannot
     // dominate because the portrait counts output-positive hours, not tokens.
     const cutoff = Math.floor(Date.now() / 3_600_000) - 30 * 24;
-    const nightPeak = (!this.providerAvailability.claude || !this.revokedAchievementEvidence.has('claude')) &&
+    const nightPeak = (!(this.acceptedClaudeAchievement?.allTime || this.providerAvailability.claude) || !this.revokedAchievementEvidence.has('claude')) &&
       (!(this.acceptedCodexAchievement || this.providerAvailability.codex) || codexHourlyComplete ||
       (manifestVerified && historicalProof?.complete === true)) &&
       nightOutputPeak(combined.filter((hour) => hour >= cutoff), timeZone);
-    this.achievementHourCache = { records: this.allRecords, codex, timeZone, asOfUtcHour, streak, nightPeak };
+    this.achievementHourCache = { records, codex, timeZone, asOfUtcHour, streak, nightPeak };
     const next = updateHourEvidence(this.achievementHourEvidence, streak);
     if (next !== this.achievementHourEvidence) {
       const epoch = this.achievementPersistenceEpoch;

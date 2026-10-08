@@ -61,9 +61,10 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 **Erfolgshinweise anzeigen** (`showAchievementNotices`) lässt sich separat ausschalten.
 Abzeichen und ungelesene Einträge bleiben; erneutes Einschalten spielt keine alten Hinweise ab.
 
-Nachweislich neue Codex-Token-Stufen behalten ungelesene Erstaufnahmetage, auch
-bei pausierten Dashboard-Updates. Historische Importe bleiben still; die
-Ursprungsintegration für Claude und andere Live-Erfolge steht noch aus.
+Nachweislich neue Claude-/Codex-Token-Stufen behalten ungelesene Erstaufnahmetage,
+auch bei pausierten Dashboard-Updates. Unterstützt sind Modellfamilien, Ausgabe,
+Cache-Lesezugriffe und Gesamtvolumen. Importe und manuelle Neuindizierung bleiben
+still; Cache-Erstellung und andere Live-Erfolge benötigen noch eigene Ursprungsnachweise.
 
 Der lokale Nachweisspeicher ist auf 64 KiB begrenzt. Alte Abzeichen haben kein
 bekanntes Datum; neue gespeicherte Aktionen behalten ungelesene Erstaufnahmetage,

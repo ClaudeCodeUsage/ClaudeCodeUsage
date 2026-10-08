@@ -33,7 +33,8 @@ import { ClaudeApiClient } from './claudeApiClient';
 import {
   buildOptimizerSystemPrompt,
 } from './advisor';
-import { ClaudeApiUsageResponse, ContentAnalysis, ExtensionConfig } from './types';
+import { ClaudeApiUsageResponse, ClaudeUsageRecord, ContentAnalysis, ExtensionConfig } from './types';
+import type { ClaudeUsageIndexUpdateResult } from './claudeIncrementalIndex';
 import {
   KNOWN_CONFIGURATION_SETTING_KEYS,
   OWNED_SETTING_GLOBAL_STATE_KEYS,
@@ -4904,6 +4905,21 @@ export class ClaudeCodeUsageExtension {
         removedFiles: delta.removed.length,
       });
 
+      let achievementObservation: Awaited<ReturnType<UsageWebviewProvider['beginClaudeAchievementObservation']>>;
+      try {
+        achievementObservation = await this.webviewProvider.beginClaudeAchievementObservation?.(indexCurrent);
+      } catch { /* Receipt provenance is optional; ordinary usage refresh must continue. */ }
+      if (!indexCurrent()) return;
+      const handoffAchievements = (materialized: ReturnType<typeof claudeUsageDashboardSnapshot>,
+        records: ClaudeUsageRecord[], timeZone: string,
+        proof?: ClaudeUsageIndexUpdateResult['achievementUsageDelta']) => {
+        this.tryProviderUiUpdate(() => this.webviewProvider.acceptClaudeAchievementSnapshot?.({
+          allTime: records.length ? materialized.allTime : null,
+          days: materialized.dailyForAllTime, sessions: materialized.sessions,
+          sessionEvidence: materialized.achievementSessionEvidence, records, timeZone,
+        }, achievementObservation, proof));
+      };
+
       if (!needFullRefresh) {
         failureStage = 'materialize';
         const materialized = this.materializeClaudeDashboard(this.cache.claudeIndex, config, snapshotNow);
@@ -4954,6 +4970,7 @@ export class ClaudeCodeUsageExtension {
         }
         this.cache.manifest = manifest;
         this.cache.dataDirectory = dataDirectory;
+        handoffAchievements(materialized, this.cache.records, this.cache.claudeIndex.timeZone);
         this.recordRefreshState('claude', false, request.trigger);
         recovery.succeed(recoveryRevision);
         this.outputChannel.appendLine(formatRefreshDiagnostic({
@@ -4997,6 +5014,9 @@ export class ClaudeCodeUsageExtension {
         analyzeContent: config.enableContentAnalysis,
         windowDays: config.advicePromptWindowDays,
         manifest,
+        // Explicit rebuilds remain quiet even if their underlying index happens
+        // to reuse an append plan. Only an ordinary accepted observation proves live origin.
+        achievementUsageWindow: request.forceReload ? undefined : achievementObservation?.window,
         onStage: (stage, counters) => {
           failureStage = stage;
           if (counters) Object.assign(observed, counters);
@@ -5006,7 +5026,7 @@ export class ClaudeCodeUsageExtension {
         ),
       });
       Object.assign(observed, loaded.diagnostics);
-      const commitLoadedIndex = () => commitRefreshSnapshot(
+      const commitLoadedIndex = () => indexCurrent() && commitRefreshSnapshot(
         manifest,
         { records: loaded.records, contentAnalysis: loaded.contentAnalysis },
         loaded.diagnostics.filesFailed,
@@ -5025,8 +5045,14 @@ export class ClaudeCodeUsageExtension {
         // index without repeating a cold read. Source, prices, clear-all and
         // disposal still revoke the index itself, including A -> B -> A changes.
         if (indexCurrent()) {
-          if (commitLoadedIndex()) recovery.succeed(recoveryRevision);
-          else {
+          if (shouldCommitUsageLoad(loaded.diagnostics.filesFailed)) {
+            failureStage = 'materialize';
+            const materialized = this.materializeClaudeDashboard(loaded.index, config, snapshotNow);
+            if (commitLoadedIndex()) {
+              handoffAchievements(materialized, loaded.records, loaded.index.timeZone, loaded.achievementUsageDelta);
+              recovery.succeed(recoveryRevision);
+            }
+          } else {
             // A presentation generation cannot erase a verified same-source
             // failure or let the queued settings pass re-read it immediately.
             this.handleColdRefreshFailure(this.shouldDeliverDashboard(request.trigger), request.trigger);
@@ -5046,6 +5072,13 @@ export class ClaudeCodeUsageExtension {
       failureStage = 'materialize';
       const records = loaded.records;
       const contentAnalysis = loaded.contentAnalysis;
+      const materialized = this.materializeClaudeDashboard(loaded.index, config, snapshotNow);
+      failureStage = 'commit';
+      if (!commitLoadedIndex()) return;
+      // Accepted-source observation is committed before either paused or live
+      // presentation. Rendering failure cannot manufacture or erase its provenance.
+      handoffAchievements(materialized, records, loaded.index.timeZone, loaded.achievementUsageDelta);
+      failureStage = 'materialize';
 
       if (records.length === 0) {
         const error = 'No usage records found. Make sure Claude Code is running.';
@@ -5058,7 +5091,6 @@ export class ClaudeCodeUsageExtension {
           });
         }
       } else {
-        const materialized = this.materializeClaudeDashboard(loaded.index, config, snapshotNow);
         const sessionData = materialized.session;
         const todayData = materialized.today;
         const workspaceTodayData = materialized.workspaceToday;
@@ -5091,7 +5123,6 @@ export class ClaudeCodeUsageExtension {
       const aggregateRenderMs = performance.now() - aggregateStarted;
       observed.aggregateRenderMs = aggregateRenderMs;
       failureStage = 'commit';
-      commitLoadedIndex();
       this.recordRefreshState('claude', false, request.trigger);
       recovery.succeed(recoveryRevision);
       this.outputChannel.appendLine(formatRefreshDiagnostic({

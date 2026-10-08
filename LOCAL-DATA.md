@@ -188,12 +188,13 @@ The extension-owned ledger contains only the following validated fields:
   thirty-row record projection without deleting awards. Dates are first-record
   days in their saved zones, not inferred attainment dates. Old records explicitly
   retain unknown dates; ordinary browsing is not a read ACK or sharing consent.
-  Audited old awards migrate quietly with unknown dates. Verified Codex Token
+  Audited old awards migrate quietly with unknown dates. Verified Claude/Codex Token
   crossings and newly crossed, saved local actions retain unread first-record
   days—not inferred original attainment times. Other usage reconciliation stays
-  quiet until its own new source activity can be proved. Codex observation windows,
+  quiet until its own new source activity can be proved. Claude/Codex observation windows,
   fixed numeric deltas and retry receipts exist only in bounded runtime memory;
-  no new source identity or timeline is stored. Only late history recorded after
+  no new source identity or timeline is stored. Claude retains references to the
+  already committed materialized inputs, not another copied log corpus. Only late history recorded after
   the observation's canonical sequence can be replaced by proven live origin;
   pre-existing history is not rewritten. Retired/disabled/cleared sources discard
   pending proof. No action timeline is retained.
