@@ -67,7 +67,9 @@ async function seedFixtures(plan) {
   return { files, bytes, sha256: hash.digest('hex'), clockDayUtc: day,
     meaning: 'six small anonymous synthetic logs, not a large-history or user-crash reproduction' };
 }
-async function prepareNativeDiagnostic({ repository, sourceHead } = {}) {
+async function prepareNativeDiagnostic({ repository, sourceHead, mode = 'diagnostic', durationMs = 1800000 } = {}) {
+  if (!['diagnostic', 'soak'].includes(mode)) fail('invalid-input');
+  const soak = mode === 'soak' ? require('./soak.cjs').validateSoakOptions({ durationMs }) : undefined;
   if (typeof repository !== 'string' || !path.isAbsolute(repository) || path.resolve(repository) !== repository ||
       typeof sourceHead !== 'string' || !/^[a-f0-9]{7,40}$/.test(sourceHead)) fail('invalid-input');
   const pkg = JSON.parse((await regularBytes(path.join(repository, 'package.json'))).toString('utf8'));
@@ -94,6 +96,10 @@ async function prepareNativeDiagnostic({ repository, sourceHead } = {}) {
       ['bootstrap.cjs', 'native-bootstrap.cjs'], ['runner.cjs', 'native-runner.cjs']]) {
       await fs.writeFile(path.join(stage, target), await regularBytes(path.join(repository, 'tests/native', source)), { flag: 'wx' });
     }
+    if (soak) {
+      await fs.writeFile(path.join(stage, 'native-soak.cjs'), await regularBytes(path.join(repository, 'tests/native/soak.cjs')), { flag: 'wx' });
+      await fs.writeFile(path.join(stage, 'native-soak-options.json'), JSON.stringify(soak) + '\n', { flag: 'wx' });
+    }
     const stagedPackage = { ...pkg, displayName: 'CCU 2.4.2 Isolated Native Diagnostic',
       main: './native-bootstrap.cjs', activationEvents: ['onStartupFinished'] };
     if (pkg.icon) {
@@ -110,7 +116,7 @@ async function prepareNativeDiagnostic({ repository, sourceHead } = {}) {
     };
     await fs.mkdir(path.join(p.userData, 'User'));
     const fixture = await seedFixtures(plan), launchArguments = nativeLaunchArguments(plan);
-    const manifest = { kind: 'isolated-native-diagnostic-not-final-vsix', sourceHead,
+    const manifest = { kind: 'isolated-native-diagnostic-not-final-vsix', sourceHead, nativeTestMode: mode,
       packageVersion: pkg.version, nativeExecuted: false, finalInstallF5Passed: false,
       compiledFiles, assetFiles, fixture, stagedAt: new Date().toISOString() };
     for (const [target, value] of [

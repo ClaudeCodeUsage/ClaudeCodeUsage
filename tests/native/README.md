@@ -54,3 +54,40 @@ directory naming or this guard is not an OS sandbox. Changes during active
 normal use may be natural; investigate rather than asserting all bytes stayed
 unchanged. Do not close or restart daily Code, change its extension/profile,
 stop unrelated processes, or weaken a failed isolation check.
+
+## Optional resource-duration diagnostic / 资源持续运行诊断
+
+prepareNativeDiagnostic({ repository, sourceHead, mode: 'soak', durationMs: 1800000 })
+stages a separate opt-in runner. Use a short duration first to verify setup.
+A short preflight always reports longSoakDurationPassed=false; setup/exit alone
+is never a 30-minute pass. The monotonic clock is not scaled.
+
+Each minute the runner switches the whole achievement feature ON/OFF, appends
+one bounded synthetic record to each of two exact regular fixture files, waits
+for actual Claude/Codex fs.watch refresh diagnostics and exact usage changes,
+then performs twenty known-zero manual warm refreshes. Actual panels open and
+await their disposal events. Simulated focus invokes the existing production
+focus handler to exercise suspension/rearming without foregrounding Code.
+It is not proof of native OS-focus behavior or notice delivery/ACK.
+
+Five-second fixed numeric samples bound host RSS/heap/external memory, owned
+timers/watchers/worker-controller/backfill/network counts and panel/notice caches.
+No raw messages, logs, paths, settings values or heap dumps enter the report.
+The small fixture grows by at most two records per cycle; sources are not real
+logs. Unknown measurements do not become zero. Deadlines and resource guards
+fail the run, and the finally block awaits only this host's production teardown.
+Reports preserve limitations: no final VSIX/F5/pixel acceptance, worker-isolate
+heap/message measurements, same-profile multi-window races, or Windows OOM
+conclusion. Sampled host heap without forced GC is not a retained-heap leak test.
+
+中文审阅：使用 mode: 'soak' 明确启用持续诊断，先短程自检；短测必然标为未通过
+30分钟时长门，不能以准备或进程退出冒充验收，不加速单调时钟。每分钟开关整个
+成就功能，向两个精确的自有常规合成文件各追加一条有界记录，等待真实文件监听
+诊断与精确用量更新，再执行20次有明确零正文计数的手动暖刷新，并等待真实面板
+销毁事件。模拟焦点只调用既有生产处理器、检验暂停/重新安装，不切到前台，也不
+当作OS焦点或通知投递/ACK验收。每5秒保存固定匿名数字，限制宿主内存、所属
+定时器/监听/worker协调器/回填/网络和面板/提示缓存；报告不含原始消息、日志、
+路径、设置值或heap dump。每轮最多增加两条合成记录，不使用真实日志；未知不
+算零。超时或预算超限即失败，最终只等待本测试宿主的实际资源释放。这个小样本
+不能替代最终VSIX/F5/像素、worker独立内存/消息、同profile跨窗口竞争或Windows
+OOM验收；未强制GC的宿主heap采样也不能证明存活对象泄漏。

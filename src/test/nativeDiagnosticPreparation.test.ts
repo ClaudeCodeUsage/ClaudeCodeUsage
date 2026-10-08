@@ -21,7 +21,7 @@ async function fixture(t: TestContext): Promise<string> {
   await fs.writeFile(path.join(root, 'out/test/excluded.js'), 'not-a-runtime-test');
   await fs.writeFile(path.join(root, 'media/fixture.png'), 'synthetic-icon');
   await fs.writeFile(path.join(root, 'assets/achievements/fixture.png'), 'synthetic-achievement-icon');
-  for (const file of ['isolation.cjs', 'bootstrap.cjs', 'runner.cjs']) {
+  for (const file of ['isolation.cjs', 'bootstrap.cjs', 'runner.cjs', 'soak.cjs']) {
     await fs.writeFile(path.join(root, 'tests/native', file), 'synthetic-' + file);
   }
   return root;
@@ -135,4 +135,20 @@ test('native diagnostic preparation rejects invalid identity and provenance befo
   await fs.writeFile(path.join(source, 'package.json'), JSON.stringify({ name: 'different-extension' }));
   await assert.rejects(preparation().prepareNativeDiagnostic({ repository: source, sourceHead: 'a3d631d' }),
     /native-test-preparation:invalid-input/);
+});
+
+test('native soak staging is explicit and retains the same guarded launch paths', async t => {
+  const result = await preparation().prepareNativeDiagnostic({ repository: await fixture(t), sourceHead: '231e1ed', mode: 'soak', durationMs: 500 });
+  t.after(async () => { await fs.rm(result.plan.root, { recursive: true, force: true }); });
+  assert.equal(result.manifest.nativeTestMode, 'soak');
+  const stage = result.plan.directories.developmentExtension;
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(stage, 'native-soak-options.json'), 'utf8')), { durationMs: 500 });
+  assert.equal(await fs.readFile(path.join(stage, 'native-soak.cjs'), 'utf8'), 'synthetic-soak.cjs');
+  assert.ok(result.launchArguments.includes(path.join(stage, 'native-runner.cjs')));
+});
+
+test('native soak staging rejects invalid modes and unsafe durations before creating any owned profile', async t => {
+  const repository = await fixture(t);
+  await assert.rejects(preparation().prepareNativeDiagnostic({ repository, sourceHead: '231e1ed', mode: 'unknown' }), /invalid-input/);
+  await assert.rejects(preparation().prepareNativeDiagnostic({ repository, sourceHead: '231e1ed', mode: 'soak', durationMs: Infinity }), /invalid-options/);
 });

@@ -84,6 +84,13 @@ async function settle(instance) {
 async function run() {
   const vscode = require('vscode');
   const plan = JSON.parse(await fs.readFile(path.join(__dirname, 'native-plan.json'), 'utf8'));
+  let soak;
+  try { soak = await fs.readFile(path.join(__dirname, 'native-soak-options.json'), 'utf8'); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (soak !== undefined) {
+    assert.ok(soak.length <= 128, 'bounded own soak options');
+    return require('./native-soak.cjs').run(plan, JSON.parse(soak));
+  }
   const manifest = JSON.parse(await fs.readFile(path.join(plan.root, 'native-stage-manifest.json'), 'utf8'));
   const samples = [], assertions = [], started = Date.now();
   let api, stage = 'activation', failureStage, stopCompleted = false, warmIo = null, outputAppend;
