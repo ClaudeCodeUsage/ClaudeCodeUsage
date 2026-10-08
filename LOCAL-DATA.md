@@ -118,6 +118,12 @@ Historical unlocks are saved quietly before new-activity notifications become
 eligible. Later notices are brief, dashboard-only, and never play sound or move focus.
 Night/24–48-hour output badges do not produce these notices.
 
+The host's 64-character achievement proof revision is memory-only, streamed
+from existing numeric/identity aggregates, never logged, persisted or exported.
+It separates proof changes from chart changes without retaining a second index
+or reading logs. Turning achievements off skips this projection and evaluation;
+source replacement retires the cached proof. Existing grants remain saved.
+
 The gallery's persisted filter is only an `all` / `next` / `earned` enum in the
 existing Webview UI state; disclosure keys are public series IDs. The sharing
 return route remembers only a Claude/Codex enum and a one-shot focus boolean. They contain no

@@ -362,6 +362,17 @@ roles and unsafe sums fail closed. Calendar awards still require global identity
 and applicable period proof. Positive-output UTC hours piggyback on normal parsing; existing
 indexes use bounded checkpointable proof migration while preserving primary
 totals. OFF suppresses that extra migration, not ordinary usage parsing.
+The host keeps a separate runtime-only SHA-256 achievement proof revision:
+canonical identities, six Token counters, model/effort buckets, period lineage
+markers and date buckets, plus completeness/timezone fences. A proof-only change
+updates achievement signals even when the complete dashboard render contract
+is equal. Unchanged proof and display-only title/structural changes reuse the
+signals; no second corpus, JSONL read, persistent key or timer is added. The
+revision is streamed from existing aggregates and is never logged or exported.
+OFF skips this projection and evaluation entirely and drops its cached proof;
+re-enabling adopts current evidence on the next accepted snapshot. Source
+replacement also retires the revision and signals. This does not retroactively
+remove historical grants or make legacy period proof complete automatically.
 Failed refreshes revoke new-grant authority without rerendering or discarding
 last displayed statistics, including when auto-refresh presentation is paused.
 Separate usage-evidence and clear/activity epochs guard queued writes; retired

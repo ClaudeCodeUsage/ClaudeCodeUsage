@@ -103,6 +103,7 @@ import { codexIndexStoragePath, codexIndexCanonicalName, readOwnedLegacyCodexInd
 import { buildCodexUsageView, CodexUsageView } from './providers/codex/codexUsage';
 import { codexModelSignals, CodexAchievementSignals } from './achievements';
 import { codexAchievementDayEvidence, codexAchievementTokenEvidence } from './achievementCalendar';
+import { codexAchievementProofRevision } from './codexAchievementRevision';
 import {
   buildScopedCodexInsights,
   CodexScopedInsights,
@@ -433,6 +434,12 @@ const WHATS_NEW: ReleaseAnnouncementCatalog<LocalizedReleaseAnnouncement> = {
   },
 };
 
+const EMPTY_CODEX_ACHIEVEMENT_SIGNALS: CodexAchievementSignals = Object.freeze({
+  modelCount: 0,
+  efforts: [],
+  familyRootCounts: Object.freeze({ astra: 0, sol: 0, luna: 0 }),
+});
+
 export class ClaudeCodeUsageExtension {
   private static readonly CODEX_BACKGROUND_WORK_STATE_KEY =
     'ccu.codex.backgroundWork.v1';
@@ -527,11 +534,8 @@ export class ClaudeCodeUsageExtension {
   private codexProvider: CodexProvider;
   private readonly codexSalt: string;
   private codexView: CodexUsageView | null = null;
-  private codexAchievementSignals: CodexAchievementSignals = {
-    modelCount: 0,
-    efforts: [],
-    familyRootCounts: { astra: 0, sol: 0, luna: 0 },
-  };
+  private codexAchievementSignals: CodexAchievementSignals = EMPTY_CODEX_ACHIEVEMENT_SIGNALS;
+  private codexAchievementRevision?: string;
   private codexInsights: CodexScopedInsights = emptyCodexScopedInsights();
   private codexAvailable = false;
   private codexHasData = false;
@@ -2333,6 +2337,8 @@ export class ClaudeCodeUsageExtension {
     this.statusBar.clearCodex?.();
     this.codexView = null;
     this.codexInsights = emptyCodexScopedInsights();
+    this.codexAchievementRevision = undefined;
+    this.codexAchievementSignals = EMPTY_CODEX_ACHIEVEMENT_SIGNALS;
     this.codexHasData = false;
     this.codexAvailable = false;
     this.codexRefreshing = false;
@@ -3410,7 +3416,9 @@ export class ClaudeCodeUsageExtension {
   }
 
   private applyCodexSnapshot(snapshot: CodexProviderSnapshot): void {
-    this.selectCodexSnapshotHome(this.codexHome(this.getConfiguration()));
+    const config = this.getConfiguration();
+    this.selectCodexSnapshotHome(this.codexHome(config));
+    if (!this.codexView) this.codexAchievementRevision = undefined;
     const nextView = buildCodexUsageView(snapshot);
     const capturedObservations = snapshot.weeklyValueInputs?.observations ?? [];
     const capturedQuotaFacts = codexQuotaCapturesFromWeeklyObservations(
@@ -3440,14 +3448,28 @@ export class ClaudeCodeUsageExtension {
     if (!isDeepStrictEqual(this.codexView, nextView)) {
       this.codexView = nextView;
       this.codexInsights = buildScopedCodexInsights(nextView);
-      this.codexAchievementSignals = codexModelSignals(snapshot.files);
+    }
+    // Display equality does not imply proof equality: period lineage markers
+    // and optional effort counters can change without changing any chart.
+    if (config.enableAchievements === false) {
+      this.codexAchievementRevision = undefined;
+      this.codexAchievementSignals = EMPTY_CODEX_ACHIEVEMENT_SIGNALS;
+    } else {
       const indexed = nextView.currentManifestVerified === true && nextView.coverage.complete;
-      const complete = indexed && nextView.coverage.identity.complete;
-      this.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(snapshot.files, indexed);
-      this.codexAchievementSignals.dayEvidence = codexAchievementDayEvidence(
-        snapshot.files, nextView.periodCoverage.timeZone,
-        complete && nextView.periodCoverage.allTime.complete,
-      );
+      const calendarComplete = indexed && nextView.coverage.identity.complete &&
+        nextView.periodCoverage.allTime.complete;
+      const revision = codexAchievementProofRevision(snapshot.files, {
+        indexed, calendarComplete, timeZone: nextView.periodCoverage.timeZone,
+      });
+      if (this.codexAchievementRevision !== revision) {
+        this.codexAchievementSignals = codexModelSignals(snapshot.files);
+        this.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(snapshot.files, indexed);
+        this.codexAchievementSignals.dayEvidence = codexAchievementDayEvidence(
+          snapshot.files, nextView.periodCoverage.timeZone,
+          calendarComplete,
+        );
+        this.codexAchievementRevision = revision;
+      }
     }
     this.codexSkipPersistedHydration = false;
     this.codexAvailable = true;
@@ -3541,6 +3563,10 @@ export class ClaudeCodeUsageExtension {
     }
     if (key && ClaudeCodeUsageExtension.DASHBOARD_ONLY_SETTINGS.has(key)) {
       if (key === 'enableAchievements') {
+        if (this.getConfiguration().enableAchievements === false) {
+          this.codexAchievementRevision = undefined;
+          this.codexAchievementSignals = EMPTY_CODEX_ACHIEVEMENT_SIGNALS;
+        }
         this.codexProvider?.setAchievementHourProofEnabled?.(
           this.getConfiguration().enableAchievements !== false);
       }

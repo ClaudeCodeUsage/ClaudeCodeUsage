@@ -26,6 +26,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
+- **Proof changes without chart refreshes** — refreshed Codex period lineage
+  evidence and effort validation now reach achievements even when chart data is
+  identical. Display-only changes reuse proof; disabling achievements skips this
+  extra computation. No new log read, timer or persisted data is introduced.
 - **Repeated Claude watcher setup** — directory discovery no longer invalidates
   an already installed watcher's event or error callbacks when the watched
   directory is unchanged. Overlapping setup still accepts only the newest

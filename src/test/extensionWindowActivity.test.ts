@@ -20,6 +20,7 @@ import {
 } from '../backgroundWorkState';
 import { ResourceOwnershipRegistry } from '../resourceOwnership';
 import { snapshotFixture } from './codexFixtures';
+import { CODEX_PERIOD_LINEAGE_VERSION } from '../providers/codex/codexPeriodIndex';
 import {
   createEmptyQuotaObservationStore,
   mergeQuotaCaptures,
@@ -719,13 +720,88 @@ test('coordinator identical verified Codex snapshots retain view and insight ide
   extension.applyCodexSnapshot(snapshot);
   const verified = extension.codexView;
   const insights = extension.codexInsights;
+  const signals = extension.codexAchievementSignals;
   extension.applyCodexSnapshot(structuredClone(snapshot));
   assert.equal(extension.codexView, verified);
   assert.equal(extension.codexInsights, insights);
+  assert.equal(extension.codexAchievementSignals, signals, 'unchanged proof does not re-evaluate achievements');
   const renamed = structuredClone(snapshot);
   renamed.files[0].session.sessionTitle = 'A changed safe title';
   extension.applyCodexSnapshot(renamed);
   assert.notEqual(extension.codexView, verified, 'titles are part of the render revision');
+  assert.equal(extension.codexAchievementSignals, signals, 'title-only changes are not achievement proof changes');
+});
+
+test('coordinator accepts and revokes effort-only proof without rebuilding the render view', () => {
+  for (const initiallyValid of [true, false]) {
+    const { extension } = coordinatorHarness(true);
+    const snapshot = completeCoordinatorSnapshot();
+    if (!initiallyValid) snapshot.files[0].byEffort.high.cacheWriteInput = -1;
+    extension.applyCodexSnapshot(snapshot);
+    const view = extension.codexView;
+    const insights = extension.codexInsights;
+    const previous = extension.codexAchievementSignals;
+    const updated = structuredClone(snapshot);
+    if (initiallyValid) updated.files[0].byEffort.high.cacheWriteInput = -1;
+    else delete updated.files[0].byEffort.high.cacheWriteInput;
+    extension.applyCodexSnapshot(updated);
+    assert.equal(extension.codexView, view);
+    assert.equal(extension.codexInsights, insights);
+    assert.notEqual(extension.codexAchievementSignals, previous);
+    assert.deepEqual(extension.codexAchievementSignals.familyProcessedTokens, previous.familyProcessedTokens);
+    assert.equal(extension.codexAchievementSignals.effortProcessedTokens.high, initiallyValid ? 600 : 1_200);
+  }
+});
+
+test('coordinator accepts fresh period lineage proof even when rendered statistics are unchanged', () => {
+  const { extension } = coordinatorHarness(true);
+  const snapshot = completeCoordinatorSnapshot();
+  // One canonical root: the legacy fixture's unattached approval record must not prove dates.
+  snapshot.files = [snapshot.files[0]];
+  snapshot.currentManifestVerified = true;
+  snapshot.coverage.identity.complete = true;
+  extension.applyCodexSnapshot(snapshot);
+  assert.equal(extension.codexAchievementSignals.dayEvidence.complete, false);
+  const view = extension.codexView;
+  const insights = extension.codexInsights;
+  const updated = structuredClone(snapshot);
+  updated.files[0].period!.lineageVersion = CODEX_PERIOD_LINEAGE_VERSION;
+  updated.files[0].period!.lineagePrefixEvents = 0;
+  extension.applyCodexSnapshot(updated);
+  assert.equal(extension.codexView, view);
+  assert.equal(extension.codexInsights, insights);
+  assert.equal(extension.codexAchievementSignals.dayEvidence.complete, true);
+  const fresh = extension.codexAchievementSignals;
+  extension.applyCodexSnapshot(structuredClone(updated));
+  assert.equal(extension.codexAchievementSignals, fresh);
+  delete updated.files[0].period!.lineageVersion;
+  extension.applyCodexSnapshot(updated);
+  assert.equal(extension.codexAchievementSignals.dayEvidence.complete, false, 'proof withdrawal is not a historical award revocation');
+});
+
+test('coordinator disabled achievements skip proof computation and re-enable adopts current proof', (t) => {
+  const proofModule = require('../codexAchievementRevision');
+  const original = proofModule.codexAchievementProofRevision;
+  let revisions = 0;
+  proofModule.codexAchievementProofRevision = (...args: unknown[]) => { revisions++; return original(...args); };
+  t.after(() => { proofModule.codexAchievementProofRevision = original; });
+  const { extension, config, snapshot } = coordinatorHarness(true);
+  extension.applyCodexSnapshot(snapshot);
+  assert.equal(revisions, 1);
+  config.enableAchievements = false;
+  extension.applyCodexSnapshot(snapshot);
+  const disabled = extension.codexAchievementSignals;
+  const updated = structuredClone(snapshot);
+  updated.files[0].byEffort.high.cacheWriteInput = -1;
+  extension.applyCodexSnapshot(updated);
+  assert.equal(revisions, 1, 'OFF does not even fingerprint the achievement projection');
+  assert.equal(extension.codexAchievementSignals, disabled);
+  assert.equal(extension.codexAchievementRevision, undefined);
+  assert.equal(disabled.effortProcessedTokens, undefined, 'OFF cannot retain proof for a newer render snapshot');
+  config.enableAchievements = true;
+  extension.applyCodexSnapshot(updated);
+  assert.equal(revisions, 2);
+  assert.equal(extension.codexAchievementSignals.effortProcessedTokens.high, 600);
 });
 
 test('coordinator retirement during preflight state persistence cannot start a retired worker', async () => {
