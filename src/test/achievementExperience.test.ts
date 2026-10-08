@@ -75,6 +75,29 @@ test('missing and stale proof are not zero progress, while an earned badge remai
     assert.match(stale, /data-achievement-proof="stale"/);
     assert.match(stale, /Evidence outdated/);
     assert.doesNotMatch(stale, /<progress/);
+    provider.achievementGrants = new Set(ACHIEVEMENT_SERIES['astra-days']);
+    const finished = card().split('</summary>')[0];
+    assert.match(finished, /class="achievement-next-target">Evidence outdated/,
+      'completed historical tiers still show current proof status without opening');
+  });
+});
+
+test('a long Token ladder exposes current progress and a display-only stage without opening its rules', async () => {
+  await gallery(provider => {
+    provider.achievementGrants = new Set(['astra-regular']);
+    provider.achievementResults = () => ACHIEVEMENT_DEFINITIONS.map(entry => ({ ...entry,
+      progress: entry.id.startsWith('astra-regular') ? 600_000_000 : 0, unlocked: false }));
+    const read = () => provider.renderAchievementData()
+      .match(/<article[^>]*data-achievement-series="astra-regular"[\s\S]*?<\/article>/)![0];
+    const summary = read().split('</summary>')[0];
+    assert.match(summary, /class="achievement-current-progress"[^>]*>600M \/ 5B/);
+    assert.match(summary, /class="achievement-stage-target"[^>]*>Next stage · 1B/);
+    assert.doesNotMatch(summary, /data-achievement-id="[^"]*stage/);
+    provider.achievementEvidenceStates = { 'codex-lineage': 'pending' };
+    const pending = read().split('</summary>')[0];
+    assert.doesNotMatch(pending, /class="achievement-current-progress"|class="achievement-stage-target"/);
+    assert.match(pending, /Evidence pending/);
+    assert.equal((provider.renderAchievementData().match(/data-achievement-level=/g) ?? []).length, 124);
   });
 });
 

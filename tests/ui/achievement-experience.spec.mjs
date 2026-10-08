@@ -247,6 +247,31 @@ test('a matching malformed preview fails visibly instead of remaining busy or ac
 });
 
 for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
+  test(`${locale} current progress and display-only stages fit closed cards`, async ({ page }, testInfo) => {
+    for (const [width, theme] of [[320, 'dark'], [360, 'light']]) {
+      await openClaude(page, { locale, theme, width, fixture: 'achievement-token-stages' });
+      await page.locator('#tab-achievements').click();
+      const card = page.locator('[data-achievement-series="sonnet-main"]');
+      // Moving between viewport/theme cases deliberately retains Webview state.
+      // Close the previous case's restored disclosure before testing its face.
+      if (await card.locator('details').evaluate(details => details.open)) await card.locator('summary').click();
+      await expect(card.locator('details')).not.toHaveAttribute('open');
+      await expect(card.locator('.achievement-current-progress')).toHaveText('295M / 1B');
+      await expect(card.locator('.achievement-stage-target')).toContainText('500M');
+      const fit = await card.locator('summary').evaluate(element => element.scrollWidth <= element.clientWidth + 1);
+      expect(fit).toBe(true);
+      await card.locator('summary').focus();
+      await card.locator('summary').press('Enter');
+      await expect(card.locator('[data-achievement-level]')).toHaveCount(3);
+      await expect(card.locator('.achievement-level-rules')).not.toContainText('500M');
+      await page.reload();
+      await expect(card.locator('details')).toHaveAttribute('open');
+      await expect(card.locator('.achievement-stage-target')).toContainText('500M');
+      expect((await page.evaluate(() => window.__ccuPostedMessages)).some(message =>
+        ['refresh', 'updateSetting', 'previewAchievementShare'].includes(message.command))).toBe(false);
+      if (locale === 'zh-CN') await card.screenshot({ path: testInfo.outputPath(`stage-${width}-${theme}.png`) });
+    }
+  });
   test(`${locale} compact targets, full tier rules, and controls fit the narrow gallery`, async ({ page }, testInfo) => {
     await openCodex(page, { locale, theme: 'dark', width: 360 });
     await page.locator('#tab-achievements').click();

@@ -336,6 +336,14 @@ integer progress remains in tooltips and accessibility text. Detailed data cavea
 are in a persisted, initially collapsed disclosure. Embedded export images are
 cached by filename rather than repeated for every tier ID.
 
+`achievementStages.ts` adds display-only 1/2/5 integer nodes between formal
+Token tiers, not before the first tier or after the last. Closed cards show current
+progress toward the next formal level and, where applicable, the next intermediate
+stage. Pending/stale proof has neither. Counter/setting exploration is excluded;
+formal IDs, thresholds, award counts, notifications and share choices are unchanged.
+Nodes are derived only from the fixed catalog and current aggregates: no writes,
+history scanner, timer or additional permission.
+
 `achievementEvidence.ts` classifies rules into nine independent runtime evidence
 domains. Ready, pending and stale proof is separate from saved award identity:
 pending/stale cards retain earned tiers but omit numeric progress and are excluded

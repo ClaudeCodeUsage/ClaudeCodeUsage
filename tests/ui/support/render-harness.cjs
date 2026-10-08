@@ -535,6 +535,11 @@ exports.renderHarness = async function renderHarness({
       achievementsEnabled,
     });
     if (!codexOnly) addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
+    if (fixture === 'achievement-token-stages') {
+      // Synthetic materialized Token history for presentation, not a calendar
+      // proof fixture or an injected grant. Run the actual rule evaluator.
+      provider.allTimeData = claudeUsage(1000);
+    }
     if (adviceEffectivenessFixture) {
       provider.updateAdviceEffectivenessData(
         buildAdviceEffectivenessFixture({ locale }).states,

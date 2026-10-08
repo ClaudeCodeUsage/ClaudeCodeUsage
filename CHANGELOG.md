@@ -7,6 +7,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Progress between Token tiers** — closed cards show integer progress toward
+  the next formal tier; long Token ladders include display-only 1/2/5 stage targets.
+  These are not extra awards, notifications or sharing choices, and do not change
+  any formal threshold. Pending/outdated proof never fabricates stage progress.
 - **Tiered local achievements** — 46 icon-first series and 124 level conditions,
   with distinct bundled artwork per series, shared by its colored tiers. Token-led Claude Sonnet/Opus/Haiku/Fable and Codex
   Astra/Sol/Luna progression, output/cache, model/effort and agent experiences,

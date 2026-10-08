@@ -62,6 +62,7 @@ Der noch nicht veröffentlichte Kandidat 2.4.2 hat 46 Symbolserien mit 124 Stufe
 Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
 Jede Serie hat ein eigenes Motiv, ihre Stufen teilen es mit Stufenfarben. Zahlen sind ganzzahlig; Datengrenzen sind aufklappbar.
 Fehlende oder veraltete Nachweise werden statt Nullfortschritt angezeigt und vom nächsten Ziel ausgeschlossen; erworbene Abzeichen bleiben gespeichert.
+Geschlossene Karten zeigen den aktuellen Fortschritt zur nächsten Stufe; Zwischenziele auf langen Token-Leitern sind keine zusätzlichen Abzeichen, Hinweise oder Exportoptionen.
 Nach vollständiger aktueller Indexierung zählen konfliktfreie Codex-Abstammungen für Token-/Agentenmeilensteine; Kalendererfolge brauchen weiterhin vollständige Identitäts- und Tagesnachweise.
 Serien und Stufen werden getrennt gezählt. Lokale Filter bleiben nach Neuladen
 erhalten; das nächste Ziel steht auf der Karte, alle Stufenregeln im aufklappbaren Bereich.

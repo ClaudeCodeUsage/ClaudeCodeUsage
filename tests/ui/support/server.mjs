@@ -46,6 +46,7 @@ const server = createServer(async (request, response) => {
       'combined-heatmap',
       'session-timezone-boundaries',
       'local-currency',
+      'achievement-token-stages',
     ].includes(requestedFixture)
       ? requestedFixture
       : 'default';

@@ -54,6 +54,7 @@ import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
 import { AchievementSharePreview, highestEarnedAchievements, renderAchievementShareSvg, selectShareAchievements } from './achievementShare';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
+import { nextAchievementStage } from './achievementStages';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline } from './achievementEvidence';
 import {
@@ -4515,7 +4516,14 @@ export class UsageWebviewProvider {
           '</span>' : '';
       const key = series ?? result.id;
       const next = series ? hasNextTier : !earned;
-      const compactTarget = compact(nextResult.target);
+      const stage = series && next ? nextAchievementStage(series, nextResult.progress, nextResult.target, proofReady) : undefined;
+      const faceProgress = proofReady && next
+        ? '<span class="achievement-current-progress" title="' + this.escapeHtml(copy.nextTarget + ': ' + bound +
+          exactProgress + ' ' + unitFor(result.id)) + '">' + this.escapeHtml(bound + formatted) + '</span>' +
+          (stage === undefined ? '' : '<span class="achievement-stage-target" title="' +
+            this.escapeHtml(copy.nextStage + ': ' + integer(stage) + ' ' + unitFor(result.id)) + '">' +
+            this.escapeHtml(copy.nextStage + ' · ' + compact(stage)) + '</span>')
+        : this.escapeHtml(!proofReady ? proofLabel : next ? copy.milestone : copy.complete);
       const levelRules = (tiers ?? [result]).map((entry, index) =>
         '<li data-achievement-level="' + entry.id + '"><strong>' +
           this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span>' +
@@ -4535,8 +4543,9 @@ export class UsageWebviewProvider {
         '" alt="" loading="lazy"></span>' +
         '<h4>' + this.escapeHtml(baseName) + '</h4>' +
         (earned ? '<span class="achievement-rank">' + this.escapeHtml(levelName) + '</span>' : '') +
-        tierPips + '<span class="achievement-next-target">' + this.escapeHtml(!proofReady && next ? proofLabel : next
-          ? (series ? copy.nextTarget + ' · ' + compactTarget : copy.milestone) : copy.complete) + '</span></summary>' +
+        tierPips + '<span class="achievement-next-target">' + faceProgress + '</span>' +
+        (proofReady && next ? '<span class="achievement-progress-track" aria-hidden="true"><span style="width:' +
+          Math.min(100, Math.max(0, progress / nextResult.target * 100)) + '%"></span></span>' : '') + '</summary>' +
         '<div class="achievement-card-detail">' + tierMarkers +
         (proofReady ?
         '<label class="achievement-progress-label" for="achievement-progress-' + result.id +
@@ -12383,6 +12392,10 @@ export class UsageWebviewProvider {
       .achievement-card[data-achievement-series].earned h4 { color: var(--achievement-tier-label-color); }
       .achievement-rank { display: inline-block; max-width: 100%; padding: 2px 7px; border: 1px solid var(--vscode-panel-border); border-radius: 999px; color: var(--vscode-descriptionForeground); font-size: .72rem; line-height: 1.25; overflow-wrap: anywhere; }
       .achievement-next-target { color: var(--vscode-descriptionForeground); font-size: .72rem; line-height: 1.4; overflow-wrap: anywhere; }
+      .achievement-current-progress, .achievement-stage-target { display: block; }
+      .achievement-current-progress { color: var(--vscode-foreground); font-variant-numeric: tabular-nums; }
+      .achievement-progress-track { display: block; width: 100%; max-width: 108px; height: 3px; background: var(--vscode-panel-border); overflow: hidden; }
+      .achievement-progress-track > span { display: block; height: 100%; background: var(--achievement-accent); }
       .achievement-card-detail h5 { margin: 12px 0 6px; font-size: .8rem; }
       .achievement-level-rules { min-width: 0; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .achievement-level-rules li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }

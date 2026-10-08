@@ -73,6 +73,8 @@ Each series has distinct artwork, with one emblem shared by its colored tiers.
 Achievement numbers use integers; detailed conditions and data caveats stay expandable.
 Pending or outdated evidence is labelled, not shown as zero progress, and excluded
 from Next level filtering; earned badges remain saved.
+Closed cards show current / next-level progress. Long Token ladders include
+intermediate stages, without extra awards, notices or sharing choices.
 
 Cumulative processed tokens use one series: **100M → 1B → 10B → 100B → 1T**.
 Calendar-week peaks use **500M / 2B / 10B**; the highest average across four

@@ -129,6 +129,10 @@ history from later eligible awards. Pending or stale proof is shown explicitly,
 not as zero usage; saved awards remain independent. No action history, new
 persistent key, source identifier or network request is added by these latches.
 
+Intermediate Token stages are ephemeral display targets derived from formal
+thresholds, not new awards. They store no milestone history, produce no notices,
+and never become selectable export badges.
+
 The gallery's persisted filter is only an `all` / `next` / `earned` enum in the
 existing Webview UI state; disclosure keys are public series IDs. The sharing
 return route remembers only a Claude/Codex enum and a one-shot focus boolean. They contain no
