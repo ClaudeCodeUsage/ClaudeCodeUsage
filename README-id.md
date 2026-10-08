@@ -63,6 +63,9 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 Catatan penghargaan hanya lokal, maksimal 64 KiB. Tanggal lama tetap tidak diketahui;
 tindakan baru yang tersimpan mempertahankan status belum dibaca dan hari pencatatan pertama
 meski notifikasi terlewat. Antarjendela menggabungkan penghargaan; penghapusan menyisakan penanda generasi kosong untuk menolak penulisan lama.
+Notifikasi hanya tampil di panel yang terlihat di depan, maksimal sekali per lima
+menit antarjendela dan setelah mulai ulang. Hanya kelompok yang dikonfirmasi tampil
+ditandai dibaca; yang terlewat tetap belum dibaca. Hover atau fokus papan ketik menunda penutupan.
 
 Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
 yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.

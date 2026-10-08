@@ -1535,6 +1535,18 @@ test('background transition stops every Claude and Codex recurring resource once
   ]);
 });
 
+test('native window transitions forward achievement focus before recurring work without an extra listener', () => {
+  const extension = bareExtension();
+  const calls: string[] = [];
+  extension.windowActivity = new WindowActivityGate(true);
+  extension.webviewProvider.setAchievementWindowFocused = (value: boolean) => calls.push(`notice:${value}`);
+  extension.suspendRecurringWork = () => calls.push('suspend');
+  extension.resumeRecurringWork = () => calls.push('resume');
+  extension.handleWindowFocusChange(false);
+  extension.handleWindowFocusChange(true);
+  assert.deepEqual(calls, ['notice:false', 'suspend', 'notice:true', 'resume']);
+});
+
 test('foreground transition resumes both providers and catches up once', () => {
   const extension = bareExtension();
   const calls: string[] = [];

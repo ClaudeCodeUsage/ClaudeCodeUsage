@@ -1085,6 +1085,9 @@ export class UsageWebviewProvider {
   private observedPluginAchievementIds = new Set<AchievementId>();
   private silentAchievementRechecks = new Set<AchievementId>();
   private lastAchievementNoticeAt = 0;
+  private achievementWindowFocused = false;
+  private achievementNoticeWrite: Promise<unknown> = Promise.resolve();
+  private achievementNoticeInFlight?: { id: string; generation: number; sequence: number; ids: AchievementId[] };
   private achievementShareSelection: AchievementId[] | undefined;
   private readonly acceptedAchievementPreview = new AchievementSharePreview();
   private achievementExportPending = false;
@@ -2358,6 +2361,7 @@ export class UsageWebviewProvider {
       }
       this.clearPreparedAdviceSnapshots();
       this.pendingAchievementNotice.clear();
+      this.achievementNoticeInFlight = undefined;
       this.acceptedAchievementPreview.clear();
       this.discardPreparedOptimizer();
       this.onAiSurfaceClosed?.();
@@ -2410,6 +2414,9 @@ export class UsageWebviewProvider {
           this.webviewClientReady = true;
           this.onLocalDataClientReady?.();
           this.dispatchAchievementNotice();
+          break;
+        case 'achievementNoticeAck':
+          await this.acknowledgeAchievementNotice(message.noticeId);
           break;
         case 'dashboardDataPatchAck': {
           const pending = this.pendingDashboardLivePatch;
@@ -3336,6 +3343,7 @@ export class UsageWebviewProvider {
     this.pendingDashboardLivePatch = undefined;
     this.scheduledDashboardLivePatch = undefined;
     this.webviewClientReady = false;
+    this.achievementNoticeInFlight = undefined;
     this.lastHtml = fallback.documentHtml;
     this.lastLivePatchStructureKey = fallback.structureKey;
     this.panel.webview.html = fallback.documentHtml;
@@ -3402,6 +3410,7 @@ export class UsageWebviewProvider {
     this.pendingDashboardLivePatch = undefined;
     this.scheduledDashboardLivePatch = undefined;
     this.webviewClientReady = false;
+    this.achievementNoticeInFlight = undefined;
     this.lastHtml = html;
     this.lastLivePatchStructureKey = nextPatch?.structureKey;
     this.panel.webview.html = html;
@@ -4119,6 +4128,7 @@ export class UsageWebviewProvider {
       this.achievementEvidenceStates = undefined;
       this.observedPluginAchievementIds.clear();
       this.pendingAchievementRecordActions.clear();
+      this.achievementNoticeInFlight = undefined;
       return [];
     }
     if (!this.ensureAchievementRecords()) return [];
@@ -4383,7 +4393,7 @@ export class UsageWebviewProvider {
 
   private dispatchAchievementNotice(): void {
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true) ||
-        !this.panel?.visible) {
+        !this.panel?.visible || !this.achievementWindowFocused) {
       this.pendingAchievementNotice.clear();
       if (!this.setting<boolean>('enableAchievements', true)) this.observedPluginAchievementIds.clear();
       return;
@@ -4394,26 +4404,89 @@ export class UsageWebviewProvider {
       this.pendingAchievementNotice.clear();
       return;
     }
-    const ids = highestEarnedAchievements([...this.pendingAchievementNotice].map((id) => ({
+    const candidates = [...this.pendingAchievementNotice];
+    const ids = highestEarnedAchievements(candidates.map((id) => ({
       id, group: 'combined' as const, progress: 1, target: 1, unlocked: true,
     }))).map((result) => result.id);
     this.pendingAchievementNotice.clear();
+    if (this.achievementRecordRepository) {
+      const repository = this.achievementRecordRepository;
+      const state = this.achievementRecordState;
+      const panel = this.panel;
+      if (!state) return;
+      const epoch = this.achievementPersistenceEpoch;
+      const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+        this.setting<boolean>('enableAchievements', true) && this.achievementWindowFocused &&
+        this.panel === panel && panel.visible && this.webviewClientReady;
+      this.achievementNoticeWrite = this.achievementNoticeWrite.catch(() => undefined).then(async () => {
+        const reserved = await repository.reserveNotice(state.generation, candidates, Date.now(), canWrite);
+        if (!canWrite()) return;
+        this.achievementRecordState = reserved.store;
+        this.lastAchievementNoticeAt = reserved.store.lastNoticeAt;
+        if (!reserved.records.length) return;
+        const actualIds = reserved.records.map(row => row.id);
+        const packet = { id: randomBytes(24).toString('hex'), generation: reserved.store.generation,
+          sequence: reserved.store.sequence, ids: actualIds };
+        this.achievementNoticeInFlight = packet;
+        void Promise.resolve(panel.webview.postMessage(this.achievementNoticeMessage(actualIds, packet.id)))
+          .then(delivered => {
+            if (!delivered && this.achievementNoticeInFlight === packet) this.achievementNoticeInFlight = undefined;
+          }).catch(() => {
+            if (this.achievementNoticeInFlight === packet) this.achievementNoticeInFlight = undefined;
+          });
+      }).catch(() => {
+        // Lost delivery remains unread and consumes its reserved cooldown.
+        this.achievementNoticeInFlight = undefined;
+      });
+      return;
+    }
     // Reserve the disturbance budget before sending. Slow or rejected delivery
     // must not let another saved batch emit an immediate second notice.
     this.lastAchievementNoticeAt = attemptedAt;
-    const copy = achievementCopyFor(I18n.getLocale());
-    const text = ids.length === 1
-      ? copy.unlockedNotice.replace('{name}', copy.titles[ids[0]])
-      : copy.unlockedBatch.replace('{count}', I18n.formatNumber(ids.length));
     try {
-      void Promise.resolve(this.panel.webview.postMessage({
-        command: 'achievementUnlockNotice', text,
-        iconFile: ids.length === 1 ? ACHIEVEMENT_IMAGE_FILES[ids[0]] : undefined,
-      })).catch(() => undefined);
+      void Promise.resolve(this.panel.webview.postMessage(this.achievementNoticeMessage(ids))).catch(() => undefined);
     } catch {
       // Best-effort UI feedback, including synchronous host disposal errors:
       // never undo a saved award, retry noisily, or escape into a ready handler.
     }
+  }
+
+  private achievementNoticeMessage(batch: AchievementId[], noticeId?: string): Record<string, unknown> {
+    const ids = highestEarnedAchievements(batch.map(id => ({ id, group: 'combined' as const,
+      progress: 1, target: 1, unlocked: true }))).map(row => row.id);
+    const copy = achievementCopyFor(I18n.getLocale());
+    return { command: 'achievementUnlockNotice', noticeId,
+      text: ids.length === 1 ? copy.unlockedNotice.replace('{name}', copy.titles[ids[0]])
+        : copy.unlockedBatch.replace('{count}', I18n.formatNumber(ids.length)),
+      iconFile: ids.length === 1 ? ACHIEVEMENT_IMAGE_FILES[ids[0]] : undefined };
+  }
+
+  /** Existing native focus ownership, without another listener or polling loop. */
+  setAchievementWindowFocused(focused: boolean): void {
+    this.achievementWindowFocused = focused;
+    if (!focused) {
+      this.pendingAchievementNotice.clear();
+      this.achievementNoticeInFlight = undefined;
+      if (this.panel && this.webviewClientReady) {
+        try { void Promise.resolve(this.panel.webview.postMessage({ command: 'achievementNoticeDismiss' })).catch(() => undefined); }
+        catch { /* Disposed panel; records remain unread. */ }
+      }
+    }
+  }
+
+  private async acknowledgeAchievementNotice(id: unknown): Promise<void> {
+    const packet = this.achievementNoticeInFlight;
+    const repository = this.achievementRecordRepository;
+    if (!packet || !repository || id !== packet.id) return;
+    const epoch = this.achievementPersistenceEpoch;
+    const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+      this.setting<boolean>('enableAchievements', true) && this.achievementWindowFocused &&
+      this.panel?.visible === true && this.webviewClientReady && this.achievementNoticeInFlight === packet;
+    try {
+      const saved = await repository.acknowledgeRecords(packet.generation, packet.sequence, packet.ids, canWrite);
+      if (canWrite()) this.achievementRecordState = saved;
+    } catch { /* Failed/stale confirmation leaves unread records intact. */ }
+    finally { if (this.achievementNoticeInFlight === packet) this.achievementNoticeInFlight = undefined; }
   }
 
   /** Clear-all waits for any earlier award write before deleting its record. */
@@ -4422,6 +4495,7 @@ export class UsageWebviewProvider {
     this.clearingAchievements = true;
     this.achievementOverviewSelection = undefined;
     this.achievementPersistenceEpoch += 1;
+    this.achievementNoticeInFlight = undefined;
     this.achievementNoticeBaseline.reset();
     this.pendingAchievementNotice.clear();
     this.pendingAchievementGrants.clear();
@@ -4563,7 +4637,6 @@ export class UsageWebviewProvider {
             if (this.panel?.visible && Date.now() - this.lastAchievementNoticeAt > 300_000) {
               for (const id of notifiableAchievementIds(saved.added)) this.pendingAchievementNotice.add(id);
             }
-            this.dispatchAchievementNotice();
           }
           // Persist independently of presentation. Hidden/closed panels do not
           // delay an already successful local action until a future render.
@@ -4571,6 +4644,9 @@ export class UsageWebviewProvider {
           if (this.panel?.visible && this.webviewClientReady) {
             this.updateWebview();
           }
+          // A replacement retires client readiness. Keep the new batch queued
+          // for its ready ACK instead of consuming it against the old document.
+          this.dispatchAchievementNotice();
         } catch {
           // Keep actions out of evaluation until their ledger is saved.
         } finally {
@@ -14993,7 +15069,14 @@ document.addEventListener('click', function(event) {
 });
 
 var __achievementNoticeTimer = null;
+function ccuDismissAchievementNotice() {
+  if (__achievementNoticeTimer) clearTimeout(__achievementNoticeTimer);
+  __achievementNoticeTimer = null;
+  var notice = document.getElementById('ccuAchievementUnlockNotice');
+  if (notice) notice.remove();
+}
 function ccuShowAchievementNotice(message) {
+  if (document.hidden || !document.hasFocus()) return;
   var previous = document.getElementById('ccuAchievementUnlockNotice');
   if (previous) previous.remove();
   if (__achievementNoticeTimer) clearTimeout(__achievementNoticeTimer);
@@ -15020,11 +15103,31 @@ function ccuShowAchievementNotice(message) {
   close.type = 'button';
   close.setAttribute('aria-label', __achievementDismissLabel);
   close.textContent = '×';
-  close.addEventListener('click', function() { root.remove(); });
+  close.addEventListener('click', ccuDismissAchievementNotice);
   root.appendChild(close);
   document.body.appendChild(root);
-  __achievementNoticeTimer = setTimeout(function() { root.remove(); }, 6000);
+  var hovering = false;
+  function scheduleDismiss() {
+    if (__achievementNoticeTimer) clearTimeout(__achievementNoticeTimer);
+    if (hovering || root.contains(document.activeElement)) return;
+    __achievementNoticeTimer = setTimeout(function() { root.remove(); }, 6000);
+  }
+  root.addEventListener('pointerenter', function() { hovering = true; scheduleDismiss(); });
+  root.addEventListener('pointerleave', function() { hovering = false; scheduleDismiss(); });
+  root.addEventListener('focusin', scheduleDismiss);
+  root.addEventListener('focusout', function(event) {
+    if (!root.contains(event.relatedTarget) && !hovering) {
+      if (__achievementNoticeTimer) clearTimeout(__achievementNoticeTimer);
+      __achievementNoticeTimer = setTimeout(function() { root.remove(); }, 6000);
+    }
+  });
+  scheduleDismiss();
+  if (typeof message.noticeId === 'string' && /^[a-f0-9]{48}$/.test(message.noticeId)) {
+    vscode.postMessage({ command: 'achievementNoticeAck', noticeId: message.noticeId });
+  }
 }
+window.addEventListener('blur', ccuDismissAchievementNotice);
+document.addEventListener('visibilitychange', function() { if (document.hidden) ccuDismissAchievementNotice(); });
 
 // Handle messages from extension
 window.addEventListener('message', async function(event) {
@@ -15032,6 +15135,10 @@ window.addEventListener('message', async function(event) {
 
   if (message.command === 'achievementUnlockNotice') {
     ccuShowAchievementNotice(message);
+    return;
+  }
+  if (message.command === 'achievementNoticeDismiss') {
+    ccuDismissAchievementNotice();
     return;
   }
 

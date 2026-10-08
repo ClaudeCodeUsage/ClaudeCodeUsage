@@ -168,8 +168,12 @@ The extension-owned ledger contains only the following validated fields:
   (`existing`, `history`, `usage`, `activity`), unread boolean, optional first-record
   calendar day and timezone, at most three public series pins and one notification
   cooldown number, plus the existing auxiliary proof described below. The entire
-  envelope, including auxiliary proof, shares the 64 KiB limit. Pins/cooldown and the ACK primitive are prepared for subsequent
-  UI integration; no current notice delivery automatically marks a record read.
+  envelope, including auxiliary proof, shares the 64 KiB limit. Notice reservation
+  updates the shared five-minute cooldown, not unread state. Only foreground display
+  confirmation with a current opaque runtime token reads its represented IDs through
+  the issued sequence; other/later awards remain unread. Failed delivery, OFF, blur,
+  clear or a replaced document cannot confirm a retired notice. Pins/recent UI and
+  the missed-notice summary remain pending.
   The recent projection selects at most 30 records without deleting awards.
   Audited old awards migrate quietly with unknown dates; current usage
   reconciliation likewise stays quiet until new source activity can be proved.

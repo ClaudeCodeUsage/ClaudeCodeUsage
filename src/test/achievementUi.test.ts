@@ -221,6 +221,7 @@ async function settleAchievementWrites(provider: any): Promise<void> {
     provider.achievementWrite,
     provider.achievementActivityWrite,
     provider.achievementHourWrite,
+    provider.achievementNoticeWrite,
   ].map((write) => Promise.resolve(write).catch(() => undefined)));
   // Observe intentionally rejected saves immediately, before their microtask runs.
   await settle();
@@ -234,6 +235,7 @@ async function prepareAchievementNoticeProvider(provider: any, ready = true): Pr
   await settleAchievementWrites(provider);
   const notices: unknown[] = [];
   provider.settings = { get: () => true };
+  provider.achievementWindowFocused = true;
   provider.providerAvailability = { claude: true, codex: false, codexData: false };
   provider.panel = {
     visible: true,
@@ -270,6 +272,132 @@ function evaluateAndDispatchAchievementNotice(provider: any): void {
   provider.achievementResults();
   provider.dispatchAchievementNotice();
 }
+
+test('background Code retains saved action records without presenting notices', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      const notices = await prepareAchievementNoticeProvider(provider);
+      provider.achievementWindowFocused = false;
+      provider.recordAchievementFeature('localShareExport');
+      await settleAchievementWrites(provider);
+      await settleAchievementWrites(provider);
+      const saved = JSON.parse(await readFile(path.join(directory, 'achievements-v1.json'), 'utf8'));
+      assert.equal(notices.length, 0);
+      assert.equal(saved.lastNoticeAt, 0);
+      assert.equal(saved.records.find((row: any) => row.id === 'local-share-export').unread, true);
+    }, undefined, directory);
+  });
+});
+
+test('only an issued foreground notice ACK reads its batch, not later or unrelated records', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      const notices = await prepareAchievementNoticeProvider(provider);
+      provider.recordAchievementFeature('localShareExport');
+      await settleAchievementWrites(provider);
+      await settleAchievementWrites(provider);
+      assert.equal(notices.length, 1);
+      const notice = notices[0] as any;
+      assert.match(notice.noticeId, /^[a-f0-9]{48}$/);
+      const repository = provider.achievementRecordRepository;
+      await repository.append(provider.achievementRecordState.generation, [{
+        id: 'local-advice-feedback', origin: 'activity', recordedDay: '2026-10-08', timeZone: 'UTC',
+      }]);
+      await provider.acknowledgeAchievementNotice('private-canary');
+      let saved = await require('../achievementRecordStore').loadAchievementRecords(repository.file);
+      assert.ok(saved.records.every((row: any) => row.unread));
+      await provider.acknowledgeAchievementNotice(notice.noticeId);
+      saved = await require('../achievementRecordStore').loadAchievementRecords(repository.file);
+      assert.deepEqual(saved.records.map((row: any) => row.unread), [false, true]);
+      await provider.acknowledgeAchievementNotice(notice.noticeId);
+      provider.recordAchievementFeature('localAdviceFeedback');
+      await settleAchievementWrites(provider);
+      assert.equal(notices.length, 1, 'unread records are not replayed as live notices');
+      assert.ok(saved.lastNoticeAt > 0);
+    }, undefined, directory);
+  });
+});
+
+test('blur retires notice ACK authority without reading the delivered record', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      const notices = await prepareAchievementNoticeProvider(provider);
+      provider.recordAchievementFeature('localShareExport');
+      await settleAchievementWrites(provider);
+      await settleAchievementWrites(provider);
+      provider.setAchievementWindowFocused(false);
+      await provider.acknowledgeAchievementNotice((notices[0] as any).noticeId);
+      const saved = await require('../achievementRecordStore').loadAchievementRecords(provider.achievementRecordRepository.file);
+      assert.equal(saved.records[0].unread, true);
+      provider.setAchievementWindowFocused(true);
+      await settleAchievementWrites(provider);
+      assert.equal(notices.length, 1);
+    }, undefined, directory);
+  });
+});
+
+test('a committed action waits through its gallery replacement before notice delivery', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      const notices = await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults();
+      await settleAchievementWrites(provider);
+      provider.updateWebview = () => { provider.webviewClientReady = false; };
+      provider.recordAchievementFeature('localShareExport');
+      await settleAchievementWrites(provider);
+      await settleAchievementWrites(provider);
+      assert.equal(notices.length, 0);
+      assert.equal(provider.pendingAchievementNotice.size, 1);
+      provider.webviewClientReady = true;
+      provider.dispatchAchievementNotice();
+      await settleAchievementWrites(provider);
+      assert.equal(notices.length, 1);
+    }, undefined, directory);
+  });
+});
+
+test('false or slow notice delivery cannot lose unread awards or block clear', async () => {
+  for (const mode of ['false', 'slow']) await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      const notices = await prepareAchievementNoticeProvider(provider);
+      const delivery = deferredAchievementSave();
+      provider.panel.webview.postMessage = (message: any) => {
+        notices.push(message);
+        return mode === 'false' ? Promise.resolve(false) : delivery.promise.then(() => true);
+      };
+      try {
+        provider.recordAchievementFeature('localShareExport');
+        await settleAchievementWrites(provider);
+        await settleAchievementWrites(provider);
+        assert.equal(notices.length, 1);
+        const saved = await require('../achievementRecordStore').loadAchievementRecords(provider.achievementRecordRepository.file);
+        assert.equal(saved.records[0].unread, true);
+        assert.ok(saved.lastNoticeAt > 0);
+        if (mode === 'false') assert.equal(provider.achievementNoticeInFlight, undefined);
+        await provider.clearAchievementGrants({ holdUntilReload: true });
+        await provider.acknowledgeAchievementNotice((notices[0] as any).noticeId);
+        assert.deepEqual((await require('../achievementRecordStore').loadAchievementRecords(provider.achievementRecordRepository.file)).records, []);
+      } finally { delivery.resolve(); }
+    }, undefined, directory);
+  });
+});
+
+test('OFF and peer clear reject a formerly issued notice confirmation', async () => {
+  for (const mode of ['off', 'peer-clear']) await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      const notices = await prepareAchievementNoticeProvider(provider);
+      provider.recordAchievementFeature('localShareExport');
+      await settleAchievementWrites(provider);
+      await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      if (mode === 'off') provider.settings = { get: (key: string) => key !== 'enableAchievements' };
+      else await repository.clear();
+      const before = await readFile(repository.file, 'utf8');
+      await provider.acknowledgeAchievementNotice((notices[0] as any).noticeId);
+      assert.equal(await readFile(repository.file, 'utf8'), before);
+    }, undefined, directory);
+  });
+});
 
 test('first verified historical awards stay quiet even while the gallery is visible', async () => {
   const state = achievementPersistenceState();

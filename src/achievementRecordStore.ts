@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { lstat, open, rename, unlink, readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES, AchievementId, newlyUnlockedPluginAchievements } from './achievements';
+import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES, AchievementId, newlyUnlockedPluginAchievements, notifiableAchievementIds } from './achievements';
 import { AchievementActivity, emptyAchievementActivity, parseAchievementActivity } from './achievementActivity';
 import { CalendarPeakEvidence, parseCalendarPeakEvidence, updateCalendarPeakEvidence } from './achievementCalendar';
 import { HourEvidence, parseHourEvidence } from './achievementHours';
@@ -76,6 +76,11 @@ function draft(value: unknown): AchievementRecordDraft {
 }
 function pins(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > 3 || new Set(value).size !== value.length || value.some(key => !keys.has(key))) return invalid();
+  return value.slice();
+}
+function recordIds(value: unknown): AchievementId[] {
+  if (!Array.isArray(value) || value.length > ids.size || new Set(value).size !== value.length ||
+      value.some(id => typeof id !== 'string' || !ids.has(id))) return invalid();
   return value.slice();
 }
 function activity(value: unknown): AchievementActivity {
@@ -277,6 +282,28 @@ export class AchievementRecordRepository {
     return (await this.mutate(generation, guard, store => {
       if (!integer(sequence) || sequence > store.sequence) return invalid();
       for (const record of store.records) if (record.seq <= sequence) record.unread = false;
+    })).store;
+  }
+  /** Reserve the shared disturbance budget, not read status. No replay queue. */
+  async reserveNotice(generation: number, values: readonly AchievementId[], now: number,
+    guard: WriteGuard = () => true): Promise<{ store: AchievementRecordStore; records: AchievementRecord[] }> {
+    const selection = new Set(notifiableAchievementIds(recordIds(values)));
+    if (!integer(now) || now === 0) return invalid();
+    const result = await this.mutate(generation, guard, store => {
+      if (store.lastNoticeAt !== 0 && now - store.lastNoticeAt <= 300_000) return [];
+      const records = store.records.filter(row => row.unread && selection.has(row.id));
+      if (records.length > 0) store.lastNoticeAt = now;
+      return records;
+    });
+    return { store: result.store, records: result.value };
+  }
+  /** A live notice confirms only the IDs actually represented by its batch. */
+  async acknowledgeRecords(generation: number, sequence: number, values: readonly AchievementId[],
+    guard: WriteGuard = () => true): Promise<AchievementRecordStore> {
+    const selection = new Set(recordIds(values));
+    return (await this.mutate(generation, guard, store => {
+      if (!integer(sequence) || sequence > store.sequence) return invalid();
+      for (const record of store.records) if (record.seq <= sequence && selection.has(record.id)) record.unread = false;
     })).store;
   }
   async pin(generation: number, values: readonly string[], guard: WriteGuard = () => true): Promise<AchievementRecordStore> {

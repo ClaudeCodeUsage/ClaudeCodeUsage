@@ -185,6 +185,9 @@ real account or an installed-VSIX capture.*
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.
 Concurrent windows merge awards; clearing retains an empty fence against stale writes.
+Badge notices appear only in the visible foreground panel, at most once per five
+minutes across windows/restarts. Display confirmation reads only that batch; missed
+notices stay unread. Hovering or keyboard focus pauses dismissal.
 
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.

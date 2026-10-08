@@ -58,6 +58,9 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 O registro local é limitado a 64 KiB. Datas antigas continuam desconhecidas;
 novas ações salvas mantêm o estado não lido e o dia do primeiro registro mesmo
 sem aviso. Janelas mesclam conquistas; a limpeza deixa uma barreira de geração vazia contra gravações antigas.
+Avisos aparecem apenas no painel visível em primeiro plano, no máximo a cada cinco
+minutos entre janelas e reinícios. Só o lote com exibição confirmada é marcado como lido;
+avisos perdidos continuam não lidos. Mouse ou foco do teclado pausam o fechamento.
 
 Registros importados de uso do plugin não geram avisos. Novas ações salvas com sucesso
 podem desbloquear emblemas com o painel fechado, sem abrir nem atualizar painéis ocultos.

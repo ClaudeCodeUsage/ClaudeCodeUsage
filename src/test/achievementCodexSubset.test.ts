@@ -112,6 +112,7 @@ test('production gallery grants safe Codex milestones despite unrelated identity
       return true;
     } } };
     provider.webviewClientReady = true;
+    provider.setAchievementWindowFocused(true);
     provider.codexAchievementSignals = codexModelSignals(corpus());
     provider.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(corpus(), true);
     provider.codexView = {

@@ -62,6 +62,9 @@ Der lokale Nachweisspeicher ist auf 64 KiB begrenzt. Alte Abzeichen haben kein
 bekanntes Datum; neue gespeicherte Aktionen behalten ungelesene Erstaufnahmetage,
 auch bei verpasstem Hinweis. Fenster führen Auszeichnungen zusammen; Löschen
 hinterlässt eine leere Generationssperre gegen veraltete Schreibvorgänge.
+Hinweise erscheinen nur im sichtbaren Vordergrundpanel, höchstens alle fünf Minuten
+über Fenster und Neustarts hinweg. Nur bestätigte Anzeigen markieren ihre Gruppe
+als gelesen; verpasste bleiben ungelesen. Maus- und Tastaturfokus pausieren das Ausblenden.
 
 Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
 neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.

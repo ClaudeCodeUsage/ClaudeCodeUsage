@@ -400,9 +400,16 @@ bootstrap actions only after hydration. This avoids restoring stale whole-object
 Memento caches. Plugin provenance compares the actual under-lease before/after
 activity, not another host's imported progress. A deliberate action and its newly
 crossed plugin awards commit in one transaction, so peer history reconciliation
-cannot preempt their origin/date/unread state. Sequence ACK and pin
-primitives are bounded, but recent/pin UI, foreground ACK/cooldown and source-origin
-integration remain pending; no automatic read or share consent is inferred.
+cannot preempt their origin/date/unread state. Live notices reserve a shared five-minute
+cooldown under the same lease without marking records read. The existing native
+window-state owner supplies foreground eligibility; panel visibility/readiness,
+OFF/clear generation and document replacement fence delivery and ACK. A runtime
+opaque token binds display confirmation to only the represented IDs and maximum
+issued sequence. Other or later unread records survive. False/rejected/slow delivery
+does not block award writes or clear. The client confirms only after visible insertion,
+without focus theft, and pauses its six-second dismissal during hover/keyboard use.
+Lost batches never replay as live notices. Recent/pin UI, foreground unread summary
+and producer-origin usage remain pending; sharing consent is still explicit.
 
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable

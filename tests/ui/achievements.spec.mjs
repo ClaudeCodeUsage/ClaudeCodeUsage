@@ -230,6 +230,40 @@ test('unlock notice reuses a bundled gallery icon even when its PNG exceeds the 
   await expect(noticeIcon).toHaveAttribute('src', await galleryIcon.getAttribute('src'));
 });
 
+test('a visible notice acknowledges exactly its opaque host token without moving focus', async ({ page }) => {
+  await openCodex(page);
+  const tab = page.locator('#tab-achievements');
+  await tab.focus();
+  const noticeId = 'a'.repeat(48);
+  await page.evaluate((noticeId) => window.dispatchEvent(new MessageEvent('message', {
+    data: { command: 'achievementUnlockNotice', text: 'Local badge', noticeId },
+  })), noticeId);
+  await expect(page.locator('#ccuAchievementUnlockNotice')).toBeVisible();
+  await expect(tab).toBeFocused();
+  await expect.poll(() => page.evaluate(() => window.__ccuPostedMessages.filter(row => row.command === 'achievementNoticeAck')))
+    .toEqual([{ command: 'achievementNoticeAck', noticeId }]);
+  await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: { command: 'achievementNoticeDismiss' } })));
+  await expect(page.locator('#ccuAchievementUnlockNotice')).toHaveCount(0);
+});
+
+test('notice timer pauses while keyboard focus or pointer is inside it', async ({ page }) => {
+  await openCodex(page);
+  await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', {
+    data: { command: 'achievementUnlockNotice', text: 'Local badge' },
+  })));
+  const notice = page.locator('#ccuAchievementUnlockNotice');
+  await notice.getByRole('button').focus();
+  await page.clock.runFor(6001);
+  await expect(notice).toBeVisible();
+  await page.locator('#tab-achievements').focus();
+  await notice.hover();
+  await page.clock.runFor(6001);
+  await expect(notice).toBeVisible();
+  await page.locator('#tab-achievements').hover();
+  await page.clock.runFor(6001);
+  await expect(notice).toHaveCount(0);
+});
+
 for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
   for (const theme of ['light', 'dark']) {
     test(`${locale} exported achievement levels stay inside the ${theme} narrow preview`, async ({ page }, testInfo) => {

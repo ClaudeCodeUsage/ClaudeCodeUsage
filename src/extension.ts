@@ -639,6 +639,7 @@ export class ClaudeCodeUsageExtension {
       this.queueInitializationWrite(() => this.saveCodexBackgroundState());
     }
     this.webviewProvider = new UsageWebviewProvider(context);
+    this.webviewProvider.setAchievementWindowFocused(this.windowActivity.focused);
     const existingQuotaSalt = context.globalState.get<string>(
       'ccu.quota.fingerprintSalt.v1',
     );
@@ -4405,6 +4406,7 @@ export class ClaudeCodeUsageExtension {
 
   private handleWindowFocusChange(focused: boolean): void {
     if (this.disposed) return;
+    this.webviewProvider.setAchievementWindowFocused?.(focused);
     const transition = this.windowActivity.update(focused);
     if (transition === 'suspend') {
       this.suspendRecurringWork();

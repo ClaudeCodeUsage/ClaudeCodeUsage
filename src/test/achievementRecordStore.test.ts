@@ -17,6 +17,83 @@ async function withStore(run: (file: string) => Promise<void>): Promise<void> {
 }
 const local = (id = 'local-share-export') => ({ id, origin: 'activity', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' });
 
+test('notice reservations merge peers and retain unread until an exact scoped ACK', async () => {
+  await withStore(async file => {
+    const a = new (storeApi().AchievementRecordRepository)(file);
+    const b = new (storeApi().AchievementRecordRepository)(file);
+    const initial = await a.initialize([]);
+    await a.append(initial.generation, [local(), local('local-advice-feedback')]);
+    const reservations = await Promise.all([
+      a.reserveNotice(initial.generation, ['local-share-export'], 1_000_000),
+      b.reserveNotice(initial.generation, ['local-share-export'], 1_000_000),
+    ]);
+    assert.equal(reservations.reduce((sum, row) => sum + row.records.length, 0), 1);
+    const saved = await storeApi().loadAchievementRecords(file);
+    assert.equal(saved.lastNoticeAt, 1_000_000);
+    assert.ok(saved.records.every((row: any) => row.unread));
+    await a.append(initial.generation, [local('settings-explorer-bronze')]);
+    const acked = await a.acknowledgeRecords(initial.generation, saved.sequence, ['local-share-export']);
+    assert.deepEqual(acked.records.map((row: any) => row.unread), [false, true, true]);
+  });
+});
+
+test('persistent notice cooldown survives reload, exact boundary and clock rollback', async () => {
+  await withStore(async file => {
+    const repository = new (storeApi().AchievementRecordRepository)(file);
+    const initial = await repository.initialize([]);
+    await repository.append(initial.generation, [local()]);
+    await repository.reserveNotice(initial.generation, ['local-share-export'], 1_000_000);
+    const next = new (storeApi().AchievementRecordRepository)(file);
+    for (const now of [999_999, 1_000_000, 1_300_000]) {
+      assert.deepEqual((await next.reserveNotice(initial.generation, ['local-share-export'], now)).records, []);
+    }
+    assert.equal((await next.reserveNotice(initial.generation, ['local-share-export'], 1_300_001)).records.length, 1);
+    const saved = await storeApi().loadAchievementRecords(file);
+    assert.equal(saved.records[0].unread, true, 'a lost delivery never reads an award');
+  });
+});
+
+test('notice reservation rejects history, quiet rules, malformed requests and retired generations', async () => {
+  await withStore(async file => {
+    const repository = new (storeApi().AchievementRecordRepository)(file);
+    const initial = await repository.initialize(['hundred-million-club']);
+    await repository.append(initial.generation, [local('night-output-peak')]);
+    const bytes = await readFile(file, 'utf8');
+    assert.deepEqual((await repository.reserveNotice(initial.generation, ['hundred-million-club', 'night-output-peak'], 1_000_000)).records, []);
+    for (const ids of [['private-canary'], ['local-share-export', 'local-share-export'], Array(125).fill('local-share-export')]) {
+      await assert.rejects(repository.reserveNotice(initial.generation, ids, 1_000_000), /invalid/);
+      await assert.rejects(repository.acknowledgeRecords(initial.generation, initial.sequence, ids), /invalid/);
+    }
+    await assert.rejects(repository.reserveNotice(initial.generation, ['local-share-export'], NaN), /invalid/);
+    await assert.rejects(repository.acknowledgeRecords(initial.generation, 99, ['local-share-export']), /invalid/);
+    assert.equal(await readFile(file, 'utf8'), bytes);
+    const cleared = await repository.clear();
+    await assert.rejects(repository.reserveNotice(initial.generation, ['local-share-export'], 1_000_000), /generation/);
+    await assert.rejects(repository.acknowledgeRecords(initial.generation, 1, ['local-share-export']), /generation/);
+    assert.equal((await storeApi().loadAchievementRecords(file)).generation, cleared.generation);
+  });
+});
+
+test('OFF during a queued notice lease cannot reserve a cooldown or read an award', async () => {
+  await withStore(async file => {
+    const repository = new (storeApi().AchievementRecordRepository)(file);
+    const initial = await repository.initialize([]);
+    await repository.append(initial.generation, [local()]);
+    const bytes = await readFile(file, 'utf8');
+    const lease = await acquireCodexIndexLease(file);
+    let enabled = true;
+    try {
+      const reservation = repository.reserveNotice(initial.generation, ['local-share-export'], 1_000_000, () => enabled);
+      const rejected = assert.rejects(reservation, /cancelled/i);
+      enabled = false;
+      await rejected;
+    } finally { await lease.release(); }
+    assert.equal(await readFile(file, 'utf8'), bytes);
+    await assert.rejects(repository.acknowledgeRecords(initial.generation, 1, ['local-share-export'], () => false), /cancelled/);
+    assert.equal(await readFile(file, 'utf8'), bytes);
+  });
+});
+
 test('canonical auxiliary proof merges peers and clear never imports stale legacy caches', async () => {
   await withStore(async file => {
     const api = storeApi();
