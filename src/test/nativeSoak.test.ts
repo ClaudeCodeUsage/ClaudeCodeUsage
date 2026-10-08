@@ -63,6 +63,22 @@ test('native soak operation deadlines reject a stuck operation but keep settled 
   await assert.rejects(helper().bounded(new Promise(() => undefined), 10), /native-soak:operation-timeout/);
 });
 
+test('native soak failure focus observation retains only exact booleans and a known watcher count', () => {
+  assert.deepEqual(helper().failureFocusObservation(false, false, 0), {
+    logicalFocused: false, nativeFocused: false, watcherCount: 0,
+  });
+  assert.deepEqual(helper().failureFocusObservation(true, false, 2), {
+    logicalFocused: true, nativeFocused: false, watcherCount: 2,
+  });
+});
+
+test('native soak failure focus observation never coerces unavailable values to false or zero', () => {
+  for (const values of [[undefined, false, 0], [true, undefined, 0], [false, false, undefined],
+    [false, false, NaN], [false, false, -1], [false, false, '2'], ['true', false, 2]]) {
+    assert.equal(helper().failureFocusObservation(...values), null);
+  }
+});
+
 test('native soak preserves anonymous entry and failure reports when activation rejects', async t => {
   const { plan } = await fixtures(t);
   await fs.writeFile(path.join(plan.root, 'native-stage-manifest.json'), JSON.stringify({ sourceHead: 'fea8879' }));
@@ -83,6 +99,8 @@ test('native soak preserves anonymous entry and failure reports when activation 
     assert.equal(report.failureStage, 'activation');
     assert.equal(report.stopCompleted, false);
     assert.equal(report.longSoakDurationPassed, false);
+    assert.equal(report.failureFocus, null);
+    assert.equal(report.counters.nativeWindowTransitions, 0);
     assert.deepEqual(report.samples, []);
     assert.ok(!reportText.includes('private-activation-detail'));
     assert.ok(!reportText.includes(plan.root));

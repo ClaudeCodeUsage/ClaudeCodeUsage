@@ -64,6 +64,9 @@ is never a 30-minute pass. The monotonic clock is not scaled.
 An anonymous stage marker is written before each asynchronous phase. A normal
 host exit with no final native-soak-result.json remains incomplete; its last
 marker does not identify a product crash or satisfy any resource-duration gate.
+Failures additionally record only exact logical/native focus booleans and a
+known watcher count, or null when unavailable. Real window transitions are
+counted, never suppressed to make simultaneous background windows appear active.
 
 Each minute the runner switches the whole achievement feature ON/OFF, appends
 one bounded synthetic record to each of two exact regular fixture files, waits
@@ -87,6 +90,8 @@ conclusion. Sampled host heap without forced GC is not a retained-heap leak test
 30分钟时长门，不能以准备或进程退出冒充验收，不加速单调时钟。
 各异步阶段开始前记录有界匿名标记；即使宿主正常退出，没有最终结果文件也仍是
 未完成，不能凭最后阶段标记认定产品崩溃或算持续运行门通过。
+失败时仅补充逻辑／原生焦点布尔值及已知监听数量，未知记null；计数真实窗口
+状态变化，不屏蔽它们来让多个后台窗口看似同时活跃。
 每分钟开关整个成就功能，向两个精确的自有常规合成文件各追加一条有界记录，等待真实文件监听
 诊断与精确用量更新，再执行20次有明确零正文计数的手动暖刷新，并等待真实面板
 销毁事件。模拟焦点只调用既有生产处理器、检验暂停/重新安装，不切到前台，也不

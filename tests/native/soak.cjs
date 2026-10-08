@@ -33,6 +33,11 @@ function validateSoakOptions(value) {
 function longSoakDurationPassed(elapsedMs) {
   return Number.isFinite(elapsedMs) && elapsedMs >= limits.minimumLongMs;
 }
+function failureFocusObservation(logicalFocused, nativeFocused, watcherCount) {
+  if (typeof logicalFocused !== 'boolean' || typeof nativeFocused !== 'boolean' ||
+    !finiteCount(watcherCount)) return null;
+  return { logicalFocused, nativeFocused, watcherCount };
+}
 function sampleOwnedResources(memory, resources, elapsedMs, achievementsEnabled, panelOpen, panelCacheEntries, pendingNoticeEntries) {
   if (![memory.rss, memory.heapUsed, memory.external, memory.arrayBuffers, resources.activeCount,
     elapsedMs, panelCacheEntries, pendingNoticeEntries, ...kinds.map(k => resources.byKind[k])].every(finiteCount) ||
@@ -99,8 +104,10 @@ async function run(plan, rawOptions) {
   const started = performance.now(), samples = [], assertions = [];
   const warm = { on: createRefreshIoProbe(), off: createRefreshIoProbe() };
   const counters = { cycles: 0, onCycles: 0, offCycles: 0, panelDisposals: 0, settingsToggles: 0,
-    syntheticFocusTransitions: 0, appendBytes: 0, claudeWatchRefreshes: 0, codexWatchRefreshes: 0 };
-  let api, append, warmMode, timer, failureStage, failureReason, stage = 'activation', stopCompleted = false;
+    syntheticFocusTransitions: 0, nativeWindowTransitions: 0,
+    appendBytes: 0, claudeWatchRefreshes: 0, codexWatchRefreshes: 0 };
+  let api, append, warmMode, timer, focusObserver, failureStage, failureReason,
+    failureFocus = null, stage = 'activation', stopCompleted = false;
   let soakStarted, completedSoakMs = 0, watchdogFailure = false;
   const elapsed = () => Math.floor(performance.now() - started);
   const sample = () => {
@@ -147,6 +154,11 @@ async function run(plan, rawOptions) {
     const extension = vscode.extensions.getExtension('GrowthJack.claude-code-usage');
     assert.ok(extension);
     api = await bounded(extension.activate());
+    // Observe only this Test host's real window events. Do not suppress them
+    // to make simultaneous background windows pass simulated-focus assertions.
+    focusObserver = vscode.window.onDidChangeWindowState(state => {
+      if (typeof state.focused === 'boolean') counters.nativeWindowTransitions++;
+    });
     assert.equal(api.plan.root, plan.root);
     assert.ok(Object.values(api.isolation).every(v => v === true));
     assert.equal(api.instance.getConfiguration().usageLimitTracking, false);
@@ -241,9 +253,14 @@ async function run(plan, rawOptions) {
   } catch {
     failureStage = stage;
     failureReason = watchdogFailure ? 'resource-budget' : 'assertion-or-stage-failure';
+    try {
+      failureFocus = failureFocusObservation(api?.instance?.windowActivity?.focused,
+        vscode.window?.state?.focused, api?.instance?.resourceOwnership.snapshotForTests().byKind.watcher);
+    } catch { failureFocus = null; }
     console.error('CCU native resource diagnostic failed at ' + stage);
   } finally {
     if (timer) clearInterval(timer);
+    focusObserver?.dispose();
     if (api) {
       if (append) api.instance.outputChannel.appendLine = append;
       try {
@@ -256,7 +273,7 @@ async function run(plan, rawOptions) {
     const report = { kind: 'actual-native-resource-diagnostic-synthetic-focus-not-final-vsix',
       sourceHead: manifest.sourceHead, vscodeVersion: vscode.version, platform: process.platform,
       outcome: failureStage ? 'fail' : 'pass', failureStage: failureStage ?? null,
-      failureReason: failureReason ?? null, assertions, counters, samples,
+      failureReason: failureReason ?? null, failureFocus, assertions, counters, samples,
       warmIo: { on: warm.on.snapshot(), off: warm.off.snapshot() }, stopCompleted,
       elapsedMs: elapsed(), completedSoakMs, requestedSoakMs: options.durationMs,
       longSoakDurationPassed: !failureStage && longSoakDurationPassed(completedSoakMs),
@@ -268,4 +285,4 @@ async function run(plan, rawOptions) {
   if (failureStage) fail('failed-' + failureStage);
 }
 module.exports = { run, validateSoakOptions, longSoakDurationPassed, sampleOwnedResources,
-  assertResourceBudget, appendBoundedSample, appendSyntheticActivity, bounded };
+  assertResourceBudget, appendBoundedSample, appendSyntheticActivity, bounded, failureFocusObservation };
