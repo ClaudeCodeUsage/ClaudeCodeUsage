@@ -7,15 +7,19 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Personal badge pins** — earned badge details can pin or unpin up to three
+  showcase series. Atomic intents preserve other windows' choices; pins precede
+  automatic representatives without changing goals or sharing consent. Only a
+  saved host preference updates the UI; failed saves retain the old choice.
 - **Recent award views** — up to three actually recorded new series, plus a
   collapsible thirty-row list linked to the existing rules. First-record dates
   stay distinct from historical unknown dates; browsing neither marks records
-  read nor selects sharing. Manual pins and missed-notice summaries remain pending.
+  read nor selects sharing. Missed-notice summaries remain pending.
 - **Quiet confirmed notices** — only the visible foreground panel can show new
   action awards, with a shared five-minute cooldown across windows/restarts.
   Display ACK reads only its bounded batch; missed, failed or retired deliveries
   remain unread. Hover/keyboard interaction pauses dismissal without stealing
-  focus. Pins, unread summaries and usage-origin wiring remain pending.
+  focus. Unread summaries and usage-origin wiring remain pending.
 - **Bounded durable award records** — a ≤64 KiB canonical file keeps each public
   rule once, with quiet unknown-date migration and unread saved-action records.
   Cross-process leases merge peers' awards; an empty clear-generation fence

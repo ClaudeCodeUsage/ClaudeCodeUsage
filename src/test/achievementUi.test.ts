@@ -49,6 +49,132 @@ async function withAchievementStorage(run: (directory: string) => Promise<void>)
   try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
+test('manual pin saves only an earned showcase preference and survives a new provider instance', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      const added = await repository.append(provider.achievementRecordState.generation,
+        [{ id: 'local-share-export', origin: 'activity', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' }]);
+      provider.achievementRecordState = added.store;
+      provider.achievementGrants = new Set(added.store.records.map((row: any) => row.id));
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      const saved = JSON.parse(await readFile(repository.file, 'utf8'));
+      assert.deepEqual(saved.pins, ['local-share-export']);
+      assert.deepEqual(saved.records, added.store.records);
+      assert.equal(saved.sequence, added.store.sequence);
+      assert.equal(provider.achievementShareSelection, undefined);
+    }, undefined, directory);
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const html = provider.renderAchievementData();
+      assert.match(html, /id="achievement-pin-local-share-export"[^>]*aria-pressed="true"/);
+      const badges = html.match(/data-achievement-overview="badges"[\s\S]*?<\/section>/)?.[0] ?? '';
+      assert.match(badges, /data-achievement-open="local-share-export"/);
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: false, generation: provider.achievementRecordState.generation });
+      assert.deepEqual(JSON.parse(await readFile(provider.achievementRecordRepository.file, 'utf8')).pins, []);
+    }, undefined, directory);
+  });
+});
+
+test('pin messages reject missing generation, nonboolean intent, unearned or hidden badges and OFF without writes', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      const added = await repository.append(provider.achievementRecordState.generation, ['local-share-export', 'astra-regular'].map(id =>
+        ({ id, origin: 'history', recordedDay: null, timeZone: null })));
+      provider.achievementRecordState = added.store;
+      const bytes = await readFile(repository.file, 'utf8');
+      for (const message of [
+        { key: 'local-share-export', selected: true },
+        { key: 'local-share-export', selected: 'true', generation: added.store.generation },
+        { key: 'local-share-export', selected: true, generation: added.store.generation + 1 },
+        { key: 'settings-explorer', selected: true, generation: added.store.generation },
+        { key: 'astra-regular', selected: true, generation: added.store.generation },
+      ]) await provider.handleAchievementPinMessage(message);
+      provider.settings = { get: (key: string) => key !== 'enableAchievements' };
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      assert.equal(await readFile(repository.file, 'utf8'), bytes);
+    }, undefined, directory);
+  });
+});
+
+test('fourth pin and failed save never optimistically alter pins, awards or share selection', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      const added = await repository.append(provider.achievementRecordState.generation,
+        ['local-share-export', 'local-advice-feedback', 'settings-explorer-bronze', 'safe-feature-explorer'].map(id =>
+          ({ id, origin: 'history', recordedDay: null, timeZone: null })));
+      provider.achievementRecordState = added.store;
+      const messages: any[] = [];
+      provider.panel.webview.postMessage = async (message: any) => { messages.push(message); return true; };
+      for (const key of ['local-share-export', 'local-advice-feedback', 'settings-explorer'])
+        await provider.handleAchievementPinMessage({ key, selected: true, generation: added.store.generation });
+      const bytes = await readFile(repository.file, 'utf8');
+      await provider.handleAchievementPinMessage({ key: 'safe-feature-explorer', selected: true, generation: added.store.generation });
+      assert.equal(await readFile(repository.file, 'utf8'), bytes);
+      assert.equal(messages[messages.length - 1].reason, 'limit');
+      const memory = JSON.stringify(provider.achievementRecordState);
+      repository.setPinned = async () => { throw new Error('private path must not leave host'); };
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: false, generation: added.store.generation });
+      assert.equal(JSON.stringify(provider.achievementRecordState), memory);
+      assert.equal(messages[messages.length - 1].reason, 'failed');
+      assert.equal(JSON.stringify(messages).includes('private path'), false);
+      assert.equal(provider.achievementShareSelection, undefined);
+    }, undefined, directory);
+  });
+});
+
+test('a failed pin render never misreports a successful durable preference save', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      const added = await repository.append(provider.achievementRecordState.generation,
+        [{ id: 'local-share-export', origin: 'history', recordedDay: null, timeZone: null }]);
+      provider.achievementRecordState = added.store;
+      const messages: any[] = [];
+      provider.panel.webview.postMessage = async (message: any) => { messages.push(message); return true; };
+      provider.updateWebview = () => { throw new Error('render failed, not save'); };
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      assert.deepEqual(JSON.parse(await readFile(repository.file, 'utf8')).pins, ['local-share-export']);
+      assert.deepEqual(provider.achievementRecordState.pins, ['local-share-export']);
+      assert.deepEqual(messages, []);
+    }, undefined, directory);
+  });
+});
+
+test('OFF or clear retires a queued pin before it can save into old state', async () => {
+  for (const action of ['off', 'clear']) await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      const added = await repository.append(provider.achievementRecordState.generation,
+        [{ id: 'local-share-export', origin: 'history', recordedDay: null, timeZone: null }]);
+      provider.achievementRecordState = added.store;
+      const pending = deferredAchievementSave();
+      provider.achievementWrite = pending.promise;
+      const pin = provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      let clear;
+      if (action === 'off') provider.settings = { get: (key: string) => key !== 'enableAchievements' };
+      else clear = provider.clearAchievementGrants();
+      pending.resolve(); await pin; await clear;
+      const saved = JSON.parse(await readFile(repository.file, 'utf8'));
+      assert.deepEqual(saved.pins, []);
+      assert.deepEqual(saved.records, action === 'clear' ? [] : added.store.records);
+    }, undefined, directory);
+  });
+});
+
 test('saved records render recent awards and an unknown-date history without reading them or selecting shares', async () => {
   const language = I18n.getCurrentLanguage();
   try {

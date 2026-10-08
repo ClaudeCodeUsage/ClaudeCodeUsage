@@ -64,6 +64,8 @@ avisos perdidos continuam não lidos. Mouse ou foco do teclado pausam o fechamen
 Conquistas recentes mostra até três séries novas; os registros recolhíveis mostram
 até trinta níveis com links para as regras. Datas indicam o primeiro registro, não a
 conquista original; datas históricas continuam desconhecidas. Consultar não marca como lido nem seleciona para compartilhar.
+Os detalhes das medalhas conquistadas permitem fixar ou desafixar até três destaques.
+A escolha persiste após reiniciar e não seleciona medalhas para compartilhar.
 
 Registros importados de uso do plugin não geram avisos. Novas ações salvas com sucesso
 podem desbloquear emblemas com o painel fechado, sem abrir nem atualizar painéis ocultos.

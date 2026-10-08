@@ -145,8 +145,8 @@ and never become selectable export badges.
 The overview retains at most six public series/rule selection keys in host
 memory during a visit. It adds no persistent field, timestamp, usage history or
 share consent. Entering the gallery can recompute this small display selection
-from accepted aggregates without reading logs. Manual pins and dated acquisition
-records are not implemented by this display-only selection.
+from accepted aggregates without reading logs. Manual pins and first-record dates
+use the canonical envelope below, not a second Webview preference copy.
 
 The gallery's persisted filter is only an `all` / `next` / `earned` enum in the
 existing Webview UI state; disclosure keys are public series IDs. The sharing
@@ -172,8 +172,10 @@ The extension-owned ledger contains only the following validated fields:
   updates the shared five-minute cooldown, not unread state. Only foreground display
   confirmation with a current opaque runtime token reads its represented IDs through
   the issued sequence; other/later awards remain unread. Failed delivery, OFF, blur,
-  clear or a replaced document cannot confirm a retired notice. Pin UI and
-  the missed-notice summary remain pending.
+  clear or a replaced document cannot confirm a retired notice. The missed-notice
+  summary remains pending. Earned badge details save one pin/unpin intent under the
+  shared lease, with at most three public keys; no award, read status or share choice
+  is changed. Failed saves retain the old preference; old/OFF/clear requests are rejected.
   The gallery shows at most three recent non-historical series and a folded
   thirty-row record projection without deleting awards. Dates are first-record
   days in their saved zones, not inferred attainment dates. Old records explicitly

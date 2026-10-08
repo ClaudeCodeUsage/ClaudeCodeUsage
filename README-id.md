@@ -70,6 +70,8 @@ Baru diperoleh menampilkan maksimal tiga seri baru; catatan yang dapat dilipat
 memuat maksimal tiga puluh tingkat dengan tautan aturan. Tanggal adalah pencatatan
 pertama, bukan perkiraan pencapaian asli; tanggal lama tetap tidak diketahui.
 Melihat catatan tidak menandainya sebagai sudah dibaca atau memilihnya untuk dibagikan.
+Detail lencana yang diperoleh dapat menyematkan atau melepas hingga tiga lencana utama.
+Pilihan bertahan setelah mulai ulang dan tidak memilih lencana untuk dibagikan.
 
 Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
 yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.

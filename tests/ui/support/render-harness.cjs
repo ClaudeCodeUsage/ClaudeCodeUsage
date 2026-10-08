@@ -595,12 +595,12 @@ exports.renderHarness = async function renderHarness({
     );
     provider.currentProvider = selectedProvider;
 
-    if (fixture === 'achievement-records' || fixture === 'achievement-history-only') {
+    if (fixture === 'achievement-records' || fixture === 'achievement-history-only' || fixture === 'achievement-pins') {
       // Validated synthetic local records, not claimed personal achievement dates.
       const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
       const ids = ['local-share-export', 'settings-explorer-bronze', 'settings-explorer-silver', 'local-advice-feedback', 'hundred-million-club'];
       provider.achievementRecordState = parseAchievementRecordStore({ schemaVersion: 1, generation: 1,
-        sequence: ids.length, lastNoticeAt: 0, pins: [],
+        sequence: ids.length, lastNoticeAt: 0, pins: fixture === 'achievement-pins' ? ['local-share-export'] : [],
         records: ids.map((id, index) => {
           const historical = fixture === 'achievement-history-only' || id === 'hundred-million-club';
           return { id, seq: index + 1, ruleVersion: 1, origin: historical ? 'history' : 'activity',

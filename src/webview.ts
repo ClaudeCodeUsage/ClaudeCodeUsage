@@ -1036,6 +1036,7 @@ export class UsageWebviewProvider {
   private achievementEvidenceStates?: AchievementEvidenceStates;
   private achievementOverviewSelection?: AchievementOverviewSelection;
   private achievementOverviewProvider?: 'claude' | 'codex' | 'compare';
+  private achievementOverviewPinsSignature?: string;
   private clearingAchievements = false;
   private achievementWrite: Promise<unknown> = Promise.resolve();
   private achievementRecordRepository?: AchievementRecordRepository;
@@ -2417,6 +2418,9 @@ export class UsageWebviewProvider {
           break;
         case 'achievementNoticeAck':
           await this.acknowledgeAchievementNotice(message.noticeId);
+          break;
+        case 'setAchievementPinned':
+          await this.handleAchievementPinMessage(message as Record<string, unknown>);
           break;
         case 'dashboardDataPatchAck': {
           const pending = this.pendingDashboardLivePatch;
@@ -4489,6 +4493,42 @@ export class UsageWebviewProvider {
     finally { if (this.achievementNoticeInFlight === packet) this.achievementNoticeInFlight = undefined; }
   }
 
+  private async handleAchievementPinMessage(message: Record<string, unknown>): Promise<void> {
+    const repository = this.achievementRecordRepository, state = this.achievementRecordState;
+    const { key, selected, generation } = message;
+    if (!repository || !state || typeof key !== 'string' || typeof selected !== 'boolean' || generation !== state.generation) return;
+    const ids = ACHIEVEMENT_SERIES[key] ?? [key];
+    const rule = ACHIEVEMENT_DEFINITIONS.find(row => row.id === ids[0]);
+    if (!rule || (rule.group === 'claude' || rule.group === 'codex') && !this.providerAvailability[rule.group] ||
+        key.startsWith('dual-provider-') && !(this.providerAvailability.claude && this.providerAvailability.codex)) return;
+    if (selected && !state.records.some(row => ids.includes(row.id))) return;
+    const epoch = this.achievementPersistenceEpoch, panel = this.panel;
+    const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+      this.setting<boolean>('enableAchievements', true) && !!panel && this.panel === panel &&
+      panel.visible && this.webviewClientReady && this.achievementWindowFocused;
+    if (!canWrite()) return;
+    let reason: 'limit' | 'failed' | undefined;
+    const operation = this.achievementWrite.catch(() => undefined).then(async () => {
+      try {
+        const saved = await repository.setPinned(generation as number, key, selected, canWrite);
+        if (!canWrite()) return;
+        this.achievementRecordState = saved;
+        this.achievementGrants = new Set(saved.records.map(row => row.id));
+      } catch (error) {
+        reason = (error as Error)?.message === 'achievement-record:pin-limit' ? 'limit' : 'failed';
+      }
+      if (!reason && canWrite()) {
+        try { this.updateWebview(); } catch { /* Saved state remains valid; refresh can hydrate it later. */ }
+      }
+    });
+    this.achievementWrite = operation;
+    await operation;
+    if (reason && canWrite()) {
+      try { await panel!.webview.postMessage({ command: 'achievementPinResult', key, ok: false, reason }); }
+      catch { /* No successful save was claimed. */ }
+    }
+  }
+
   /** Clear-all waits for any earlier award write before deleting its record. */
   async clearAchievementGrants(options?: { holdUntilReload?: boolean }): Promise<void> {
     let cleared = false;
@@ -4795,6 +4835,8 @@ export class UsageWebviewProvider {
             (complete ? ' complete' : index === nextTierIndex ? ' next' : '') + '"></span>').join('') +
           '</span>' : '';
       const key = series ?? result.id;
+      const pinned = this.achievementRecordState?.pins.includes(key) === true;
+      const canPin = this.achievementRecordState?.records.some(row => (tiers ?? [result]).some(entry => entry.id === row.id)) === true;
       const next = series ? hasNextTier : !earned;
       const stage = series && next ? nextAchievementStage(series, nextResult.progress, nextResult.target, proofReady) : undefined;
       const faceProgress = proofReady && next
@@ -4827,6 +4869,10 @@ export class UsageWebviewProvider {
         (proofReady && next ? '<span class="achievement-progress-track" aria-hidden="true"><span style="width:' +
           Math.min(100, Math.max(0, progress / nextResult.target * 100)) + '%"></span></span>' : '') + '</summary>' +
         '<div class="achievement-card-detail">' + tierMarkers +
+        (canPin ? '<button id="achievement-pin-' + key + '" class="achievement-pin" data-achievement-pin="' + key +
+          '" data-achievement-generation="' + this.achievementRecordState!.generation + '" aria-pressed="' + pinned +
+          '" aria-describedby="achievementPinStatus" title="' + this.escapeHtml(copy.pinLimit) + '" onclick="requestAchievementPin(this)">' +
+          this.escapeHtml(pinned ? copy.unpinBadge : copy.pinBadge) + '</button>' : '') +
         (proofReady ?
         '<label class="achievement-progress-label" for="achievement-progress-' + result.id +
         '" title="' + this.escapeHtml(bound + exactProgress + ' ' + unitFor(result.id)) + '">' +
@@ -4853,10 +4899,15 @@ export class UsageWebviewProvider {
       progress: entry.nextResult.progress, target: entry.nextResult.target,
       proof: this.achievementEvidenceStates?.[achievementEvidenceDomain(entry.nextResult)] ?? 'ready',
     }));
+    const pins = this.achievementRecordState?.pins ?? [];
+    const pinsSignature = JSON.stringify(pins);
     if (!this.achievementOverviewSelection || this.achievementOverviewProvider !== this.currentProvider) {
-      this.achievementOverviewSelection = selectAchievementOverview(overviewRows, this.currentProvider);
+      this.achievementOverviewSelection = selectAchievementOverview(overviewRows, this.currentProvider, pins);
       this.achievementOverviewProvider = this.currentProvider;
+    } else if (this.achievementOverviewPinsSignature !== pinsSignature) {
+      this.achievementOverviewSelection.badges = selectAchievementOverview(overviewRows, this.currentProvider, pins).badges;
     }
+    this.achievementOverviewPinsSignature = pinsSignature;
     const overview = retainAchievementOverview(this.achievementOverviewSelection, overviewRows);
     const overviewSection = (kind: 'badges' | 'next', heading: string): string => {
       if (!overview[kind].length) return '';
@@ -4944,6 +4995,7 @@ export class UsageWebviewProvider {
       this.escapeHtml(copy.filterNext) + '</option><option value="earned">' + this.escapeHtml(copy.filterEarned) +
       '</option></select><span id="achievementShownCount" role="status"></span></div>' +
       '<p id="achievementFilterEmpty" class="table-hint" hidden>' + this.escapeHtml(copy.filterEmpty) + '</p>' +
+      '<p id="achievementPinStatus" class="table-hint" role="status"></p>' +
       visibleGroups
         .map((group) => '<section class="achievement-group achievement-group-' + group + '"><h3>' +
           this.escapeHtml(copy.groups[group]) + '</h3><div class="achievement-grid">' +
@@ -12716,6 +12768,9 @@ export class UsageWebviewProvider {
       .achievement-overview-badge[data-overview-rank="gold"] .achievement-overview-rank { color: var(--vscode-charts-yellow); }
       .achievement-overview-badge:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
       .achievement-recent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      #achievementPinStatus:empty { display: none; }
+      .achievement-pin { margin: 8px 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere;
+        background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); }
       .achievement-record-badge { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px;
         row-gap: 4px; align-items: center; width: 100%; padding: 8px 0; border: 0; background: transparent;
         color: var(--vscode-foreground); text-align: left; }
@@ -13407,6 +13462,15 @@ function openAchievementDetail(key) {
   detail.open = true;
   summary.focus({ preventScroll: true });
   card.scrollIntoView({ block: 'center' });
+}
+function requestAchievementPin(button) {
+  if (!button || !button.dataset) { return; }
+  var generation = Number(button.dataset.achievementGeneration);
+  if (!Number.isSafeInteger(generation) || generation < 1) { return; }
+  var status = document.getElementById('achievementPinStatus');
+  if (status) { status.textContent = ''; }
+  vscode.postMessage({ command: 'setAchievementPinned', key: button.dataset.achievementPin,
+    selected: button.getAttribute('aria-pressed') !== 'true', generation: generation });
 }
 function openAchievementSettings() {
   showTab('settings');
@@ -15186,6 +15250,13 @@ window.addEventListener('message', async function(event) {
 
   if (message.command === 'dashboardDataPatch') {
     ccuQueueDashboardDataPatch(message);
+    return;
+  }
+  if (message.command === 'achievementPinResult' && message.ok === false &&
+      (message.reason === 'limit' || message.reason === 'failed') &&
+      typeof message.key === 'string' && document.getElementById('achievement-pin-' + message.key)) {
+    var pinStatus = document.getElementById('achievementPinStatus');
+    if (pinStatus) { pinStatus.textContent = message.reason === 'limit' ? __achievementCopy.pinLimit : __achievementCopy.pinFailed; }
     return;
   }
 

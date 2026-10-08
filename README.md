@@ -189,7 +189,9 @@ Badge notices appear only in the visible foreground panel, at most once per five
 minutes across windows/restarts. Display confirmation reads only that batch; missed
 notices stay unread. Hovering or keyboard focus pauses dismissal.
 Recently earned shows at most three new series; Recent records folds up to thirty
-saved levels and links to their rules. Dates mean first recorded, not inferred
+saved levels and links to their rules. Earned badge details can pin up to three
+representatives in My badges; saved pins survive restart and never select sharing.
+Dates mean first recorded, not inferred
 attainment; historical dates remain unknown. Browsing does not mark records read or select sharing.
 
 Imported plugin-experience records stay quiet. A newly saved action can unlock

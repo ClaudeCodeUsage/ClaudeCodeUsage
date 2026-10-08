@@ -49,6 +49,7 @@ const server = createServer(async (request, response) => {
       'achievement-token-stages',
       'achievement-records',
       'achievement-history-only',
+      'achievement-pins',
     ].includes(requestedFixture)
       ? requestedFixture
       : 'default';

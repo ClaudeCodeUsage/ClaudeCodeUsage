@@ -352,9 +352,9 @@ promoted. Selection keys stay in host memory for a visit, reset on entry/provide
 change/manual refresh/OFF/clear, and never become share choices. Live changes
 update values and remove invalid goals without replacing or reordering them.
 Overview buttons open the existing persisted series disclosure; they do not
-read logs, issue refresh requests or persist a second aggregate index. Manual
-pins, recent acquisition records and a durable missed-notice journal remain
-separate pending work, not implied by this overview.
+read logs, issue refresh requests or persist a second aggregate index. Pins and
+record projections use the bounded canonical envelope below; the foreground
+missed-notice summary remains separate pending work.
 
 `achievementEvidence.ts` classifies rules into nine independent runtime evidence
 domains. Ready, pending and stale proof is separate from saved award identity:
@@ -408,7 +408,7 @@ opaque token binds display confirmation to only the represented IDs and maximum
 issued sequence. Other or later unread records survive. False/rejected/slow delivery
 does not block award writes or clear. The client confirms only after visible insertion,
 without focus theft, and pauses its six-second dismissal during hover/keyboard use.
-Lost batches never replay as live notices. Pin UI, foreground unread summary
+Lost batches never replay as live notices. Foreground unread summary
 and producer-origin usage remain pending; sharing consent is still explicit.
 
 `achievementOverview.ts` now prepares read-only record projections: at most three
@@ -421,7 +421,12 @@ a peer's unrelated pins. The record projection is now rendered with up to three
 recent series and a folded thirty-row history. Each row keeps the exact public
 level and first-record day/zone or an explicit historical unknown-date label;
 clicks only open existing rules and never acknowledge records or select sharing.
-The disclosure survives replacement. Pin intents are not yet connected to client UI.
+The disclosure survives replacement. Earned badge details send one generation-bound
+pin/unpin intent, accepted only by the ready foreground panel while achievements
+are enabled. After a successful save, existing dashboard patches hydrate pressed
+state and the showcase without modifying next goals or sharing. Stable control IDs
+preserve focus/anchor; save failure preserves the old preference and uses fixed
+localized inline feedback. A render failure is not reported as a failed durable save.
 
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable

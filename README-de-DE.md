@@ -69,6 +69,8 @@ Zuletzt erhalten zeigt höchstens drei neue Serien; die einklappbaren Einträge 
 bis zu dreißig Stufen mit Regellinks. Daten bezeichnen die erste Erfassung, nicht die
 ursprüngliche Erlangung; alte Daten bleiben unbekannt. Beim Ansehen werden Einträge
 nicht als gelesen markiert und nicht zum Teilen ausgewählt.
+In den Details erhaltener Abzeichen lassen sich bis zu drei Vertreter anheften.
+Die Auswahl bleibt nach einem Neustart erhalten und ist keine Freigabe zum Teilen.
 
 Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
 neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.
