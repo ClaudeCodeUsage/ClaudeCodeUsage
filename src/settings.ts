@@ -412,6 +412,16 @@ export const SETTINGS: SettingDef[] = [
     providers: ['claude', 'codex'],
   },
   {
+    key: 'showAchievementNotices',
+    type: 'boolean',
+    default: true,
+    storage: 'state',
+    group: 'features',
+    label: 'Show achievement notices',
+    help: 'Show brief in-panel unlock notices. Turning them off keeps achievements and unread records.',
+    providers: ['claude', 'codex'],
+  },
+  {
     key: 'showCostliestMessages',
     type: 'boolean',
     default: false,

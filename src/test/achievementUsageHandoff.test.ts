@@ -9,7 +9,8 @@ import { codexModelSignals } from '../achievements';
 import { codexAchievementTokenEvidence } from '../achievementCalendar';
 import { I18n } from '../i18n';
 
-async function owner(run: (host: any, file: string, enable: (value: boolean) => void) => Promise<void>): Promise<void> {
+async function owner(run: (host: any, file: string, enable: (value: boolean) => void,
+  showNotices: (value: boolean) => void) => Promise<void>): Promise<void> {
   const load = (Module as any)._load;
   (Module as any)._load = function(request: string, parent: unknown, main: boolean) {
     return request === 'vscode' ? { workspace: { workspaceFolders: [] }, Uri: { file: (fsPath: string) => ({ fsPath }) } }
@@ -26,10 +27,12 @@ async function owner(run: (host: any, file: string, enable: (value: boolean) => 
     host.achievementRecordRepository = new AchievementRecordRepository(file);
     host.achievementRecordState = await host.achievementRecordRepository.initialize([]);
     let enabled = true;
-    host.settings = { get: (key: string) => key === 'enableAchievements' ? enabled : false };
+    let notices = true;
+    host.settings = { get: (key: string) => key === 'enableAchievements' ? enabled
+      : key === 'showAchievementNotices' ? notices : false };
     host.providerAvailability = { claude: false, codex: true, codexData: true };
     host.updateWebview = () => assert.fail('non-rendering handoff must not paint a paused dashboard');
-    await run(host, file, value => { enabled = value; });
+    await run(host, file, value => { enabled = value; }, value => { notices = value; });
     await host.achievementWrite;
     await host.achievementHourWrite;
     await host.achievementCalendarWrite;
@@ -250,5 +253,64 @@ test('canonical history predating an observation stays historical despite a peer
     assert.equal(silver?.origin, 'history');
     assert.equal(silver?.unread, false);
     assert.equal(silver?.recordedDay, null);
+  });
+});
+
+test('notice opt-out preserves real usage awards and unread state without replay on opt-in', async () => {
+  await owner(async (host, file, _enable, showNotices) => {
+    const notices: any[] = [];
+    host.panel = { visible: true, webview: { postMessage: async (message: any) => {
+      notices.push(message); return true;
+    } } };
+    host.webviewClientReady = true; host.setAchievementWindowFocused(true);
+    showNotices(false);
+    await accept(host, 600_000_000);
+    await accept(host, 6_600_000_000, true);
+    await host.achievementNoticeWrite;
+    assert.equal(notices.some(row => row.command === 'achievementUnlockNotice'), false);
+    const saved = await loadAchievementRecords(file);
+    assert.equal(saved?.records.find(row => row.id === 'astra-regular-silver')?.unread, true);
+    assert.equal(saved?.lastNoticeAt, 0);
+    showNotices(true);
+    await accept(host, 6_600_000_000);
+    await host.achievementNoticeWrite;
+    assert.equal(notices.some(row => row.command === 'achievementUnlockNotice'), false);
+  });
+});
+
+test('turning notices off dismisses an issued notice and refuses its old ACK after re-enable', async () => {
+  await owner(async (host, file, _enable, showNotices) => {
+    const notices: any[] = [];
+    host.panel = { visible: true, webview: { postMessage: async (message: any) => { notices.push(message); return true; } } };
+    host.webviewClientReady = true; host.setAchievementWindowFocused(true);
+    await accept(host, 600_000_000); await accept(host, 6_600_000_000, true);
+    await host.achievementNoticeWrite;
+    const token = host.achievementNoticeInFlight.id;
+    showNotices(false); host.retireAchievementNotices(); showNotices(true);
+    await host.acknowledgeAchievementNotice(token);
+    assert.equal(notices[notices.length - 1].command, 'achievementNoticeDismiss');
+    assert.equal(host.achievementNoticeInFlight, undefined);
+    assert.equal((await loadAchievementRecords(file))?.records.find(row => row.id === 'astra-regular-silver')?.unread, true);
+  });
+});
+
+test('notice opt-out during queued reservation does not spend cooldown or alter the saved award', async () => {
+  await owner(async (host, file, _enable, showNotices) => {
+    host.panel = { visible: true, webview: { postMessage: async () => true } };
+    host.webviewClientReady = true; host.setAchievementWindowFocused(true);
+    await accept(host, 600_000_000);
+    const repository = host.achievementRecordRepository;
+    const reserve = repository.reserveNotice.bind(repository);
+    let entered!: () => void, release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { entered = resolve; });
+    repository.reserveNotice = async (...args: any[]) => { entered(); await waiting; return reserve(...args); };
+    await accept(host, 6_600_000_000, true);
+    await reached;
+    showNotices(false); host.retireAchievementNotices(); showNotices(true);
+    release(); await host.achievementNoticeWrite;
+    const saved = await loadAchievementRecords(file);
+    assert.equal(saved?.lastNoticeAt, 0);
+    assert.equal(saved?.records.find(row => row.id === 'astra-regular-silver')?.unread, true);
   });
 });

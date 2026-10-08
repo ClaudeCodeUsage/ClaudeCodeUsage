@@ -55,6 +55,9 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Conquistas locais (candidato)
 
+Desative **Mostrar avisos de conquistas** (`showAchievementNotices`) para manter
+os prêmios e registros não lidos sem avisos flutuantes; reativar não repete avisos antigos.
+
 Novos níveis de Token do Codex comprovados guardam estado não lido e dia do
 primeiro registro mesmo com o painel pausado. Importações históricas ficam
 silenciosas; a integração da origem para Claude e outros prêmios ao vivo ainda está pendente.

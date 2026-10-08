@@ -3581,6 +3581,7 @@ export class ClaudeCodeUsageExtension {
     'showWeeklyEquivalentValue',
     'showProjectUsageMatrix',
     'enableAchievements',
+    'showAchievementNotices',
   ]);
 
   // These values only reformat already-materialized USD estimates. They must
@@ -3600,6 +3601,9 @@ export class ClaudeCodeUsageExtension {
       return;
     }
     if (key && ClaudeCodeUsageExtension.DASHBOARD_ONLY_SETTINGS.has(key)) {
+      if (key === 'showAchievementNotices' && this.settings.get<boolean>(key) === false) {
+        this.webviewProvider.retireAchievementNotices?.();
+      }
       if (key === 'enableAchievements') {
         this.webviewProvider.retireAchievementUsageObservations?.();
         if (this.getConfiguration().enableAchievements === false) {

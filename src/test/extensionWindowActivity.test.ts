@@ -704,6 +704,22 @@ test('disabled achievements do not schedule their independent historical proof m
   assert.equal(extension.codexHistoricalWorkPending(snapshot), true);
 });
 
+test('notice preference changes are presentation-only and do not retire source proof or workers', () => {
+  const { extension, config } = coordinatorHarness(false);
+  const getSetting = extension.settings.get.bind(extension.settings);
+  extension.settings.get = (key: string) => key === 'showAchievementNotices' ? config.showAchievementNotices : getSetting(key);
+  config.showAchievementNotices = false;
+  let dismissed = 0, retired = 0;
+  extension.webviewProvider.retireAchievementNotices = () => { dismissed++; };
+  extension.webviewProvider.retireAchievementUsageObservations = () => { retired++; };
+  extension.onConfigurationChanged = () => assert.fail('notice preference must not restart providers');
+  extension.onSettingsChangedFromPanel('showAchievementNotices');
+  assert.equal(dismissed, 1); assert.equal(retired, 0);
+  config.showAchievementNotices = true;
+  extension.onSettingsChangedFromPanel('showAchievementNotices');
+  assert.equal(dismissed, 1);
+});
+
 test('coordinator warm Codex exceptions preserve verified view and manual failures always send compact state', async () => {
   const { extension, deliveries } = coordinatorHarness();
   extension.applyCodexSnapshot(completeCoordinatorSnapshot());

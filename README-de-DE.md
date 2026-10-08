@@ -58,6 +58,9 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Lokale Erfolge (Kandidat)
 
+**Erfolgshinweise anzeigen** (`showAchievementNotices`) lässt sich separat ausschalten.
+Abzeichen und ungelesene Einträge bleiben; erneutes Einschalten spielt keine alten Hinweise ab.
+
 Nachweislich neue Codex-Token-Stufen behalten ungelesene Erstaufnahmetage, auch
 bei pausierten Dashboard-Updates. Historische Importe bleiben still; die
 Ursprungsintegration für Claude und andere Live-Erfolge steht noch aus.

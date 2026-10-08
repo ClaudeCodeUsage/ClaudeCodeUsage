@@ -7,6 +7,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Separate notice opt-out** — turn off Show achievement notices without hiding
+  the gallery, stopping grants or deleting unread records. It dismisses an active
+  notice, retires queued delivery and its old ACK, and never replays missed notices
+  when re-enabled. The local preference does not restart providers or indexing.
 - **Verified Codex usage awards** — Claude and Codex tail parsers can return bounded,
   runtime-only new-Token proof without extra log reads or persisted index fields.
   Codex verifies settled canonical lineages and transports only fixed numeric

@@ -197,6 +197,10 @@ The extension-owned ledger contains only the following validated fields:
   the observation's canonical sequence can be replaced by proven live origin;
   pre-existing history is not rewritten. Retired/disabled/cleared sources discard
   pending proof. No action timeline is retained.
+  The default-on `showAchievementNotices` local setting only controls floating
+  in-panel notices. Turning it off keeps grants and unread records, retires queued
+  delivery/ACKs and never replays missed notices when re-enabled. It is not counted
+  in the setting-exploration achievement ledger and does not start scans.
   Transactions merge the latest bytes under a cross-process lease, with flushed
   private temporary files and atomic rename. Missing-state initialization waits
   for legacy audits and does not run while OFF. Unknown/future/malformed/oversized

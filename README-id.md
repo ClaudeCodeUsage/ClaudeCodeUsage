@@ -60,6 +60,9 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Pencapaian lokal (kandidat)
 
+Matikan **Tampilkan notifikasi pencapaian** (`showAchievementNotices`) untuk tetap
+menyimpan lencana dan catatan belum dibaca tanpa notifikasi melayang; mengaktifkan kembali tidak memutar ulangnya.
+
 Tingkat Token Codex baru yang terbukti menyimpan status belum dibaca dan hari
 pencatatan pertama meski pembaruan dasbor dijeda. Impor riwayat tetap senyap;
 integrasi asal untuk Claude dan penghargaan langsung selain Token masih menunggu.

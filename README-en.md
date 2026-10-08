@@ -62,6 +62,9 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 
 ## Local achievements (candidate)
 
+Turn off **Show achievement notices** (`showAchievementNotices`) to keep badges
+and unread records without floating notices; re-enabling does not replay them.
+
 Proven new Codex Token tier crossings save unread first-record days even when
 dashboard updates are paused. Imports stay quiet; Claude and non-Token live
 awards still await their own origin integration.

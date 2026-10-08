@@ -76,6 +76,16 @@ function loadSettingsModule(): SettingsModule {
 
 const { SettingsStore } = loadSettingsModule();
 
+test('achievement notice preference defaults on, persists off, and leaves achievements enabled', async () => {
+  const context = fakeContext();
+  const store = new SettingsStore(context);
+  assert.equal(store.get('showAchievementNotices'), true);
+  await store.set('showAchievementNotices', false);
+  assert.equal(new SettingsStore(context).get('showAchievementNotices'), false);
+  assert.equal(store.get('enableAchievements'), true);
+  assert.equal(context._state.get('ccu.setting.showAchievementNotices'), false);
+});
+
 function fakeContext(options: {
   state?: Map<string, unknown>;
   secrets?: Map<string, string>;

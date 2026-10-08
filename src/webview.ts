@@ -1036,6 +1036,7 @@ export class UsageWebviewProvider {
   private pendingAchievementGrants = new Set<AchievementId>();
   private achievementPersistenceEpoch = 0;
   private usageAchievementEvidenceEpoch = 0;
+  private achievementNoticePreferenceEpoch = 0;
   private codexUsageObservationEpoch = 0;
   // References to accepted materialized inputs, not another index or paused UI.
   private acceptedCodexAchievement?: { view: CodexUsageView; signals: CodexAchievementSignals };
@@ -4584,6 +4585,7 @@ export class UsageWebviewProvider {
 
   private dispatchAchievementNotice(): void {
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true) ||
+        !this.setting<boolean>('showAchievementNotices', true) ||
         !this.panel?.visible || !this.achievementWindowFocused) {
       this.pendingAchievementNotice.clear();
       if (!this.setting<boolean>('enableAchievements', true)) this.observedPluginAchievementIds.clear();
@@ -4606,7 +4608,9 @@ export class UsageWebviewProvider {
       const panel = this.panel;
       if (!state) return;
       const epoch = this.achievementPersistenceEpoch;
+      const noticeEpoch = this.achievementNoticePreferenceEpoch;
       const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+        noticeEpoch === this.achievementNoticePreferenceEpoch && this.setting<boolean>('showAchievementNotices', true) &&
         this.setting<boolean>('enableAchievements', true) && this.achievementWindowFocused &&
         this.panel === panel && panel.visible && this.webviewClientReady;
       this.achievementNoticeWrite = this.achievementNoticeWrite.catch(() => undefined).then(async () => {
@@ -4650,6 +4654,17 @@ export class UsageWebviewProvider {
       text: ids.length === 1 ? copy.unlockedNotice.replace('{name}', copy.titles[ids[0]])
         : copy.unlockedBatch.replace('{count}', I18n.formatNumber(ids.length)),
       iconFile: ids.length === 1 ? ACHIEVEMENT_IMAGE_FILES[ids[0]] : undefined };
+  }
+
+  /** Withdraw delivery only; awards, unread receipts and producer proof survive. */
+  retireAchievementNotices(): void {
+    this.achievementNoticePreferenceEpoch += 1;
+    this.pendingAchievementNotice.clear();
+    this.achievementNoticeInFlight = undefined;
+    if (this.panel && this.webviewClientReady) {
+      try { void Promise.resolve(this.panel.webview.postMessage({ command: 'achievementNoticeDismiss' })).catch(() => undefined); }
+      catch { /* Records stay unread if the panel was disposed. */ }
+    }
   }
 
   /** Existing native focus ownership, without another listener or polling loop. */
@@ -4732,7 +4747,9 @@ export class UsageWebviewProvider {
     const repository = this.achievementRecordRepository;
     if (!packet || !repository || id !== packet.id) return;
     const epoch = this.achievementPersistenceEpoch;
+    const noticeEpoch = this.achievementNoticePreferenceEpoch;
     const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+      noticeEpoch === this.achievementNoticePreferenceEpoch && this.setting<boolean>('showAchievementNotices', true) &&
       this.setting<boolean>('enableAchievements', true) && this.achievementWindowFocused &&
       this.panel?.visible === true && this.webviewClientReady && this.achievementNoticeInFlight === packet;
     try {
@@ -10520,6 +10537,10 @@ export class UsageWebviewProvider {
       .quota-format-custom input { width: 100%; box-sizing: border-box; }
       .set-switch { position: relative; display: inline-block; width: 40px; height: 22px; }
       .set-switch input { opacity: 0; width: 0; height: 0; }
+      .set-switch input:focus-visible + .set-slider {
+        outline: 2px solid var(--vscode-focusBorder);
+        outline-offset: 2px;
+      }
       .set-slider {
         position: absolute;
         cursor: pointer;
@@ -13200,6 +13221,7 @@ function ccuRequestDestinationText(message) {
 }
 const __achievementDismissLabel = ${JSON.stringify(I18n.t.popup.dismiss)};
 const __achievementCopy = ${JSON.stringify((({ titles, ...chrome }) => chrome)(achievementCopyFor(I18n.getLocale())))};
+const __achievementNoticesEnabled = ${this.setting<boolean>('enableAchievements', true) && this.setting<boolean>('showAchievementNotices', true)};
 let __claudeLast30HoursByDay = ${LIVE_PATCH_HOURS_START}${inlineScriptJson(
       claudeHourlyDisplayDto(this.hourlyDataForRolling30DaysByDay),
     )}${LIVE_PATCH_HOURS_END};
@@ -14103,6 +14125,7 @@ function getAdvice() {
 }
 
 function setSetting(key, value, type) {
+  if (key === 'showAchievementNotices' && value === false) { ccuDismissAchievementNotice(); }
   if (type === 'number') {
     var n = Number(value);
     if (!isFinite(n)) { return; }
@@ -15469,6 +15492,8 @@ function ccuDismissAchievementNotice() {
   if (notice) notice.remove();
 }
 function ccuShowAchievementNotice(message) {
+  var preference = document.getElementById('set_showAchievementNotices');
+  if (!__achievementNoticesEnabled || (preference && !preference.checked)) return;
   if (document.hidden || !document.hasFocus()) return;
   var previous = document.getElementById('ccuAchievementUnlockNotice');
   if (previous) previous.remove();

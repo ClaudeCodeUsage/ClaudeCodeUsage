@@ -171,6 +171,7 @@ function settingsStore({
   displayCurrency = 'USD',
   projectMatrix = true,
   achievementsEnabled = true,
+  achievementNotices = true,
 } = {}) {
   const values = new Map(SETTINGS.map((definition) => [definition.key, definition.default]));
   values.set('codex.optimization.enabled', true);
@@ -182,6 +183,7 @@ function settingsStore({
   values.set('displayCurrency', displayCurrency);
   values.set('showProjectUsageMatrix', projectMatrix);
   values.set('enableAchievements', achievementsEnabled);
+  values.set('showAchievementNotices', achievementNotices);
   return {
     get: (key) => values.get(key),
     snapshot: () => SETTINGS.map((definition) => ({
@@ -469,6 +471,7 @@ exports.renderHarness = async function renderHarness({
   shareStudio = true,
   projectMatrix = true,
   achievementsEnabled = true,
+  achievementNotices = true,
   adviceFeedback = 'none',
   timeZone = 'Asia/Hong_Kong',
   codexMonth = '',
@@ -533,6 +536,7 @@ exports.renderHarness = async function renderHarness({
       displayCurrency,
       projectMatrix,
       achievementsEnabled,
+      achievementNotices,
     });
     if (!codexOnly) addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
     if (fixture === 'achievement-token-stages') {

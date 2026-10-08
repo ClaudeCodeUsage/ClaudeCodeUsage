@@ -463,6 +463,15 @@ Lost batches never replay as live notices. A foreground unread summary now provi
 explicit bounded confirmation; Claude and non-Token live origin remain pending. Sharing
 consent is still explicit.
 
+`showAchievementNotices` is a default-on local presentation preference alongside
+the full achievement switch. Disabling it does not retire producer evidence,
+stop grants, delete unread records or spend a notice cooldown. A separate runtime
+preference epoch retires queued reservations and ACKs, including rapid OFF→ON;
+the visible client dismisses immediately and rejects stale notices until a saved
+host render enables them. Re-enabling never replays missed popups. The settings
+route updates only dashboard presentation, without restarting providers or scans.
+This opt-out is excluded from the plugin-action achievement allowlist.
+
 `achievementOverview.ts` now prepares read-only record projections: at most three
 recent non-historical series, thirty recording-order rows and exact visible unread
 level IDs. Recording order is not inferred attainment time, and projection eviction

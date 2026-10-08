@@ -66,6 +66,7 @@ const server = createServer(async (request, response) => {
     const shareStudio = url.searchParams.get('shareStudio') !== 'false';
     const projectMatrix = url.searchParams.get('projectMatrix') !== 'false';
     const achievementsEnabled = url.searchParams.get('achievementsEnabled') !== 'false';
+    const achievementNotices = url.searchParams.get('achievementNotices') !== 'false';
     const requestedFeedback = url.searchParams.get('adviceFeedback');
     const adviceFeedback = requestedFeedback === 'claude-helpful' ||
       requestedFeedback === 'optimizer-helpful'
@@ -92,6 +93,7 @@ const server = createServer(async (request, response) => {
       shareStudio,
       projectMatrix,
       achievementsEnabled,
+      achievementNotices,
       adviceFeedback,
       timeZone,
       codexMonth,

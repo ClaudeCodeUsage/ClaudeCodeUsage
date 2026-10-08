@@ -17,6 +17,8 @@ test('setting exploration counts only distinct saved user changes from a safe al
   assert.equal(recordAchievementSettingChange(first, 'timezone', false), first);
   assert.equal(recordAchievementSettingChange(first, 'advice.apiKey', true), first);
   assert.equal(recordAchievementSettingChange(first, 'advice.promptPersonalizationConsent', true), first);
+  assert.equal(recordAchievementSettingChange(first, 'showAchievementNotices', true), first,
+    'quiet-notice opt-out must not count as exploration');
   assert.deepEqual(recordAchievementSettingChange(first, 'displayCurrency', true).settingKeys,
     ['displayCurrency', 'language']);
   assert.deepEqual(start.settingKeys, []);

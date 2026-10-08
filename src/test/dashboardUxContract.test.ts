@@ -297,7 +297,8 @@ test('achievement export uses one save dialog at a time and acknowledges success
 test('ordinary reset-all preserves secrets even if the client explicitly includes their keys', async () => {
   const p = provider();
   const reset: string[] = [];
-  p.settings = { reset: async (key: string) => { reset.push(key); } };
+  p.settings = { get: (key: string) => SETTINGS.find(row => row.key === key)?.default,
+    reset: async (key: string) => { reset.push(key); } };
   await handler({ command: 'resetAllSettings', keys: ['dashboardAutoRefresh', 'advice.apiKey'] });
   assert.deepEqual(reset, ['dashboardAutoRefresh']);
 });
