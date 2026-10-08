@@ -21,7 +21,7 @@ async function fixture(t: TestContext): Promise<string> {
   await fs.writeFile(path.join(root, 'out/test/excluded.js'), 'not-a-runtime-test');
   await fs.writeFile(path.join(root, 'media/fixture.png'), 'synthetic-icon');
   await fs.writeFile(path.join(root, 'assets/achievements/fixture.png'), 'synthetic-achievement-icon');
-  for (const file of ['isolation.cjs', 'bootstrap.cjs', 'runner.cjs', 'soak.cjs']) {
+  for (const file of ['isolation.cjs', 'bootstrap.cjs', 'runner.cjs', 'soak.cjs', 'background.cjs']) {
     await fs.writeFile(path.join(root, 'tests/native', file), 'synthetic-' + file);
   }
   return root;
@@ -31,6 +31,20 @@ async function prepared(t: TestContext): Promise<any> {
   t.after(async () => { await fs.rm(result.plan.root, { recursive: true, force: true }); });
   return result;
 }
+
+test('native background preparation stages explicit options without modifying the production runtime', async t => {
+  const source = await fixture(t);
+  const result = await preparation().prepareNativeDiagnostic({ repository: source,
+    sourceHead: '3752f76', mode: 'background', durationMs: 120000 });
+  t.after(async () => { await fs.rm(result.plan.root, { recursive: true, force: true }); });
+  const stage = result.plan.directories.developmentExtension;
+  assert.equal(result.manifest.nativeTestMode, 'background');
+  assert.equal(await fs.readFile(path.join(stage, 'native-background.cjs'), 'utf8'), 'synthetic-background.cjs');
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(stage, 'native-background-options.json'), 'utf8')),
+    { durationMs: 120000 });
+  await assert.rejects(fs.stat(path.join(stage, 'native-soak-options.json')), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(path.join(stage, 'out/extension.js'), 'utf8'), "exports.activate = async () => {};\n");
+});
 
 test('native diagnostic preparation always owns a fresh root and never replaces the source package', async t => {
   const source = await fixture(t), before = await fs.readFile(path.join(source, 'package.json'));

@@ -84,6 +84,13 @@ async function settle(instance) {
 async function run() {
   const vscode = require('vscode');
   const plan = JSON.parse(await fs.readFile(path.join(__dirname, 'native-plan.json'), 'utf8'));
+  let background;
+  try { background = await fs.readFile(path.join(__dirname, 'native-background-options.json'), 'utf8'); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (background !== undefined) {
+    assert.ok(background.length <= 128, 'bounded own background options');
+    return require('./native-background.cjs').run(plan, JSON.parse(background));
+  }
   let soak;
   try { soak = await fs.readFile(path.join(__dirname, 'native-soak-options.json'), 'utf8'); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }

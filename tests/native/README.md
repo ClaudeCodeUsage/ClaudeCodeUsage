@@ -1,5 +1,27 @@
 # Optional guarded native diagnostic
 
+For actual background-window resource observation use mode: 'background' with
+an explicit durationMs (for example120000). This stages a separate test-only
+runner; it never calls a simulated focus handler, opens/reveals panels or
+suppresses native window events. Watch settings are enabled, then forty explicit
+manual warm refreshes cover whole-achievement OFF/ON. During observation, exact
+native/logical focus must agree; settled background samples require every owned
+recurring resource count to be known zero. Twenty idle observations, actual
+duration, known-zero warm I/O and completed production teardown are all required.
+Foreground samples are recorded, not misclassified as background. Memory uses
+the existing fixed soak budgets. Separate profiles do not prove same-profile
+writes, actual foreground interaction, notice ACK, thirty-minute combined soak,
+final installed VSIX/F5 or Windows crash resolution. Prior simulated-focus soak
+failures remain preserved, not relabelled passes by this different test.
+
+中文审阅：mode: 'background' 是独立的原生后台资源诊断，明确指定时长；不模拟聚焦、
+不打开/显示面板、不屏蔽真实窗口事件。开启监听设置，成就关闭/开启各执行20次明确
+手动暖刷新；观测期以真实/逻辑焦点一致为前提，稳定后台样本所属循环资源须全为已知0。
+至少20次空闲样本、实际时长、已知零正文读取和生产停止清理均通过才算本诊断通过。
+真实前台样本照实记录，不冒充后台。预算沿用既有上限；各自独立profile不代表同profile
+写竞争，亦非前台交互/通知ACK、30分钟组合长测、最终VSIX/F5或Windows崩溃验收。
+既有模拟焦点soak失败继续保留，不能因新测试通过而改写其结果。
+
 These helpers are excluded from the VSIX. They do not replace a production
 VSIX installation, manual F5, pixel inspection, long-history soak or Windows
 acceptance. Production src/ and compiled runtime modules are not modified.

@@ -68,8 +68,8 @@ async function seedFixtures(plan) {
     meaning: 'six small anonymous synthetic logs, not a large-history or user-crash reproduction' };
 }
 async function prepareNativeDiagnostic({ repository, sourceHead, mode = 'diagnostic', durationMs = 1800000 } = {}) {
-  if (!['diagnostic', 'soak'].includes(mode)) fail('invalid-input');
-  const soak = mode === 'soak' ? require('./soak.cjs').validateSoakOptions({ durationMs }) : undefined;
+  if (!['diagnostic', 'soak', 'background'].includes(mode)) fail('invalid-input');
+  const soak = mode !== 'diagnostic' ? require('./soak.cjs').validateSoakOptions({ durationMs }) : undefined;
   if (typeof repository !== 'string' || !path.isAbsolute(repository) || path.resolve(repository) !== repository ||
       typeof sourceHead !== 'string' || !/^[a-f0-9]{7,40}$/.test(sourceHead)) fail('invalid-input');
   const pkg = JSON.parse((await regularBytes(path.join(repository, 'package.json'))).toString('utf8'));
@@ -98,7 +98,12 @@ async function prepareNativeDiagnostic({ repository, sourceHead, mode = 'diagnos
     }
     if (soak) {
       await fs.writeFile(path.join(stage, 'native-soak.cjs'), await regularBytes(path.join(repository, 'tests/native/soak.cjs')), { flag: 'wx' });
-      await fs.writeFile(path.join(stage, 'native-soak-options.json'), JSON.stringify(soak) + '\n', { flag: 'wx' });
+      const optionsName = mode === 'background' ? 'native-background-options.json' : 'native-soak-options.json';
+      await fs.writeFile(path.join(stage, optionsName), JSON.stringify(soak) + '\n', { flag: 'wx' });
+      if (mode === 'background') {
+        await fs.writeFile(path.join(stage, 'native-background.cjs'),
+          await regularBytes(path.join(repository, 'tests/native/background.cjs')), { flag: 'wx' });
+      }
     }
     const stagedPackage = { ...pkg, displayName: 'CCU 2.4.2 Isolated Native Diagnostic',
       main: './native-bootstrap.cjs', activationEvents: ['onStartupFinished'] };
