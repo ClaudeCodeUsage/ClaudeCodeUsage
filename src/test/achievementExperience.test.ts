@@ -37,6 +37,42 @@ test('gallery separates series and levels and excludes disabled providers from b
   });
 });
 
+test('production overview puts representative badges and reachable goals before the unchanged gallery', async () => {
+  await gallery(provider => {
+    provider.achievementGrants = new Set(['astra-regular']);
+    provider.achievementResults = () => ACHIEVEMENT_DEFINITIONS.map(entry => ({ ...entry,
+      progress: entry.id.startsWith('astra-regular') ? 600e6 : 0, unlocked: false }));
+    const html = provider.renderAchievementData();
+    assert.match(html, /data-achievement-overview="badges"/);
+    assert.match(html, /data-achievement-overview="next"/);
+    assert.ok(html.indexOf('My badges') < html.indexOf('Complete collection'));
+    assert.match(html, /data-achievement-open="astra-regular"/);
+    assert.equal((html.match(/data-achievement-level=/g) ?? []).length, 124);
+    provider.providerAvailability.codex = false;
+    assert.doesNotMatch(provider.renderAchievementData(), /data-achievement-open="astra-regular"/);
+  });
+});
+
+test('production overview does not add or reorder goals during a visit; re-entry can choose afresh', async () => {
+  await gallery(provider => {
+    let hasOutput = false;
+    provider.achievementGrants = new Set(['astra-regular']);
+    provider.achievementResults = () => ACHIEVEMENT_DEFINITIONS.map(entry => ({ ...entry,
+      progress: entry.id.startsWith('astra-regular') ? 600e6 :
+        hasOutput && entry.id.startsWith('codex-output-') ? 400_000 : 0, unlocked: false }));
+    const nextKeys = () => [...(provider.renderAchievementData().match(
+      /data-achievement-overview="next"[\s\S]*?<\/section>/)?.[0] ?? '').matchAll(/data-achievement-open="([^"]+)"/g)]
+      .map(match => match[1]);
+    assert.deepEqual(nextKeys(), ['astra-regular']);
+    hasOutput = true;
+    assert.deepEqual(nextKeys(), ['astra-regular']);
+    provider.achievementOverviewSelection = undefined;
+    assert.ok(nextKeys().includes('codex-output'));
+    provider.achievementEvidenceStates = { 'codex-tokens': 'stale' };
+    assert.deepEqual(nextKeys(), ['astra-regular']);
+  });
+});
+
 test('high-level cards name their earned milestone, not the introductory threshold', async () => {
   await gallery(provider => {
     provider.achievementGrants = new Set(ACHIEVEMENT_SERIES['cumulative-volume']);

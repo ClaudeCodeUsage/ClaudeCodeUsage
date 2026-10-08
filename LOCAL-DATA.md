@@ -133,6 +133,12 @@ Intermediate Token stages are ephemeral display targets derived from formal
 thresholds, not new awards. They store no milestone history, produce no notices,
 and never become selectable export badges.
 
+The overview retains at most six public series/rule selection keys in host
+memory during a visit. It adds no persistent field, timestamp, usage history or
+share consent. Entering the gallery can recompute this small display selection
+from accepted aggregates without reading logs. Manual pins and dated acquisition
+records are not implemented by this display-only selection.
+
 The gallery's persisted filter is only an `all` / `next` / `earned` enum in the
 existing Webview UI state; disclosure keys are public series IDs. The sharing
 return route remembers only a Claude/Codex enum and a one-shot focus boolean. They contain no

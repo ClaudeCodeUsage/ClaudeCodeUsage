@@ -344,6 +344,18 @@ formal IDs, thresholds, award counts, notifications and share choices are unchan
 Nodes are derived only from the fixed catalog and current aggregates: no writes,
 history scanner, timer or additional permission.
 
+`achievementOverview.ts` selects at most three earned representatives and three
+positive, current goals from already-collapsed enabled-provider rows. Goals use
+the next display-stage fraction, with canonical ties and distinct topics; rank
+and current-provider ties guide representatives. Night/hour goals are not
+promoted. Selection keys stay in host memory for a visit, reset on entry/provider
+change/manual refresh/OFF/clear, and never become share choices. Live changes
+update values and remove invalid goals without replacing or reordering them.
+Overview buttons open the existing persisted series disclosure; they do not
+read logs, issue refresh requests or persist a second aggregate index. Manual
+pins, recent acquisition records and a durable missed-notice journal remain
+separate pending work, not implied by this overview.
+
 `achievementEvidence.ts` classifies rules into nine independent runtime evidence
 domains. Ready, pending and stale proof is separate from saved award identity:
 pending/stale cards retain earned tiers but omit numeric progress and are excluded

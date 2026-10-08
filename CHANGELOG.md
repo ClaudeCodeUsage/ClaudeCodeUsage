@@ -7,6 +7,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Badge overview** — up to three representative earned badges and three
+  reachable goals precede the complete collection. Selection favors distinct
+  themes and current-provider ties, and stays stable during browsing. Unused,
+  zero-progress, pending or stale goals are not promoted. Clicking opens the
+  existing rule with keyboard focus; it does not refresh logs or select exports.
 - **Progress between Token tiers** — closed cards show integer progress toward
   the next formal tier; long Token ladders include display-only 1/2/5 stage targets.
   These are not extra awards, notifications or sharing choices, and do not change

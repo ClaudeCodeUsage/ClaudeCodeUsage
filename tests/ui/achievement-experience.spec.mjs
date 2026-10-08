@@ -1,5 +1,37 @@
 import { test, expect, openCodex, openClaude, openCompare } from './support/app.mjs';
 
+for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
+  test(`${locale} overview badge opens the canonical rule without refreshing or selecting a share`, async ({ page }, testInfo) => {
+    for (const [width, theme] of [[320, 'dark'], [360, 'light']]) {
+      await openClaude(page, { locale, width, theme, fixture: 'achievement-token-stages' });
+      await page.locator('#tab-achievements').click();
+      for (const kind of ['badges', 'next']) {
+        const buttons = page.locator(`[data-achievement-overview="${kind}"] button`);
+        expect(await buttons.count()).toBeGreaterThan(0);
+        expect(await buttons.count()).toBeLessThanOrEqual(3);
+      }
+      const button = page.locator('[data-achievement-overview="next"] button').first();
+      const key = await button.getAttribute('data-achievement-open');
+      await page.locator('#achievementFilter').selectOption('earned');
+      await button.focus();
+      await button.press('Enter');
+      const detail = page.locator(`.achievement-card[data-achievement-key="${key}"] details`);
+      await expect(page.locator('#achievementFilter')).toHaveValue('all');
+      await expect(detail).toHaveAttribute('open');
+      await expect(detail.locator('summary')).toBeFocused();
+      await page.reload();
+      await expect(detail).toHaveAttribute('open');
+      await expect(page.locator('#achievementFilter')).toHaveValue('all');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      expect(await page.evaluate(() => window.__ccuPostedMessages.some(message =>
+        ['refresh', 'updateSetting', 'previewAchievementShare', 'exportAchievementShare'].includes(message.command)))).toBe(false);
+      await page.locator('#tab-achievements').click();
+      await page.evaluate(() => scrollTo(0, 0));
+      await page.screenshot({ path: testInfo.outputPath(`overview-${width}-${theme}.png`) });
+    }
+  });
+}
+
 test('integer-only progress and folded evidence stay keyboard-accessible without host refreshes', async ({ page }) => {
   await openCodex(page, { width: 360 });
   await page.locator('#tab-achievements').click();

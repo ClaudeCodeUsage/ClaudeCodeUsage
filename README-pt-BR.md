@@ -60,6 +60,7 @@ atividade, recordes semanais e algumas ações deliberadas no plugin.
 Cada série tem arte própria, compartilhada entre seus níveis coloridos. Os números são inteiros; limites dos dados ficam na seção expansível.
 Evidências pendentes ou desatualizadas substituem o progresso zero e ficam fora do próximo alvo; emblemas conquistados são preservados.
 Cartões fechados mostram o progresso até o próximo nível; etapas intermediárias nas longas escalas de tokens não geram prêmios, avisos ou opções de compartilhamento extras.
+Minhas medalhas e Próximas metas destacam até três temas distintos cada, antes da coleção. Metas exigem progresso positivo válido; modelos não utilizados não são sugeridos. A ordem fica estável durante a visita; clicar abre as regras existentes sem ler logs nem selecionar para compartilhar.
 Após indexação atual completa, linhagens Codex sem conflito podem comprovar marcos de tokens/agentes; conquistas de calendário ainda exigem identidade e datas verificadas por completo.
 Séries e níveis têm contagens separadas. Filtros locais persistem após recarregar;
 o próximo alvo aparece no cartão e as regras de todos os níveis ficam na seção expansível.

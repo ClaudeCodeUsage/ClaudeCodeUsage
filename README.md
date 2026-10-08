@@ -194,6 +194,10 @@ Pending or outdated evidence is labelled, not shown as zero progress, and exclud
 from Next level filtering; earned badges remain saved.
 Closed cards show current / next-level progress. Long Token ladders include
 intermediate stages, without extra awards, notices or sharing choices.
+My badges and Next goals each highlight at most three distinct themes before
+the complete collection. Goals require positive, current evidence; unused models
+are not promoted. Selection stays fixed during a visit; opening a badge focuses
+its existing rule without reading logs or selecting it for sharing.
 
 - **Token-led progression:** Claude Sonnet/Opus/Haiku/Fable and Codex Astra/Sol/Luna,
   output, cache, model/effort exploration, agents, active days and repeat experiences.

@@ -55,6 +55,7 @@ import { AchievementSharePreview, highestEarnedAchievements, renderAchievementSh
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import { nextAchievementStage } from './achievementStages';
+import { AchievementOverviewSelection, selectAchievementOverview, retainAchievementOverview } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline } from './achievementEvidence';
 import {
@@ -1031,6 +1032,8 @@ export class UsageWebviewProvider {
   private revokedAchievementEvidence = new Set<SettingProvider>();
   private readonly achievementNoticeBaseline = new AchievementNoticeBaseline();
   private achievementEvidenceStates?: AchievementEvidenceStates;
+  private achievementOverviewSelection?: AchievementOverviewSelection;
+  private achievementOverviewProvider?: 'claude' | 'codex' | 'compare';
   private clearingAchievements = false;
   private achievementWrite: Promise<unknown> = Promise.resolve();
   private achievementActivity: AchievementActivity = emptyAchievementActivity();
@@ -2300,6 +2303,7 @@ export class UsageWebviewProvider {
   }
 
   show(tab?: string): void {
+    this.achievementOverviewSelection = undefined;
     if (tab) {
       this.currentTab = tab;
       if (tab === 'settings' && this.currentProvider === 'compare') {
@@ -2342,6 +2346,7 @@ export class UsageWebviewProvider {
     this.panel.webview.onDidReceiveMessage(async (message) => {
       switch (message.command) {
         case 'refresh':
+          this.achievementOverviewSelection = undefined;
           vscode.commands.executeCommand('claudeCodeUsage.refresh');
           break;
         case 'openSettings':
@@ -2716,12 +2721,18 @@ export class UsageWebviewProvider {
           // dashboard-managed store now (no longer in VS Code Settings).
           await this.settings?.set('dashboardAutoRefresh', !!message.value);
           break;
-        case 'tabChanged':
+        case 'tabChanged': {
+          const enteringAchievements = message.tab === 'achievements' && this.currentTab !== 'achievements';
+          if (enteringAchievements) {
+            this.achievementOverviewSelection = undefined;
+          }
           this.currentTab = message.tab;
           if (message.tab === 'achievements' && this.setting<boolean>('enableAchievements', true)) {
             this.recordAchievementFeature('achievementGalleryViewed');
           }
+          if (enteringAchievements) this.updateWebview();
           break;
+        }
         case 'providerChanged': {
           const requested = String(message.provider ?? '');
           const allowed =
@@ -3996,6 +4007,7 @@ export class UsageWebviewProvider {
 
   private achievementResults(): AchievementResult[] {
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true)) {
+      this.achievementOverviewSelection = undefined;
       this.achievementNoticeBaseline.reset();
       this.achievementEvidenceStates = undefined;
       return [];
@@ -4258,6 +4270,7 @@ export class UsageWebviewProvider {
   async clearAchievementGrants(options?: { holdUntilReload?: boolean }): Promise<void> {
     let cleared = false;
     this.clearingAchievements = true;
+    this.achievementOverviewSelection = undefined;
     this.achievementPersistenceEpoch += 1;
     this.achievementNoticeBaseline.reset();
     this.pendingAchievementNotice.clear();
@@ -4565,6 +4578,52 @@ export class UsageWebviewProvider {
     const visibleResult = (result: AchievementResult): boolean => visibleGroups.includes(result.group) &&
       (!result.id.startsWith('dual-provider-') || (this.providerAvailability.claude && this.providerAvailability.codex));
     const visibleCards = presentation.filter(entry => visibleResult(entry.result));
+    const overviewRows = visibleCards.map(entry => ({
+      key: entry.series ?? entry.result.id, group: entry.result.group,
+      earnedLevel: entry.series ? entry.earnedLevels.lastIndexOf(true) + 1 : 1,
+      earned: entry.earnedTiers > 0 || entry.result.unlocked || this.achievementGrants.has(entry.result.id),
+      next: entry.series ? entry.hasNextTier : !(entry.result.unlocked || this.achievementGrants.has(entry.result.id)),
+      progress: entry.nextResult.progress, target: entry.nextResult.target,
+      proof: this.achievementEvidenceStates?.[achievementEvidenceDomain(entry.nextResult)] ?? 'ready',
+    }));
+    if (!this.achievementOverviewSelection || this.achievementOverviewProvider !== this.currentProvider) {
+      this.achievementOverviewSelection = selectAchievementOverview(overviewRows, this.currentProvider);
+      this.achievementOverviewProvider = this.currentProvider;
+    }
+    const overview = retainAchievementOverview(this.achievementOverviewSelection, overviewRows);
+    const overviewSection = (kind: 'badges' | 'next', heading: string): string => {
+      if (!overview[kind].length) return '';
+      return '<section class="achievement-overview" data-achievement-overview="' + kind + '"><h3>' +
+        this.escapeHtml(heading) + '</h3><div class="achievement-overview-grid">' + overview[kind].map(key => {
+          const entry = visibleCards.find(entry => (entry.series ?? entry.result.id) === key)!;
+          const state = overviewRows.find(row => row.key === key)!;
+          let name = copy.titles[entry.result.id];
+          for (const level of copy.levels) {
+            if (name.endsWith(level) && /[\s·・]$/u.test(name.slice(0, -level.length))) {
+              name = name.slice(0, -level.length).replace(/[\s·・]+$/u, ''); break;
+            }
+          }
+          const rank = entry.series && state.earned ? copy.levels[state.earnedLevel - 1] :
+            state.earned ? copy.milestone : copy.locked;
+          const proofLabel = state.proof === 'stale' ? copy.evidenceStale : copy.evidencePending;
+          const progress = (state.proof === 'ready' ?
+            (cumulativeLowerBound && (entry.series === 'cumulative-volume' || entry.result.group === 'codex') ? '≥' : '') +
+            compact(state.progress) + ' / ' + compact(state.target) : proofLabel);
+          const imagePath = achievementImagePath(entry.result.id);
+          const iconSrc = this.panel?.webview?.asWebviewUri && this.context.extensionPath ?
+            this.panel.webview.asWebviewUri(vscode.Uri.file(imagePath)).toString() : achievementImageDataUrl(entry.result.id);
+          return '<button class="achievement-overview-badge" data-achievement-open="' + key +
+            '" data-overview-rank="' + entry.tier + '" onclick="openAchievementDetail(this.dataset.achievementOpen)"' +
+            ' aria-label="' + this.escapeHtml(copy.viewBadge + ': ' + name + ' · ' + rank +
+              (kind === 'next' ? ' · ' + progress + ' ' + unitFor(entry.result.id) :
+                state.proof === 'ready' ? '' : ' · ' + proofLabel)) + '">' +
+            '<img src="' + this.escapeHtml(iconSrc) + '" alt="" loading="lazy"><span class="achievement-overview-name">' +
+            this.escapeHtml(name) + '</span><span class="achievement-overview-rank">' + this.escapeHtml(rank) + '</span>' +
+            (kind === 'next' ? '<span class="achievement-overview-progress">' + this.escapeHtml(progress) + '</span>' :
+              state.proof === 'ready' ? '' : '<span class="achievement-overview-progress">' + this.escapeHtml(proofLabel) + '</span>') +
+            '</button>';
+        }).join('') + '</div></section>';
+    };
     const visibleResults = results.filter(visibleResult);
     const isEarned = (result: AchievementResult): boolean => result.unlocked || this.achievementGrants.has(result.id);
     const earnedCount = visibleResults.filter(isEarned).length;
@@ -4586,6 +4645,8 @@ export class UsageWebviewProvider {
           this.escapeHtml(copy.shareTitle) + '</button>' : '') +
       '<button class="btn-secondary btn-small" onclick="openAchievementSettings()">' +
         this.escapeHtml(copy.settingsTitle) + '</button></div></div>' +
+      overviewSection('badges', copy.myBadges) + overviewSection('next', copy.nextGoals) +
+      '<h3 class="achievement-gallery-heading">' + this.escapeHtml(copy.galleryTitle) + '</h3>' +
       '<div class="achievement-filter-toolbar"><label for="achievementFilter">' + this.escapeHtml(copy.filterLabel) +
       '</label><select id="achievementFilter" onchange="filterAchievements(this.value, true)">' +
       '<option value="all">' + this.escapeHtml(copy.filterAll) + '</option><option value="next">' +
@@ -12350,6 +12411,26 @@ export class UsageWebviewProvider {
         }
       }
       .achievement-collection { display: grid; gap: 30px; }
+      .achievement-overview h3, .achievement-gallery-heading { margin: 0 0 12px; }
+      .achievement-gallery-heading { margin-bottom: -18px; }
+      .achievement-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      .achievement-overview-badge { background: transparent; color: var(--vscode-foreground); border: 0;
+        display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 7px; padding: 12px 8px; min-width: 0; }
+      .achievement-overview-badge img { width: 96px; height: 96px; object-fit: contain; }
+      [data-achievement-overview="badges"] .achievement-overview-badge:first-child img { width: 128px; height: 128px; }
+      .achievement-overview-name { font-weight: 650; text-wrap: balance; overflow-wrap: anywhere; }
+      .achievement-overview-rank { font-size: .9rem; }
+      .achievement-overview-progress { color: var(--vscode-descriptionForeground); font-size: .8rem; overflow-wrap: anywhere; }
+      .achievement-overview-badge[data-overview-rank="silver"] .achievement-overview-rank { color: var(--vscode-charts-blue); }
+      .achievement-overview-badge[data-overview-rank="gold"] .achievement-overview-rank { color: var(--vscode-charts-yellow); }
+      .achievement-overview-badge:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
+      @media (max-width: 480px) {
+        .achievement-overview-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+        .achievement-overview-badge { display: grid; grid-template-columns: 80px minmax(0, 1fr); text-align: left; column-gap: 14px; }
+        .achievement-overview-badge img, [data-achievement-overview="badges"] .achievement-overview-badge:first-child img {
+          width: 80px; height: 80px; grid-row: 1 / span 3; }
+        .achievement-overview-name, .achievement-overview-rank, .achievement-overview-progress { grid-column: 2; }
+      }
       .achievement-intro { max-width: 74ch; }
       .achievement-intro h2 { margin: 0 0 5px; font-size: 1.35rem; }
       .achievement-intro p { margin: 0; color: var(--vscode-descriptionForeground); line-height: 1.5; }
@@ -13009,6 +13090,19 @@ function filterAchievements(value, save) {
 }
 function restoreAchievementFilter() {
   filterAchievements(ccuReadUiState().achievementFilter, false);
+}
+function openAchievementDetail(key) {
+  var card = Array.from(document.querySelectorAll('.achievement-card')).find(function(card) {
+    return card.dataset.achievementKey === key;
+  });
+  if (!card) { return; }
+  filterAchievements('all', true);
+  var detail = card.querySelector('details');
+  var summary = detail && detail.querySelector('summary');
+  if (!detail || !summary) { return; }
+  detail.open = true;
+  summary.focus({ preventScroll: true });
+  card.scrollIntoView({ block: 'center' });
 }
 function openAchievementSettings() {
   showTab('settings');
