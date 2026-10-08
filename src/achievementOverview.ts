@@ -20,6 +20,29 @@ const order = [...new Set(ACHIEVEMENT_DEFINITIONS.map(rule => seriesFor.get(rule
 const known = new Set(order);
 const knownAwardIds = new Set<string>(ACHIEVEMENT_DEFINITIONS.map(rule => rule.id));
 
+export interface AchievementUnreadBatch {
+  total: number;
+  sequence: number;
+  records: AchievementRecord[];
+}
+
+/** Bounded display projection, not a read receipt. Exact levels must not collapse into series. */
+export function selectUnreadAchievementBatch(
+  records: readonly AchievementRecord[], visibleIds: readonly string[], previous?: AchievementUnreadBatch,
+): AchievementUnreadBatch {
+  const visible = new Set(visibleIds.filter(id => knownAwardIds.has(id)));
+  const rows = records.filter(row => visible.has(row.id) && row.unread &&
+    (row.origin === 'usage' || row.origin === 'activity')).sort((a, b) => b.seq - a.seq);
+  // Never widen an issued group when a different window appends a later award.
+  // A removed/read/hidden/replaced member invalidates the complete old group.
+  const retained = previous && previous.records.length > 0 && previous.records.length <= 6 &&
+    previous.records.every(old => rows.some(row => row.id === old.id && row.seq === old.seq));
+  const selected = retained ? previous.records.map(old => rows.find(row => row.id === old.id && row.seq === old.seq)!)
+    : rows.slice(0, 6);
+  return { total: rows.length, sequence: retained ? previous.sequence : Math.max(0, ...selected.map(row => row.seq)),
+    records: selected.map(row => ({ ...row })) };
+}
+
 /** Read-only views of validated local records; chronology is recording order, not inferred attainment time. */
 export function projectAchievementRecords(records: readonly AchievementRecord[], visibleIds: readonly string[]): {
   recent: AchievementRecord[]; history: AchievementRecord[]; unreadIds: AchievementId[];

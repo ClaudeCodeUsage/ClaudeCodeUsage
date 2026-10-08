@@ -2,6 +2,53 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 
 const overview = require('../achievementOverview') as any;
+
+test('unread batches keep six exact levels, omit hidden and quiet awards, and read beyond history cap', () => {
+  const { ACHIEVEMENT_DEFINITIONS } = require('../achievements');
+  const records = ACHIEVEMENT_DEFINITIONS.map((rule: any, index: number) => ({ id: rule.id, seq: index + 1,
+    origin: 'usage', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai', ruleVersion: 1, unread: true }));
+  const visible = records.map((item: any) => item.id);
+  const before = JSON.stringify(records);
+  const batch = overview.selectUnreadAchievementBatch(records, visible);
+  assert.equal(batch.total, 124);
+  assert.equal(batch.records.length, 6);
+  assert.deepEqual(batch.records.map((item: any) => item.seq), [124, 123, 122, 121, 120, 119]);
+  assert.equal(batch.sequence, 124);
+  const older = overview.selectUnreadAchievementBatch(records.map((item: any) => ({ ...item, unread: item.seq <= 2 })), visible);
+  assert.deepEqual(older.records.map((item: any) => item.id), [records[1].id, records[0].id]);
+  const exact = overview.selectUnreadAchievementBatch([
+    { ...records[0], id: 'astra-regular', seq: 1 },
+    { ...records[0], id: 'astra-regular-silver', seq: 2 },
+    { ...records[0], id: 'sol-regular', seq: 3 },
+    { ...records[0], id: 'hundred-million-club', seq: 4, origin: 'history' },
+    { ...records[0], id: 'local-share-export', seq: 5, unread: false },
+    { ...records[0], id: 'private-canary', seq: 6 },
+  ], ['astra-regular', 'astra-regular-silver', 'hundred-million-club', 'local-share-export', 'private-canary']);
+  assert.equal(exact.total, 2);
+  assert.deepEqual(exact.records.map((item: any) => item.id), ['astra-regular-silver', 'astra-regular']);
+  assert.equal(JSON.stringify(records), before);
+  batch.records[0].unread = false;
+  assert.equal(records[123].unread, true, 'display owns copies, not the canonical unread bits');
+});
+
+test('a represented unread batch never widens to later awards during unrelated refresh', () => {
+  const record = (id: string, seq: number) => ({ id, seq, origin: 'activity', unread: true, ruleVersion: 1,
+    recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' });
+  const first = [record('settings-explorer-bronze', 1), record('settings-explorer-silver', 2)];
+  const visible = [...first.map(item => item.id), 'local-share-export'];
+  const initial = overview.selectUnreadAchievementBatch(first, visible);
+  const peer = [...first, record('local-share-export', 3)];
+  const retained = overview.selectUnreadAchievementBatch(peer, visible, initial);
+  assert.deepEqual(retained.records, initial.records);
+  assert.equal(retained.sequence, 2);
+  assert.equal(retained.total, 3, 'total may change, but confirmation still represents only two exact levels');
+  const hidden = overview.selectUnreadAchievementBatch(peer, ['local-share-export'], initial);
+  assert.deepEqual(hidden.records.map((item: any) => item.id), ['local-share-export'], 'changed visibility retires the old batch');
+  const read = overview.selectUnreadAchievementBatch(peer.map(item => ({ ...item, unread: item.seq > 2 })), visible, initial);
+  assert.deepEqual(read.records.map((item: any) => item.id), ['local-share-export']);
+  const replaced = overview.selectUnreadAchievementBatch(peer.map(item => ({ ...item, seq: item.seq + 10 })), visible, initial);
+  assert.equal(replaced.sequence, 13, 'same IDs from a different recorded sequence are not the issued batch');
+});
 const row = (key: string, extra: Record<string, unknown> = {}) => ({
   key, group: 'codex', earnedLevel: 1, earned: true, next: true,
   progress: 600e6, target: 5e9, proof: 'ready', ...extra,

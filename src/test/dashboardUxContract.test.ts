@@ -63,6 +63,64 @@ function provider(): any {
   return value;
 }
 
+test('ready handshake synchronizes a valid restored tab without recording an achievement action', async () => {
+  const p = provider();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  p.providerAvailability = { claude: true, codex: true, codexData: true };
+  p.currentProvider = 'codex';
+  let actions = 0, ready = 0;
+  p.recordAchievementFeature = () => { actions++; };
+  p.onLocalDataClientReady = () => { ready++; };
+  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'achievements' });
+  assert.equal(p.currentTab, 'achievements');
+  assert.equal(p.webviewClientReady, true);
+  assert.equal(actions, 0, 'restoring UI is not a fresh gallery visit');
+  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'month' });
+  assert.equal(p.currentTab, 'month');
+  assert.equal(actions, 0);
+  assert.equal(ready, 2);
+});
+
+test('ready and tab messages reject unknown tabs, a different provider and disabled achievements', async () => {
+  const p = provider();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  p.currentProvider = 'codex';
+  p.webviewClientReady = false;
+  let ready = 0, actions = 0;
+  p.onLocalDataClientReady = () => { ready++; };
+  p.recordAchievementFeature = () => { actions++; };
+  for (const message of [
+    { command: 'localDataClientReady', provider: 'claude', activeTab: 'achievements' },
+    { command: 'localDataClientReady', provider: 'codex', activeTab: '../private-path' },
+    { command: 'localDataClientReady', provider: 'codex', activeTab: 'branches' },
+    { command: 'localDataClientReady', provider: 'codex' },
+    { command: 'localDataClientReady', activeTab: 'today' },
+    { command: 'tabChanged', tab: '../private-path' },
+    { command: 'tabChanged', tab: 'branches' },
+  ]) await handler(message);
+  assert.equal(p.webviewClientReady, false);
+  assert.equal(p.currentTab, 'today');
+  assert.equal(ready, 0);
+  p.settings = { get: (key: string, fallback: unknown) => key === 'enableAchievements' ? false : fallback };
+  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'achievements' });
+  await handler({ command: 'tabChanged', tab: 'achievements' });
+  assert.equal(p.currentTab, 'today');
+  assert.equal(p.webviewClientReady, false);
+  assert.equal(actions, 0);
+});
+
+test('compare readiness accepts only its real all-time panel and does not change provider', async () => {
+  const p = provider();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  p.currentProvider = 'compare'; p.currentTab = 'all'; p.webviewClientReady = false;
+  await handler({ command: 'localDataClientReady', provider: 'compare', activeTab: 'achievements' });
+  assert.equal(p.webviewClientReady, false);
+  await handler({ command: 'localDataClientReady', provider: 'compare', activeTab: 'all' });
+  assert.equal(p.webviewClientReady, true);
+  assert.equal(p.currentTab, 'all');
+  assert.equal(p.currentProvider, 'compare');
+});
+
 test('share export rejects an unpreviewed configuration before opening a save dialog', async () => {
   const p = provider();
   p.buildShareCardSvgFor = () => '<svg>accepted</svg>';

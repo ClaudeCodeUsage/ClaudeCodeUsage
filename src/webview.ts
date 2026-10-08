@@ -2412,6 +2412,10 @@ export class UsageWebviewProvider {
           await this.handleClearAdviceLocalDataMessage();
           break;
         case 'localDataClientReady':
+          // Restoring a tab does not send tabChanged or count a new feature use.
+          // Accept only the current provider's actual panels, never a provider switch.
+          if (message.provider !== this.currentProvider || !this.isDashboardTabAllowed(message.activeTab)) break;
+          this.currentTab = message.activeTab;
           this.webviewClientReady = true;
           this.onLocalDataClientReady?.();
           this.dispatchAchievementNotice();
@@ -2756,6 +2760,7 @@ export class UsageWebviewProvider {
           await this.settings?.set('dashboardAutoRefresh', !!message.value);
           break;
         case 'tabChanged': {
+          if (!this.isDashboardTabAllowed(message.tab)) break;
           const enteringAchievements = message.tab === 'achievements' && this.currentTab !== 'achievements';
           if (enteringAchievements) {
             this.achievementOverviewSelection = undefined;
@@ -3418,6 +3423,15 @@ export class UsageWebviewProvider {
     this.lastHtml = html;
     this.lastLivePatchStructureKey = nextPatch?.structureKey;
     this.panel.webview.html = html;
+  }
+
+  private isDashboardTabAllowed(tab: unknown): tab is string {
+    if (typeof tab !== 'string') return false;
+    if (this.currentProvider === 'compare') return tab === 'all';
+    const tabs = ['today', 'month', 'all', 'sessions', 'projects', 'content', 'settings'];
+    if (this.currentProvider === 'claude') tabs.push('branches', 'workflows');
+    if (this.setting<boolean>('enableAchievements', true)) tabs.push('achievements');
+    return tabs.includes(tab);
   }
 
   private getWebviewContent(): string {
@@ -13238,7 +13252,10 @@ function restoreUi() {
   requestLocalDataInventoryForVisibleSettings();
   restoreScrollPosition();
   restoreAchievementReturnFocus();
-  vscode.postMessage({ command: 'localDataClientReady' });
+  var readyProvider = ccuProviderName();
+  var readyTab = document.querySelector('.tabs .tab.active[data-dashboard-tab]');
+  vscode.postMessage({ command: 'localDataClientReady', provider: readyProvider,
+    activeTab: readyProvider === 'compare' ? 'all' : readyTab ? readyTab.dataset.dashboardTab : 'today' });
 }
 
 ${getDashboardRefreshClientScript()}

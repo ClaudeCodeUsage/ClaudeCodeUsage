@@ -438,6 +438,23 @@ disappears. The surviving target supplies the scroll anchor; no preference or
 client state is added. Acquisition rechecks source availability when the queued
 transaction executes, not only when the message arrives.
 
+The ready handshake now reports the actual restored provider/tab. The host accepts
+only its current provider and allowed panels (compare has only `all`); ordinary
+tab messages use the same allowlist. Restoration does not count a feature use,
+change provider or grant/read an award. The unread display preparation selects at
+most six exact non-historical unread levels from the complete bounded record
+envelope, independently of the thirty-row history view. An unchanged represented
+group retains its IDs and sequence when a peer adds an award; hiding, reading or
+replacing a member retires the group. This pure projection copies rows and never
+writes receipts. The foreground summary UI and its guarded receipt remain pending.
+
+就绪握手报告实际恢复的供应商／页签，宿主只接受当前供应商的合法页面；对比页
+只接受 `all`，普通切页也使用同一白名单。恢复不计作功能体验、不切换供应商、
+不授奖或确认已读。未读展示的准备投影从完整有界封套选择最多六个精确非历史
+等级，不受三十条历史显示上限影响；其他窗口新增不扩大既有组的 ID／序号。
+成员隐藏、已读或被替换后重新选组。只读投影复制记录，不写确认；前台摘要及
+受限确认仍待接入。
+
 关闭供应商只阻止新增固定，不阻止明确取消已保存的公开键。折叠入口最多列出三个
 隐藏固定项，共享 lease 下仅移除选中项，不启用供应商、不读日志、不改变奖章、
 未读及分享；错误反馈匹配既有数据键，兼容隐藏项按钮，不拼接任意选择器。
