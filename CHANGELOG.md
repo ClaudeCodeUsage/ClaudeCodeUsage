@@ -35,6 +35,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
+- **Deliberate plugin-action provenance** — restored experience records grant
+  quietly; only a newly crossed target in a successfully saved action can notify.
+  Awards save even with the dashboard closed, without refreshing hidden panels.
+  Provider-proof retirement no longer cancels independently queued action awards;
+  failed grant saves remain retryable and re-enabling reconciles quietly.
 - **Unknown progress is not zero** — pending/outdated evidence is visible on the
   badge and excluded from Next filtering, without deleting earned tiers. Independent
   quiet baselines prevent incomplete calendar proof from suppressing later verified

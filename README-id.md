@@ -60,6 +60,9 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Pencapaian lokal (kandidat)
 
+Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
+yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.
+
 Kandidat 2.4.2 yang belum dirilis berfokus pada ikon: 46 seri dan 124 kondisi tingkat, meliputi token model,
 output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
 Setiap seri memiliki gambar berbeda, dipakai bersama oleh tingkatnya dengan warna tingkat. Angka hanya bilangan bulat; batas data dapat dibuka.

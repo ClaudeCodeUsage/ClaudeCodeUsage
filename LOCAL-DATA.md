@@ -129,6 +129,15 @@ history from later eligible awards. Pending or stale proof is shown explicitly,
 not as zero usage; saved awards remain independent. No action history, new
 persistent key, source identifier or network request is added by these latches.
 
+Plugin notices require an actual target crossing in a successfully saved local
+action delta. Hydrated/imported actions grant quietly; re-enabling does not turn
+them into new actions. At most six public plugin-rule IDs are held temporarily
+in memory until their grant saves, or the feature is disabled/cleared. There are
+no action timestamps or new storage keys. A failed grant save can retry without
+repeating the action. Provider-log proof retirement does not cancel these independent
+local-action awards. Saving while the dashboard is hidden/closed does not open or
+refresh it. This provenance guard is not a durable missed-notice journal.
+
 Intermediate Token stages are ephemeral display targets derived from formal
 thresholds, not new awards. They store no milestone history, produce no notices,
 and never become selectable export badges.

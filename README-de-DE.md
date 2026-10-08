@@ -58,6 +58,9 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Lokale Erfolge (Kandidat)
 
+Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
+neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.
+
 Der noch nicht veröffentlichte Kandidat 2.4.2 hat 46 Symbolserien mit 124 Stufenbedingungen: Modell-Token, Ausgabe/Cache,
 Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
 Jede Serie hat ein eigenes Motiv, ihre Stufen teilen es mit Stufenfarben. Zahlen sind ganzzahlig; Datengrenzen sind aufklappbar.

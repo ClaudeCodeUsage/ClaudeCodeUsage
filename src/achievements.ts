@@ -748,3 +748,19 @@ export function evaluateAchievements(facts: AchievementFacts): AchievementResult
     return { id, group, target, progress, unlocked: progress >= target };
   });
 }
+
+/** Only a committed local-action delta, never hydration, proves a new plugin unlock. */
+export function newlyUnlockedPluginAchievements(
+  before: AchievementActivity, after: AchievementActivity,
+): AchievementId[] {
+  const facts: AchievementFacts = {
+    claudeTokens: 0, codexTokens: 0, activeDays: 0, claudeFamilies: [],
+    codex: { modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 } },
+  };
+  // Reuse the actual catalog/evaluator so provenance cannot drift from targets.
+  const previous = new Set(evaluateAchievements({ ...facts, activity: before })
+    .filter(result => result.group === 'plugin' && result.unlocked).map(result => result.id));
+  return evaluateAchievements({ ...facts, activity: after })
+    .filter(result => result.group === 'plugin' && result.unlocked && !previous.has(result.id))
+    .map(result => result.id);
+}

@@ -17,6 +17,7 @@ import {
   fableAchievementSignals,
   longestActiveDayStreak,
   notifiableAchievementIds,
+  newlyUnlockedPluginAchievements,
   peakCalendarWeekProcessed,
 } from './achievements';
 import { achievementCalendarSignals, claudeAchievementDayEvidence, AchievementDayEvidence,
@@ -1073,6 +1074,8 @@ export class UsageWebviewProvider {
     value: ReturnType<typeof achievementCalendarSignals>;
   };
   private pendingAchievementNotice = new Set<AchievementId>();
+  // At most six public plugin-rule IDs; saved-action provenance, not an event log.
+  private observedPluginAchievementIds = new Set<AchievementId>();
   private silentAchievementRechecks = new Set<AchievementId>();
   private lastAchievementNoticeAt = 0;
   private achievementShareSelection: AchievementId[] | undefined;
@@ -3132,8 +3135,12 @@ export class UsageWebviewProvider {
       ? ['claude-usage', 'claude-calendar', 'combined-usage', 'combined-calendar', 'hours']
       : ['codex-lineage', 'codex-tokens', 'codex-calendar', 'combined-usage', 'combined-calendar', 'hours']);
     this.usageAchievementEvidenceEpoch += 1;
-    this.pendingAchievementGrants.clear();
-    this.pendingAchievementNotice.clear();
+    for (const id of this.pendingAchievementGrants) {
+      if (!this.isPluginAchievement(id)) this.pendingAchievementGrants.delete(id);
+    }
+    for (const id of this.pendingAchievementNotice) {
+      if (!this.isPluginAchievement(id)) this.pendingAchievementNotice.delete(id);
+    }
     this.achievementHourCache = undefined;
     this.achievementCalendarCache = undefined;
     this.achievementFableCache = undefined;
@@ -4010,6 +4017,7 @@ export class UsageWebviewProvider {
       this.achievementOverviewSelection = undefined;
       this.achievementNoticeBaseline.reset();
       this.achievementEvidenceStates = undefined;
+      this.observedPluginAchievementIds.clear();
       return [];
     }
     const hours = this.achievementHourSignals();
@@ -4194,9 +4202,11 @@ export class UsageWebviewProvider {
     // calendar/hour migration cannot silence independently verified Tokens.
     if (newlyEarned.length > 0 && this.context.globalState) {
       const ids = newlyEarned.map((result) => result.id);
-      // Deliberate plugin actions remain newly observed even without a usage
-      // corpus; only imported usage milestones wait for the quiet baseline.
-      const noticeIds = newlyEarned.filter(result => notifyDomains.has(achievementEvidenceDomain(result)) || result.group === 'plugin')
+      // Imported plugin ledgers are history too. Only a committed action that
+      // actually crosses a catalog target can enable a plugin notice.
+      const noticeIds = newlyEarned.filter(result => result.group === 'plugin'
+        ? this.observedPluginAchievementIds.has(result.id)
+        : notifyDomains.has(achievementEvidenceDomain(result)))
         .map(result => result.id);
       const epoch = this.achievementPersistenceEpoch;
       const evidenceEpoch = this.usageAchievementEvidenceEpoch;
@@ -4204,18 +4214,26 @@ export class UsageWebviewProvider {
       for (const id of ids) this.pendingAchievementGrants.add(id);
       this.achievementWrite = this.achievementWrite.catch(() => undefined).then(async () => {
         try {
-          if (epoch !== this.achievementPersistenceEpoch || evidenceEpoch !== this.usageAchievementEvidenceEpoch ||
+          if (epoch !== this.achievementPersistenceEpoch ||
               !this.setting<boolean>('enableAchievements', true)) return;
+          const validIds = ids.filter(id => this.isPluginAchievement(id) ||
+            evidenceEpoch === this.usageAchievementEvidenceEpoch);
+          if (validIds.length === 0) return;
           // Snapshot confirmed awards here, not before an earlier queued save
           // may fail. Failed saves remain eligible on the next normal update.
-          const grants = [...new Set([...this.achievementGrants, ...ids])].sort();
+          const grants = [...new Set([...this.achievementGrants, ...validIds])].sort();
           await this.context.globalState.update('ccu.achievements.grants.v5', grants);
-          if (epoch !== this.achievementPersistenceEpoch || evidenceEpoch !== this.usageAchievementEvidenceEpoch) return;
-          for (const id of ids) this.achievementGrants.add(id);
+          if (epoch !== this.achievementPersistenceEpoch) return;
+          const confirmedIds = validIds.filter(id => this.isPluginAchievement(id) ||
+            evidenceEpoch === this.usageAchievementEvidenceEpoch);
+          for (const id of confirmedIds) {
+            this.achievementGrants.add(id);
+            this.observedPluginAchievementIds.delete(id);
+          }
           if (wasVisible && this.panel?.visible &&
               Date.now() - this.lastAchievementNoticeAt > 300_000) {
             for (const id of notifiableAchievementIds(noticeIds)) {
-              if (!this.silentAchievementRechecks.has(id)) this.pendingAchievementNotice.add(id);
+              if (confirmedIds.includes(id) && !this.silentAchievementRechecks.has(id)) this.pendingAchievementNotice.add(id);
             }
           }
           this.dispatchAchievementNotice();
@@ -4223,8 +4241,12 @@ export class UsageWebviewProvider {
           // No optimistic grant or notice survives a failed durable write.
           this.achievementNoticeBaseline.reset();
         } finally {
-          if (epoch === this.achievementPersistenceEpoch && evidenceEpoch === this.usageAchievementEvidenceEpoch) {
-            for (const id of ids) this.pendingAchievementGrants.delete(id);
+          if (epoch === this.achievementPersistenceEpoch) {
+            for (const id of ids) {
+              if (this.isPluginAchievement(id) || evidenceEpoch === this.usageAchievementEvidenceEpoch) {
+                this.pendingAchievementGrants.delete(id);
+              }
+            }
           }
         }
       });
@@ -4236,6 +4258,7 @@ export class UsageWebviewProvider {
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true) ||
         !this.panel?.visible) {
       this.pendingAchievementNotice.clear();
+      if (!this.setting<boolean>('enableAchievements', true)) this.observedPluginAchievementIds.clear();
       return;
     }
     if (!this.webviewClientReady || this.pendingAchievementNotice.size === 0) return;
@@ -4275,6 +4298,7 @@ export class UsageWebviewProvider {
     this.achievementNoticeBaseline.reset();
     this.pendingAchievementNotice.clear();
     this.pendingAchievementGrants.clear();
+    this.observedPluginAchievementIds.clear();
     this.acceptedAchievementPreview.clear();
     this.pendingAchievementActivity = undefined;
     try {
@@ -4391,9 +4415,18 @@ export class UsageWebviewProvider {
               !this.setting<boolean>('enableAchievements', true)) return;
           await this.context.globalState.update('ccu.achievements.activity.v2', next);
           if (epoch !== this.achievementPersistenceEpoch) return;
+          const previous = this.achievementActivity;
           this.achievementActivity = next;
+          if (!this.setting<boolean>('enableAchievements', true)) return;
+          const newlyObserved = newlyUnlockedPluginAchievements(previous, next);
+          for (const id of newlyObserved) {
+            this.observedPluginAchievementIds.add(id);
+            this.silentAchievementRechecks.delete(id);
+          }
+          // Persist independently of presentation. Hidden/closed panels do not
+          // delay an already successful local action until a future render.
+          this.achievementResults();
           if (this.panel?.visible && this.webviewClientReady) {
-            this.achievementResults();
             this.updateWebview();
           }
         } catch {
@@ -4408,6 +4441,10 @@ export class UsageWebviewProvider {
   private recordAchievementSettingChange(key: string, changed: boolean): void {
     this.persistAchievementActivity(
       recordAchievementSettingChange(this.pendingAchievementActivity ?? this.achievementActivity, key, changed));
+  }
+
+  private isPluginAchievement(id: AchievementId): boolean {
+    return ACHIEVEMENT_DEFINITIONS.some(rule => rule.id === id && rule.group === 'plugin');
   }
 
   private recordAchievementFeature(feature: AchievementFeature): void {

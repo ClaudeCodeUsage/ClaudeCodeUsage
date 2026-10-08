@@ -62,6 +62,9 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 
 ## Local achievements (candidate)
 
+Imported plugin-experience records stay quiet. A newly saved action can unlock
+its badge even with the dashboard closed; it never opens or refreshes a hidden panel.
+
 The unreleased 2.4.2 candidate's icon-first gallery groups **46 series and 124 level conditions** into ordinary,
 silver and gold tiers, with platinum/legendary cumulative milestones. Expand a card
 for every level's rule; the next target is visible on the card. Series and unlocked

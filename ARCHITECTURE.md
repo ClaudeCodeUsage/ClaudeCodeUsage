@@ -366,6 +366,16 @@ quietly reconciled calibrated history, later levels are no longer permanently
 silenced by the migration recheck set. These latches are memory-only; they do not
 yet constitute a durable missed-notice journal or cross-host coordination.
 
+Plugin-action provenance compares the committed before/after activity ledger
+through the canonical rule evaluator. Only newly crossed plugin targets enter
+a bounded six-ID runtime set; hydration and imported ledgers do not. Successful
+grant persistence consumes the IDs; failed saves retain retryable proof, while
+OFF/clear retires it. Local action awards are evaluated after a successful ledger
+save even without a visible/ready panel, without rendering hidden views. Queued
+usage IDs still check the provider-evidence epoch; plugin IDs check the separate
+clear/activity epoch so provider revocation cannot erase independent action proof.
+This adds neither storage fields nor timestamps and is not cross-host coordination.
+
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable
 selected IDs but never add badges. Restore reuses matching accepted bytes. Export

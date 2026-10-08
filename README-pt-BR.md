@@ -55,6 +55,9 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Conquistas locais (candidato)
 
+Registros importados de uso do plugin não geram avisos. Novas ações salvas com sucesso
+podem desbloquear emblemas com o painel fechado, sem abrir nem atualizar painéis ocultos.
+
 O candidato 2.4.2, ainda não lançado, tem 46 séries de ícones e 124 condições de nível: tokens por modelo, saída/cache,
 atividade, recordes semanais e algumas ações deliberadas no plugin.
 Cada série tem arte própria, compartilhada entre seus níveis coloridos. Os números são inteiros; limites dos dados ficam na seção expansível.

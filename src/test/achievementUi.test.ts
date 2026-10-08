@@ -137,6 +137,161 @@ test('first verified historical awards stay quiet even while the gallery is visi
   });
 });
 
+test('restored plugin actions grant quietly rather than masquerading as new actions', async () => {
+  const state = achievementPersistenceState();
+  state.set('ccu.achievements.activity.v2', {
+    schemaVersion: 2, settingKeys: ['compactNumbers', 'decimalPlaces', 'language'],
+    features: ['achievementGalleryViewed', 'achievementSharePreview', 'localShareExport', 'localAdviceFeedback'],
+  });
+  await withProvider(state, async provider => {
+    const notices = await prepareAchievementNoticeProvider(provider);
+    evaluateAndDispatchAchievementNotice(provider);
+    await settleAchievementWrites(provider);
+    for (const id of ['settings-explorer-bronze', 'safe-feature-explorer', 'local-share-export', 'local-advice-feedback']) {
+      assert.equal(hasDurableAchievement(state, id), true);
+    }
+    assert.equal(notices.length, 0, 'reading a saved ledger is not a deliberate action');
+    provider.recordAchievementFeature('localShareExport');
+    await settleAchievementWrites(provider);
+    assert.equal(notices.length, 0, 'repeating an imported feature must not fabricate its first unlock');
+  });
+});
+
+test('only plugin levels crossed by a successfully saved action may celebrate', async () => {
+  const state = achievementPersistenceState();
+  state.set('ccu.achievements.activity.v2', {
+    schemaVersion: 2,
+    settingKeys: ['compactNumbers', 'decimalPlaces', 'displayCurrency', 'language', 'timezone',
+      'showCost', 'showContext', 'showInsights', 'statusBarMetric'], features: [],
+  });
+  await withProvider(state, async provider => {
+    const notices = await prepareAchievementNoticeProvider(provider);
+    provider.silentAchievementRechecks.add('settings-explorer-silver');
+    provider.recordAchievementSettingChange('tokenDecimalPlaces', true);
+    await settleAchievementWrites(provider);
+    assert.equal(hasDurableAchievement(state, 'settings-explorer-bronze'), true);
+    assert.equal(hasDurableAchievement(state, 'settings-explorer-silver'), true);
+    assert.equal(notices.length, 1, 'a new action must retire only its own migration silence');
+    assert.match((notices[0] as { iconFile: string }).iconFile, /settings/);
+    assert.equal(provider.observedPluginAchievementIds.size, 0, 'saved provenance is consumed, not a lifetime action history');
+  });
+});
+
+test('successful plugin actions save awards even without a visible or ready dashboard', async () => {
+  for (const mode of ['hidden', 'closed', 'not-ready']) {
+    const state = achievementPersistenceState();
+    await withProvider(state, async provider => {
+      const notices = await prepareAchievementNoticeProvider(provider);
+      if (mode === 'hidden') provider.panel.visible = false;
+      if (mode === 'closed') provider.panel = undefined;
+      if (mode === 'not-ready') provider.webviewClientReady = false;
+      let renders = 0;
+      provider.updateWebview = () => { renders++; };
+      provider.recordAchievementFeature('localShareExport');
+      await settleAchievementWrites(provider);
+      assert.equal(hasDurableAchievement(state, 'local-share-export'), true, mode);
+      assert.equal(notices.length, 0, 'background actions must not interrupt the user');
+      assert.equal(renders, 0, 'saving an action must not refresh a hidden dashboard');
+    });
+  }
+});
+
+test('provider proof revocation cannot cancel an independently saved local action award', async () => {
+  const state = achievementPersistenceState();
+  await withProvider(state, async provider => {
+    const notices = await prepareAchievementNoticeProvider(provider, false);
+    const held = deferredAchievementSave();
+    provider.achievementWrite = held.promise;
+    try {
+      provider.recordAchievementFeature('localShareExport');
+      await provider.achievementActivityWrite;
+      assert.equal(provider.pendingAchievementGrants.has('local-share-export'), true);
+      provider.invalidateAchievementEvidence('claude');
+      provider.invalidateAchievementEvidence('codex');
+    } finally {
+      held.resolve();
+      await settleAchievementWrites(provider);
+    }
+    assert.equal(hasDurableAchievement(state, 'local-share-export'), true,
+      'log-source evidence and deliberate plugin actions have separate lifetimes');
+    assert.equal(notices.length, 0);
+    assert.equal(provider.pendingAchievementGrants.size, 0);
+  });
+});
+
+test('failed grant storage retains saved-action provenance for a quiet bounded retry', async () => {
+  const state = achievementPersistenceState();
+  let attempts = 0;
+  await withProvider(state, async provider => {
+    const notices = await prepareAchievementNoticeProvider(provider);
+    provider.recordAchievementFeature('localAdviceFeedback');
+    await settleAchievementWrites(provider);
+    assert.equal(hasDurableAchievement(state, 'local-advice-feedback'), false);
+    assert.equal(notices.length, 0);
+    assert.equal(provider.observedPluginAchievementIds.size, 1);
+    evaluateAndDispatchAchievementNotice(provider);
+    await settleAchievementWrites(provider);
+    assert.equal(hasDurableAchievement(state, 'local-advice-feedback'), true);
+    assert.equal(notices.length, 1);
+    assert.equal(provider.observedPluginAchievementIds.size, 0);
+  }, async (key, value, persist) => {
+    if (key === 'ccu.achievements.grants.v5' && Array.isArray(value) && ++attempts === 1) {
+      throw new Error('synthetic action grant write failure');
+    }
+    persist();
+  });
+});
+
+test('mixed queued awards retire usage proof without discarding saved action proof', async () => {
+  const state = achievementPersistenceState();
+  await withProvider(state, async provider => {
+    await prepareAchievementNoticeProvider(provider, false);
+    setSingleVolumeAchievementFact(provider);
+    const held = deferredAchievementSave();
+    provider.achievementWrite = held.promise;
+    try {
+      provider.recordAchievementFeature('localShareExport');
+      await provider.achievementActivityWrite;
+      assert.equal(provider.pendingAchievementGrants.has('hundred-million-club'), true);
+      assert.equal(provider.pendingAchievementGrants.has('local-share-export'), true);
+      provider.invalidateAchievementEvidence('claude');
+    } finally {
+      held.resolve();
+      await settleAchievementWrites(provider);
+    }
+    assert.equal(hasDurableAchievement(state, 'hundred-million-club'), false);
+    assert.equal(hasDurableAchievement(state, 'local-share-export'), true);
+    assert.equal(provider.pendingAchievementGrants.size, 0);
+  });
+});
+
+test('disable during activity persistence skips new-action provenance evaluation', async () => {
+  const state = achievementPersistenceState();
+  const save = deferredAchievementSave();
+  await withProvider(state, async provider => {
+    const notices = await prepareAchievementNoticeProvider(provider);
+    let enabled = true;
+    provider.settings = { get: (key: string) => key === 'enableAchievements' ? enabled : true };
+    let reads = 0;
+    Object.defineProperty(provider.achievementActivity, 'features', {
+      enumerable: true, get: () => { reads++; return []; },
+    });
+    provider.recordAchievementFeature('localShareExport');
+    await flushAchievementTasks();
+    const beforeDisable = reads;
+    enabled = false;
+    save.resolve();
+    await settleAchievementWrites(provider);
+    assert.equal(reads, beforeDisable, 'OFF must not run the delta rule evaluator after a held save');
+    assert.deepEqual(provider.achievementActivity.features, ['localShareExport']);
+    assert.equal(hasDurableAchievement(state, 'local-share-export'), false);
+    assert.equal(notices.length, 0);
+  }, async (key, _value, persist) => {
+    if (key === 'ccu.achievements.activity.v2') await save.promise;
+    persist();
+  });
+});
+
 test('refresh failure cancels queued usage awards but preserves displayed statistics and saved awards', async () => {
   const state = achievementPersistenceState();
   await withProvider(state, async (provider) => {
@@ -196,7 +351,7 @@ test('achievement persistence skips queued grants after disable while preserving
     await settleAchievementWrites(provider);
     assert.equal(grantSaves, 2, 'reenabling must allow the skipped grant to be evaluated again');
     assert.equal(hasDurableAchievement(state, 'local-share-export'), true);
-    assert.equal(notices.length, 1);
+    assert.equal(notices.length, 0, 'reenabling reconciles the saved action quietly, not as a new action');
   }, async (key, value, persist) => {
     if (key === 'ccu.achievements.grants.v5' && Array.isArray(value)) {
       grantSaves += 1;
