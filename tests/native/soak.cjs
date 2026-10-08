@@ -91,8 +91,10 @@ async function appendSyntheticActivity(plan, sequence, timestamp) {
 }
 async function run(plan, rawOptions) {
   const options = validateSoakOptions(rawOptions), vscode = require('vscode');
+  nativeLaunchArguments(plan);
   const { settle, disposePanelAndWait, assertNativePanelCachesCleared,
-    createRefreshIoProbe, assertZeroBodyWarmRefreshes } = require('./native-runner.cjs');
+    createRefreshIoProbe, assertZeroBodyWarmRefreshes } = require(path.basename(__filename) === 'native-soak.cjs'
+      ? './native-runner.cjs' : './runner.cjs');
   const manifest = JSON.parse(await fs.readFile(path.join(plan.root, 'native-stage-manifest.json'), 'utf8'));
   const started = performance.now(), samples = [], assertions = [];
   const warm = { on: createRefreshIoProbe(), off: createRefreshIoProbe() };
@@ -114,6 +116,13 @@ async function run(plan, rawOptions) {
     await fs.writeFile(path.join(plan.root, 'native-soak-progress.json'),
       JSON.stringify({ elapsedMs: elapsed(), stage, counters, sample: value }) + '\n');
   };
+  // Write a bounded phase marker before asynchronous work. An interrupted
+  // host without a final report is incomplete, never a successful soak.
+  const markStage = async next => {
+    stage = next;
+    await fs.writeFile(path.join(plan.root, 'native-soak-progress.json'),
+      JSON.stringify({ elapsedMs: elapsed(), stage, counters }) + '\n');
+  };
   const waitUntil = async (predicate, milliseconds) => {
     const deadline = performance.now() + milliseconds;
     while (!predicate()) {
@@ -134,6 +143,7 @@ async function run(plan, rawOptions) {
     }
   };
   try {
+    await markStage('activation');
     const extension = vscode.extensions.getExtension('GrowthJack.claude-code-usage');
     assert.ok(extension);
     api = await bounded(extension.activate());
@@ -142,7 +152,7 @@ async function run(plan, rawOptions) {
     assert.equal(api.instance.getConfiguration().usageLimitTracking, false);
     assert.equal(api.instance.settings.get('advice.apiKey'), '');
     assertions.push('actual guarded Test-mode host, own synthetic data, no quota/BYOK');
-    stage = 'cold-refresh';
+    await markStage('cold-refresh');
     await bounded(api.instance.refreshData(false, 'manual')); await bounded(settle(api.instance), 65000);
     assert.equal(api.instance.cache.dataDirectory, plan.directories.claudeHome);
     assert.equal(api.instance.codexSnapshotHome, plan.directories.codexHome);
@@ -157,7 +167,7 @@ async function run(plan, rawOptions) {
       }
       append.call(instance.outputChannel, line);
     };
-    stage = 'recurring-setup';
+    await markStage('recurring-setup');
     await instance.settings.set('fileWatchSeconds', '1');
     await instance.settings.set('codex.fileWatchSeconds', '10');
     instance.onSettingsChangedFromPanel('fileWatchSeconds');
@@ -175,7 +185,7 @@ async function run(plan, rawOptions) {
     soakStarted = performance.now();
     while (performance.now() - soakStarted < options.durationMs || counters.cycles < 2) {
       if (watchdogFailure) fail('resource-budget');
-      stage = 'feature-toggle';
+      await markStage('feature-toggle');
       const enabled = counters.cycles % 2 === 1, provider = instance.codexProvider;
       await instance.settings.set('enableAchievements', enabled);
       instance.onSettingsChangedFromPanel('enableAchievements');
@@ -190,7 +200,7 @@ async function run(plan, rawOptions) {
       const recordsBefore = instance.cache.records.length;
       const processedBefore = instance.codexView.allTime.total.processed;
       const claudeWatchBefore = counters.claudeWatchRefreshes, codexWatchBefore = counters.codexWatchRefreshes;
-      stage = 'watch-append';
+      await markStage('watch-append');
       const result = await appendSyntheticActivity(plan, 201 + counters.cycles, Date.now());
       counters.appendBytes += result.bytes;
       await waitUntil(() => counters.claudeWatchRefreshes > claudeWatchBefore &&
@@ -198,17 +208,17 @@ async function run(plan, rawOptions) {
       await bounded(settle(instance), 65000);
       assert.equal(instance.cache.records.length, recordsBefore + 1);
       assert.equal(instance.codexView.allTime.total.processed, processedBefore + 1100);
-      stage = 'warm-refresh';
+      await markStage('warm-refresh');
       warmMode = enabled ? 'on' : 'off';
       for (let i = 0; i < 20; i++) {
         await bounded(instance.refreshData(false, 'manual')); await bounded(settle(instance), 65000);
       }
       warmMode = undefined;
       assertZeroBodyWarmRefreshes(warm[enabled ? 'on' : 'off'].snapshot(), 20);
-      stage = 'panel-disposal';
+      await markStage('panel-disposal');
       await disposePanelAndWait(view); assertNativePanelCachesCleared(view);
       counters.panelDisposals++;
-      stage = 'focus-suspend';
+      await markStage('focus-suspend');
       await focus(false);
       const suspended = sample();
       assert.equal(suspended.ownedByKind.watcher, 0);
@@ -216,7 +226,7 @@ async function run(plan, rawOptions) {
       assert.equal(suspended.ownedByKind.worker, 0);
       counters.cycles++;
       await checkpoint();
-      stage = 'duration-wait';
+      await markStage('duration-wait');
       // Use short nonblocking waits and the monotonic clock. No clock scaling.
       const nextCycle = soakStarted + counters.cycles * limits.cycleEveryMs;
       await waitUntil(() => performance.now() >= Math.min(nextCycle, soakStarted + options.durationMs), 65000);

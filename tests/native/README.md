@@ -61,6 +61,9 @@ prepareNativeDiagnostic({ repository, sourceHead, mode: 'soak', durationMs: 1800
 stages a separate opt-in runner. Use a short duration first to verify setup.
 A short preflight always reports longSoakDurationPassed=false; setup/exit alone
 is never a 30-minute pass. The monotonic clock is not scaled.
+An anonymous stage marker is written before each asynchronous phase. A normal
+host exit with no final native-soak-result.json remains incomplete; its last
+marker does not identify a product crash or satisfy any resource-duration gate.
 
 Each minute the runner switches the whole achievement feature ON/OFF, appends
 one bounded synthetic record to each of two exact regular fixture files, waits
@@ -81,8 +84,10 @@ heap/message measurements, same-profile multi-window races, or Windows OOM
 conclusion. Sampled host heap without forced GC is not a retained-heap leak test.
 
 中文审阅：使用 mode: 'soak' 明确启用持续诊断，先短程自检；短测必然标为未通过
-30分钟时长门，不能以准备或进程退出冒充验收，不加速单调时钟。每分钟开关整个
-成就功能，向两个精确的自有常规合成文件各追加一条有界记录，等待真实文件监听
+30分钟时长门，不能以准备或进程退出冒充验收，不加速单调时钟。
+各异步阶段开始前记录有界匿名标记；即使宿主正常退出，没有最终结果文件也仍是
+未完成，不能凭最后阶段标记认定产品崩溃或算持续运行门通过。
+每分钟开关整个成就功能，向两个精确的自有常规合成文件各追加一条有界记录，等待真实文件监听
 诊断与精确用量更新，再执行20次有明确零正文计数的手动暖刷新，并等待真实面板
 销毁事件。模拟焦点只调用既有生产处理器、检验暂停/重新安装，不切到前台，也不
 当作OS焦点或通知投递/ACK验收。每5秒保存固定匿名数字，限制宿主内存、所属

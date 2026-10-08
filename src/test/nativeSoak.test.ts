@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import Module = require('node:module');
 
 const helper = (): any => require(path.resolve(__dirname, '../../tests/native/soak.cjs'));
 const isolation = (): any => require(path.resolve(__dirname, '../../tests/native/isolation.cjs'));
@@ -60,6 +61,32 @@ test('native soak sample count and panel/notice caches cannot grow without bound
 test('native soak operation deadlines reject a stuck operation but keep settled results exact', async () => {
   assert.equal(await helper().bounded(Promise.resolve(42), 50), 42);
   await assert.rejects(helper().bounded(new Promise(() => undefined), 10), /native-soak:operation-timeout/);
+});
+
+test('native soak preserves anonymous entry and failure reports when activation rejects', async t => {
+  const { plan } = await fixtures(t);
+  await fs.writeFile(path.join(plan.root, 'native-stage-manifest.json'), JSON.stringify({ sourceHead: 'fea8879' }));
+  const load = (Module as any)._load;
+  (Module as any)._load = function(request: string, parent: unknown, isMain: boolean) {
+    if (request === 'vscode') return { version: 'synthetic-api-not-native', extensions: {
+      getExtension: () => ({ activate: async () => { throw new Error('private-activation-detail'); } }),
+    } };
+    return load.call(this, request, parent, isMain);
+  };
+  try {
+    await assert.rejects(helper().run(plan, { durationMs: 100 }), /^Error: native-soak:failed-activation$/);
+    const progress = JSON.parse(await fs.readFile(path.join(plan.root, 'native-soak-progress.json'), 'utf8'));
+    const reportText = await fs.readFile(path.join(plan.root, 'native-soak-result.json'), 'utf8');
+    const report = JSON.parse(reportText);
+    assert.equal(progress.stage, 'activation');
+    assert.equal(report.outcome, 'fail');
+    assert.equal(report.failureStage, 'activation');
+    assert.equal(report.stopCompleted, false);
+    assert.equal(report.longSoakDurationPassed, false);
+    assert.deepEqual(report.samples, []);
+    assert.ok(!reportText.includes('private-activation-detail'));
+    assert.ok(!reportText.includes(plan.root));
+  } finally { (Module as any)._load = load; }
 });
 
 async function fixtures(t: TestContext): Promise<any> {
