@@ -1,0 +1,246 @@
+import { test } from 'node:test';
+import * as assert from 'node:assert/strict';
+import { mkdtemp, readFile, writeFile, readdir, rm, symlink } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { ACHIEVEMENT_DEFINITIONS } from '../achievements';
+import { spawn } from 'node:child_process';
+import { acquireCodexIndexLease } from '../providers/codex/codexIndexLease';
+
+// Dynamic loading lets the initial red test fail on the missing implementation,
+// rather than preventing the existing project from compiling.
+function storeApi(): any { return require('../achievementRecordStore'); }
+async function withStore(run: (file: string) => Promise<void>): Promise<void> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'ccu-award-store-'));
+  try { await run(path.join(directory, 'achievements-v1.json')); }
+  finally { await rm(directory, { recursive: true, force: true }); }
+}
+const local = (id = 'local-share-export') => ({ id, origin: 'activity', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' });
+
+test('canonical auxiliary proof merges peers and clear never imports stale legacy caches', async () => {
+  await withStore(async file => {
+    const api = storeApi();
+    const a = new api.AchievementRecordRepository(file);
+    const b = new api.AchievementRecordRepository(file);
+    const initial = await a.initialize([]);
+    const activity = (setting: string, feature: string) => ({ schemaVersion: 2, settingKeys: [setting], features: [feature] });
+    await Promise.all([
+      a.updateAuxiliary(initial.generation, 'activity', activity('compactNumbers', 'localShareExport')),
+      b.updateAuxiliary(initial.generation, 'activity', activity('decimalPlaces', 'localAdviceFeedback')),
+    ]);
+    await Promise.all([
+      a.updateAuxiliary(initial.generation, 'hours', { schemaVersion: 3, maxStreak: 24 }),
+      b.updateAuxiliary(initial.generation, 'hours', { schemaVersion: 3, maxStreak: 12 }),
+    ]);
+    const saved = await api.loadAchievementRecords(file);
+    assert.deepEqual(saved.auxiliary.activity.settingKeys, ['compactNumbers', 'decimalPlaces']);
+    assert.deepEqual(saved.auxiliary.activity.features, ['localAdviceFeedback', 'localShareExport']);
+    assert.equal(saved.auxiliary.hours.maxStreak, 24);
+    const cleared = await b.clear();
+    await assert.rejects(a.updateAuxiliary(initial.generation, 'hours', saved.auxiliary.hours), /generation/);
+    const restored = await a.initialize([], () => true, saved.auxiliary);
+    assert.deepEqual(restored.auxiliary, cleared.auxiliary);
+    assert.deepEqual(restored.auxiliary.activity.features, []);
+    assert.equal(restored.auxiliary.hours.maxStreak, 0);
+  });
+});
+
+test('canonical auxiliary proof rejects nested private fields and keeps calendar contexts separate', async () => {
+  await withStore(async file => {
+    const api = storeApi();
+    const repository = new api.AchievementRecordRepository(file);
+    const first = await repository.initialize([]);
+    const before = await readFile(file, 'utf8');
+    for (const value of [
+      { schemaVersion: 2, settingKeys: ['private-canary'], features: [] },
+      { schemaVersion: 2, settingKeys: [], features: [], path: 'private-canary' },
+    ]) {
+      await assert.rejects(repository.updateAuxiliary(first.generation, 'activity', value), /invalid/);
+      assert.equal(await readFile(file, 'utf8'), before);
+    }
+    await assert.rejects(repository.updateAuxiliary(first.generation, 'hours', { schemaVersion: 3, maxStreak: 49 }), /invalid/);
+    const peak = (timeZone: string, amount: number) => ({ schemaVersion: 1, ruleVersion: 1, parserVersion: 1, periodVersion: 1, timeZone, providers: 3, peakFourWeekAverage: amount });
+    await repository.updateAuxiliary(first.generation, 'calendarPeak', peak('UTC', 1000));
+    await repository.updateAuxiliary(first.generation, 'calendarPeak', peak('UTC', 200));
+    assert.equal((await api.loadAchievementRecords(file)).auxiliary.calendarPeak.peakFourWeekAverage, 1000);
+    await repository.updateAuxiliary(first.generation, 'calendarPeak', peak('Asia/Shanghai', 200));
+    assert.equal((await api.loadAchievementRecords(file)).auxiliary.calendarPeak.peakFourWeekAverage, 200);
+  });
+});
+
+test('action proof and its awards commit together so a peer cannot steal fresh provenance', async () => {
+  await withStore(async file => {
+    const repository = new (storeApi().AchievementRecordRepository)(file);
+    const initial = await repository.initialize([]);
+    const action = await repository.recordActivity(initial.generation,
+      { schemaVersion: 2, settingKeys: [], features: ['localShareExport'] },
+      { recordedDay: '2026-10-08', timeZone: 'UTC' });
+    assert.deepEqual(action.added.map((row: any) => row.id), ['local-share-export']);
+    assert.equal(action.added[0].origin, 'activity');
+    const peer = await repository.append(initial.generation,
+      [{ id: 'local-share-export', origin: 'history', recordedDay: null, timeZone: null }]);
+    assert.deepEqual(peer.added, []);
+    assert.equal(peer.store.records[0].origin, 'activity');
+    const duplicate = await repository.recordActivity(initial.generation,
+      { schemaVersion: 2, settingKeys: [], features: ['localShareExport'] },
+      { recordedDay: '2026-10-09', timeZone: 'UTC' });
+    assert.deepEqual(duplicate.added, []);
+    assert.equal(duplicate.store.records[0].recordedDay, '2026-10-08');
+  });
+});
+
+test('old grants migrate quietly with unknown dates, once and within 64 KiB', async () => {
+  await withStore(async file => {
+    const api = storeApi();
+    const repository = new api.AchievementRecordRepository(file);
+    const first = await repository.initialize(ACHIEVEMENT_DEFINITIONS.map(row => row.id));
+    assert.equal(first.records.length, 124);
+    assert.ok(first.records.every((row: any) => row.origin === 'existing' && row.recordedDay === null && row.timeZone === null && !row.unread));
+    assert.equal(new Set(first.records.map((row: any) => row.seq)).size, 124);
+    assert.ok(Buffer.byteLength(await readFile(file, 'utf8')) <= 65_536);
+    assert.equal((await repository.initialize(['unknown-private-canary'])).records.length, 124, 'existing canonical state wins over stale legacy input');
+    assert.equal(api.recentAchievementRecords(first).length, 30);
+  });
+});
+
+test('two independent repositories merge concurrent append without lost or duplicate awards', async () => {
+  await withStore(async file => {
+    const { AchievementRecordRepository, loadAchievementRecords } = storeApi();
+    const first = new AchievementRecordRepository(file);
+    const second = new AchievementRecordRepository(file);
+    const [a, b] = await Promise.all([first.initialize([]), second.initialize([])]);
+    const results = await Promise.all([
+      first.append(a.generation, [local(), local('settings-explorer-bronze')]),
+      second.append(b.generation, [local(), local('local-advice-feedback')]),
+    ]);
+    const saved = await loadAchievementRecords(file);
+    assert.equal(saved.records.length, 3);
+    assert.deepEqual(saved.records.map((row: any) => row.seq).sort(), [1, 2, 3]);
+    assert.equal(results.reduce((count: number, result: any) => count + result.added.length, 0), 3);
+    assert.ok(saved.records.every((row: any) => row.unread));
+    assert.deepEqual(await readdir(path.dirname(file)), ['achievements-v1.json']);
+  });
+});
+
+test('separate Node processes share the actual lease and preserve both grants', async () => {
+  await withStore(async file => {
+    const run = (id: string): Promise<void> => new Promise((resolve, reject) => {
+      const source = `const {AchievementRecordRepository}=require(process.argv[1]);
+        (async()=>{const r=new AchievementRecordRepository(process.argv[2]);const s=await r.initialize([]);
+        await r.append(s.generation,[{id:process.argv[3],origin:'activity',recordedDay:'2026-10-08',timeZone:'UTC'}]);})()
+        .catch(()=>{process.exitCode=1;});`;
+      const child = spawn(process.execPath, ['-e', source, require.resolve('../achievementRecordStore'), file, id], { stdio: 'ignore' });
+      child.on('error', reject);
+      child.on('exit', code => code === 0 ? resolve() : reject(new Error('fixture child failed')));
+    });
+    await Promise.all([run('local-share-export'), run('local-advice-feedback')]);
+    const saved = await storeApi().loadAchievementRecords(file);
+    assert.deepEqual(saved.records.map((row: any) => row.id).sort(), ['local-advice-feedback', 'local-share-export']);
+    assert.deepEqual(saved.records.map((row: any) => row.seq), [1, 2]);
+  });
+});
+
+test('OFF while waiting for another process lease leaves canonical bytes unchanged', async () => {
+  await withStore(async file => {
+    const repository = new (storeApi().AchievementRecordRepository)(file);
+    const initial = await repository.initialize([]);
+    const before = await readFile(file, 'utf8');
+    const lease = await acquireCodexIndexLease(file);
+    let enabled = true;
+    try {
+      const pending = repository.append(initial.generation, [local()], () => enabled);
+      const rejection = assert.rejects(pending, /cancelled/i);
+      enabled = false;
+      await rejection;
+    } finally { await lease.release(); }
+    assert.equal(await readFile(file, 'utf8'), before);
+    assert.deepEqual(await readdir(path.dirname(file)), ['achievements-v1.json']);
+  });
+});
+
+test('clear retains an empty generation fence and rejects every old-window mutation', async () => {
+  await withStore(async file => {
+    const { AchievementRecordRepository, loadAchievementRecords } = storeApi();
+    const first = new AchievementRecordRepository(file);
+    const second = new AchievementRecordRepository(file);
+    const before = await first.initialize(['hundred-million-club']);
+    await second.initialize([]);
+    const cleared = await second.clear();
+    assert.equal(cleared.generation, before.generation + 1);
+    assert.equal(cleared.sequence, before.sequence, 'sequence never reuses a prior ACK number');
+    assert.deepEqual(cleared.records, []);
+    await assert.rejects(first.append(before.generation, [local()]), /generation/);
+    await assert.rejects(first.acknowledge(before.generation, before.sequence), /generation/);
+    await assert.rejects(first.pin(before.generation, ['cumulative-volume']), /generation/);
+    assert.deepEqual((await first.initialize(['hundred-million-club'])).records, [], 'stale legacy grants cannot resurrect cleared canonical state');
+    assert.deepEqual((await loadAchievementRecords(file)).records, []);
+  });
+});
+
+test('only explicit bounded sequence ACK reads records; failed delivery and late ACK do not read later awards', async () => {
+  await withStore(async file => {
+    const { AchievementRecordRepository, loadAchievementRecords } = storeApi();
+    const repository = new AchievementRecordRepository(file);
+    const initial = await repository.initialize([]);
+    const first = await repository.append(initial.generation, [local()]);
+    assert.equal((await loadAchievementRecords(file)).records[0].unread, true, 'postMessage is not an ACK');
+    await repository.append(initial.generation, [local('local-advice-feedback')]);
+    const acked = await repository.acknowledge(initial.generation, first.store.sequence);
+    assert.deepEqual(acked.records.map((row: any) => row.unread), [false, true]);
+    const bytes = await readFile(file, 'utf8');
+    await assert.rejects(repository.acknowledge(initial.generation, acked.sequence + 1), /invalid/);
+    assert.equal(await readFile(file, 'utf8'), bytes);
+  });
+});
+
+test('invalid, future, oversized and symlink documents fail closed without changing their bytes', async () => {
+  await withStore(async file => {
+    const { AchievementRecordRepository, loadAchievementRecords } = storeApi();
+    const repository = new AchievementRecordRepository(file);
+    const valid = await repository.initialize([]);
+    for (const text of ['{', JSON.stringify({ ...valid, schemaVersion: 2 }), JSON.stringify({ ...valid, path: 'private-canary' }), ' '.repeat(65_537)]) {
+      await writeFile(file, text);
+      await assert.rejects(loadAchievementRecords(file), /invalid/);
+      await assert.rejects(repository.initialize([]), /invalid/);
+      await assert.rejects(repository.clear(), /invalid/);
+      assert.equal(await readFile(file, 'utf8'), text);
+    }
+    await rm(file);
+    const target = path.join(path.dirname(file), 'do-not-touch.json');
+    await writeFile(target, JSON.stringify(valid));
+    await symlink(target, file);
+    await assert.rejects(loadAchievementRecords(file), /invalid/);
+    await assert.rejects(repository.clear(), /invalid/);
+    assert.equal(await readFile(target, 'utf8'), JSON.stringify(valid));
+  });
+});
+
+test('strict drafts reject unknown IDs, arbitrary strings, impossible dates and duplicate keys', async () => {
+  await withStore(async file => {
+    const { AchievementRecordRepository } = storeApi();
+    const repository = new AchievementRecordRepository(file);
+    const initial = await repository.initialize([]);
+    const before = await readFile(file, 'utf8');
+    for (const draft of [{ ...local(), id: 'private-canary' }, { ...local(), origin: 'secret' }, { ...local(), timeZone: 'private-path-canary' }, { ...local(), recordedDay: '2026-02-30' }, { ...local(), prompt: 'private-canary' }]) {
+      await assert.rejects(repository.append(initial.generation, [draft]), /invalid/);
+      assert.equal(await readFile(file, 'utf8'), before);
+    }
+    await assert.rejects(repository.pin(initial.generation, ['astra', 'astra']), /invalid/);
+    await assert.rejects(repository.pin(initial.generation, ['unknown']), /invalid/);
+    await assert.rejects(repository.pin(initial.generation, Object.keys(require('../achievements').ACHIEVEMENT_SERIES).slice(0, 4)), /invalid/);
+  });
+});
+
+test('OFF or retired work cancels before initialization and append; quiet reconciliation is not unread', async () => {
+  await withStore(async file => {
+    const { AchievementRecordRepository, loadAchievementRecords } = storeApi();
+    const repository = new AchievementRecordRepository(file);
+    await assert.rejects(repository.initialize([], () => false), /cancelled/);
+    assert.deepEqual(await readdir(path.dirname(file)), []);
+    const initial = await repository.initialize([]);
+    await assert.rejects(repository.append(initial.generation, [local()], () => false), /cancelled/);
+    const result = await repository.append(initial.generation, [{ id: 'hundred-million-club', origin: 'history', recordedDay: null, timeZone: null }]);
+    assert.equal(result.added[0].unread, false);
+    assert.equal((await loadAchievementRecords(file)).records.length, 1);
+  });
+});

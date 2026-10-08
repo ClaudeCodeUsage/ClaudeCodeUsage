@@ -58,6 +58,11 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Lokale Erfolge (Kandidat)
 
+Der lokale Nachweisspeicher ist auf 64 KiB begrenzt. Alte Abzeichen haben kein
+bekanntes Datum; neue gespeicherte Aktionen behalten ungelesene Erstaufnahmetage,
+auch bei verpasstem Hinweis. Fenster führen Auszeichnungen zusammen; Löschen
+hinterlässt eine leere Generationssperre gegen veraltete Schreibvorgänge.
+
 Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
 neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.
 

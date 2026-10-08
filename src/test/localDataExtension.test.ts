@@ -126,7 +126,7 @@ test('host inventory exposes only value-free location classes and random quota s
   const serialized = JSON.stringify(inventory);
   assert.equal(inventory.schemaVersion, 1);
   assert.deepEqual(inventory.rows.map((row: any) => row.id), [
-    'R1', 'R2', 'P1', 'P2', 'P3-P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11',
+    'R1', 'R2', 'P1', 'P2', 'P3-P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12',
   ]);
   assert.doesNotMatch(serialized, /Users\/private|private-owner|private-repo/);
   assert.doesNotMatch(serialized, /fingerprint-private-canary|window-private-canary|machine-salt-canary/);
@@ -406,6 +406,8 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
       await globalState.update('ccu.achievements.grants.v4', undefined);
       await globalState.update('ccu.achievements.activity.v2', undefined);
       await globalState.update('ccu.achievements.hours.v2', undefined);
+      await new (require('../achievementRecordStore').AchievementRecordRepository)(
+        path.join(root, 'achievements-v1.json')).clear();
     },
     clearSharingRuntimeState: () => undefined,
   };
@@ -462,4 +464,18 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
   assert.equal(globalState.state.has('claudeCodeUsage.adviceEffectiveness.feedback.v1'), false);
   assert.equal(globalState.state.get('ccu.unrelated.canary'), 'must-survive');
   assert.equal(globalState.state.get('provider.credentials.canary'), 'must-survive');
+});
+
+test('clear-all postcondition requires the bounded empty achievement tombstone, not an absent or populated journal', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-record-postcondition-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const extension = Object.create(ClaudeCodeUsageExtension.prototype) as any;
+  extension.context = { globalStorageUri: { fsPath: root }, globalState: memoryGlobalState({}) };
+  await writeFile(path.join(root, 'quota-observations-v2.json'), JSON.stringify(createEmptyQuotaObservationStore()));
+  await assert.rejects(extension.verifyClearAllPostcondition(), /achievement/);
+  const repository = new (require('../achievementRecordStore').AchievementRecordRepository)(path.join(root, 'achievements-v1.json'));
+  await repository.initialize(['hundred-million-club']);
+  await assert.rejects(extension.verifyClearAllPostcondition(), /achievement/);
+  await repository.clear();
+  await extension.verifyClearAllPostcondition();
 });

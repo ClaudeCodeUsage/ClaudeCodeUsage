@@ -7,6 +7,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Bounded durable award records** — a ≤64 KiB canonical file keeps each public
+  rule once, with quiet unknown-date migration and unread saved-action records.
+  Cross-process leases merge peers' awards; an empty clear-generation fence
+  prevents old candidate hosts from restoring deleted awards or cached auxiliary
+  proof. Existing bounded local-action/hour/calendar proof is merged in the same
+  envelope, not mirrored into stale window caches. Invalid/future
+  input remains untouched; OFF does not initialize it. Inventory and Clear All
+  cover the file. Recent/pin UI and notification ACK are still being integrated.
 - **Badge overview** — up to three representative earned badges and three
   reachable goals precede the complete collection. Selection favors distinct
   themes and current-provider ties, and stays stable during browsing. Unused,

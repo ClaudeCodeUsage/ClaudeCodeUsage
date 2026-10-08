@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import Module = require('node:module');
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { ACHIEVEMENT_DEFINITIONS } from '../achievements';
 import { ACHIEVEMENT_COPY, I18n } from '../i18n';
@@ -11,6 +14,7 @@ function withProvider(
   state: Map<string, unknown>,
   run: (provider: any) => Promise<void>,
   update?: (key: string, value: unknown, persist: () => void) => Promise<void>,
+  storagePath?: string,
 ): Promise<void> {
   const originalLoad = (Module as any)._load;
   (Module as any)._load = function(request: string, parent: unknown, isMain: boolean) {
@@ -23,6 +27,7 @@ function withProvider(
   try {
     const { UsageWebviewProvider } = require('../webview') as typeof import('../webview');
     const provider = new UsageWebviewProvider({
+      ...(storagePath ? { globalStorageUri: { fsPath: storagePath } } : {}),
       globalState: {
         get: (key: string) => state.get(key),
         update: async (key: string, value: unknown) => {
@@ -38,6 +43,155 @@ function withProvider(
     (Module as any)._load = originalLoad;
   }
 }
+
+async function withAchievementStorage(run: (directory: string) => Promise<void>): Promise<void> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'ccu-award-provider-'));
+  try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+test('production storage writes a quiet canonical award and never writes a legacy grant mirror', async () => {
+  await withAchievementStorage(async directory => {
+    const state = achievementPersistenceState();
+    await withProvider(state, async provider => {
+      const notices = await prepareAchievementNoticeProvider(provider);
+      provider.achievementNoticeBaseline.reset();
+      setSingleVolumeAchievementFact(provider);
+      provider.achievementResults();
+      await settleAchievementWrites(provider);
+      await settleAchievementWrites(provider);
+      const saved = JSON.parse(await readFile(path.join(directory, 'achievements-v1.json'), 'utf8'));
+      const row = saved.records.find((item: any) => item.id === 'hundred-million-club');
+      assert.equal(row.origin, 'history');
+      assert.equal(row.recordedDay, null);
+      assert.equal(row.unread, false);
+      assert.equal(provider.achievementGrants.has(row.id), true);
+      assert.equal(notices.length, 0);
+      assert.deepEqual(state.get('ccu.achievements.grants.v5'), []);
+    }, async (key, _value, persist) => {
+      assert.notEqual(key, 'ccu.achievements.grants.v5', 'canonical branch must not lose peers by rewriting a stale mirror');
+      persist();
+    }, directory);
+  });
+});
+
+test('production OFF does not initialize the new record file', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await settleAchievementWrites(provider);
+      provider.settings = { get: (key: string) => key !== 'enableAchievements' };
+      provider.achievementResults();
+      await settleAchievementWrites(provider);
+      assert.deepEqual(await readdir(directory), []);
+    }, undefined, directory);
+  });
+});
+
+test('failed legacy activity migration does not initialize canonical proof from optimistic memory', async () => {
+  await withAchievementStorage(async directory => {
+    const state = achievementPersistenceState();
+    state.set('ccu.achievements.activity.v1', { schemaVersion: 1, settingKeys: [], features: ['localShareExport'] });
+    await withProvider(state, async provider => {
+      provider.achievementResults();
+      await settleAchievementWrites(provider);
+      assert.equal(provider.achievementRecordLoadFailed, true);
+      assert.deepEqual(await readdir(directory), []);
+    }, async (key, _value, persist) => {
+      if (key === 'ccu.achievements.activity.v2') throw new Error('fixture migration failed');
+      persist();
+    }, directory);
+  });
+});
+
+test('a real saved plugin action retains its unread record even when notice delivery fails', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      let attempts = 0;
+      provider.panel.webview.postMessage = async () => { attempts++; throw new Error('fixture delivery failed'); };
+      provider.recordAchievementFeature('localShareExport');
+      await settleAchievementWrites(provider);
+      await settleAchievementWrites(provider);
+      const saved = JSON.parse(await readFile(path.join(directory, 'achievements-v1.json'), 'utf8'));
+      const row = saved.records.find((item: any) => item.id === 'local-share-export');
+      assert.equal(row.origin, 'activity');
+      assert.match(row.recordedDay, /^\d{4}-\d{2}-\d{2}$/);
+      assert.equal(row.unread, true);
+      assert.equal(attempts, 1);
+      assert.equal(provider.achievementGrants.has(row.id), true);
+      assert.equal(provider.observedPluginAchievementIds.has(row.id), false);
+    }, undefined, directory);
+  });
+});
+
+test('peer clear fences deliberate action writes before an old host can repopulate the activity ledger', async () => {
+  await withAchievementStorage(async directory => {
+    const repository = new (require('../achievementRecordStore').AchievementRecordRepository)(path.join(directory, 'achievements-v1.json'));
+    const state = achievementPersistenceState();
+    await withProvider(state, async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults();
+      await settleAchievementWrites(provider);
+      await repository.clear();
+      provider.recordAchievementFeature('localShareExport');
+      await settleAchievementWrites(provider);
+      assert.equal(state.has('ccu.achievements.activity.v2'), false);
+      assert.equal(provider.clearingAchievements, true);
+      assert.deepEqual(JSON.parse(await readFile(repository.file, 'utf8')).records, []);
+    }, undefined, directory);
+  });
+});
+
+test('canonical tombstone beats a stale legacy seed and a previously adopted host cannot restore awards', async () => {
+  await withAchievementStorage(async directory => {
+    const { AchievementRecordRepository } = require('../achievementRecordStore');
+    const repository = new AchievementRecordRepository(path.join(directory, 'achievements-v1.json'));
+    const seed = achievementPersistenceState();
+    seed.set('ccu.achievements.grants.v5', ['hundred-million-club']);
+    await repository.clear();
+    await withProvider(seed, async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults();
+      await settleAchievementWrites(provider);
+      assert.equal(provider.achievementGrants.size, 0, 'old globalState seed must not override canonical clear');
+      const firstGeneration = provider.achievementRecordState.generation;
+      await repository.clear();
+      setSingleVolumeAchievementFact(provider);
+      provider.achievementResults();
+      await settleAchievementWrites(provider);
+      assert.equal(provider.clearingAchievements, true, 'old host remains write-suspended until reload');
+      const saved = JSON.parse(await readFile(repository.file, 'utf8'));
+      assert.equal(saved.generation, firstGeneration + 1);
+      assert.deepEqual(saved.records, []);
+    }, undefined, directory);
+  });
+});
+
+test('adopting a clear fence discards stale auxiliary proof, and the first new action does not import it again', async () => {
+  await withAchievementStorage(async directory => {
+    const repository = new (require('../achievementRecordStore').AchievementRecordRepository)(path.join(directory, 'achievements-v1.json'));
+    await repository.clear();
+    const state = achievementPersistenceState();
+    state.set('ccu.achievements.activity.v2', { schemaVersion: 2, settingKeys: ['compactNumbers', 'decimalPlaces', 'showCost'], features: ['localShareExport'] });
+    state.set('ccu.achievements.hours.v3', { schemaVersion: 3, maxStreak: 48 });
+    await withProvider(state, async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.recordAchievementFeature('localAdviceFeedback');
+      await settleAchievementWrites(provider);
+      await settleAchievementWrites(provider);
+      assert.deepEqual(provider.achievementActivity.features, ['localAdviceFeedback']);
+      assert.deepEqual(provider.achievementActivity.settingKeys, []);
+      assert.equal(provider.achievementHourEvidence.maxStreak, 0);
+      const saved = JSON.parse(await readFile(repository.file, 'utf8'));
+      assert.deepEqual(saved.records.map((row: any) => row.id), ['local-advice-feedback']);
+      assert.equal(saved.records[0].origin, 'activity');
+      assert.deepEqual(saved.auxiliary.activity.features, ['localAdviceFeedback']);
+      assert.equal(saved.auxiliary.hours.maxStreak, 0);
+      assert.deepEqual(state.get('ccu.achievements.activity.v2'), { schemaVersion: 2,
+        settingKeys: ['compactNumbers', 'decimalPlaces', 'showCost'], features: ['localShareExport'] },
+        'canonical writes do not mirror an entire cached Memento object');
+    }, undefined, directory);
+  });
+});
 
 function achievementPersistenceState(): Map<string, unknown> {
   // Keep constructor migration writes out of the save-under-test.

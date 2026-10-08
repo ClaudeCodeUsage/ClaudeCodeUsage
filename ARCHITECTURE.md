@@ -376,6 +376,34 @@ usage IDs still check the provider-evidence epoch; plugin IDs check the separate
 clear/activity epoch so provider revocation cannot erase independent action proof.
 This adds neither storage fields nor timestamps and is not cross-host coordination.
 
+`achievementRecordStore.ts` now owns the canonical `achievements-v1.json` award
+envelope in extension global storage, separately from those runtime latches.
+It validates at most 124 unique rule IDs, monotonic sequence/generation, reason
+enums and optional first-record day/zone within 64 KiB. Audited old grants seed
+it only when absent, quietly with unknown dates; an existing file wins over
+stale globalState. Each transaction rereads under the existing filesystem lease,
+flushes a private temporary file and atomically renames it. Concurrent hosts do
+not overwrite peers' awards. Clear holds that lease while deleting exact related
+globalState keys, then saves an empty generation/sequence fence; old hosts fail
+closed until reload. Action/hour/calendar writes check their adopted generation.
+Unknown, future, oversized or symlink inputs remain untouched and do not fall
+back to a legacy grant mirror. Disabled achievements do not initialize the file.
+Actual saved local actions retain unread records even when hidden or delivery
+fails. Usage awards currently reconcile quietly with unknown dates: ready-domain
+growth alone does not establish producer-origin evidence. The envelope also owns
+the existing bounded activity/hour/calendar proof: activity unions the 29 safe
+keys/four enums, hours retain a maximum ≤48, and calendar maxima merge only within
+the same measurement context. Legacy auxiliary Memento entries are migration
+inputs, not runtime mirrors. Hydration always adopts canonical proof, including
+empty proof after clear; a bounded 33-key pending-action map replays deliberate
+bootstrap actions only after hydration. This avoids restoring stale whole-object
+Memento caches. Plugin provenance compares the actual under-lease before/after
+activity, not another host's imported progress. A deliberate action and its newly
+crossed plugin awards commit in one transaction, so peer history reconciliation
+cannot preempt their origin/date/unread state. Sequence ACK and pin
+primitives are bounded, but recent/pin UI, foreground ACK/cooldown and source-origin
+integration remain pending; no automatic read or share consent is inferred.
+
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable
 selected IDs but never add badges. Restore reuses matching accepted bytes. Export
@@ -386,7 +414,7 @@ already-started save. Removed choices are explained, never silently upgraded.
 Replacing, clearing, disabling or closing the panel retires the retained
 artifact. Build failures retire the old handle and return only an anonymous flag.
 
-The exact globalState ledger holds allowlisted rule IDs, 29 safe setting-key names
+The legacy globalState ledger holds allowlisted rule IDs, 29 safe setting-key names
 and four local-feature enums, a streak maximum capped at 48, and one qualified
 four-week-average numeric maximum. It stores no setting values, account/source
 identifiers, prompts, credentials, timestamps of actions, or export history.

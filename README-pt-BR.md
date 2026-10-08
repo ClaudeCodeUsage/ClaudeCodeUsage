@@ -55,6 +55,10 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Conquistas locais (candidato)
 
+O registro local é limitado a 64 KiB. Datas antigas continuam desconhecidas;
+novas ações salvas mantêm o estado não lido e o dia do primeiro registro mesmo
+sem aviso. Janelas mesclam conquistas; a limpeza deixa uma barreira de geração vazia contra gravações antigas.
+
 Registros importados de uso do plugin não geram avisos. Novas ações salvas com sucesso
 podem desbloquear emblemas com o painel fechado, sem abrir nem atualizar painéis ocultos.
 

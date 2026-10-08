@@ -180,6 +180,7 @@ export const LOCAL_DATA_ACTION_TARGETS: Record<LocalDataAction, readonly string[
     'legacy ccu.setting.advice.apiKey and currently inspectable configuration scopes',
   ],
   'clear-all-derived-data': [
+    'P12 globalStorageUri/achievements-v1.json and its exact regular interrupted-write files; retains an empty generation/sequence clear fence',
     'P1 exact Codex index/recovery/interrupted-write file family',
     'P2 exact quota-observation/quarantine/interrupted-write file family, replaced by one valid empty canonical document',
     'P3/P4 ccu.usageLimits.* and ccu.weeklyQuotaHistory.v1.* migration inputs',

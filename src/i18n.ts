@@ -95,6 +95,18 @@ export interface AchievementCopy {
   titles: Record<AchievementId, string>;
 }
 
+/** Value-free labels for the canonical award storage inventory row. */
+export const ACHIEVEMENT_RECORD_INVENTORY_COPY: Record<SupportedLanguage, { category: string; network: string; clear: string }> = {
+  en: { category: 'Achievement records', network: 'None', clear: 'Clear all extension-derived data' },
+  'zh-CN': { category: '成就记录', network: '无', clear: '清除全部插件派生数据' },
+  'zh-TW': { category: '成就記錄', network: '無', clear: '清除全部擴充功能衍生資料' },
+  'de-DE': { category: 'Erfolgsnachweise', network: 'Keine', clear: 'Alle abgeleiteten Erweiterungsdaten löschen' },
+  ja: { category: '実績の記録', network: 'なし', clear: '拡張機能の派生データをすべて削除' },
+  ko: { category: '업적 기록', network: '없음', clear: '확장 프로그램의 파생 데이터 모두 삭제' },
+  'pt-BR': { category: 'Registros de conquistas', network: 'Nenhuma', clear: 'Limpar todos os dados derivados da extensão' },
+  id: { category: 'Catatan pencapaian', network: 'Tidak ada', clear: 'Hapus semua data turunan ekstensi' },
+};
+
 /** Local-only achievement copy. Every card has a title in each UI locale. */
 export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
   en: {

@@ -62,6 +62,10 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 
 ## Local achievements (candidate)
 
+Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
+new saved-action badges retain unread first-record days even if a notice is missed.
+Concurrent windows merge awards; clearing retains an empty fence against stale writes.
+
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.
 

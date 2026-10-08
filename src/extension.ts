@@ -15,7 +15,8 @@ import {
 } from './claudeIncrementalIndex';
 import { StatusBarManager } from './statusBar';
 import { UsageWebviewProvider } from './webview';
-import { achievementCopyFor, I18n } from './i18n';
+import { achievementCopyFor, artifactLocale, ACHIEVEMENT_RECORD_INVENTORY_COPY, I18n } from './i18n';
+import { ACHIEVEMENT_RECORD_FILE, achievementRecordAuxiliaryName, loadAchievementRecords } from './achievementRecordStore';
 import { dayKeyInZone, resolveTimeZone } from './dateKeys';
 import {
   GITHUB_HEATMAP_DESTINATION_KEY,
@@ -966,7 +967,7 @@ export class ClaudeCodeUsageExtension {
 
   private async derivedFileFamilyNames(
     filePath: string,
-    family: 'codex-index' | 'quota-observations',
+    family: 'codex-index' | 'quota-observations' | 'achievement-records',
   ): Promise<string[]> {
     const directory = path.dirname(filePath);
     const canonical = path.basename(filePath);
@@ -979,6 +980,7 @@ export class ClaudeCodeUsageExtension {
     }
     return names.filter((name) => {
       if (name === canonical) return true;
+      if (family === 'achievement-records') return achievementRecordAuxiliaryName(name);
       if (family === 'codex-index') {
         return codexIndexCanonicalName(name) === canonical;
       }
@@ -989,7 +991,7 @@ export class ClaudeCodeUsageExtension {
 
   private async localFileFamilyInventory(
     filePath: string,
-    family: 'codex-index' | 'quota-observations',
+    family: 'codex-index' | 'quota-observations' | 'achievement-records',
   ): Promise<{
     approximateBytes: number | null;
     itemCount: number;
@@ -1172,10 +1174,14 @@ export class ClaudeCodeUsageExtension {
       zh ? chinese : english;
     const indexPath = path.join(this.context.globalStorageUri.fsPath, 'codex-index-v1.json');
     const quotaPath = path.join(this.context.globalStorageUri.fsPath, QUOTA_OBSERVATION_FILE);
-    const [indexFile, quotaFile] = await Promise.all([
+    const achievementPath = path.join(this.context.globalStorageUri.fsPath, ACHIEVEMENT_RECORD_FILE);
+    const [indexFile, quotaFile, achievementFile, achievementRecords] = await Promise.all([
       this.localFileFamilyInventory(indexPath, 'codex-index'),
       this.localFileFamilyInventory(quotaPath, 'quota-observations'),
+      this.localFileFamilyInventory(achievementPath, 'achievement-records'),
+      loadAchievementRecords(achievementPath).catch(() => null),
     ]);
+    const achievementCopy = ACHIEVEMENT_RECORD_INVENTORY_COPY[artifactLocale(I18n.getLocale())];
     const stateKeys = this.extensionGlobalStateKeys();
     const legacyQuotaKeys = stateKeys.filter((key) =>
       key.startsWith(LEGACY_QUOTA_PREFIX) || key.startsWith(LEGACY_WEEKLY_PREFIX),
@@ -1353,6 +1359,14 @@ export class ClaudeCodeUsageExtension {
         newestAt: null,
         networkInteraction: local('Local export: none; GitHub publish: explicit confirmed action only', '本地导出：无；GitHub 发布：仅明确确认的动作'),
         clearability: local('Reset Sharing Preferences', '重置分享偏好'),
+      },
+      {
+        id: 'P12', category: 'P12 · ' + achievementCopy.category,
+        locationClass: 'VS Code globalStorage', schema: '1 · ≤64 KiB',
+        approximateBytes: achievementFile.approximateBytes,
+        itemCount: achievementRecords === null ? null : achievementRecords?.records.length ?? 0,
+        oldestAt: null, newestAt: null,
+        networkInteraction: achievementCopy.network, clearability: achievementCopy.clear,
       },
     ];
     return {
@@ -1874,6 +1888,15 @@ export class ClaudeCodeUsageExtension {
     const quota = await loadQuotaObservationStore(quotaPath);
     if (quota.disposition !== 'valid' || quota.store.observations.length > 0) {
       throw new Error('local-data-clear:quota-postcondition-failed');
+    }
+    const achievementPath = path.join(this.context.globalStorageUri.fsPath, ACHIEVEMENT_RECORD_FILE);
+    const record = await loadAchievementRecords(achievementPath);
+    const recordNames = await this.derivedFileFamilyNames(achievementPath, 'achievement-records');
+    if (!record || record.records.length > 0 || record.pins.length > 0 || record.lastNoticeAt !== 0 ||
+        record.auxiliary.activity.features.length > 0 || record.auxiliary.activity.settingKeys.length > 0 ||
+        record.auxiliary.hours.maxStreak !== 0 || record.auxiliary.calendarPeak !== null ||
+        recordNames.some(name => name !== ACHIEVEMENT_RECORD_FILE)) {
+      throw new Error('local-data-clear:achievement-postcondition-failed');
     }
   }
 

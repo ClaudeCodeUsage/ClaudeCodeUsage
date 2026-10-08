@@ -20,7 +20,7 @@ v2.3.1 normative field-level contract is in
 | Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy preview, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
 | Share destination | User-entered GitHub target | One versioned `ccu.heatmapDestination.v1` object containing optional `owner/repository/path`; no GitHub credential | Until sharing preferences are reset | Only after an explicit publish action and exact destination confirmation. A successful write is reported even if saving this convenience preference fails |
 | Advice evidence | Derived local aggregates and explicit feedback | Coarse observations, recommendations, ratings, snoozes, comparable-task metrics, coverage, and versions | Bounded local ledger; clear independently | Nothing by default; only the exact previewed request is sent after a separate action |
-| Local achievements (2.4.2 candidate) | Verified numeric usage and deliberate allowlisted local actions | Rule IDs, safe setting-key/feature enums (never values), a bounded hour-streak maximum, and a version/timezone-qualified four-week-average peak | Default on; off stops new grants and extra historical hour-proof work but preserves saved badges. Clear all extension-derived data removes the exact achievement state families | None; sharing requires an explicit local preview/export, not GitHub authentication |
+| Local achievements (2.4.2 candidate) | Verified numeric usage and deliberate allowlisted local actions | A ≤64 KiB award envelope with public IDs, sequence/reason/unread state and optional first-record day/zone; safe setting-key/feature enums (never values), hour-streak maximum and qualified four-week peak | Default on; off stops new grants and extra proof work. Clear all removes exact achievement state and retains only an empty clear fence | None; sharing requires explicit local preview/export, not GitHub authentication |
 | Advice API key | User-provided secret | Secret value in VS Code SecretStorage only | Until the key or all derived data is cleared | Used only as the authorization credential for the explicitly configured endpoint |
 
 ## What is never cached
@@ -133,7 +133,7 @@ Plugin notices require an actual target crossing in a successfully saved local
 action delta. Hydrated/imported actions grant quietly; re-enabling does not turn
 them into new actions. At most six public plugin-rule IDs are held temporarily
 in memory until their grant saves, or the feature is disabled/cleared. There are
-no action timestamps or new storage keys. A failed grant save can retry without
+no action timestamps in that provenance latch. A failed grant save can retry without
 repeating the action. Provider-log proof retirement does not cancel these independent
 local-action awards. Saving while the dashboard is hidden/closed does not open or
 refresh it. This provenance guard is not a durable missed-notice journal.
@@ -162,16 +162,46 @@ replacement, reset, disable or panel close releases the retained artifact.
 
 The extension-owned ledger contains only the following validated fields:
 
-- `ccu.achievements.grants.v5`: an allowlisted set of at most 124 current rule IDs,
-  not a timestamped activity or export history.
-- `ccu.achievements.activity.v2`: at most 29 safe setting-key names and four feature
+- `globalStorage/achievements-v1.json`: the canonical award envelope, at most
+  64 KiB and one record for each of 124 public rule IDs. Fields are schema/rule
+  version, monotonic clear generation/record sequence, four reason enums
+  (`existing`, `history`, `usage`, `activity`), unread boolean, optional first-record
+  calendar day and timezone, at most three public series pins and one notification
+  cooldown number, plus the existing auxiliary proof described below. The entire
+  envelope, including auxiliary proof, shares the 64 KiB limit. Pins/cooldown and the ACK primitive are prepared for subsequent
+  UI integration; no current notice delivery automatically marks a record read.
+  The recent projection selects at most 30 records without deleting awards.
+  Audited old awards migrate quietly with unknown dates; current usage
+  reconciliation likewise stays quiet until new source activity can be proved.
+  Only a newly crossed, successfully saved local action records its first-record
+  day—not the inferred original achievement time. No action timeline is retained.
+  Transactions merge the latest bytes under a cross-process lease, with flushed
+  private temporary files and atomic rename. Missing-state initialization waits
+  for legacy audits and does not run while OFF. Unknown/future/malformed/oversized
+  or symlink files fail closed without quarantine or overwrite. Clear All deletes
+  exact regular `.achievements-v1.json.<UUID>.tmp` files and related old keys under
+  that lease, replacing the canonical file with only an empty clear fence
+  (schema/generation/sequence, empty records/pins/activity, zero cooldown/hour
+  maximum and no calendar peak). It is not
+  unlinked, preventing a still-running old host from resurrecting legacy awards.
+  Candidate hosts with the old generation suspend writes until reload. Leases,
+  lookalikes, unknown files and provider sources are not deleted. Inventory P12
+  reports only aggregate byte/record counts, not record contents or dates.
+
+- `ccu.achievements.grants.v5`: audited legacy migration input of at most 124 IDs;
+  real hosts do not write a grant mirror after adopting the canonical envelope.
+- `auxiliary.activity` (old `ccu.achievements.activity.v2` migration input): at most 29 safe setting-key names and four feature
   enums. Only deliberate, successful local actions count; no setting values,
   secrets, paths, consent decisions or default/migration/reset events are retained.
-- `ccu.achievements.hours.v3`: the numeric maximum positive-output hour streak,
+- `auxiliary.hours` (old `ccu.achievements.hours.v3` migration input): the numeric maximum positive-output hour streak,
   capped at 48. It is not a list of human working hours.
-- `ccu.achievements.calendarPeak.v1`: one verified four-completed-week average
+- `auxiliary.calendarPeak` (old `ccu.achievements.calendarPeak.v1` migration input): one verified four-completed-week average
   maximum plus measurement versions, timezone and provider-presence bitmask.
   Reuse requires matching context and complete current normalized numeric evidence.
+  Canonical transactions merge activity sets/hour maxima and matching-context
+  calendar peaks; different calendar contexts are never combined. Real hosts do
+  not mirror these fields back to cached Memento entries. The empty clear fence
+  wins over every old auxiliary migration input, as well as old award IDs.
 - Exact audit/migration booleans and a bounded rule-ID migration draft; unknown
   fields are rejected. Clear All includes these and known older achievement schemas
   by exact name, without deleting unrelated or future state.

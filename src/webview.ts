@@ -59,6 +59,7 @@ import { nextAchievementStage } from './achievementStages';
 import { AchievementOverviewSelection, selectAchievementOverview, retainAchievementOverview } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline } from './achievementEvidence';
+import { ACHIEVEMENT_RECORD_FILE, AchievementAuxiliaryProof, AchievementRecordRepository, AchievementRecordStore } from './achievementRecordStore';
 import {
   AchievementActivity,
   AchievementFeature,
@@ -1037,6 +1038,12 @@ export class UsageWebviewProvider {
   private achievementOverviewProvider?: 'claude' | 'codex' | 'compare';
   private clearingAchievements = false;
   private achievementWrite: Promise<unknown> = Promise.resolve();
+  private achievementRecordRepository?: AchievementRecordRepository;
+  private achievementRecordState?: AchievementRecordStore;
+  private achievementRecordLoading = false;
+  private achievementRecordLoadFailed = false;
+  // 29 safe setting keys + four feature enums; repeated bootstrap clicks coalesce.
+  private pendingAchievementRecordActions = new Map<string, () => void>();
   private achievementActivity: AchievementActivity = emptyAchievementActivity();
   private pendingAchievementActivity?: AchievementActivity;
   private achievementActivityWrite: Promise<unknown> = Promise.resolve();
@@ -1258,6 +1265,12 @@ export class UsageWebviewProvider {
   private adviceComparisonProductionRevision = '';
 
   constructor(private context: vscode.ExtensionContext) {
+    // Real hosts always supply globalStorageUri. Pathless unit fixtures keep
+    // their legacy Memento test seam; a real filesystem failure never falls back.
+    if (typeof context.globalStorageUri?.fsPath === 'string') {
+      this.achievementRecordRepository = new AchievementRecordRepository(
+        path.join(context.globalStorageUri.fsPath, ACHIEVEMENT_RECORD_FILE));
+    }
     const allowed = new Set<string>(ACHIEVEMENT_DEFINITIONS.map((entry) => entry.id));
     const stored = context.globalState?.get<unknown>('ccu.achievements.grants.v5');
     if (Array.isArray(stored)) {
@@ -1340,9 +1353,15 @@ export class UsageWebviewProvider {
         this.achievementActivity = migrateAchievementActivityV1(previousActivity);
         const migrated = this.achievementActivity;
         this.achievementActivityWrite = Promise.resolve().then(async () => {
-          await context.globalState.update('ccu.achievements.activity.v2', migrated);
-          await context.globalState.update('ccu.achievements.activity.v1', undefined);
-        }).catch(() => undefined);
+          const migrate = async () => {
+            await context.globalState.update('ccu.achievements.activity.v2', migrated);
+            await context.globalState.update('ccu.achievements.activity.v1', undefined);
+          };
+          if (this.achievementRecordRepository) await this.achievementRecordRepository.migrateLegacyActivity(migrate);
+          else await migrate();
+        }).catch(error => {
+          if (this.achievementRecordRepository) throw error;
+        });
       }
     }
     this.achievementHourEvidence = parseHourEvidence(
@@ -1411,6 +1430,7 @@ export class UsageWebviewProvider {
     // Startup may remain idle after a storage failure. Observe both terminal
     // queues without replacing their rejected promises or completing a marker.
     void this.achievementWrite.catch(() => undefined);
+    void this.achievementActivityWrite.catch(() => undefined);
     void this.achievementHourWrite.catch(() => undefined);
     const storage = this.adviceStateStorage();
     if (!storage) {
@@ -4012,14 +4032,96 @@ export class UsageWebviewProvider {
       : { processed: 0, lowerBound: false };
   }
 
+  private ensureAchievementRecords(): boolean {
+    const repository = this.achievementRecordRepository;
+    if (!repository || this.achievementRecordState) return true;
+    if (this.achievementRecordLoading || this.achievementRecordLoadFailed) return false;
+    const epoch = this.achievementPersistenceEpoch;
+    const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+      this.setting<boolean>('enableAchievements', true);
+    const migrations = this.achievementWrite;
+    const activityMigration = this.achievementActivityWrite;
+    this.achievementRecordLoading = true;
+    this.achievementWrite = migrations.then(async () => {
+      await activityMigration;
+      if (!canWrite()) return;
+      for (const audit of ['structural', 'token', 'bucket', 'manifest', 'calendar', 'calibration']) {
+        if (this.context.globalState.get<boolean>(`ccu.achievements.${audit}Audit.v1`) !== true) {
+          throw new Error('achievement-record:migration-pending');
+        }
+      }
+      const saved = await repository.initialize([...this.achievementGrants], canWrite, {
+        activity: this.achievementActivity, hours: this.achievementHourEvidence,
+        calendarPeak: this.achievementCalendarPeak ?? null,
+      });
+      if (!canWrite()) return;
+      this.achievementRecordState = saved;
+      this.achievementGrants = new Set(saved.records.map(row => row.id));
+      this.achievementActivity = saved.auxiliary.activity;
+      this.achievementHourEvidence = saved.auxiliary.hours;
+      this.achievementCalendarPeak = saved.auxiliary.calendarPeak ?? undefined;
+      this.achievementHourCache = undefined;
+      this.achievementNoticeBaseline.reset();
+      this.achievementRecordLoading = false;
+      const actions = [...this.pendingAchievementRecordActions.values()];
+      this.pendingAchievementRecordActions.clear();
+      for (const action of actions) action();
+      this.achievementResults();
+      if (this.panel?.visible && this.webviewClientReady) this.updateWebview();
+    }).catch(() => {
+      if (canWrite()) this.achievementRecordLoadFailed = true;
+    }).finally(() => {
+      this.achievementRecordLoading = false;
+      this.pendingAchievementRecordActions.clear();
+    });
+    return false;
+  }
+
+  private async saveAchievementDerivedState<K extends keyof AchievementAuxiliaryProof>(key: K,
+    value: AchievementAuxiliaryProof[K], epoch: number): Promise<{
+      current: AchievementAuxiliaryProof; previous: AchievementAuxiliaryProof; added: AchievementId[];
+    } | undefined> {
+    const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+      this.setting<boolean>('enableAchievements', true);
+    if (!canWrite()) throw new Error('achievement-record:cancelled');
+    const repository = this.achievementRecordRepository;
+    if (repository) {
+      if (!this.achievementRecordState) {
+        this.ensureAchievementRecords();
+        await this.achievementWrite;
+      }
+      if (!this.achievementRecordState || !canWrite()) throw new Error('achievement-record:cancelled');
+      try {
+        const timeZone = resolveTimeZone(I18n.getTimezone());
+        const result = key === 'activity'
+          ? await repository.recordActivity(this.achievementRecordState.generation, value as AchievementActivity,
+            { recordedDay: dayKeyInZone(new Date(), timeZone), timeZone }, canWrite)
+          : await repository.updateAuxiliary(this.achievementRecordState.generation, key, value, canWrite);
+        if (!canWrite()) throw new Error('achievement-record:cancelled');
+        this.achievementRecordState = result.store;
+        return { current: result.store.auxiliary, previous: result.previous,
+          added: result.added.map(row => row.id) };
+      } catch (error) {
+        if ((error as Error)?.message === 'achievement-record:generation') this.clearingAchievements = true;
+        throw error;
+      }
+    } else {
+      const legacyKeys = { activity: 'ccu.achievements.activity.v2', hours: 'ccu.achievements.hours.v3',
+        calendarPeak: 'ccu.achievements.calendarPeak.v1' };
+      await this.context.globalState.update(legacyKeys[key], value);
+    }
+  }
+
   private achievementResults(): AchievementResult[] {
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true)) {
       this.achievementOverviewSelection = undefined;
       this.achievementNoticeBaseline.reset();
       this.achievementEvidenceStates = undefined;
       this.observedPluginAchievementIds.clear();
+      this.pendingAchievementRecordActions.clear();
       return [];
     }
+    if (!this.ensureAchievementRecords()) return [];
     const hours = this.achievementHourSignals();
     const claude = this.revokedAchievementEvidence.has('claude') ? null : this.allTimeData;
     const claudeTokens = claude
@@ -4101,8 +4203,9 @@ export class UsageWebviewProvider {
         if (JSON.stringify(current) !== JSON.stringify(peakContext)) return;
         const next = updateCalendarPeakEvidence(this.achievementCalendarPeak, peakContext, peak, true);
         if (next === this.achievementCalendarPeak) return;
-        await this.context.globalState.update('ccu.achievements.calendarPeak.v1', next);
-        if (epoch === this.achievementPersistenceEpoch) this.achievementCalendarPeak = next;
+        const saved = await this.saveAchievementDerivedState('calendarPeak', next ?? null, epoch);
+        if (epoch === this.achievementPersistenceEpoch) this.achievementCalendarPeak = saved
+          ? saved.current.calendarPeak ?? undefined : next;
       });
       // Failed writes are not optimistic proof and remain retryable next render.
       void this.achievementCalendarWrite.catch(() => undefined);
@@ -4221,8 +4324,28 @@ export class UsageWebviewProvider {
           if (validIds.length === 0) return;
           // Snapshot confirmed awards here, not before an earlier queued save
           // may fail. Failed saves remain eligible on the next normal update.
-          const grants = [...new Set([...this.achievementGrants, ...validIds])].sort();
-          await this.context.globalState.update('ccu.achievements.grants.v5', grants);
+          let newlySavedIds = validIds;
+          if (this.achievementRecordRepository && this.achievementRecordState) {
+            const timeZone = resolveTimeZone(I18n.getTimezone());
+            const recordedDay = dayKeyInZone(new Date(), timeZone);
+            const append = await this.achievementRecordRepository.append(this.achievementRecordState.generation,
+              validIds.map(id => {
+                const local = this.isPluginAchievement(id) && this.observedPluginAchievementIds.has(id);
+                // A ready domain alone cannot prove new source activity rather
+                // than late historical reconciliation. Keep usage quiet until
+                // producer-origin evidence is wired, instead of inventing a date.
+                return { id, origin: local ? 'activity' as const : 'history' as const,
+                  recordedDay: local ? recordedDay : null, timeZone: local ? timeZone : null };
+              }), () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+                this.setting<boolean>('enableAchievements', true) &&
+                validIds.every(id => this.isPluginAchievement(id) || evidenceEpoch === this.usageAchievementEvidenceEpoch));
+            this.achievementRecordState = append.store;
+            this.achievementGrants = new Set(append.store.records.map(row => row.id));
+            newlySavedIds = append.added.filter(row => row.unread).map(row => row.id);
+          } else {
+            const grants = [...new Set([...this.achievementGrants, ...validIds])].sort();
+            await this.context.globalState.update('ccu.achievements.grants.v5', grants);
+          }
           if (epoch !== this.achievementPersistenceEpoch) return;
           const confirmedIds = validIds.filter(id => this.isPluginAchievement(id) ||
             evidenceEpoch === this.usageAchievementEvidenceEpoch);
@@ -4233,13 +4356,17 @@ export class UsageWebviewProvider {
           if (wasVisible && this.panel?.visible &&
               Date.now() - this.lastAchievementNoticeAt > 300_000) {
             for (const id of notifiableAchievementIds(noticeIds)) {
-              if (confirmedIds.includes(id) && !this.silentAchievementRechecks.has(id)) this.pendingAchievementNotice.add(id);
+              if (newlySavedIds.includes(id) && confirmedIds.includes(id) && !this.silentAchievementRechecks.has(id)) this.pendingAchievementNotice.add(id);
             }
           }
           this.dispatchAchievementNotice();
-        } catch {
+        } catch (error) {
           // No optimistic grant or notice survives a failed durable write.
           this.achievementNoticeBaseline.reset();
+          if ((error as Error)?.message === 'achievement-record:generation') {
+            this.clearingAchievements = true;
+            this.pendingAchievementNotice.clear();
+          }
         } finally {
           if (epoch === this.achievementPersistenceEpoch) {
             for (const id of ids) {
@@ -4301,35 +4428,42 @@ export class UsageWebviewProvider {
     this.observedPluginAchievementIds.clear();
     this.acceptedAchievementPreview.clear();
     this.pendingAchievementActivity = undefined;
+    this.pendingAchievementRecordActions.clear();
     try {
       await this.achievementWrite.catch(() => undefined);
       await this.achievementActivityWrite.catch(() => undefined);
       await this.achievementHourWrite.catch(() => undefined);
       await this.achievementCalendarWrite.catch(() => undefined);
-      const deletions = await Promise.allSettled([
-        this.context.globalState.update('ccu.achievements.grants.v1', undefined),
-        this.context.globalState.update('ccu.achievements.grants.v2', undefined),
-        this.context.globalState.update('ccu.achievements.grants.v3', undefined),
-        this.context.globalState.update('ccu.achievements.grants.v4', undefined),
-        this.context.globalState.update('ccu.achievements.grants.v5', undefined),
-        this.context.globalState.update('ccu.achievements.structuralAudit.v1', undefined),
-        this.context.globalState.update('ccu.achievements.tokenAudit.v1', undefined),
-        this.context.globalState.update('ccu.achievements.bucketAudit.v1', undefined),
-        this.context.globalState.update('ccu.achievements.manifestAudit.v1', undefined),
-        this.context.globalState.update('ccu.achievements.calendarAudit.v1', undefined),
-        this.context.globalState.update('ccu.achievements.calibrationAudit.v1', undefined),
-        this.context.globalState.update('ccu.achievements.calibrationPending.v1', undefined),
-        this.context.globalState.update('ccu.achievements.calendarPeak.v1', undefined),
-        this.context.globalState.update('ccu.achievements.activity.v1', undefined),
-        this.context.globalState.update('ccu.achievements.activity.v2', undefined),
-        this.context.globalState.update('ccu.achievements.hours.v1', undefined),
-        this.context.globalState.update('ccu.achievements.hours.v2', undefined),
-        this.context.globalState.update('ccu.achievements.hours.v3', undefined),
-      ]);
-      // A failed delete must not reopen event recording while sibling deletes
-      // are still in flight and could erase a newly saved action.
-      const failure = deletions.find((result) => result.status === 'rejected');
-      if (failure?.status === 'rejected') throw failure.reason;
+      const resetRelatedState = async () => {
+        const deletions = await Promise.allSettled([
+          this.context.globalState.update('ccu.achievements.grants.v1', undefined),
+          this.context.globalState.update('ccu.achievements.grants.v2', undefined),
+          this.context.globalState.update('ccu.achievements.grants.v3', undefined),
+          this.context.globalState.update('ccu.achievements.grants.v4', undefined),
+          this.context.globalState.update('ccu.achievements.grants.v5', undefined),
+          this.context.globalState.update('ccu.achievements.structuralAudit.v1', undefined),
+          this.context.globalState.update('ccu.achievements.tokenAudit.v1', undefined),
+          this.context.globalState.update('ccu.achievements.bucketAudit.v1', undefined),
+          this.context.globalState.update('ccu.achievements.manifestAudit.v1', undefined),
+          this.context.globalState.update('ccu.achievements.calendarAudit.v1', undefined),
+          this.context.globalState.update('ccu.achievements.calibrationAudit.v1', undefined),
+          this.context.globalState.update('ccu.achievements.calibrationPending.v1', undefined),
+          this.context.globalState.update('ccu.achievements.calendarPeak.v1', undefined),
+          this.context.globalState.update('ccu.achievements.activity.v1', undefined),
+          this.context.globalState.update('ccu.achievements.activity.v2', undefined),
+          this.context.globalState.update('ccu.achievements.hours.v1', undefined),
+          this.context.globalState.update('ccu.achievements.hours.v2', undefined),
+          this.context.globalState.update('ccu.achievements.hours.v3', undefined),
+        ]);
+        // A failed delete must not reopen event recording while sibling deletes
+        // are still in flight and could erase a newly saved action.
+        const failure = deletions.find((result) => result.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
+      };
+      if (this.achievementRecordRepository) {
+        this.achievementRecordState = await this.achievementRecordRepository.clear(resetRelatedState);
+        this.achievementRecordLoadFailed = false;
+      } else { await resetRelatedState(); }
       this.achievementGrants.clear();
       this.achievementActivity = emptyAchievementActivity();
       this.achievementHourEvidence = { schemaVersion: 3, maxStreak: 0 };
@@ -4390,9 +4524,9 @@ export class UsageWebviewProvider {
           }
           const retained = updateHourEvidence(this.achievementHourEvidence, next.maxStreak);
           if (retained === this.achievementHourEvidence) return;
-          await this.context.globalState.update('ccu.achievements.hours.v3', retained);
+          const saved = await this.saveAchievementDerivedState('hours', retained, epoch);
           if (epoch !== this.achievementPersistenceEpoch) return;
-          this.achievementHourEvidence = retained;
+          this.achievementHourEvidence = saved?.current.hours ?? retained;
         });
       // Skipped or failed writes must leave unchanged source proof retryable.
       void this.achievementHourWrite.catch(() => {
@@ -4413,15 +4547,23 @@ export class UsageWebviewProvider {
         try {
           if (epoch !== this.achievementPersistenceEpoch ||
               !this.setting<boolean>('enableAchievements', true)) return;
-          await this.context.globalState.update('ccu.achievements.activity.v2', next);
+          const saved = await this.saveAchievementDerivedState('activity', next, epoch);
           if (epoch !== this.achievementPersistenceEpoch) return;
-          const previous = this.achievementActivity;
-          this.achievementActivity = next;
+          const previous = saved?.previous.activity ?? this.achievementActivity;
+          this.achievementActivity = saved?.current.activity ?? next;
           if (!this.setting<boolean>('enableAchievements', true)) return;
-          const newlyObserved = newlyUnlockedPluginAchievements(previous, next);
+          const newlyObserved = saved ? [] : newlyUnlockedPluginAchievements(previous, this.achievementActivity);
           for (const id of newlyObserved) {
+            if (this.achievementGrants.has(id)) continue;
             this.observedPluginAchievementIds.add(id);
             this.silentAchievementRechecks.delete(id);
+          }
+          if (saved && this.achievementRecordState) {
+            this.achievementGrants = new Set(this.achievementRecordState.records.map(row => row.id));
+            if (this.panel?.visible && Date.now() - this.lastAchievementNoticeAt > 300_000) {
+              for (const id of notifiableAchievementIds(saved.added)) this.pendingAchievementNotice.add(id);
+            }
+            this.dispatchAchievementNotice();
           }
           // Persist independently of presentation. Hidden/closed panels do not
           // delay an already successful local action until a future render.
@@ -4438,7 +4580,17 @@ export class UsageWebviewProvider {
       });
   }
 
+  private deferAchievementRecordAction(key: string, action: () => void): boolean {
+    if (!this.achievementRecordRepository || this.achievementRecordState) return false;
+    if (this.clearingAchievements || this.achievementRecordLoadFailed || !this.setting<boolean>('enableAchievements', true)) return true;
+    this.pendingAchievementRecordActions.set(key, action);
+    this.ensureAchievementRecords();
+    return true;
+  }
+
   private recordAchievementSettingChange(key: string, changed: boolean): void {
+    if (!changed || !isAchievementSettingKey(key)) return;
+    if (this.deferAchievementRecordAction('setting:' + key, () => this.recordAchievementSettingChange(key, changed))) return;
     this.persistAchievementActivity(
       recordAchievementSettingChange(this.pendingAchievementActivity ?? this.achievementActivity, key, changed));
   }
@@ -4448,6 +4600,8 @@ export class UsageWebviewProvider {
   }
 
   private recordAchievementFeature(feature: AchievementFeature): void {
+    if (!['achievementGalleryViewed', 'achievementSharePreview', 'localShareExport', 'localAdviceFeedback'].includes(feature)) return;
+    if (this.deferAchievementRecordAction('feature:' + feature, () => this.recordAchievementFeature(feature))) return;
     this.persistAchievementActivity(recordAchievementFeature(
       this.pendingAchievementActivity ?? this.achievementActivity, feature));
   }
