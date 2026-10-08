@@ -68,6 +68,9 @@ Concurrent windows merge awards; clearing retains an empty fence against stale w
 Badge notices appear only in the visible foreground panel, at most once per five
 minutes across windows/restarts. Display confirmation reads only that batch; missed
 notices stay unread. Hovering or keyboard focus pauses dismissal.
+Missed awards appear in a folded New awards summary with at most six exact levels
+per group. Only Mark this group read confirms that group after a successful local
+save; browsing, pinning and sharing do not. Other windows' later awards remain unread.
 Recently earned shows at most three new series; Recent records folds up to thirty
 saved levels and links to their rules. Earned badge details can pin up to three
 representatives in My badges; saved pins survive restart and never select sharing.

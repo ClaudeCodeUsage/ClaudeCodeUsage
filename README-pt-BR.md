@@ -61,6 +61,10 @@ sem aviso. Janelas mesclam conquistas; a limpeza deixa uma barreira de geração
 Avisos aparecem apenas no painel visível em primeiro plano, no máximo a cada cinco
 minutos entre janelas e reinícios. Só o lote com exibição confirmada é marcado como lido;
 avisos perdidos continuam não lidos. Mouse ou foco do teclado pausam o fechamento.
+Avisos perdidos ficam num resumo inicialmente recolhido, com até seis níveis exatos
+por grupo. Apenas a confirmação explícita, após salvar localmente com sucesso,
+marca esse grupo como lido; consultar, fixar e compartilhar não. Prêmios posteriores
+de outras janelas continuam não lidos.
 Conquistas recentes mostra até três séries novas; os registros recolhíveis mostram
 até trinta níveis com links para as regras. Datas indicam o primeiro registro, não a
 conquista original; datas históricas continuam desconhecidas. Consultar não marca como lido nem seleciona para compartilhar.

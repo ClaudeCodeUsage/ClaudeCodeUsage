@@ -65,6 +65,10 @@ hinterlässt eine leere Generationssperre gegen veraltete Schreibvorgänge.
 Hinweise erscheinen nur im sichtbaren Vordergrundpanel, höchstens alle fünf Minuten
 über Fenster und Neustarts hinweg. Nur bestätigte Anzeigen markieren ihre Gruppe
 als gelesen; verpasste bleiben ungelesen. Maus- und Tastaturfokus pausieren das Ausblenden.
+Verpasste Auszeichnungen stehen in einer zunächst eingeklappten Übersicht mit
+höchstens sechs konkreten Stufen je Gruppe. Nur die ausdrückliche Bestätigung nach
+erfolgreichem lokalem Speichern liest diese Gruppe; Ansehen, Anheften und Teilen
+nicht. Spätere Auszeichnungen anderer Fenster bleiben ungelesen.
 Zuletzt erhalten zeigt höchstens drei neue Serien; die einklappbaren Einträge umfassen
 bis zu dreißig Stufen mit Regellinks. Daten bezeichnen die erste Erfassung, nicht die
 ursprüngliche Erlangung; alte Daten bleiben unbekannt. Beim Ansehen werden Einträge

@@ -71,11 +71,11 @@ test('ready handshake synchronizes a valid restored tab without recording an ach
   let actions = 0, ready = 0;
   p.recordAchievementFeature = () => { actions++; };
   p.onLocalDataClientReady = () => { ready++; };
-  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'achievements' });
+  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'achievements', documentId: p.dashboardDocumentId });
   assert.equal(p.currentTab, 'achievements');
   assert.equal(p.webviewClientReady, true);
   assert.equal(actions, 0, 'restoring UI is not a fresh gallery visit');
-  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'month' });
+  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'month', documentId: p.dashboardDocumentId });
   assert.equal(p.currentTab, 'month');
   assert.equal(actions, 0);
   assert.equal(ready, 2);
@@ -97,13 +97,13 @@ test('ready and tab messages reject unknown tabs, a different provider and disab
     { command: 'localDataClientReady', activeTab: 'today' },
     { command: 'tabChanged', tab: '../private-path' },
     { command: 'tabChanged', tab: 'branches' },
-  ]) await handler(message);
+  ]) await handler({ ...message, documentId: p.dashboardDocumentId });
   assert.equal(p.webviewClientReady, false);
   assert.equal(p.currentTab, 'today');
   assert.equal(ready, 0);
   p.settings = { get: (key: string, fallback: unknown) => key === 'enableAchievements' ? false : fallback };
-  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'achievements' });
-  await handler({ command: 'tabChanged', tab: 'achievements' });
+  await handler({ command: 'localDataClientReady', provider: 'codex', activeTab: 'achievements', documentId: p.dashboardDocumentId });
+  await handler({ command: 'tabChanged', tab: 'achievements', documentId: p.dashboardDocumentId });
   assert.equal(p.currentTab, 'today');
   assert.equal(p.webviewClientReady, false);
   assert.equal(actions, 0);
@@ -113,12 +113,33 @@ test('compare readiness accepts only its real all-time panel and does not change
   const p = provider();
   await new Promise<void>(resolve => setImmediate(resolve));
   p.currentProvider = 'compare'; p.currentTab = 'all'; p.webviewClientReady = false;
-  await handler({ command: 'localDataClientReady', provider: 'compare', activeTab: 'achievements' });
+  await handler({ command: 'localDataClientReady', provider: 'compare', activeTab: 'achievements', documentId: p.dashboardDocumentId });
   assert.equal(p.webviewClientReady, false);
-  await handler({ command: 'localDataClientReady', provider: 'compare', activeTab: 'all' });
+  await handler({ command: 'localDataClientReady', provider: 'compare', activeTab: 'all', documentId: p.dashboardDocumentId });
   assert.equal(p.webviewClientReady, true);
   assert.equal(p.currentTab, 'all');
   assert.equal(p.currentProvider, 'compare');
+});
+
+test('retired document ready and tab messages cannot revive a replacement document', async () => {
+  const p = provider();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  const retiredId = p.dashboardDocumentId;
+  p.renewDashboardDocument("<script>var __ccuDocumentId = '" + retiredId + "';</script>");
+  p.currentTab = 'today'; p.webviewClientReady = false;
+  let actions = 0, ready = 0;
+  p.recordAchievementFeature = () => { actions++; };
+  p.onLocalDataClientReady = () => { ready++; };
+  for (const documentId of [retiredId, undefined]) {
+    await handler({ command: 'localDataClientReady', provider: 'claude', activeTab: 'achievements', documentId });
+    await handler({ command: 'tabChanged', tab: 'achievements', documentId });
+  }
+  assert.equal(p.currentTab, 'today');
+  assert.equal(p.webviewClientReady, false);
+  assert.equal(actions, 0); assert.equal(ready, 0);
+  await handler({ command: 'localDataClientReady', provider: 'claude', activeTab: 'achievements', documentId: p.dashboardDocumentId });
+  assert.equal(p.currentTab, 'achievements');
+  assert.equal(p.webviewClientReady, true); assert.equal(ready, 1);
 });
 
 test('share export rejects an unpreviewed configuration before opening a save dialog', async () => {

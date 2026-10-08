@@ -49,6 +49,196 @@ async function withAchievementStorage(run: (directory: string) => Promise<void>)
   try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
+async function unreadProvider(provider: any): Promise<string> {
+  await prepareAchievementNoticeProvider(provider);
+  provider.currentTab = 'achievements';
+  provider.achievementResults(); await settleAchievementWrites(provider);
+  const added = await provider.achievementRecordRepository.append(provider.achievementRecordState.generation,
+    ['settings-explorer-bronze', 'settings-explorer-silver', 'settings-explorer-gold', 'safe-feature-explorer',
+      'local-share-export', 'local-advice-feedback', 'hundred-million-club', 'astra-regular'].map(id =>
+      ({ id, origin: 'activity', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' })));
+  provider.achievementRecordState = added.store;
+  provider.achievementGrants = new Set(added.store.records.map((row: any) => row.id));
+  return provider.renderAchievementData();
+}
+
+test('unread summary is folded, bounded, keeps exact series levels and does not read on render', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      const html = await unreadProvider(provider);
+      assert.match(html, /<details[^>]*data-persist="achievement:unread"/);
+      assert.doesNotMatch(html, /<details[^>]*data-persist="achievement:unread"[^>]* open/);
+      const section = html.match(/<details[^>]*data-persist="achievement:unread"[\s\S]*?<\/details>/)![0];
+      assert.equal((section.match(/data-achievement-record=/g) ?? []).length, 6);
+      assert.match(section, /data-achievement-record="settings-explorer-silver"/);
+      assert.match(section, /data-achievement-record="settings-explorer-gold"/);
+      assert.doesNotMatch(section, /data-achievement-record="astra-regular"/);
+      const packet = provider.achievementUnreadPacket;
+      assert.match(packet.id, /^[0-9a-f]{48}$/);
+      assert.equal(packet.batch.total, 7);
+      const bytes = await readFile(provider.achievementRecordRepository.file, 'utf8');
+      provider.renderAchievementData();
+      assert.equal(provider.achievementUnreadPacket.id, packet.id);
+      assert.equal(await readFile(provider.achievementRecordRepository.file, 'utf8'), bytes);
+      assert.equal(provider.achievementShareSelection, undefined);
+    }, undefined, directory);
+  });
+});
+
+test('explicit summary confirmation merges fresh peers and marks only six represented exact IDs', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await unreadProvider(provider);
+      const packet = provider.achievementUnreadPacket;
+      const peer = await provider.achievementRecordRepository.append(packet.generation,
+        [{ id: 'billion-token-club', origin: 'usage', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' }]);
+      await provider.acknowledgeAchievementSummary({ summaryId: packet.id, documentId: provider.dashboardDocumentId,
+        ids: peer.store.records.map((row: any) => row.id) });
+      const saved = JSON.parse(await readFile(provider.achievementRecordRepository.file, 'utf8'));
+      assert.equal(saved.records.filter((row: any) => !row.unread).length, 6);
+      for (const id of ['settings-explorer-bronze', 'astra-regular', 'billion-token-club'])
+        assert.equal(saved.records.find((row: any) => row.id === id).unread, true);
+      assert.equal(provider.achievementUnreadPacket, undefined);
+      assert.equal(saved.sequence, peer.store.sequence);
+      assert.deepEqual(saved.pins, []);
+    }, undefined, directory);
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.currentTab = 'achievements';
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const html = provider.renderAchievementData();
+      assert.match(html, /data-persist="achievement:unread"/);
+      assert.equal(provider.achievementUnreadPacket.batch.total, 2, 'hidden Codex stays unread, not in this provider-visible group');
+    }, undefined, directory);
+  });
+});
+
+test('summary save rejects inactive, hidden, blurred, OFF and old document requests', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await unreadProvider(provider);
+      const packet = provider.achievementUnreadPacket, file = provider.achievementRecordRepository.file;
+      const before = await readFile(file, 'utf8');
+      const request = { summaryId: packet.id, documentId: provider.dashboardDocumentId };
+      for (const condition of ['tab', 'hidden', 'blur', 'ready', 'off', 'document', 'token']) {
+        provider.currentTab = condition === 'tab' ? 'month' : 'achievements';
+        provider.panel.visible = condition !== 'hidden';
+        provider.achievementWindowFocused = condition !== 'blur';
+        provider.webviewClientReady = condition !== 'ready';
+        provider.settings = { get: (key: string) => condition !== 'off' || key !== 'enableAchievements' };
+        await provider.acknowledgeAchievementSummary({ ...request,
+          ...(condition === 'document' ? { documentId: 'retired' } : {}),
+          ...(condition === 'token' ? { summaryId: 'forged' } : {}) });
+        assert.equal(await readFile(file, 'utf8'), before, condition);
+      }
+      provider.currentTab = 'achievements'; provider.settings = { get: () => true };
+      provider.webviewClientReady = true; provider.panel.visible = true; provider.achievementWindowFocused = true;
+      const original = provider.achievementRecordRepository.acknowledgeRecords;
+      const messages: any[] = [];
+      provider.panel.webview.postMessage = async (message: unknown) => { messages.push(message); return true; };
+      provider.achievementRecordRepository.acknowledgeRecords = async () => { throw new Error('/private/raw/path'); };
+      await provider.acknowledgeAchievementSummary(request);
+      assert.equal(await readFile(file, 'utf8'), before);
+      assert.deepEqual(messages, [{ command: 'achievementSummaryResult', summaryId: packet.id,
+        documentId: provider.dashboardDocumentId, ok: false }]);
+      provider.achievementRecordRepository.acknowledgeRecords = original;
+    }, undefined, directory);
+  });
+});
+
+test('summary source and provider eligibility are rechecked after queued receipt delivery', async () => {
+  for (const change of ['source', 'provider']) await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await unreadProvider(provider);
+      provider.providerAvailability.codex = true;
+      // Start a new visit; a source becoming visible must not widen an already represented group.
+      provider.achievementUnreadPacket = undefined;
+      provider.renderAchievementData();
+      const packet = provider.achievementUnreadPacket;
+      assert.ok(packet.batch.records.some((row: any) => row.id === 'astra-regular'));
+      const before = await readFile(provider.achievementRecordRepository.file, 'utf8');
+      let release!: () => void;
+      provider.achievementWrite = new Promise<void>(resolve => { release = resolve; });
+      const pending = provider.acknowledgeAchievementSummary({ summaryId: packet.id, documentId: packet.documentId });
+      if (change === 'source') provider.providerAvailability.codex = false;
+      else provider.currentProvider = 'codex';
+      release(); await pending;
+      assert.equal(await readFile(provider.achievementRecordRepository.file, 'utf8'), before, change);
+    }, undefined, directory);
+  });
+});
+
+test('replaced and patch-fallback documents retire the old summary tuple without losing unread records', async () => {
+  for (const replacement of ['normal', 'fallback']) await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await unreadProvider(provider);
+      const packet = provider.achievementUnreadPacket, before = await readFile(provider.achievementRecordRepository.file, 'utf8');
+      const html = "<script>var __ccuDocumentId = '" + packet.documentId + "';</script>";
+      if (replacement === 'normal') {
+        const renewed = provider.renewDashboardDocument(html);
+        assert.ok(renewed.includes(provider.dashboardDocumentId));
+      } else {
+        const pending = { revision: 7, documentHtml: html };
+        provider.pendingDashboardLivePatch = pending;
+        provider.replaceDocumentAfterPatchFailure(pending);
+        assert.equal(provider.webviewClientReady, false);
+        assert.ok(provider.panel.webview.html.includes(provider.dashboardDocumentId));
+        provider.webviewClientReady = true;
+      }
+      assert.notEqual(provider.dashboardDocumentId, packet.documentId);
+      assert.notEqual(provider.achievementUnreadPacket, packet, 'an already queued receipt cannot adopt the renewed document');
+      await provider.acknowledgeAchievementSummary({ summaryId: packet.id, documentId: packet.documentId });
+      assert.equal(await readFile(provider.achievementRecordRepository.file, 'utf8'), before);
+      const renewed = provider.achievementUnreadPacket;
+      await provider.acknowledgeAchievementSummary({ summaryId: renewed.id, documentId: renewed.documentId });
+      const saved = JSON.parse(await readFile(provider.achievementRecordRepository.file, 'utf8'));
+      assert.equal(saved.records.filter((row: any) => !row.unread).length, 6);
+    }, undefined, directory);
+  });
+});
+
+test('a durable summary receipt survives render failure and a repeated request does not read another group', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await unreadProvider(provider);
+      const packet = provider.achievementUnreadPacket, messages: any[] = [];
+      provider.panel.webview.postMessage = async (message: unknown) => { messages.push(message); return true; };
+      provider.updateWebview = () => { throw new Error('synthetic render failure'); };
+      const request = { summaryId: packet.id, documentId: packet.documentId };
+      await provider.acknowledgeAchievementSummary(request);
+      const bytes = await readFile(provider.achievementRecordRepository.file, 'utf8');
+      assert.equal(JSON.parse(bytes).records.filter((row: any) => !row.unread).length, 6);
+      assert.deepEqual(messages, [], 'render failure must not claim the durable save failed');
+      provider.renderAchievementData();
+      assert.equal(provider.achievementUnreadPacket.batch.total, 1);
+      assert.notEqual(provider.achievementUnreadPacket.id, packet.id);
+      await provider.acknowledgeAchievementSummary(request);
+      assert.equal(await readFile(provider.achievementRecordRepository.file, 'utf8'), bytes);
+    }, undefined, directory);
+  });
+});
+
+test('summary queue rechecks focus before lease commit and a cleared epoch cannot revive records', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await unreadProvider(provider);
+      const packet = provider.achievementUnreadPacket, before = await readFile(provider.achievementRecordRepository.file, 'utf8');
+      let release!: () => void;
+      provider.achievementWrite = new Promise<void>(resolve => { release = resolve; });
+      const pending = provider.acknowledgeAchievementSummary({ summaryId: packet.id, documentId: provider.dashboardDocumentId });
+      provider.setAchievementWindowFocused(false); release(); await pending;
+      assert.equal(await readFile(provider.achievementRecordRepository.file, 'utf8'), before);
+      provider.setAchievementWindowFocused(true);
+      provider.renderAchievementData();
+      const next = provider.achievementUnreadPacket;
+      assert.notEqual(next.id, packet.id);
+      await provider.clearAchievementGrants();
+      await provider.acknowledgeAchievementSummary({ summaryId: next.id, documentId: provider.dashboardDocumentId });
+      assert.equal(JSON.parse(await readFile(provider.achievementRecordRepository.file, 'utf8')).records.length, 0);
+    }, undefined, directory);
+  });
+});
+
 test('manual pin saves only an earned showcase preference and survives a new provider instance', async () => {
   await withAchievementStorage(async directory => {
     await withProvider(achievementPersistenceState(), async provider => {

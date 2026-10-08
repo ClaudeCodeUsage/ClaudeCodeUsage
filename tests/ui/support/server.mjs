@@ -48,6 +48,7 @@ const server = createServer(async (request, response) => {
       'local-currency',
       'achievement-token-stages',
       'achievement-records',
+      'achievement-records-read',
       'achievement-history-only',
       'achievement-pins',
       'achievement-hidden-pins',

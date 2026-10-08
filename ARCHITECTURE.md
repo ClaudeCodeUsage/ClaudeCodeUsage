@@ -353,8 +353,8 @@ change/manual refresh/OFF/clear, and never become share choices. Live changes
 update values and remove invalid goals without replacing or reordering them.
 Overview buttons open the existing persisted series disclosure; they do not
 read logs, issue refresh requests or persist a second aggregate index. Pins and
-record projections use the bounded canonical envelope below; the foreground
-missed-notice summary remains separate pending work.
+record projections and the foreground missed-notice summary use the bounded
+canonical envelope below without creating a second award store.
 
 `achievementEvidence.ts` classifies rules into nine independent runtime evidence
 domains. Ready, pending and stale proof is separate from saved award identity:
@@ -408,8 +408,9 @@ opaque token binds display confirmation to only the represented IDs and maximum
 issued sequence. Other or later unread records survive. False/rejected/slow delivery
 does not block award writes or clear. The client confirms only after visible insertion,
 without focus theft, and pauses its six-second dismissal during hover/keyboard use.
-Lost batches never replay as live notices. Foreground unread summary
-and producer-origin usage remain pending; sharing consent is still explicit.
+Lost batches never replay as live notices. A foreground unread summary now provides
+explicit bounded confirmation; producer-origin usage remains pending. Sharing
+consent is still explicit.
 
 `achievementOverview.ts` now prepares read-only record projections: at most three
 recent non-historical series, thirty recording-order rows and exact visible unread
@@ -446,14 +447,34 @@ most six exact non-historical unread levels from the complete bounded record
 envelope, independently of the thirty-row history view. An unchanged represented
 group retains its IDs and sequence when a peer adds an award; hiding, reading or
 replacing a member retires the group. This pure projection copies rows and never
-writes receipts. The foreground summary UI and its guarded receipt remain pending.
+writes receipts. The folded New awards UI binds that group to an opaque runtime
+summary token and document identity. Only an explicit confirmation from the same
+ready, visible, focused achievement panel can enqueue a receipt. The host uses
+its own exact IDs/maximum sequence, never client-supplied IDs, and rechecks enabled
+sources, provider, clear epoch and packet identity at the lease commit boundary.
+The fresh shared-file merge preserves peers' other and later unread awards.
+Failure sends only fixed localized feedback; success adopts saved state before
+patching, and a later render failure cannot pretend that durable save failed.
+Group removal restores focus to its summary or the achievement tab. Viewing,
+pinning and sharing do not read it. No additional timer, scan or persisted field
+is introduced. Full document replacement, including patch-failure fallback,
+renews the runtime document identity and retires old ready/tab/receipt messages;
+ordinary data patches keep it. Blur/OFF/clear/disposal/provider/tab changes retire
+group ownership rather than replaying missed notices.
 
 就绪握手报告实际恢复的供应商／页签，宿主只接受当前供应商的合法页面；对比页
 只接受 `all`，普通切页也使用同一白名单。恢复不计作功能体验、不切换供应商、
 不授奖或确认已读。未读展示的准备投影从完整有界封套选择最多六个精确非历史
 等级，不受三十条历史显示上限影响；其他窗口新增不扩大既有组的 ID／序号。
-成员隐藏、已读或被替换后重新选组。只读投影复制记录，不写确认；前台摘要及
-受限确认仍待接入。
+成员隐藏、已读或被替换后重新选组。只读投影复制记录，不写确认。
+默认折叠「新增 N 项」使用运行期匿名组句柄及文档身份；只有同一就绪／可见／聚焦
+成就页的明确「标记本组已读」才排队保存。共享 lease 提交边界再次复核来源开启、
+供应商、清除代次及组身份，仅确认宿主保存的精确 ID／序号，不接受客户端任意 ID。
+重读合并保留其他窗口后来新增；失败仅给固定本地化反馈，保存后的渲染失败不误报
+保存失败。移除组后焦点回到摘要或成就页签；浏览／固定／分享不确认。
+没有新增定时器、日志扫描或持久字段。完整文档替换及补丁失败回退更新文档身份，
+拒绝旧页面就绪／切页／已读消息；普通数据补丁保留身份。失焦／关闭／清除／销毁／
+切换供应商或页签退役组所有权，不重放错过提示。
 
 关闭供应商只阻止新增固定，不阻止明确取消已保存的公开键。折叠入口最多列出三个
 隐藏固定项，共享 lease 下仅移除选中项，不启用供应商、不读日志、不改变奖章、

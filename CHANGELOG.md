@@ -16,12 +16,18 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Recent award views** — up to three actually recorded new series, plus a
   collapsible thirty-row list linked to the existing rules. First-record dates
   stay distinct from historical unknown dates; browsing neither marks records
-  read nor selects sharing. Missed-notice summaries remain pending.
+  read nor selects sharing.
+- **Explicit unread groups** — a folded New awards summary presents up to six
+  exact earned levels, including multiple tiers of the same series. Mark this
+  group read saves only those represented IDs after foreground/source/document
+  checks under the shared lease; peer additions stay unread. Failed saves retain
+  the group with fixed localized feedback. Browsing/pinning/sharing do not confirm
+  it, and missed notices never replay as popups. No new scan, timer or store is added.
 - **Quiet confirmed notices** — only the visible foreground panel can show new
   action awards, with a shared five-minute cooldown across windows/restarts.
   Display ACK reads only its bounded batch; missed, failed or retired deliveries
   remain unread. Hover/keyboard interaction pauses dismissal without stealing
-  focus. Unread summaries and usage-origin wiring remain pending.
+  focus. Producer-origin usage wiring remains pending.
 - **Bounded durable award records** — a ≤64 KiB canonical file keeps each public
   rule once, with quiet unknown-date migration and unread saved-action records.
   Cross-process leases merge peers' awards; an empty clear-generation fence
@@ -29,7 +35,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   proof. Existing bounded local-action/hour/calendar proof is merged in the same
   envelope, not mirrored into stale window caches. Invalid/future
   input remains untouched; OFF does not initialize it. Inventory and Clear All
-  cover the file. Pin UI is still being integrated.
+  cover the file. Pins and explicit unread confirmations use the same envelope.
 - **Badge overview** — up to three representative earned badges and three
   reachable goals precede the complete collection. Selection favors distinct
   themes and current-provider ties, and stays stable during browsing. Unused,
@@ -58,6 +64,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
+- **Retired dashboard messages** — readiness, tab changes and unread receipts
+  carry a runtime document identity. Full replacement and failed-patch fallback
+  retire the old identity; ordinary in-place patches retain it. A late old page
+  cannot revive readiness or confirm another group's awards.
+- **Source-only compilation** — TypeScript discovers only `src/**/*.ts`, so
+  private source snapshots used for evidence cannot be emitted or included as
+  extension source. This changes no runtime dependency or packaged feature.
 - **Deliberate plugin-action provenance** — restored experience records grant
   quietly; only a newly crossed target in a successfully saved action can notify.
   Awards save even with the dashboard closed, without refreshing hidden panels.

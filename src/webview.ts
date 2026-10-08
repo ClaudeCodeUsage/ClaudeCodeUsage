@@ -56,7 +56,7 @@ import { AchievementSharePreview, highestEarnedAchievements, renderAchievementSh
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import { nextAchievementStage } from './achievementStages';
-import { AchievementOverviewSelection, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords } from './achievementOverview';
+import { AchievementOverviewSelection, AchievementUnreadBatch, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords, selectUnreadAchievementBatch } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline } from './achievementEvidence';
 import { ACHIEVEMENT_RECORD_FILE, AchievementAuxiliaryProof, AchievementRecordRepository, AchievementRecordStore, AchievementRecord } from './achievementRecordStore';
@@ -996,6 +996,9 @@ function projectMatrixUiCopy(locale: string): ProjectMatrixUiCopy {
 export class UsageWebviewProvider {
   private panel: vscode.WebviewPanel | undefined;
   private webviewClientReady = false;
+  private dashboardDocumentId = randomBytes(24).toString('hex');
+  private achievementUnreadPacket?: { id: string; documentId: string; generation: number;
+    provider: 'claude' | 'codex' | 'compare'; batch: AchievementUnreadBatch };
   private dashboardLivePatchRevision = 0;
   private pendingDashboardLivePatch: PendingDashboardLivePatch | undefined;
   private scheduledDashboardLivePatch: PendingDashboardLivePatch | undefined;
@@ -2350,6 +2353,8 @@ export class UsageWebviewProvider {
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
+      this.dashboardDocumentId = randomBytes(24).toString('hex');
+      this.achievementUnreadPacket = undefined;
       this.webviewClientReady = false;
       this.pendingDashboardLivePatch = undefined;
       this.scheduledDashboardLivePatch = undefined;
@@ -2414,7 +2419,8 @@ export class UsageWebviewProvider {
         case 'localDataClientReady':
           // Restoring a tab does not send tabChanged or count a new feature use.
           // Accept only the current provider's actual panels, never a provider switch.
-          if (message.provider !== this.currentProvider || !this.isDashboardTabAllowed(message.activeTab)) break;
+          if (message.documentId !== this.dashboardDocumentId || message.provider !== this.currentProvider ||
+              !this.isDashboardTabAllowed(message.activeTab)) break;
           this.currentTab = message.activeTab;
           this.webviewClientReady = true;
           this.onLocalDataClientReady?.();
@@ -2422,6 +2428,9 @@ export class UsageWebviewProvider {
           break;
         case 'achievementNoticeAck':
           await this.acknowledgeAchievementNotice(message.noticeId);
+          break;
+        case 'achievementSummaryAck':
+          await this.acknowledgeAchievementSummary(message as Record<string, unknown>);
           break;
         case 'setAchievementPinned':
           await this.handleAchievementPinMessage(message as Record<string, unknown>);
@@ -2760,7 +2769,8 @@ export class UsageWebviewProvider {
           await this.settings?.set('dashboardAutoRefresh', !!message.value);
           break;
         case 'tabChanged': {
-          if (!this.isDashboardTabAllowed(message.tab)) break;
+          if (message.documentId !== this.dashboardDocumentId || !this.isDashboardTabAllowed(message.tab)) break;
+          if (message.tab !== this.currentTab) this.achievementUnreadPacket = undefined;
           const enteringAchievements = message.tab === 'achievements' && this.currentTab !== 'achievements';
           if (enteringAchievements) {
             this.achievementOverviewSelection = undefined;
@@ -2782,6 +2792,7 @@ export class UsageWebviewProvider {
               this.providerAvailability.claude &&
               this.providerAvailability.codexData);
           if (allowed) {
+            this.achievementUnreadPacket = undefined;
             this.currentProvider = requested as 'claude' | 'codex' | 'compare';
             const sharedTabs = ['today', 'month', 'all', 'sessions', 'projects', 'content', 'settings'];
             if (this.setting<boolean>('enableAchievements', true)) sharedTabs.push('achievements');
@@ -3353,9 +3364,10 @@ export class UsageWebviewProvider {
     this.scheduledDashboardLivePatch = undefined;
     this.webviewClientReady = false;
     this.achievementNoticeInFlight = undefined;
-    this.lastHtml = fallback.documentHtml;
-    this.lastLivePatchStructureKey = fallback.structureKey;
-    this.panel.webview.html = fallback.documentHtml;
+    const html = this.renewDashboardDocument(fallback.documentHtml);
+    this.lastHtml = html;
+    this.lastLivePatchStructureKey = this.dashboardLivePatchFor(html)?.structureKey;
+    this.panel.webview.html = html;
   }
 
   private scheduleDashboardLivePatch(pending: PendingDashboardLivePatch): void {
@@ -3396,7 +3408,7 @@ export class UsageWebviewProvider {
 
   private updateWebview(): void {
     if (!this.panel) return;
-    const html = this.getWebviewContent();
+    let html = this.getWebviewContent();
     if (html === this.lastHtml) {
       return;
     }
@@ -3420,9 +3432,20 @@ export class UsageWebviewProvider {
     this.scheduledDashboardLivePatch = undefined;
     this.webviewClientReady = false;
     this.achievementNoticeInFlight = undefined;
+    html = this.renewDashboardDocument(html);
     this.lastHtml = html;
-    this.lastLivePatchStructureKey = nextPatch?.structureKey;
+    this.lastLivePatchStructureKey = this.dashboardLivePatchFor(html)?.structureKey;
     this.panel.webview.html = html;
+  }
+
+  /** One runtime document identity; unchanged patches retain it, replacements retire it. */
+  private renewDashboardDocument(html: string): string {
+    this.dashboardDocumentId = randomBytes(24).toString('hex');
+    if (this.achievementUnreadPacket) this.achievementUnreadPacket = {
+      ...this.achievementUnreadPacket, documentId: this.dashboardDocumentId,
+    };
+    return html.replace(/var __ccuDocumentId = '[0-9a-f]{48}';/,
+      "var __ccuDocumentId = '" + this.dashboardDocumentId + "';");
   }
 
   private isDashboardTabAllowed(tab: unknown): tab is string {
@@ -4147,6 +4170,7 @@ export class UsageWebviewProvider {
       this.observedPluginAchievementIds.clear();
       this.pendingAchievementRecordActions.clear();
       this.achievementNoticeInFlight = undefined;
+      this.achievementUnreadPacket = undefined;
       return [];
     }
     if (!this.ensureAchievementRecords()) return [];
@@ -4481,8 +4505,10 @@ export class UsageWebviewProvider {
 
   /** Existing native focus ownership, without another listener or polling loop. */
   setAchievementWindowFocused(focused: boolean): void {
+    const returning = focused && !this.achievementWindowFocused;
     this.achievementWindowFocused = focused;
     if (!focused) {
+      this.achievementUnreadPacket = undefined;
       this.pendingAchievementNotice.clear();
       this.achievementNoticeInFlight = undefined;
       if (this.panel && this.webviewClientReady) {
@@ -4490,6 +4516,66 @@ export class UsageWebviewProvider {
         catch { /* Disposed panel; records remain unread. */ }
       }
     }
+    if (returning && this.currentTab === 'achievements' && this.panel?.visible && this.webviewClientReady &&
+        this.setting<boolean>('enableAchievements', true)) this.updateWebview();
+  }
+
+  private achievementRecordVisible(id: AchievementId): boolean {
+    const rule = ACHIEVEMENT_DEFINITIONS.find(row => row.id === id);
+    return !!rule && (rule.group !== 'claude' && rule.group !== 'codex' || this.providerAvailability[rule.group]) &&
+      (!id.startsWith('dual-provider-') || this.providerAvailability.claude && this.providerAvailability.codex);
+  }
+
+  private unreadAchievementPacket(visibleIds: string[]): NonNullable<UsageWebviewProvider['achievementUnreadPacket']> | undefined {
+    const state = this.achievementRecordState;
+    if (!state || this.clearingAchievements || !this.setting<boolean>('enableAchievements', true)) {
+      this.achievementUnreadPacket = undefined; return undefined;
+    }
+    const old = this.achievementUnreadPacket;
+    const sameContext = old && old.generation === state.generation && old.provider === this.currentProvider &&
+      old.documentId === this.dashboardDocumentId;
+    const batch = selectUnreadAchievementBatch(state.records, visibleIds, sameContext ? old.batch : undefined);
+    if (!batch.records.length) { this.achievementUnreadPacket = undefined; return undefined; }
+    const sameGroup = sameContext && batch.sequence === old.batch.sequence &&
+      batch.records.length === old.batch.records.length && batch.records.every((row, index) =>
+        row.id === old.batch.records[index].id && row.seq === old.batch.records[index].seq);
+    if (sameGroup) { old.batch = batch; return old; }
+    return this.achievementUnreadPacket = { id: randomBytes(24).toString('hex'), documentId: this.dashboardDocumentId,
+      generation: state.generation, provider: this.currentProvider, batch };
+  }
+
+  private async acknowledgeAchievementSummary(message: Record<string, unknown>): Promise<void> {
+    const packet = this.achievementUnreadPacket, repository = this.achievementRecordRepository, panel = this.panel;
+    if (!packet || !repository || message.summaryId !== packet.id || message.documentId !== packet.documentId) return;
+    const epoch = this.achievementPersistenceEpoch;
+    const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+      this.setting<boolean>('enableAchievements', true) && this.currentTab === 'achievements' &&
+      this.currentProvider === packet.provider && this.dashboardDocumentId === packet.documentId &&
+      this.achievementUnreadPacket === packet && this.achievementWindowFocused && this.webviewClientReady &&
+      !!panel && this.panel === panel && panel.visible &&
+      this.achievementRecordState?.generation === packet.generation &&
+      packet.batch.records.every(row => this.achievementRecordVisible(row.id));
+    if (!canWrite()) return;
+    const operation = this.achievementWrite.catch(() => undefined).then(async () => {
+      if (!canWrite()) return;
+      try {
+        const saved = await repository.acknowledgeRecords(packet.generation, packet.batch.sequence,
+          packet.batch.records.map(row => row.id), canWrite);
+        if (!canWrite()) return;
+        this.achievementRecordState = saved;
+        this.achievementGrants = new Set(saved.records.map(row => row.id));
+      } catch {
+        if (canWrite()) {
+          try { await panel!.webview.postMessage({ command: 'achievementSummaryResult', summaryId: packet.id,
+            documentId: packet.documentId, ok: false }); } catch { /* Unread state remains unchanged. */ }
+        }
+        return;
+      }
+      this.achievementUnreadPacket = undefined;
+      try { this.updateWebview(); } catch { /* Durable receipt succeeded; later refresh hydrates it. */ }
+    });
+    this.achievementWrite = operation;
+    await operation;
   }
 
   private async acknowledgeAchievementNotice(id: unknown): Promise<void> {
@@ -4553,6 +4639,7 @@ export class UsageWebviewProvider {
     this.clearingAchievements = true;
     this.achievementOverviewSelection = undefined;
     this.achievementPersistenceEpoch += 1;
+    this.achievementUnreadPacket = undefined;
     this.achievementNoticeInFlight = undefined;
     this.achievementNoticeBaseline.reset();
     this.pendingAchievementNotice.clear();
@@ -4994,6 +5081,14 @@ export class UsageWebviewProvider {
     const recentSection = records.recent.length ? '<section class="achievement-overview" data-achievement-overview="recent"><h3>' +
       this.escapeHtml(copy.recentAwards) + '</h3><div class="achievement-recent-grid">' +
       records.recent.map(recordButton).join('') + '</div></section>' : '';
+    const unread = this.unreadAchievementPacket(visibleResults.filter(isEarned).map(row => row.id));
+    const unreadSection = unread ? '<details class="achievement-record-history" data-persist="achievement:unread"><summary id="achievement-unread-summary">' +
+      this.escapeHtml(copy.unreadAwards.replace('{count}', I18n.formatNumber(unread.batch.total))) + '</summary>' +
+      '<p class="table-hint">' + this.escapeHtml(copy.unreadGroup.replace('{count}', I18n.formatNumber(unread.batch.records.length))) +
+      '</p><div class="achievement-recent-grid">' + unread.batch.records.map(recordButton).join('') + '</div>' +
+      '<button id="achievement-unread-read" class="btn-secondary btn-small" data-achievement-summary="' + unread.id +
+      '" data-refresh-focus-fallback="achievement-unread-summary tab-achievements" onclick="requestAchievementSummaryRead(this)">' +
+      this.escapeHtml(copy.readGroup) + '</button></details>' : '';
     const historySection = records.history.length ? '<details class="achievement-record-history" data-persist="achievement:records"><summary>' +
       this.escapeHtml(copy.recordHistory) + '</summary><ul class="achievement-records-list">' +
       records.history.map(record => '<li>' + recordButton(record) + '</li>').join('') + '</ul></details>' : '';
@@ -5017,7 +5112,8 @@ export class UsageWebviewProvider {
       '<button class="btn-secondary btn-small" onclick="openAchievementSettings()">' +
         this.escapeHtml(copy.settingsTitle) + '</button></div></div>' +
       '<p id="achievementPinStatus" class="table-hint" role="status"></p>' +
-      overviewSection('badges', copy.myBadges) + hiddenPinSection + recentSection + overviewSection('next', copy.nextGoals) + historySection +
+      '<p id="achievementUnreadStatus" class="table-hint" role="status"></p>' +
+      overviewSection('badges', copy.myBadges) + hiddenPinSection + unreadSection + recentSection + overviewSection('next', copy.nextGoals) + historySection +
       '<h3 class="achievement-gallery-heading">' + this.escapeHtml(copy.galleryTitle) + '</h3>' +
       '<div class="achievement-filter-toolbar"><label for="achievementFilter">' + this.escapeHtml(copy.filterLabel) +
       '</label><select id="achievementFilter" onchange="filterAchievements(this.value, true)">' +
@@ -12928,6 +13024,7 @@ export class UsageWebviewProvider {
     return `
 // Get VSCode API
 const vscode = acquireVsCodeApi();
+var __ccuDocumentId = '${this.dashboardDocumentId}';
 const __adviceCopy = ${JSON.stringify(I18n.t.popup.adviceEffectiveness)};
 const __dashboardFeedbackCopy = ${JSON.stringify(I18n.dashboardFeedback)};
 const __shareCardDefaults = ${JSON.stringify(DEFAULT_SECTIONS)};
@@ -13255,7 +13352,7 @@ function restoreUi() {
   var readyProvider = ccuProviderName();
   var readyTab = document.querySelector('.tabs .tab.active[data-dashboard-tab]');
   vscode.postMessage({ command: 'localDataClientReady', provider: readyProvider,
-    activeTab: readyProvider === 'compare' ? 'all' : readyTab ? readyTab.dataset.dashboardTab : 'today' });
+    activeTab: readyProvider === 'compare' ? 'all' : readyTab ? readyTab.dataset.dashboardTab : 'today', documentId: __ccuDocumentId });
 }
 
 ${getDashboardRefreshClientScript()}
@@ -13507,6 +13604,12 @@ function requestAchievementPin(button) {
   if (status) { status.textContent = ''; }
   vscode.postMessage({ command: 'setAchievementPinned', key: button.dataset.achievementPin,
     selected: button.getAttribute('aria-pressed') !== 'true', generation: generation });
+}
+
+function requestAchievementSummaryRead(button) {
+  if (!button || !/^[0-9a-f]{48}$/.test(button.dataset.achievementSummary || '')) { return; }
+  vscode.postMessage({ command: 'achievementSummaryAck', summaryId: button.dataset.achievementSummary,
+    documentId: __ccuDocumentId });
 }
 function openAchievementSettings() {
   showTab('settings');
@@ -14595,7 +14698,7 @@ function showTab(tabName, restoring) {
       selectedContent.hidden = false;
 
       if (!restoring) {
-        vscode.postMessage({ command: 'tabChanged', tab: tabName });
+        vscode.postMessage({ command: 'tabChanged', tab: tabName, documentId: __ccuDocumentId });
         // Switching tabs resets expanded rows to their default (Carl's rule).
         clearPersistedDetails();
         // Persist in localStorage too — survives the reload, restored before paint.
@@ -15295,6 +15398,15 @@ window.addEventListener('message', async function(event) {
       })) {
     var pinStatus = document.getElementById('achievementPinStatus');
     if (pinStatus) { pinStatus.textContent = message.reason === 'limit' ? __achievementCopy.pinLimit : __achievementCopy.pinFailed; }
+    return;
+  }
+
+  if (message.command === 'achievementSummaryResult' && message.ok === false && message.documentId === __ccuDocumentId) {
+    var readButton = document.getElementById('achievement-unread-read');
+    var readStatus = document.getElementById('achievementUnreadStatus');
+    if (readButton && readStatus && message.summaryId === readButton.dataset.achievementSummary) {
+      readStatus.textContent = __achievementCopy.readFailed;
+    }
     return;
   }
 

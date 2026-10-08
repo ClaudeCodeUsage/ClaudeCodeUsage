@@ -173,7 +173,13 @@ The extension-owned ledger contains only the following validated fields:
   confirmation with a current opaque runtime token reads its represented IDs through
   the issued sequence; other/later awards remain unread. Failed delivery, OFF, blur,
   clear or a replaced document cannot confirm a retired notice. The missed-notice
-  summary remains pending. Earned badge details save one pin/unpin intent under the
+  summary is folded by default and shows at most six exact visible non-historical
+  levels per group. Explicit Mark this group read saves only those IDs after
+  current document/provider/source/focus/clear checks under the same lease;
+  other windows' later awards remain unread. The opaque group and document
+  identities exist only in memory, not in the file or network. Failed saves
+  retain unread state; browsing/pinning/sharing are not confirmation. No extra
+  timer or log scan is added. Earned badge details save one pin/unpin intent under the
   shared lease, with at most three public keys; no award, read status or share choice
   is changed. Failed saves retain the old preference; old/OFF/clear requests are rejected.
   Disabled-source pins can be removed explicitly from a folded list of at most

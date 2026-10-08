@@ -66,6 +66,10 @@ meski notifikasi terlewat. Antarjendela menggabungkan penghargaan; penghapusan m
 Notifikasi hanya tampil di panel yang terlihat di depan, maksimal sekali per lima
 menit antarjendela dan setelah mulai ulang. Hanya kelompok yang dikonfirmasi tampil
 ditandai dibaca; yang terlewat tetap belum dibaca. Hover atau fokus papan ketik menunda penutupan.
+Penghargaan yang terlewat masuk ringkasan yang awalnya terlipat, maksimal enam
+tingkat tepat per kelompok. Hanya konfirmasi eksplisit setelah penyimpanan lokal
+berhasil yang menandai kelompok itu dibaca; melihat, menyematkan dan berbagi tidak.
+Penghargaan baru dari jendela lain tetap belum dibaca.
 Baru diperoleh menampilkan maksimal tiga seri baru; catatan yang dapat dilipat
 memuat maksimal tiga puluh tingkat dengan tautan aturan. Tanggal adalah pencatatan
 pertama, bukan perkiraan pencapaian asli; tanggal lama tetap tidak diketahui.

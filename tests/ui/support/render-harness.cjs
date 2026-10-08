@@ -595,7 +595,7 @@ exports.renderHarness = async function renderHarness({
     );
     provider.currentProvider = selectedProvider;
 
-    if (fixture === 'achievement-records' || fixture === 'achievement-history-only' || fixture === 'achievement-pins' || fixture.startsWith('achievement-hidden-pins')) {
+    if (fixture === 'achievement-records' || fixture === 'achievement-records-read' || fixture === 'achievement-history-only' || fixture === 'achievement-pins' || fixture.startsWith('achievement-hidden-pins')) {
       // Validated synthetic local records, not claimed personal achievement dates.
       const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
       const ids = ['local-share-export', 'settings-explorer-bronze', 'settings-explorer-silver', 'local-advice-feedback', 'hundred-million-club'];
@@ -609,7 +609,7 @@ exports.renderHarness = async function renderHarness({
         records: ids.map((id, index) => {
           const historical = fixture === 'achievement-history-only' || id === 'hundred-million-club';
           return { id, seq: index + 1, ruleVersion: 1, origin: historical ? 'history' : 'activity',
-            unread: !historical, recordedDay: historical ? null : '2026-07-20', timeZone: historical ? null : 'Asia/Hong_Kong' };
+            unread: !historical && fixture !== 'achievement-records-read', recordedDay: historical ? null : '2026-07-20', timeZone: historical ? null : 'Asia/Hong_Kong' };
         }), auxiliary: { activity: { schemaVersion: 2, settingKeys: [], features: [] },
           hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null } });
       provider.achievementGrants = new Set(ids);
