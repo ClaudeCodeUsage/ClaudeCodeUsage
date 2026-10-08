@@ -56,6 +56,8 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 ## Conquistas locais (candidato)
 
 Ao desafixar um emblema antigo, o foco do teclado permanece no tema, sem atualizar os dados.
+Os detalhes da exploração mostram coleção, prévia e exportação local bem-sucedida registradas.
+Emblemas antigos não inventam etapas ausentes; feedback e configurações continuam separados.
 
 Modelos por tarefa e o total de tarefas multimodelo são experiências distintas.
 Fable na mesma sessão exige saída de Fable e outra família Claude reconhecida

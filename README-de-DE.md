@@ -59,6 +59,8 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 ## Lokale Erfolge (Kandidat)
 
 Beim Lösen alter angehefteter Abzeichen bleibt der Tastaturfokus im Thema, ohne Datenaktualisierung.
+Die Erkundungsdetails zeigen gespeicherte Schritte: Sammlung, Vorschau und erfolgreicher lokaler Export.
+Alte Abzeichen erfinden keine fehlenden Schritte; Feedback und Einstellungsänderungen bleiben unabhängig.
 
 Modelle je Aufgabe und die Anzahl von Mehrmodell-Aufgaben sind getrennte Erlebnisse.
 Fable: gemeinsame Sitzung verlangt Ausgabe von Fable und einer weiteren erkannten

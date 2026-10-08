@@ -349,6 +349,12 @@ If a legacy unpin control disappears, the existing transient focus fallback
 returns to the canonical theme summary, then the achievement tab if unavailable.
 Surviving control IDs still take precedence; no persistent focus state is added.
 
+The exploration card details project the existing three safe feature enums from
+committed `achievementActivity`, in their catalog order, not an action timeline.
+Each step says recorded/not recorded; neither historical awards nor pending writes
+supply missing facts. Advice feedback and setting changes remain separate rules.
+This display adds no controls, state fields, reads, events or evaluator changes.
+
 `achievementStages.ts` adds display-only 1/2/5 integer nodes between formal
 Token tiers, not before the first tier or after the last. Closed cards show current
 progress toward the next formal level and, where applicable, the next intermediate

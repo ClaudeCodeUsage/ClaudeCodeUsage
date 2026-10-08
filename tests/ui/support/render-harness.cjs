@@ -635,6 +635,24 @@ exports.renderHarness = async function renderHarness({
       provider.achievementGrants = new Set(ids);
     }
 
+    if (fixture.startsWith('achievement-journey-')) {
+      const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
+      const complete = fixture === 'achievement-journey-complete';
+      const historical = fixture === 'achievement-journey-history';
+      provider.achievementRecordState = parseAchievementRecordStore({ schemaVersion: 1, generation: 1,
+        sequence: historical ? 2 : 0, lastNoticeAt: 0, pins: [], records: historical
+          ? ['safe-feature-explorer', 'local-share-export'].map((id, index) => ({ id, seq: index + 1,
+            ruleVersion: 1, origin: 'history', unread: false, recordedDay: null, timeZone: null })) : [],
+        auxiliary: { activity: { schemaVersion: 2, settingKeys: [], features: historical ? [] : complete
+          ? ['achievementGalleryViewed', 'achievementSharePreview', 'localShareExport']
+          : ['achievementGalleryViewed', 'achievementSharePreview', 'localAdviceFeedback'] },
+          hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null } });
+      provider.achievementActivity = provider.achievementRecordState.auxiliary.activity;
+      provider.achievementGrants = new Set(provider.achievementRecordState.records.map(row => row.id));
+      if (!complete && !historical) provider.pendingAchievementActivity = { ...provider.achievementActivity,
+        features: [...provider.achievementActivity.features, 'localShareExport'] };
+    }
+
     if (/^\d{4}-\d{2}$/.test(codexMonth)) {
       const rows = view.allTimeDaily
         .filter((row) => row.day.startsWith(codexMonth + '-'))

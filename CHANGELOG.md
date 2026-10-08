@@ -7,6 +7,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Short local feature journey** — the exploration badge details list collection,
+  share-preview and successful local-export facts from saved action proof. Queued
+  or cancelled exports and optional advice feedback cannot complete the journey;
+  old awards do not invent missing step records. No extra awards or actions.
 - **Keyboard-safe legacy pins** — removing a merged milestone pin restores focus
   to that theme's summary when its button disappears. Surviving controls retain
   focus normally; no refresh, read acknowledgement or new preference is added.

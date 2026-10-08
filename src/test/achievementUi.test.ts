@@ -49,6 +49,49 @@ async function withAchievementStorage(run: (directory: string) => Promise<void>)
   try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
+test('plugin journey shows only saved deliberate steps, not pending export or optional advice', async () => {
+  const language = I18n.getLocale();
+  try { for (const locale of Object.keys(ACHIEVEMENT_COPY)) {
+    I18n.setLanguage(locale as any);
+    await withProvider(new Map(), async provider => {
+      provider.achievementActivity = { schemaVersion: 2, settingKeys: [],
+        features: ['achievementGalleryViewed', 'achievementSharePreview', 'localAdviceFeedback'] };
+      provider.pendingAchievementActivity = { ...provider.achievementActivity,
+        features: [...provider.achievementActivity.features, 'localShareExport'] };
+      const html = provider.renderAchievementData();
+      const journey = html.match(/<ol class="achievement-feature-journey"[\s\S]*?<\/ol>/)?.[0] ?? '';
+      assert.equal((journey.match(/data-achievement-step=/g) ?? []).length, 3);
+      assert.match(journey, /data-achievement-step="achievementGalleryViewed" data-complete="true"/);
+      assert.match(journey, /data-achievement-step="achievementSharePreview" data-complete="true"/);
+      assert.match(journey, /data-achievement-step="localShareExport" data-complete="false"/);
+      assert.doesNotMatch(journey, /localAdviceFeedback|onclick|<button|<a /);
+      for (const label of (ACHIEVEMENT_COPY as any)[locale].journeySteps) assert.ok(journey.includes(label));
+      assert.ok(journey.includes((ACHIEVEMENT_COPY as any)[locale].stepRecorded));
+      assert.ok(journey.includes((ACHIEVEMENT_COPY as any)[locale].stepUnrecorded));
+      assert.equal(provider.achievementActivity.features.includes('localShareExport'), false);
+      assert.equal(provider.achievementShareSelection, undefined);
+    });
+  } } finally { I18n.setLanguage(language as any); }
+});
+
+test('historical plugin awards cannot invent individual journey proof and all saved steps preserve exact rules', async () => {
+  await withProvider(new Map(), async provider => {
+    provider.achievementGrants = new Set(['safe-feature-explorer', 'local-share-export']);
+    const historical = provider.renderAchievementData();
+    const journey = historical.match(/<ol class="achievement-feature-journey"[\s\S]*?<\/ol>/)?.[0] ?? '';
+    assert.equal((journey.match(/data-complete="false"/g) ?? []).length, 3);
+    assert.match(historical, /data-achievement-key="safe-feature-explorer" data-achievement-earned="true"/);
+    provider.achievementActivity = { schemaVersion: 2, settingKeys: ['language'],
+      features: ['achievementGalleryViewed', 'achievementSharePreview', 'localShareExport'] };
+    const complete = provider.renderAchievementData();
+    const saved = complete.match(/<ol class="achievement-feature-journey"[\s\S]*?<\/ol>/)?.[0] ?? '';
+    assert.equal((saved.match(/data-complete="true"/g) ?? []).length, 3);
+    assert.equal((complete.match(/data-achievement-level=/g) ?? []).length,
+      (historical.match(/data-achievement-level=/g) ?? []).length,
+      'visibility leaves the same formal rules; no extra journey awards');
+  });
+});
+
 async function unreadProvider(provider: any): Promise<string> {
   await prepareAchievementNoticeProvider(provider);
   provider.currentTab = 'achievements';

@@ -63,6 +63,9 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 ## Local achievements (candidate)
 
 Removing a legacy pin keeps keyboard focus within its theme, without refreshing data.
+Exploration details show three saved local steps: collection, share preview and
+successful export. Missing step records are not inferred from old awards;
+advice feedback and setting changes remain separate, optional activities.
 
 Model experiences distinguish models recorded within one task from repeated
 multi-model tasks. Fable same-session requires output from Fable and another

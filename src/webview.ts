@@ -73,6 +73,7 @@ import {
   parseAchievementActivity,
   recordAchievementFeature,
   recordAchievementSettingChange,
+  SAFE_EXPLORATION_FEATURES,
 } from './achievementActivity';
 import {
   collectClaudeOutputHours,
@@ -5257,6 +5258,16 @@ export class UsageWebviewProvider {
             '</strong><small>' + this.escapeHtml(isEarned(entry) ? copy.earned : copy.locked) + '</small><span>' +
             this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span></li>';
         }).join('') + '</ul>' : '';
+      // Saved allowlisted facts only. A historical grant or queued action cannot
+      // reconstruct individual steps or pretend a cancelled export succeeded.
+      const journey = key === 'safe-feature-explorer' ? '<h5>' + this.escapeHtml(copy.featureJourney) +
+        '</h5><ol class="achievement-feature-journey">' + SAFE_EXPLORATION_FEATURES.map((feature, index) => {
+          const recorded = this.achievementActivity.features.includes(feature);
+          return '<li data-achievement-step="' + feature + '" data-complete="' + recorded +
+            '"><span class="achievement-step-marker" aria-hidden="true">' + (recorded ? '✓' : '○') +
+            '</span><span>' + this.escapeHtml(copy.journeySteps[index]) + '</span><small>' +
+            this.escapeHtml(recorded ? copy.stepRecorded : copy.stepUnrecorded) + '</small></li>';
+        }).join('') + '</ol>' : '';
       return '<article class="achievement-card ' + (earned ? 'earned' : 'locked') +
         '"' + seriesAttrs + ' data-achievement-key="' + key + '" data-achievement-earned="' + earned +
         '" data-achievement-next="' + (next && proofReady) + '" data-achievement-proof="' + evidenceState +
@@ -5287,7 +5298,7 @@ export class UsageWebviewProvider {
           ' ' + unitFor(result.id)) + '"></progress>' :
           '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p>') +
         '<h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
-        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + '</div></details></article>';
+        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + '</div></details></article>';
     };
     const groups: Array<'claude' | 'codex' | 'combined' | 'plugin'> =
       ['claude', 'codex', 'combined', 'plugin'];
@@ -13269,6 +13280,10 @@ export class UsageWebviewProvider {
       .achievement-milestones li { grid-template-columns: 40px minmax(0, 1fr); column-gap: 8px; }
       .achievement-milestones img { grid-row: 1 / span 3; width: 40px; height: 40px; object-fit: contain; }
       .achievement-milestones strong, .achievement-milestones small, .achievement-milestones span { grid-column: 2; }
+      .achievement-feature-journey { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+      .achievement-feature-journey li { min-width: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 6px; font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
+      .achievement-step-marker { grid-row: 1 / span 2; }
+      .achievement-feature-journey small { grid-column: 2; color: var(--vscode-descriptionForeground); }
       .achievement-share-choice-icon { flex: none; width: 32px; height: 32px; object-fit: contain; }
       .achievement-share-presentation .sc-check { min-width: 0; }
       .achievement-share-presentation .sc-check span { overflow-wrap: anywhere; }

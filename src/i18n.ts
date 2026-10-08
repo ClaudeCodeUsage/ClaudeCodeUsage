@@ -75,6 +75,10 @@ export interface AchievementCopy {
   milestone: string;
   streakTheme: string;
   sharedDaysTheme: string;
+  featureJourney: string;
+  journeySteps: readonly [string, string, string];
+  stepRecorded: string;
+  stepUnrecorded: string;
   units: {
     outputTokens: string;
     cacheReadTokens: string;
@@ -157,6 +161,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     groups: { claude: 'Claude', codex: 'Codex', combined: 'Combined activity', plugin: 'Extension exploration' },
     levels: ['Ordinary', 'Silver', 'Gold', 'Platinum', 'Legendary'], milestone: 'Milestone',
     streakTheme: 'Active streak', sharedDaysTheme: 'Shared active days',
+    featureJourney: 'Local feature steps',
+    journeySteps: ['View the collection', 'Preview a share card', 'Export a card locally'],
+    stepRecorded: 'Recorded', stepUnrecorded: 'Not recorded',
     units: {
       outputTokens: 'output tokens',
       cacheReadTokens: 'cache-read tokens',
@@ -307,6 +314,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     groups: { claude: 'Claude', codex: 'Codex', combined: '综合活动', plugin: '插件探索' },
     levels: ['普通', '银色', '金色', '铂金', '传奇'], milestone: '里程碑',
     streakTheme: '连续活跃', sharedDaysTheme: '双供应商活跃',
+    featureJourney: '本地功能体验',
+    journeySteps: ['查看图鉴', '预览分享卡', '本地导出分享卡'],
+    stepRecorded: '已记录', stepUnrecorded: '暂无记录',
     units: {
       outputTokens: '输出 Token',
       cacheReadTokens: '缓存读取 Token',
@@ -456,6 +466,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     groups: { claude: 'Claude', codex: 'Codex', combined: '綜合活動', plugin: '擴充功能探索' },
     levels: ['一般', '銀色', '金色', '鉑金', '傳奇'], milestone: '里程碑',
     streakTheme: '連續活躍', sharedDaysTheme: '雙供應商活躍',
+    featureJourney: '本機功能體驗',
+    journeySteps: ['查看圖鑑', '預覽分享卡', '本機匯出分享卡'],
+    stepRecorded: '已記錄', stepUnrecorded: '尚無記錄',
     units: {
       outputTokens: '輸出 Token',
       cacheReadTokens: '快取讀取 Token',
@@ -605,6 +618,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     groups: { claude: 'Claude', codex: 'Codex', combined: 'Gemeinsame Aktivität', plugin: 'Erweiterung erkunden' },
     levels: ['Basis', 'Silber', 'Gold', 'Platin', 'Legendär'], milestone: 'Meilenstein',
     streakTheme: 'Aktivitätsserie', sharedDaysTheme: 'Gemeinsame aktive Tage',
+    featureJourney: 'Lokale Funktionsschritte',
+    journeySteps: ['Sammlung ansehen', 'Karte voranzeigen', 'Karte lokal exportieren'],
+    stepRecorded: 'Erfasst', stepUnrecorded: 'Nicht erfasst',
     units: {
       outputTokens: 'Ausgabe-Token',
       cacheReadTokens: 'Cache-Lese-Token',
@@ -754,6 +770,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     groups: { claude: 'Claude', codex: 'Codex', combined: '統合アクティビティ', plugin: '拡張機能の探索' },
     levels: ['通常', 'シルバー', 'ゴールド', 'プラチナ', 'レジェンド'], milestone: 'マイルストーン',
     streakTheme: '連続アクティブ日', sharedDaysTheme: '両プロバイダーの活動日',
+    featureJourney: 'ローカル機能の体験',
+    journeySteps: ['図鑑を見る', '共有カードをプレビュー', 'カードをローカルに出力'],
+    stepRecorded: '記録済み', stepUnrecorded: '記録なし',
     units: {
       outputTokens: '出力トークン',
       cacheReadTokens: 'キャッシュ読み取りトークン',
@@ -903,6 +922,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     groups: { claude: 'Claude', codex: 'Codex', combined: '통합 활동', plugin: '확장 기능 탐색' },
     levels: ['일반', '실버', '골드', '플래티넘', '전설'], milestone: '이정표',
     streakTheme: '연속 활동', sharedDaysTheme: '두 공급자 활동일',
+    featureJourney: '로컬 기능 체험',
+    journeySteps: ['도감 보기', '공유 카드 미리 보기', '카드를 로컬로 내보내기'],
+    stepRecorded: '기록됨', stepUnrecorded: '기록 없음',
     units: {
       outputTokens: '출력 토큰',
       cacheReadTokens: '캐시 읽기 토큰',
@@ -1052,6 +1074,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     groups: { claude: 'Claude', codex: 'Codex', combined: 'Atividade combinada', plugin: 'Exploração da extensão' },
     levels: ['Básico', 'Prata', 'Ouro', 'Platina', 'Lendário'], milestone: 'Marco',
     streakTheme: 'Sequência de atividade', sharedDaysTheme: 'Dias de atividade conjunta',
+    featureJourney: 'Etapas de funções locais',
+    journeySteps: ['Ver coleção', 'Pré-visualizar cartão', 'Exportar cartão localmente'],
+    stepRecorded: 'Registrado', stepUnrecorded: 'Sem registro',
     units: {
       outputTokens: 'tokens de saída',
       cacheReadTokens: 'tokens de leitura de cache',
@@ -1201,6 +1226,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     groups: { claude: 'Claude', codex: 'Codex', combined: 'Aktivitas gabungan', plugin: 'Jelajah ekstensi' },
     levels: ['Dasar', 'Perak', 'Emas', 'Platina', 'Legendaris'], milestone: 'Tonggak',
     streakTheme: 'Aktivitas beruntun', sharedDaysTheme: 'Hari aktif kedua penyedia',
+    featureJourney: 'Langkah fitur lokal',
+    journeySteps: ['Lihat koleksi', 'Pratinjau kartu berbagi', 'Ekspor kartu secara lokal'],
+    stepRecorded: 'Tercatat', stepUnrecorded: 'Belum tercatat',
     units: {
       outputTokens: 'token keluaran',
       cacheReadTokens: 'token baca cache',
