@@ -53,6 +53,7 @@ only the separate publish action can perform that network operation.
 | `achievements.ts`, `achievementSnapshot.ts`, `achievementCalendar.ts`, `achievementHours.ts` | Versioned rule catalog and validated token/day/week/hour evidence, consuming numeric materialized inputs rather than log bodies. |
 | `achievementActivity.ts`, `achievementIcons.ts`, `achievementShare.ts` | Allowlisted deliberate local-action enums, bundled emblem lookup and explicit self-contained badge SVG export. |
 | `providers/codex/codexHourProof.ts` | Bounded UTC positive-output hour proof tied to canonical files, verified offsets, current identity and lineage. Optional old-checkpoint proof migration never resets primary totals. |
+| `providers/codex/codexAchievementOrigin.ts` | Runtime-only main-tail numeric lower bounds, settled canonical-lineage admission and strict copied worker-window/DTO guards. No persistent index fields or extra source reads. |
 | `adviceEffectiveness/contract.ts`, `adapters.ts`, and `payload.ts` | Strict observation/evidence/recommendation/action/result contracts, privacy-rebuilding provider adapters, and canonical aggregate/personalization payloads. |
 | `adviceEffectiveness/preparedRequest.ts` and `remoteAdvice.ts` | One host-owned full HTTP request object, exact preview/send bytes, BYOK-only authorization, cancellation, and strict structured-advice parsing. |
 | `adviceEffectiveness/comparisonPairing.ts`, `comparisonResult.ts`, and `versionedPersistence.ts` | Sanitized comparable-task pairing, frozen measurement-version envelopes, and bounded local feedback/comparison storage. |
@@ -379,9 +380,27 @@ persisted, and no additional body read or timer is introduced. The rule helper
 uses the existing formal targets and requires these additions to be sufficient
 against the previous progress and necessary against the new progress, per exact
 level; calendar/session/agent rules are not inferred from volume. This foundation
-is not yet wired to accepted host windows, Codex workers or atomic usage awards;
+is not yet wired to accepted host windows or atomic usage awards;
 production usage grants remain quiet history with unknown dates until that
 handoff and its source/clear/shared-lease guards are completed.
+
+Codex now has the corresponding producer/worker foundation. Only established
+physical-file appends from a complete prior base index receive a copied explicit
+observation window. The normal main parser accumulates input-plus-output,
+output, cached-input and three-family numbers within that window. After duplicate
+and lineage reconciliation, both snapshots must verify the same physical/session
+ownership and settled inherited prefix; each admitted field is bounded by that
+file's actual aggregate increase. An unrelated identity conflict excludes its
+branch, not sound additions. Cold/imported/replaced files, incomplete tails,
+changed timezone, counter regression and unsettled prefixes provide no live proof.
+Main file-pass workers, coordinator and client rebuild the fixed numeric DTO;
+foreign windows/requests, duplicate task replies, recovery/adoption and cancellation
+cannot supply it. Final atomic-save failure never delivers a successful result.
+Proof is ephemeral and warm zero-body refreshes never replay it. The per-level
+helper uses existing approved targets with the same necessary-and-sufficient
+volume test; it does not infer calendar, effort breadth, sessions or agent awards.
+Accepted host windows, non-rendering handoff and shared atomic usage-award writes
+remain pending; this is not yet a production usage-notification claim.
 
 Plugin-action provenance compares the committed before/after activity ledger
 through the canonical rule evaluator. Only newly crossed plugin targets enter

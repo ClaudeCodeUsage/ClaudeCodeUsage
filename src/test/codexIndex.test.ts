@@ -910,6 +910,132 @@ function sessionLine(id: string): string {
   });
 }
 
+test('Codex tail-origin uses normal parser deltas after verified lineage, never cached or reasoning twice', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-tail-origin-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    await mkdir(sessions);
+    const log = path.join(sessions, 'usage.jsonl');
+    await writeFile(log, `${sessionLine('tail-origin')}\n${contextLine('gpt-6.1-astra')}\n${tokenLine(500_000_000, 100_000_000, '2026-07-20T00:10:00Z')}\n`);
+    const window = { after: Date.parse('2026-07-20T01:00:00Z'), through: Date.parse('2026-07-20T02:00:00Z') };
+    const opts = { salt: SALT, now: () => window.through, achievementUsageWindow: window } as any;
+    let baseline = await updateCodexIndex(createEmptyCodexIndex('UTC'), await scanCodexManifest(root, SALT), opts);
+    assert.equal((baseline as any).achievementUsageDelta, undefined, 'cold input is history');
+    for (let i = 0; baseline.migration.pending && i < 6; i++) baseline = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+    assert.equal(baseline.index.coverage.complete, true);
+    const warm = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+    assert.equal(warm.bodyReads, 0);
+    await appendFile(log, `${tokenLine(5_500_000_000, 1_100_000_000, '2026-07-20T01:30:00Z')}\n`);
+    const appended = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+    assert.deepEqual((appended as any).achievementUsageDelta, {
+      provider: 'codex', ...window, processed: 6_000_000_000, output: 1_000_000_000,
+      cacheRead: 2_500_000_000, families: { astra: 6_000_000_000, sol: 0, luna: 0 },
+    });
+    assert.equal(appended.index.aggregate.total.inputTotal + appended.index.aggregate.total.outputTotal, 6_600_000_000);
+    assert.equal(JSON.stringify(appended.index).includes('achievementUsage'), false, 'proof is not a checkpoint field');
+    assert.equal((await updateCodexIndex(appended.index, await scanCodexManifest(root, SALT), opts) as any).achievementUsageDelta, undefined, 'warm polls never replay proof');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('Codex mixed historical import and fresh tail only certify the independent appended portion', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-tail-mixed-'));
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    const log = path.join(root, 'sessions', 'live.jsonl');
+    await writeFile(log, `${sessionLine('live')}\n${contextLine('gpt-6.1-astra')}\n${tokenLine(100, 20, '2026-07-20T00:10:00Z')}\n`);
+    const window = { after: Date.parse('2026-07-20T01:00:00Z'), through: Date.parse('2026-07-20T02:00:00Z') };
+    const opts = { salt: SALT, now: () => window.through, achievementUsageWindow: window } as any;
+    let baseline = await updateCodexIndex(createEmptyCodexIndex('UTC'), await scanCodexManifest(root, SALT), opts);
+    for (let i = 0; baseline.migration.pending && i < 6; i++) baseline = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+    await appendFile(log, `${tokenLine(200, 40, '2026-07-20T00:30:00Z')}\n${tokenLine(300, 60, '2026-07-20T01:30:00Z')}\n`);
+    await writeFile(path.join(root, 'sessions', 'import.jsonl'), `${sessionLine('import')}\n${contextLine('gpt-6.1-astra')}\n${tokenLine(9_000_000_000, 0, '2026-07-20T01:30:00Z')}\n`);
+    const result = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+    assert.equal((result as any).achievementUsageDelta?.processed, 120);
+    assert.equal((result as any).achievementUsageDelta?.families.astra, 120);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+for (const scenario of ['old-event', 'future-event', 'replay', 'replacement', 'incomplete-baseline',
+  'timezone', 'invalid-window', 'regression', 'identity-conflict', 'partial-tail'] as const) {
+  test(`Codex usage origin withholds ${scenario} without resetting usage semantics`, async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-origin-guard-'));
+    try {
+      await mkdir(path.join(root, 'sessions'));
+      const log = path.join(root, 'sessions', 'live.jsonl');
+      const header = `${sessionLine('guard')}\n${contextLine('gpt-6.1-astra')}\n`;
+      const original = `${tokenLine(100, 20, '2026-07-20T00:10:00Z')}\n`;
+      await writeFile(log, header + original);
+      const window = { after: Date.parse('2026-07-20T01:00:00Z'), through: Date.parse('2026-07-20T02:00:00Z') };
+      const opts: any = { salt: SALT, now: () => window.through, achievementUsageWindow: window };
+      let baseline = await updateCodexIndex(createEmptyCodexIndex('UTC'), await scanCodexManifest(root, SALT), opts);
+      for (let i = 0; baseline.migration.pending && i < 6; i++) baseline = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+      const before = structuredClone(baseline.index);
+      const key = Object.keys(before.files)[0];
+      if (scenario === 'replacement') {
+        await rename(log, path.join(root, 'old.outside-allowlist'));
+        await writeFile(log, header + original);
+      }
+      if (scenario === 'incomplete-baseline') before.files[key].offset -= 1;
+      if (scenario === 'timezone') opts.timeZone = 'Asia/Shanghai';
+      if (scenario === 'invalid-window') opts.achievementUsageWindow = { after: window.through, through: window.after };
+      if (scenario === 'identity-conflict') await writeFile(path.join(root, 'sessions', 'conflict.jsonl'), header + `${tokenLine(900, 90, '2026-07-20T00:30:00Z')}\n`);
+      const timestamp = scenario === 'old-event' ? '2026-07-20T00:30:00Z'
+        : scenario === 'future-event' ? '2026-07-20T03:00:00Z' : '2026-07-20T01:30:00Z';
+      const tail = scenario === 'replay' ? original
+        : `${tokenLine(scenario === 'regression' ? 10 : 200, scenario === 'regression' ? 2 : 40, timestamp)}${scenario === 'partial-tail' ? '' : '\n'}`;
+      await appendFile(log, scenario === 'partial-tail' ? tail.slice(0, -10) : tail);
+      const result = await updateCodexIndex(before, await scanCodexManifest(root, SALT), opts);
+      assert.equal((result as any).achievementUsageDelta, undefined, scenario);
+      assert.equal(JSON.stringify(result.index).includes('achievementUsage'), false);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
+
+test('real file-pass workers retain sound new Astra tokens beside an unrelated ambiguous session', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-origin-pool-'));
+  const pool = new CodexFilePassPool();
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    const window = { after: Date.parse('2026-07-20T01:00:00Z'), through: Date.parse('2026-07-20T02:00:00Z') };
+    for (const [name, id, input, output] of [['sound', 'sound', 500_000_000, 100_000_000], ['other', 'other', 100, 0],
+      ['conflict-one', 'conflict', 20, 0], ['conflict-two', 'conflict', 30, 0]] as const) {
+      await writeFile(path.join(root, 'sessions', `${name}.jsonl`), `${sessionLine(id)}\n${contextLine('gpt-6.1-astra')}\n${tokenLine(input, output, '2026-07-20T00:10:00Z')}\n`);
+    }
+    const opts: any = { salt: SALT, now: () => window.through, achievementUsageWindow: window };
+    let baseline = await updateCodexIndex(createEmptyCodexIndex('UTC'), await scanCodexManifest(root, SALT), opts);
+    for (let i = 0; baseline.migration.pending && i < 6; i++) baseline = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+    assert.equal(baseline.index.coverage.identity.complete, false);
+    await appendFile(path.join(root, 'sessions', 'sound.jsonl'), `${tokenLine(5_500_000_000, 1_100_000_000, '2026-07-20T01:30:00Z')}\n`);
+    await appendFile(path.join(root, 'sessions', 'conflict-one.jsonl'), `${tokenLine(9_000_000_000, 0, '2026-07-20T01:30:00Z')}\n`);
+    const result = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), { ...opts, filePassBatch: pool.run });
+    assert.equal((result as any).achievementUsageDelta?.processed, 6_000_000_000);
+    assert.equal((result as any).achievementUsageDelta?.families.astra, 6_000_000_000);
+  } finally { await pool.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('Codex copied child history and unsettled lineage cannot masquerade as live tail origin', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-origin-fork-'));
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    const window = { after: Date.parse('2026-07-20T01:00:00Z'), through: Date.parse('2026-07-20T02:00:00Z') };
+    const opts: any = { salt: SALT, now: () => window.through, achievementUsageWindow: window };
+    const parentLog = path.join(root, 'sessions', 'parent.jsonl');
+    await writeFile(parentLog, `${sessionLine('parent')}\n${contextLine('gpt-6.1-astra')}\n${tokenLine(100, 20, '2026-07-20T00:10:00Z')}\n`);
+    let baseline = await updateCodexIndex(createEmptyCodexIndex('UTC'), await scanCodexManifest(root, SALT), opts);
+    for (let i = 0; baseline.migration.pending && i < 6; i++) baseline = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+    const copied = `${tokenLine(200, 40, '2026-07-20T01:30:00Z')}\n`;
+    await writeFile(path.join(root, 'sessions', 'child.jsonl'), `${childSessionLine('child', 'parent')}\n${contextLine('gpt-6.1-astra')}\n${copied}`);
+    const imported = await updateCodexIndex(baseline.index, await scanCodexManifest(root, SALT), opts);
+    assert.equal((imported as any).achievementUsageDelta, undefined);
+    const unsettled = structuredClone(baseline.index);
+    const row = Object.values(unsettled.files)[0];
+    row.lineage!.desiredPrefixEvents = 1;
+    await appendFile(parentLog, copied);
+    const result = await updateCodexIndex(unsettled, await scanCodexManifest(root, SALT), opts);
+    assert.equal((result as any).achievementUsageDelta, undefined);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 function childSessionLine(id: string, parentId: string): string {
   return JSON.stringify({
     timestamp: '2026-07-20T00:00:00.000Z',

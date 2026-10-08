@@ -4,6 +4,7 @@ import {
   CodexIndexUpdateResult,
   CodexIndexV1,
 } from './codexIndex';
+import type { CodexAchievementUsageWindow, CodexAchievementUsageDelta } from './codexAchievementOrigin';
 
 export type CodexIndexErrorCode = 'busy' | 'cancelled' | 'disposed' | 'worker-failed' | 'refresh-failed';
 export function safeCodexIndexErrorCode(value: unknown): CodexIndexErrorCode {
@@ -12,6 +13,7 @@ export function safeCodexIndexErrorCode(value: unknown): CodexIndexErrorCode {
 }
 
 export interface CodexWorkerRefreshInput {
+  achievementUsageWindow?: CodexAchievementUsageWindow;
   codexHome: string;
   indexPath: string;
   /** Read-only compatibility input, adopted only after manifest ownership proof. */
@@ -32,6 +34,7 @@ export type CodexWorkerRequest =
   | { type: 'cancel'; requestId: string };
 
 export interface CodexWorkerResult {
+  achievementUsageDelta?: CodexAchievementUsageDelta;
   index: CodexIndexV1;
   indexRecovery?: CodexIndexRecovery;
   indexChanged: boolean;

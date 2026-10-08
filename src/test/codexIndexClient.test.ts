@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as os from 'node:os';
@@ -97,6 +97,124 @@ function result(): CodexWorkerResult {
     },
   };
 }
+
+test('usage-origin client binds a copied observation window and sanitizes terminal proof', async () => {
+  const worker = new FakeWorker();
+  const client = new CodexIndexClient(() => worker);
+  const window = { after: 100, through: 200 };
+  const pending = client.refresh({ ...request, achievementUsageWindow: window } as any);
+  window.through = 900;
+  assert.deepEqual((worker.requests[0] as any).achievementUsageWindow, { after: 100, through: 200 });
+  const proof = { provider: 'codex', after: 100, through: 200, processed: 100, output: 20,
+    cacheRead: 50, families: { astra: 100, sol: 0, luna: 0, raw: 'private' }, privatePath: 'private' };
+  worker.emitMessage({ type: 'result', requestId: worker.requests[0].requestId,
+    result: { ...result(), achievementUsageDelta: proof } as any });
+  assert.deepEqual((await pending as any).achievementUsageDelta, {
+    provider: 'codex', after: 100, through: 200, processed: 100, output: 20,
+    cacheRead: 50, families: { astra: 100, sol: 0, luna: 0 },
+  });
+  await client.dispose();
+});
+
+test('usage-origin client rejects absent, foreign, unsafe, cancelled and stale request proof', async () => {
+  for (const scenario of ['absent', 'foreign', 'unsafe', 'cancelled']) {
+    const worker = new FakeWorker();
+    const client = new CodexIndexClient(() => worker);
+    const pending = client.refresh({ ...request, ...(scenario !== 'absent' ? {
+      achievementUsageWindow: { after: 100, through: 200 },
+    } : {}) } as any);
+    const proof = { provider: 'codex', after: 100, through: scenario === 'foreign' ? 201 : 200,
+      processed: 100, output: scenario === 'unsafe' ? 200 : 20, cacheRead: 50,
+      families: { astra: 100, sol: 0, luna: 0 } };
+    worker.emitMessage({ type: 'result', requestId: 'retired-request', result: { ...result(), achievementUsageDelta: proof } as any });
+    if (scenario === 'cancelled') client.cancel();
+    worker.emitMessage({ type: 'result', requestId: worker.requests[0].requestId,
+      result: { ...result(), achievementUsageDelta: proof } as any });
+    assert.equal((await pending as any).achievementUsageDelta, undefined, scenario);
+    await client.dispose();
+  }
+});
+
+test('usage-origin coordinator passes copied windows only without recovery or legacy adoption', async () => {
+  for (const scenario of ['ordinary', 'recovery', 'legacy']) {
+    const recovered = scenario === 'recovery', adopted = scenario === 'legacy';
+    const saved = createEmptyCodexIndex(request.timeZone);
+    const messages: CodexWorkerMessage[] = [];
+    const window = { after: 100, through: 200 };
+    const proof = { provider: 'codex', ...window, processed: 100, output: 20, cacheRead: 50,
+      families: { astra: 100, sol: 0, luna: 0 } };
+    await runCodexWorkerRefresh({ type: 'refresh', requestId: 'origin', ...request,
+      ...(adopted ? { legacyIndexPath: '/private/runtime-only-legacy' } : {}),
+      achievementUsageWindow: window } as any, {
+      isCancelled: () => false, post: message => messages.push(message),
+      acquireCodexIndexLease: async () => { window.through = 900; return { release: async () => undefined }; },
+      loadCodexIndex: async (_path, _zone, onRecovery) => {
+        if (recovered) onRecovery?.({ reason: 'invalid', quarantined: false } as any);
+        return saved;
+      },
+      scanCodexManifest: async () => ({ files: [], persistable: {} }),
+      updateCodexIndex: async (_index, _manifest, options) => {
+        assert.deepEqual((options as any).achievementUsageWindow, recovered || adopted ? undefined : { after: 100, through: 200 });
+        return { ...result(), index: saved, achievementUsageDelta: proof } as any;
+      },
+      saveCodexIndexAtomic: async () => undefined,
+      adoptLegacyCodexIndex: async () => structuredClone(saved),
+    });
+    const terminal = messages.find(message => message.type === 'result');
+    assert.ok(terminal && terminal.type === 'result');
+    assert.deepEqual((terminal.result as any).achievementUsageDelta, recovered || adopted ? undefined : proof);
+  }
+});
+
+test('usage-origin coordinator never delivers proof when the atomic index save fails', async () => {
+  const messages: CodexWorkerMessage[] = [];
+  const proof = { provider: 'codex', after: 100, through: 200, processed: 100, output: 20,
+    cacheRead: 50, families: { astra: 100, sol: 0, luna: 0 } };
+  await runCodexWorkerRefresh({ type: 'refresh', requestId: 'save-failed', ...request,
+    achievementUsageWindow: { after: 100, through: 200 } }, {
+    isCancelled: () => false, post: message => messages.push(message),
+    acquireCodexIndexLease: async () => ({ release: async () => undefined }),
+    loadCodexIndex: async () => createEmptyCodexIndex(request.timeZone),
+    scanCodexManifest: async () => ({ files: [], persistable: {} }),
+    updateCodexIndex: async () => ({ ...result(), indexChanged: true, achievementUsageDelta: proof } as any),
+    saveCodexIndexAtomic: async () => { throw new Error('private path and failure'); },
+  });
+  assert.deepEqual(messages, [{ type: 'error', requestId: 'save-failed', error: {
+    code: 'refresh-failed', message: 'Codex usage refresh could not be completed',
+  } }]);
+});
+
+test('compiled coordinator commits an anonymous tail proof once and zero-body warm refresh never replays it', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-origin-coordinator-'));
+  const client = new CodexIndexClient();
+  try {
+    const home = path.join(root, 'home'), sessions = path.join(home, 'sessions');
+    await mkdir(sessions, { recursive: true });
+    const log = path.join(sessions, 'live.jsonl');
+    const through = Date.now(), after = through - 60_000;
+    const token = (input: number, output: number, timestamp: number) => JSON.stringify({
+      timestamp: new Date(timestamp).toISOString(), type: 'event_msg', payload: { type: 'token_count',
+        info: { total_token_usage: { input_tokens: input, output_tokens: output,
+          cached_input_tokens: input / 2, reasoning_output_tokens: output / 2, total_tokens: input + output } } },
+    });
+    await writeFile(log, `${JSON.stringify({ type: 'session_meta', payload: { id: 'private-session' } })}\n${JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-6.1-astra', effort: 'max' } })}\n${token(500_000_000, 100_000_000, after - 3_600_000)}\n`);
+    const input = { codexHome: home, indexPath: path.join(root, 'isolated-index.json'), salt: SALT, timeZone: 'UTC' };
+    let baseline = await client.refresh(input);
+    for (let i = 0; baseline.migration.pending && i < 6; i++) baseline = await client.refresh(input);
+    assert.equal(baseline.index.coverage.complete, true);
+    await appendFile(log, `${token(5_500_000_000, 1_100_000_000, through - 1000)}\n`);
+    const appended = await client.refresh({ ...input, achievementUsageWindow: { after, through } });
+    assert.deepEqual(appended.achievementUsageDelta, { provider: 'codex', after, through,
+      processed: 6_000_000_000, output: 1_000_000_000, cacheRead: 2_500_000_000,
+      families: { astra: 6_000_000_000, sol: 0, luna: 0 } });
+    const disk = await readFile(input.indexPath, 'utf8');
+    assert.equal(disk.includes('achievementUsage'), false);
+    assert.equal(disk.includes('private-session'), false);
+    const warm = await client.refresh({ ...input, achievementUsageWindow: { after, through } });
+    assert.equal(warm.bodyReads, 0);
+    assert.equal(warm.achievementUsageDelta, undefined);
+  } finally { await client.dispose(); await rm(root, { recursive: true, force: true }); }
+});
 
 test('concurrent refreshes share one worker run and report progress', async () => {
   const worker = new FakeWorker();

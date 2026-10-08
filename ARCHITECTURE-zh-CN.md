@@ -40,6 +40,7 @@ v2.4 第一阶段把既有分享界面收敛为一个预览优先的工作台。
 | `achievements.ts`、`achievementSnapshot.ts`、`achievementCalendar.ts`、`achievementHours.ts` | 带版本的规则目录与已验证 Token／日／周／小时证据；只消费已物化数值，不读取日志正文。 |
 | `achievementActivity.ts`、`achievementIcons.ts`、`achievementShare.ts` | 白名单内的主动本地行为枚举、随插件打包的徽章查找与明确触发的自包含 SVG 导出。 |
 | `providers/codex/codexHourProof.ts` | 与规范文件、已验证偏移、当前身份与谱系绑定的有界 UTC 输出小时证明；可选旧索引证明迁移不清零主用量。 |
+| `providers/codex/codexAchievementOrigin.ts` | 仅运行期主尾部数值下界、稳定规范谱系接收，以及严格复制的 worker 窗口／DTO 守卫；无持久索引字段或额外正文读取。 |
 | `adviceEffectiveness/contract.ts`、`adapters.ts`、`payload.ts` | 严格的观察/证据/建议/行动/结果契约，隐私重建型 provider adapter，以及 canonical 聚合/个性化 payload。 |
 | `adviceEffectiveness/preparedRequest.ts` / `remoteAdvice.ts` | host 持有的唯一完整 HTTP Prepared 对象、精确 preview/send bytes、BYOK-only 授权、取消与严格结构化解析。 |
 | `adviceEffectiveness/comparisonPairing.ts`、`comparisonResult.ts`、`versionedPersistence.ts` | 净化的可比任务配对、冻结的 measurement-version envelope 与有界的本地反馈/比较存储。 |
@@ -272,8 +273,21 @@ Claude 索引新增准备性的仅运行期尾追加来源合同。异步工作�
 时区退役不提供新活动来源；混合历史只保留独立可证明的新增部分。结果不含来源身份，
 不持久化索引字段，不增加正文读取或定时器。等级助手复用正式门槛，逐等级要求新增
 部分足以使旧进度达标，且从新进度扣除它后不再达标；不据总量推断日历／会话／协作。
-这只是基础，尚未接入宿主已接受窗口、Codex worker 和用量奖项原子事务；完成来源／
+这只是基础，尚未接入宿主已接受窗口和用量奖项原子事务；完成来源／
 清除／共享 lease 守卫前，生产用量授奖仍静默补认，日期未知。
+
+Codex 已补上对应的 producer／worker 基础。仅完整旧主索引中、物理身份已建立的
+文件追加收到明确且已复制的观测窗口。正常主解析器累计窗口内输入＋输出、输出、
+缓存输入和三模型家族数值；去重及谱系处理后，新旧快照都须验证相同物理／会话身份
+和稳定继承前缀，每个接收字段不得超过该文件实际聚合增长。无关身份冲突只排除
+自身分支，不压住可信新增。冷构建／导入／替换、未完成尾部、时区变化、计数回退及
+未稳定前缀不提供新活动证明。`providers/codex/codexAchievementOrigin.ts` 管理此运行期
+下界、谱系接收与严格窗口／DTO 重建；不增加持久字段或正文读取。
+主文件 worker、coordinator 和 client 重建固定数值 DTO，外来窗口／请求、重复任务回复、
+恢复／旧缓存沿用及取消不能提供证明，最终原子保存失败不交付成功结果。证明只存在
+于运行期，零正文读取的暖刷新不重放。逐等级助手使用既有正式门槛及必要／充分判断，
+不推断日历、effort 广度、会话或协作授奖。宿主窗口、非渲染交接与共享用量授奖事务
+仍待接入；此基础不等于生产用量提示已经完成。
 
 徽章分享仅保留一份已接受 SVG 及不透明运行期句柄。客户端标识与请求序号拒绝过期
 回复；回复可移除不再可用的勾选项，但不得新增徽章。界面恢复复用匹配的已接受内容。

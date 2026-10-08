@@ -1,5 +1,38 @@
 import { ACHIEVEMENT_DEFINITIONS, AchievementId, AchievementResult } from './achievements';
 import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
+import { CodexAchievementUsageDelta, copyCodexUsageWindow, copyCodexUsageDelta } from './providers/codex/codexAchievementOrigin';
+
+/** Same per-level causal test as Claude, with Codex's native input + output
+ * semantics. Volume proof never authorizes calendar, effort breadth or agents. */
+export function codexTailAchievementCrossings(
+  before: readonly AchievementResult[], after: readonly AchievementResult[],
+  rawDelta: CodexAchievementUsageDelta | undefined,
+): AchievementId[] {
+  const delta = copyCodexUsageDelta(rawDelta, copyCodexUsageWindow(rawDelta));
+  const count = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+  if (!delta || delta.processed === 0 || before.length > ACHIEVEMENT_DEFINITIONS.length ||
+      after.length > ACHIEVEMENT_DEFINITIONS.length) return [];
+  const previous = new Map(before.map(row => [row.id, row]));
+  const current = new Map(after.map(row => [row.id, row]));
+  if (previous.size !== before.length || current.size !== after.length) return [];
+  const ids: AchievementId[] = [];
+  for (const rule of ACHIEVEMENT_DEFINITIONS) {
+    const old = previous.get(rule.id), next = current.get(rule.id);
+    if (!old || !next || old.target !== rule.target || next.target !== rule.target ||
+        old.group !== rule.group || next.group !== rule.group ||
+        !count(old.progress) || !count(next.progress) || old.progress >= rule.target || next.progress < rule.target) continue;
+    const addition = rule.id.startsWith('astra-regular') ? delta.families.astra
+      : rule.id.startsWith('sol-regular') ? delta.families.sol
+      : rule.id.startsWith('luna-regular') ? delta.families.luna
+      : rule.id.startsWith('codex-output-') ? delta.output
+      : rule.id.startsWith('codex-cache-read-') ? delta.cacheRead
+      : ['hundred-million-club', 'billion-token-club', 'ten-billion-token-club',
+        'hundred-billion-token-club', 'trillion-token-club'].includes(rule.id) ? delta.processed : 0;
+    if (addition <= 0 || addition > next.progress || !count(old.progress + addition)) continue;
+    if (old.progress + addition >= rule.target && next.progress - addition < rule.target) ids.push(rule.id);
+  }
+  return ids;
+}
 
 /** Proven tail additions are a lower bound, not permission to date all awards
  * in a mixed refresh. Certify only volume rules where this addition is both

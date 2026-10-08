@@ -13,6 +13,53 @@ const usageFacts = (volume: number): AchievementFacts => ({
 const usageDelta = (processed: number) => ({ provider: 'claude', after: 100, through: 200,
   processed, output: 0, cacheRead: 0, families: { sonnet: processed, opus: 0, haiku: 0, fable: 0 } });
 
+const codexFacts = (volume: number): AchievementFacts => ({ ...usageFacts(0), codexTokens: volume,
+  codexOutputTokens: 0, codexCachedInputTokens: 0,
+  codex: { modelCount: 1, efforts: [], familyRootCounts: { astra: 1, sol: 0, luna: 0 },
+    familyProcessedTokens: { astra: volume, sol: 0, luna: 0 } } });
+const codexDelta = (processed: number) => ({ provider: 'codex', after: 100, through: 200,
+  processed, output: 0, cacheRead: 0, families: { astra: processed, sol: 0, luna: 0 } });
+
+test('Codex tail crossings use exact approved family tiers and cannot date imported growth', () => {
+  const before = evaluateAchievements(codexFacts(600_000_000));
+  const after = evaluateAchievements(codexFacts(6_600_000_000));
+  const ids = proof.codexTailAchievementCrossings(before, after, codexDelta(6_000_000_000));
+  assert.ok(ids.includes('astra-regular-silver'));
+  assert.ok(ids.includes('billion-token-club'));
+  assert.equal(ids.includes('astra-regular'), false);
+  assert.equal(ids.includes('astra-regular-gold'), false);
+  assert.deepEqual(proof.codexTailAchievementCrossings(before, after, codexDelta(1)), []);
+  assert.deepEqual(proof.codexTailAchievementCrossings(before, evaluateAchievements(codexFacts(1_000_000_000)), codexDelta(100_000_000)), []);
+  assert.deepEqual(proof.codexTailAchievementCrossings(before, evaluateAchievements(codexFacts(1_500_000_000)), codexDelta(400_000_000)), []);
+});
+
+test('Codex tail crossings support output/cache without inventing calendar, effort or agent proof', () => {
+  const before = codexFacts(0), after = codexFacts(5_000_000_000);
+  after.codexOutputTokens = 1_000_000_000;
+  after.codexCachedInputTokens = 2_000_000_000;
+  after.activeDays = 365;
+  after.codex.maxVerifiedAgentsPerRoot = 100;
+  after.codex.effortProcessedTokens = { low: 1e8, medium: 1e8, high: 1e8, xhigh: 1e8, max: 1e8, ultra: 1e8 };
+  const ids = proof.codexTailAchievementCrossings(evaluateAchievements(before), evaluateAchievements(after),
+    { ...codexDelta(5_000_000_000), output: 1_000_000_000, cacheRead: 2_000_000_000 });
+  assert.ok(ids.includes('codex-output-bronze'));
+  assert.ok(ids.includes('codex-cache-read-bronze'));
+  assert.equal(ids.some((id: string) => /agent|days|effort|sonnet/.test(id)), false);
+});
+
+test('Codex tail crossings fail closed for impossible vectors, changed targets and duplicate rule IDs', () => {
+  const before = evaluateAchievements(codexFacts(400_000_000)), after = evaluateAchievements(codexFacts(600_000_000));
+  for (const delta of [undefined, { ...codexDelta(200_000_000), provider: 'claude' },
+    { ...codexDelta(200_000_000), processed: 0.5 }, { ...codexDelta(200_000_000), after: -1 },
+    { ...codexDelta(200_000_000), output: 200_000_000, cacheRead: 1 },
+    { ...codexDelta(200_000_000), families: { astra: 200_000_000, sol: 1, luna: 0 } }]) {
+    assert.deepEqual(proof.codexTailAchievementCrossings(before, after, delta), []);
+  }
+  assert.deepEqual(proof.codexTailAchievementCrossings([...before, before[0]], after, codexDelta(200_000_000)), []);
+  const changed = after.map(row => row.id === 'astra-regular' ? { ...row, target: 1 } : row);
+  assert.equal(proof.codexTailAchievementCrossings(before, changed, codexDelta(200_000_000)).includes('astra-regular'), false);
+});
+
 test('Claude usage crossings require new tokens to be sufficient and necessary for each exact tier', () => {
   const before = evaluateAchievements(usageFacts(600_000_000));
   const after = evaluateAchievements(usageFacts(6_600_000_000));

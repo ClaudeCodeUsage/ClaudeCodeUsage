@@ -26,6 +26,7 @@ import {
 } from './codexIndexLease';
 import { CodexFilePassPool } from './codexFilePassPool';
 import { adoptLegacyCodexIndex } from './codexIndexStorage';
+import { copyCodexUsageWindow, copyCodexUsageDelta } from './codexAchievementOrigin';
 
 const cancelled = new Set<string>();
 let activeRequestId: string | null = null;
@@ -96,6 +97,7 @@ export async function runCodexWorkerRefresh(
   request: Extract<CodexWorkerRequest, { type: 'refresh' }>,
   runtime: CodexWorkerRefreshRuntime,
 ): Promise<void> {
+  const requestedUsageWindow = copyCodexUsageWindow(request.achievementUsageWindow);
   const now = runtime.now ?? Date.now;
   try {
     const lease = await runtime.acquireCodexIndexLease(request.indexPath, {
@@ -117,6 +119,7 @@ export async function runCodexWorkerRefresh(
           { codexHome: request.codexHome, salt: request.salt }) ?? loaded
         : loaded;
       const metadataMs = now() - metadataStarted;
+      const usageWindow = !indexRecovery && previous === loaded ? requestedUsageWindow : undefined;
       const parseStarted = now();
       const foreground = request.profile === 'foreground';
       const allowHistoricalBackfill = request.allowHistoricalBackfill !== false;
@@ -131,6 +134,7 @@ export async function runCodexWorkerRefresh(
       let updated;
       try {
         updated = await runtime.updateCodexIndex(previous, manifest, {
+          achievementUsageWindow: usageWindow,
           salt: request.salt,
           timeZone: request.timeZone,
           now,
@@ -173,8 +177,11 @@ export async function runCodexWorkerRefresh(
       if (runtime.isCancelled()) {
         throw new CodexIndexCancelledError();
       }
+      const { achievementUsageDelta: rawDelta, ...committed } = updated;
+      const achievementUsageDelta = copyCodexUsageDelta(rawDelta, usageWindow);
       result = {
-        ...updated,
+        ...committed,
+        ...(achievementUsageDelta ? { achievementUsageDelta } : {}),
         ...(indexRecovery ? { indexRecovery } : {}),
         metadataMs,
         parseMs: now() - parseStarted,

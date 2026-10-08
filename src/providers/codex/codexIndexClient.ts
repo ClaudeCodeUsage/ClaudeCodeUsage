@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import { CodexIndexProgress } from './codexIndex';
+import { CodexAchievementUsageWindow, copyCodexUsageWindow, copyCodexUsageDelta } from './codexAchievementOrigin';
 import {
   CodexWorkerMessage,
   CodexWorkerRefreshInput,
@@ -27,6 +28,7 @@ export class CodexWorkerError extends Error {
 }
 
 interface ActiveRefresh {
+  achievementUsageWindow?: CodexAchievementUsageWindow;
   requestId: string;
   promise: Promise<CodexWorkerResult>;
   resolve: (result: CodexWorkerResult) => void;
@@ -59,6 +61,7 @@ export class CodexIndexClient {
     input: CodexWorkerRefreshInput,
     onProgress?: (progress: CodexIndexProgress) => void,
   ): Promise<CodexWorkerResult> {
+    input = { ...input, achievementUsageWindow: copyCodexUsageWindow(input.achievementUsageWindow) };
     if (this.disposed) {
       return Promise.reject(
         new CodexWorkerError('disposed', 'Codex index client is disposed'),
@@ -89,6 +92,7 @@ export class CodexIndexClient {
       reject = onReject;
     });
     this.active = {
+      achievementUsageWindow: copyCodexUsageWindow(input.achievementUsageWindow),
       requestId,
       promise,
       resolve,
@@ -189,7 +193,10 @@ export class CodexIndexClient {
       .then(() => {
         if (this.active === active) this.active = null;
         if (terminal.type === 'result') {
-          active.resolve(terminal.result);
+          const { achievementUsageDelta: rawDelta, ...committed } = terminal.result;
+          const achievementUsageDelta = !active.cancelSent
+            ? copyCodexUsageDelta(rawDelta, active.achievementUsageWindow) : undefined;
+          active.resolve({ ...committed, ...(achievementUsageDelta ? { achievementUsageDelta } : {}) });
         } else {
           active.reject(new CodexWorkerError(terminal.error.code, terminal.error.message));
         }

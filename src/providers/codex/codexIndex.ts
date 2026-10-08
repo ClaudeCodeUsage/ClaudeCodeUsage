@@ -66,6 +66,9 @@ import {
   pseudonymousIdentityKey,
 } from './codexIdentity';
 import { sanitizeCodexMetadataLabel } from './codexMetadataLabel';
+import { CodexAchievementUsageWindow, CodexAchievementUsageDelta, copyCodexUsageWindow,
+  emptyCodexUsageDelta, addCodexOriginEvent, copyCodexUsageDelta,
+  codexOriginBaselineReady, finalizeCodexUsageDelta } from './codexAchievementOrigin';
 import {
   CODEX_LINEAGE_FINGERPRINT_BYTES,
   CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK,
@@ -388,6 +391,7 @@ export interface CodexFilePassTask {
   timeZone: string;
   asOfDay: string;
   endExclusive: number;
+  achievementUsageWindow?: CodexAchievementUsageWindow;
 }
 
 export type CodexFilePassOutcome =
@@ -396,6 +400,7 @@ export type CodexFilePassOutcome =
       ok: true;
       contribution: CodexFileContribution;
       bytesRead: number;
+      achievementUsageDelta?: CodexAchievementUsageDelta;
     }
   | { taskId: string; ok: false };
 
@@ -406,6 +411,8 @@ export type CodexFilePassBatchRunner = (
 ) => Promise<void>;
 
 export interface CodexIndexUpdateOptions {
+  /** Caller-owned accepted observation window, never inferred from refresh triggers. */
+  achievementUsageWindow?: CodexAchievementUsageWindow;
   salt: string;
   timeZone: string;
   now?: () => number;
@@ -427,6 +434,7 @@ export interface CodexIndexUpdateOptions {
 }
 
 export interface CodexIndexUpdateResult {
+  achievementUsageDelta?: CodexAchievementUsageDelta;
   index: CodexIndexV3;
   indexChanged: boolean;
   bodyReads: number;
@@ -920,6 +928,7 @@ function contributionFor(
 }
 
 interface CodexFilePassResult {
+  achievementUsageDelta?: CodexAchievementUsageDelta;
   contribution: CodexFileContribution;
   bytesRead: number;
 }
@@ -937,6 +946,8 @@ async function updateContribution(
   endExclusive: number,
   onChunk: ContributionChunkHandler,
 ): Promise<CodexFilePassResult> {
+  const usageWindow = copyCodexUsageWindow(options.achievementUsageWindow);
+  let usageDelta = usageWindow ? emptyCodexUsageDelta(usageWindow) : undefined;
   let parserState = contribution.parserState;
   const aggregate = contribution.aggregate;
   const lineage = contribution.lineage ?? createLineageTrace();
@@ -1047,6 +1058,7 @@ async function updateContribution(
           addLineageToken(lineage, parsed.lineageTokenKey);
         }
         for (const event of parsed.events) {
+          if (usageDelta && !addCodexOriginEvent(usageDelta, event)) usageDelta = undefined;
           reduceUsage(aggregate, event);
           if (activeHourProof) {
             const added = addCodexOutputHourInPlace(
@@ -1131,7 +1143,8 @@ async function updateContribution(
     updated.qualityFlags,
     scan.oversizedLines > 0 ? ['oversized-jsonl-line'] : [],
   );
-  return { contribution: updated, bytesRead: scan.bytesRead };
+  return { contribution: updated, bytesRead: scan.bytesRead,
+    ...(usageDelta && usageDelta.processed > 0 ? { achievementUsageDelta: usageDelta } : {}) };
 }
 
 function promoteCaughtUpLineage(
@@ -1769,6 +1782,7 @@ export async function runCodexFilePass(
     salt: task.salt,
     timeZone: task.timeZone,
     asOfDay: task.asOfDay,
+    ...(task.kind === 'main' ? { achievementUsageWindow: copyCodexUsageWindow(task.achievementUsageWindow) } : {}),
   };
   const noChunk: ContributionChunkHandler = async () => undefined;
   let result: CodexFilePassResult;
@@ -1832,6 +1846,7 @@ export async function runCodexFilePass(
     ok: true,
     contribution: result.contribution,
     bytesRead: result.bytesRead,
+    ...(result.achievementUsageDelta ? { achievementUsageDelta: result.achievementUsageDelta } : {}),
   };
 }
 
@@ -2525,11 +2540,16 @@ export async function updateCodexIndex(
   const io = options.io ?? defaultIo();
   const timeZone = resolveTimeZone(options.timeZone);
   const refreshInstant = (options.now ?? Date.now)();
+  const requestedUsageWindow = copyCodexUsageWindow(options.achievementUsageWindow);
+  const usageWindow = requestedUsageWindow && requestedUsageWindow.through <= refreshInstant &&
+    previous.coverage.period.timeZone === timeZone && codexOriginBaselineReady(previous)
+    ? requestedUsageWindow : undefined;
   const asOfDay = dayKeyInZone(new Date(refreshInstant), timeZone);
   const normalizedOptions: CodexIndexUpdateOptions = {
     ...options,
     timeZone,
     asOfDay,
+    achievementUsageWindow: undefined,
   };
   const scheduling: CodexIndexSchedulingPolicy = {
     ...DEFAULT_CODEX_INDEX_SCHEDULING,
@@ -2557,6 +2577,12 @@ export async function updateCodexIndex(
     ),
   };
   const diff = diffCodexManifest(previousManifest(previous), manifest.persistable);
+  const originAppends = new Set(usageWindow ? diff.appended.filter(key => {
+    const prior = previous.files[key], entry = manifest.persistable[key];
+    return prior && entry && prior.dev! > 0 && prior.ino! > 0 &&
+      prior.dev === entry.dev && prior.ino === entry.ino;
+  }) : []);
+  const originCandidates = new Map<string, CodexAchievementUsageDelta>();
   if (isWarmNoOp(previous, manifest, diff, timeZone, asOfDay,
     options.allowHistoricalBackfill !== false, options.allowAchievementHourProof !== false)) {
     return {
@@ -2866,9 +2892,13 @@ export async function updateCodexIndex(
           if (!task) {
             throw new Error('Codex file worker returned an unknown task');
           }
+          byId.delete(outcome.taskId);
           if (outcome.ok) {
             bytesRead += outcome.bytesRead;
             index.files[task.entry.fileKey] = outcome.contribution;
+            const proof = task.kind === 'main' && originAppends.has(task.entry.fileKey)
+              ? copyCodexUsageDelta(outcome.achievementUsageDelta, usageWindow) : undefined;
+            if (proof) originCandidates.set(task.entry.fileKey, proof);
           } else {
             failedFiles += 1;
             onFailure(task);
@@ -2933,6 +2963,7 @@ export async function updateCodexIndex(
       tasks.push({
         taskId,
         kind: 'main',
+        ...(originAppends.has(entry.fileKey) ? { achievementUsageWindow: usageWindow } : {}),
         contribution: base,
         entry,
         salt: normalizedOptions.salt,
@@ -2988,13 +3019,15 @@ export async function updateCodexIndex(
       const pass = await updateContribution(
         base,
         entry,
-        normalizedOptions,
+        { ...normalizedOptions, achievementUsageWindow: originAppends.has(entry.fileKey) ? usageWindow : undefined },
         io,
         endExclusive,
         onChunk(entry, passStartingBytes),
       );
       bytesRead = passStartingBytes + pass.bytesRead;
       index.files[entry.fileKey] = pass.contribution;
+      const proof = copyCodexUsageDelta(pass.achievementUsageDelta, usageWindow);
+      if (proof) originCandidates.set(entry.fileKey, proof);
     } catch (error) {
       if (error instanceof CodexIndexCancelledError) {
         throw error;
@@ -3564,7 +3597,9 @@ export async function updateCodexIndex(
     publishProgress(true);
   }
   const historicalHourProof = codexHourProofSnapshot(index);
+  const achievementUsageDelta = finalizeCodexUsageDelta(previous, index, originCandidates, usageWindow);
   return {
+    ...(achievementUsageDelta ? { achievementUsageDelta } : {}),
     index,
     indexChanged: true,
     bodyReads,

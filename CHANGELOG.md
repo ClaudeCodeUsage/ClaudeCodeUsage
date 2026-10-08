@@ -7,6 +7,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Usage-origin foundation** — Claude and Codex tail parsers can return bounded,
+  runtime-only new-Token proof without extra log reads or persisted index fields.
+  Codex verifies settled canonical lineages and transports only fixed numeric
+  fields through local workers; imports, recovery, foreign requests and failed
+  saves cannot fabricate live origin. Exact-tier helpers retain approved targets.
+  Host ownership and atomic usage-award integration are still pending; production
+  usage grants remain quiet history with unknown dates for now.
 - **Personal badge pins** — earned badge details can pin or unpin up to three
   showcase series. Atomic intents preserve other windows' choices; pins precede
   automatic representatives without changing goals or sharing consent. Only a
