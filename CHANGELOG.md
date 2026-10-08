@@ -7,6 +7,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Quiet badge arrival** — a new foreground notice gives its emblem one 440 ms
+  reveal, with no moving text, sound or focus change. Reduced-motion and both
+  high-contrast modes stay static; dashboard patches and reloads do not replay it.
+- **Accurate exploration artwork** — the three-step local journey uses a new
+  text-free emblem instead of the obsolete “10X” picture, including in SVG export.
+  Existing award conditions are unchanged.
 - **Short local feature journey** — the exploration badge details list collection,
   share-preview and successful local-export facts from saved action proof. Queued
   or cancelled exports and optional advice feedback cannot complete the journey;

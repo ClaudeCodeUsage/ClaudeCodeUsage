@@ -354,6 +354,12 @@ committed `achievementActivity`, in their catalog order, not an action timeline.
 Each step says recorded/not recorded; neither historical awards nor pending writes
 supply missing facts. Advice feedback and setting changes remain separate rules.
 This display adds no controls, state fields, reads, events or evaluator changes.
+Its bundled `safe-feature-journey-v242.png` replaces the misleading “10X” lookup;
+the old asset remains untouched. Gallery, notice and local SVG use the same map.
+Notice motion is CSS-only: one 440 ms opacity/scale reveal on the existing emblem,
+not the notice root or text. Reduced motion and both native high-contrast body
+classes disable it entirely. Existing delivery, cooldown, dismissal and ACK
+protocols are unchanged; no new timer, persistence, network or replay is added.
 
 `achievementStages.ts` adds display-only 1/2/5 integer nodes between formal
 Token tiers, not before the first tier or after the last. Closed cards show current

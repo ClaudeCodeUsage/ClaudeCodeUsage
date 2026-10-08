@@ -61,6 +61,8 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 Beim Lösen alter angehefteter Abzeichen bleibt der Tastaturfokus im Thema, ohne Datenaktualisierung.
 Die Erkundungsdetails zeigen gespeicherte Schritte: Sammlung, Vorschau und erfolgreicher lokaler Export.
 Alte Abzeichen erfinden keine fehlenden Schritte; Feedback und Einstellungsänderungen bleiben unabhängig.
+Das Symbol enthält keine festen Zahlen. Neue Hinweise bewegen nur das Abzeichen einmal für 440 ms;
+Text, reduzierte Bewegung und hoher Kontrast bleiben statisch, ohne Ton oder Fokuswechsel.
 
 Modelle je Aufgabe und die Anzahl von Mehrmodell-Aufgaben sind getrennte Erlebnisse.
 Fable: gemeinsame Sitzung verlangt Ausgabe von Fable und einer weiteren erkannten

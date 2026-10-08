@@ -80,7 +80,7 @@ export const ACHIEVEMENT_IMAGE_FILES: Record<AchievementId, string> = {
   'settings-explorer-bronze': 'combined-settings-tourist.png',
   'settings-explorer-silver': 'combined-settings-tourist.png',
   'settings-explorer-gold': 'combined-settings-tourist.png',
-  'safe-feature-explorer': 'combined-dashboard-archaeologist.png',
+  'safe-feature-explorer': 'safe-feature-journey-v242.png',
   'local-share-export': 'combined-share-it.png',
   'local-advice-feedback': 'local-advice-feedback-v242.png',
   'astra-regular': 'codex-astra-regular.png',

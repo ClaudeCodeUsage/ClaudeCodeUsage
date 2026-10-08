@@ -58,6 +58,8 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 Ao desafixar um emblema antigo, o foco do teclado permanece no tema, sem atualizar os dados.
 Os detalhes da exploração mostram coleção, prévia e exportação local bem-sucedida registradas.
 Emblemas antigos não inventam etapas ausentes; feedback e configurações continuam separados.
+O ícone não inclui números fixos. Novos avisos animam só o emblema uma vez por 440 ms;
+texto, movimento reduzido e alto contraste ficam estáticos, sem som ou mudança de foco.
 
 Modelos por tarefa e o total de tarefas multimodelo são experiências distintas.
 Fable na mesma sessão exige saída de Fable e outra família Claude reconhecida

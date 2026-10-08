@@ -66,6 +66,9 @@ Removing a legacy pin keeps keyboard focus within its theme, without refreshing 
 Exploration details show three saved local steps: collection, share preview and
 successful export. Missing step records are not inferred from old awards;
 advice feedback and setting changes remain separate, optional activities.
+The journey emblem has no embedded counts. New foreground notices reveal only
+the badge once for 440 ms; text stays still, with static reduced-motion and
+high-contrast alternatives. No sound or focus change.
 
 Model experiences distinguish models recorded within one task from repeated
 multi-model tasks. Fable same-session requires output from Fable and another

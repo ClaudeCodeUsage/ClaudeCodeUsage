@@ -63,6 +63,8 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 Saat melepas sematan lama, fokus keyboard tetap dalam tema tanpa menyegarkan data.
 Detail eksplorasi menampilkan langkah tersimpan: koleksi, pratinjau, dan ekspor lokal yang berhasil.
 Lencana lama tidak mengisi langkah yang hilang; umpan balik dan pengaturan tetap terpisah.
+Ikon tidak memuat angka tetap. Notifikasi baru hanya menggerakkan lencana sekali selama 440 ms;
+teks, gerakan dikurangi, dan kontras tinggi tetap statis, tanpa suara atau perubahan fokus.
 
 Model dalam satu tugas dibedakan dari jumlah tugas multimodel yang terkumpul.
 Fable dalam sesi yang sama memerlukan output Fable dan keluarga Claude lain

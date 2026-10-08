@@ -115,3 +115,13 @@ test('achievement emblems embed local PNG bytes in standalone share SVG', () => 
   assert.notEqual(sol, luna);
   assert.doesNotMatch(astra, /<text|<script|https:/);
 });
+
+test('safe feature exploration uses its text-free journey emblem, never the obsolete 10X artwork', () => {
+  assert.equal(ACHIEVEMENT_IMAGE_FILES['safe-feature-explorer'], 'safe-feature-journey-v242.png');
+  assert.notEqual(ACHIEVEMENT_IMAGE_FILES['safe-feature-explorer'], ACHIEVEMENT_IMAGE_FILES['local-share-export']);
+  const bytes = readFileSync(achievementImagePath('safe-feature-explorer'));
+  assert.equal(bytes.readUInt32BE(16), 256);
+  assert.equal(bytes.readUInt32BE(20), 256);
+  const svg = renderAchievementIcon('safe-feature-explorer', 'currentColor');
+  assert.ok(svg.includes('data:image/png;base64,' + bytes.toString('base64')));
+});

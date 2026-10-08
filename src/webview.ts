@@ -13300,7 +13300,13 @@ export class UsageWebviewProvider {
       .achievement-progress-label { display: block; margin-bottom: 5px; font-size: .82rem; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
       .achievement-card progress { display: block; width: 100%; height: 5px; accent-color: var(--achievement-accent); }
       .achievement-unlock-notice { position: fixed; inset-inline-end: 16px; bottom: 17px; z-index: 100; display: flex; align-items: center; gap: 10px; max-width: min(360px, calc(100vw - 32px)); padding: 10px 12px; border: 1px solid var(--vscode-focusBorder); border-radius: 9px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); color: var(--vscode-editorWidget-foreground, var(--vscode-foreground)); box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0,0,0,.22)); }
-      .achievement-unlock-notice img { flex: none; width: 44px; height: 44px; object-fit: contain; }
+      .achievement-unlock-notice img { flex: none; width: 44px; height: 44px; object-fit: contain; animation: ccuBadgeArrive 440ms ease-out 1; }
+      @keyframes ccuBadgeArrive {
+        from { opacity: .65; transform: scale(.88); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      body.vscode-high-contrast .achievement-unlock-notice img,
+      body.vscode-high-contrast-light .achievement-unlock-notice img { animation: none; }
       .achievement-unlock-notice span { min-width: 0; overflow-wrap: anywhere; }
       .achievement-unlock-notice button { align-self: start; margin-inline-start: auto; border: 0; background: transparent; color: inherit; cursor: pointer; }
       .achievement-unlock-notice button:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
@@ -13314,6 +13320,7 @@ export class UsageWebviewProvider {
         .achievement-card h4 { font-size: .82rem; }
       }
       @media (prefers-reduced-motion: reduce) {
+        .achievement-unlock-notice img { animation: none !important; }
         *, *::before, *::after {
           scroll-behavior: auto !important;
           animation-duration: 0.01ms !important;
