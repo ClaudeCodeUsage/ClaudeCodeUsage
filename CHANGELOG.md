@@ -7,6 +7,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Current statistics from badge details** — model/token badges link to existing
+  same-provider statistics, with a reload-safe keyboard return and preserved
+  disclosures. Shared/calendar conditions and absent views have no misleading
+  totals link. No log scan, award date, new host command or automatic sharing.
 - **Quiet badge arrival** — a new foreground notice gives its emblem one 440 ms
   reveal, with no moving text, sound or focus change. Reduced-motion and both
   high-contrast modes stay static; dashboard patches and reloads do not replay it.

@@ -14,6 +14,7 @@ import {
   ClaudeSessionAchievementEvidence,
   CodexAchievementSignals,
   claudeAchievementFamily,
+  codexModelFamily,
   evaluateAchievements,
   fableAchievementSignals,
   longestActiveDayStreak,
@@ -57,7 +58,7 @@ import { AchievementSharePreview, highestEarnedAchievements, renderAchievementSh
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import { nextAchievementStage } from './achievementStages';
-import { ACHIEVEMENT_GALLERY, achievementGalleryKey } from './achievementGallery';
+import { ACHIEVEMENT_GALLERY, achievementGalleryKey, achievementStatisticsDestination } from './achievementGallery';
 import { AchievementOverviewSelection, AchievementUnreadBatch, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords, selectUnreadAchievementBatch } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline, codexTailAchievementCrossings, claudeTailAchievementCrossings } from './achievementEvidence';
@@ -4066,7 +4067,11 @@ export class UsageWebviewProvider {
 
           ` + dashboardPanel('today', todayActive, cached('today', () => this.renderTodayData(provider))) +
       dashboardPanel('month', rolling30Active, cached('month', () => this.renderMonthData(provider))) +
-      dashboardPanel('all', allActive, cached('all', () => this.renderAllTimeData(provider))) +
+      dashboardPanel('all', allActive,
+        (achievementsEnabled ? '<button id="achievement-statistics-back" class="btn-secondary btn-small achievement-statistics-return" hidden ' +
+          'data-refresh-focus-fallback="tab-all" onclick="backFromAchievementStatistics()">' +
+          this.escapeHtml(achievementCopyFor(I18n.getLocale()).backToBadge) + '</button>' : '') +
+        cached('all', () => this.renderAllTimeData(provider))) +
       dashboardPanel('sessions', sessionsActive, cached('sessions', () => this.renderSessionData(provider))) +
       dashboardPanel('projects', projectsActive, cached('projects', () => this.renderProjectData(provider))) +
       contentTabContent +
@@ -5111,6 +5116,26 @@ export class UsageWebviewProvider {
       this.pendingAchievementActivity ?? this.achievementActivity, feature));
   }
 
+  private achievementStatisticsSection(key: string): 'models' | 'tokens' | undefined {
+    const provider = this.currentProvider;
+    const destination = achievementStatisticsDestination(key, provider);
+    if (!destination || (provider !== 'claude' && provider !== 'codex') ||
+        !this.providerAvailability[provider] || this.revokedAchievementEvidence.has(provider)) return undefined;
+    if (provider === 'claude') {
+      const data = this.allTimeData;
+      if (!data || !(data.totalInputTokens + data.totalOutputTokens +
+          data.totalCacheCreationTokens + data.totalCacheReadTokens > 0)) return undefined;
+      if (destination.section === 'models' && !Object.keys(data.modelBreakdown).some(model =>
+          claudeAchievementFamily(model) === destination.family)) return undefined;
+    } else {
+      const data = this.codexView?.allTime;
+      if (!data || !(data.total.processed > 0)) return undefined;
+      if (destination.section === 'models' && !data.models.some(row =>
+          codexModelFamily(row.key) === destination.family)) return undefined;
+    }
+    return destination.section;
+  }
+
   private renderAchievementData(): string {
     const copy = achievementCopyFor(I18n.getLocale());
     const compact = (value: number): string => formatAchievementCompact(value, I18n.getLocale());
@@ -5268,6 +5293,11 @@ export class UsageWebviewProvider {
             '</span><span>' + this.escapeHtml(copy.journeySteps[index]) + '</span><small>' +
             this.escapeHtml(recorded ? copy.stepRecorded : copy.stepUnrecorded) + '</small></li>';
         }).join('') + '</ol>' : '';
+      const statistics = this.achievementStatisticsSection(key);
+      const statisticsButton = statistics ? '<button id="achievement-statistics-' + key +
+        '" class="btn-secondary btn-small" data-achievement-statistics="' + key +
+        '" data-statistics-section="' + statistics + '" onclick="openAchievementStatistics(this)">' +
+        this.escapeHtml(statistics === 'models' ? copy.viewCurrentModels : copy.viewCurrentTokens) + '</button>' : '';
       return '<article class="achievement-card ' + (earned ? 'earned' : 'locked') +
         '"' + seriesAttrs + ' data-achievement-key="' + key + '" data-achievement-earned="' + earned +
         '" data-achievement-next="' + (next && proofReady) + '" data-achievement-proof="' + evidenceState +
@@ -5298,7 +5328,7 @@ export class UsageWebviewProvider {
           ' ' + unitFor(result.id)) + '"></progress>' :
           '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p>') +
         '<h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
-        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + '</div></details></article>';
+        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + statisticsButton + '</div></details></article>';
     };
     const groups: Array<'claude' | 'codex' | 'combined' | 'plugin'> =
       ['claude', 'codex', 'combined', 'plugin'];
@@ -13293,6 +13323,8 @@ export class UsageWebviewProvider {
       .achievement-tier-pip.complete { width: 7px; height: 7px; border-color: var(--achievement-tier-color); background: var(--achievement-tier-color); opacity: 1; }
       .achievement-tier-pip.next { width: 7px; height: 7px; border-color: var(--vscode-foreground); opacity: .8; }
       .achievement-card-detail { padding: 0 12px 13px; border-top: 1px solid var(--vscode-panel-border); }
+      .achievement-card [data-achievement-statistics] { max-width: 100%; white-space: normal; margin-top: 12px; }
+      .achievement-statistics-return { position: sticky; top: 8px; z-index: 2; max-width: 100%; white-space: normal; margin: 8px 0; }
       .achievement-tier-markers { display: flex; flex-wrap: wrap; gap: 5px; margin: 9px 0 4px; }
       .achievement-tier-marker { display: grid; place-items: center; min-width: 19px; height: 17px; padding: 0 3px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; color: var(--vscode-descriptionForeground); font-size: .68rem; line-height: 1; }
       .achievement-tier-marker.complete { border-color: var(--achievement-tier-color); color: var(--achievement-tier-label-color); font-weight: 700; }
@@ -13810,6 +13842,7 @@ function ccuRollingDaySet(count) {
 
 // Define basic functions
 function showProvider(provider, tab) {
+  if (provider !== ccuProviderName()) { ccuWriteUiState('achievementStatisticsReturn', undefined); }
   vscode.postMessage({ command: 'providerChanged', provider: provider, tab: tab || '' });
 }
 
@@ -13905,6 +13938,53 @@ function filterAchievements(value, save) {
 }
 function restoreAchievementFilter() {
   filterAchievements(ccuReadUiState().achievementFilter, false);
+  restoreAchievementStatisticsReturn();
+}
+function achievementStatisticsEntry(intent) {
+  if (!intent || (intent.provider !== 'claude' && intent.provider !== 'codex') ||
+      intent.provider !== ccuProviderName() || typeof intent.key !== 'string' ||
+      !/^[a-z][a-z0-9-]{0,63}$/.test(intent.key)) { return null; }
+  var button = document.getElementById('achievement-statistics-' + intent.key);
+  if (!button || button.dataset.achievementStatistics !== intent.key || !button.closest('#achievements')) { return null; }
+  var section = button.dataset.statisticsSection;
+  var target = section === 'models' ? document.querySelector('#all .model-breakdown h3')
+    : section === 'tokens' ? document.querySelector('#all .usage-summary .summary-grid') : null;
+  return target ? { button: button, target: target } : null;
+}
+function restoreAchievementStatisticsReturn() {
+  var back = document.getElementById('achievement-statistics-back');
+  if (!back) { return; }
+  var entry = achievementStatisticsEntry(ccuReadUiState().achievementStatisticsReturn);
+  document.querySelectorAll('#all [id="achievement-statistics-target"]').forEach(function(target) {
+    if (entry && target === entry.target) { return; }
+    target.removeAttribute('id'); target.removeAttribute('tabindex');
+    target.removeAttribute('data-refresh-focus-fallback');
+  });
+  back.hidden = !entry;
+  if (entry) {
+    entry.target.id = 'achievement-statistics-target';
+    entry.target.tabIndex = -1;
+    entry.target.dataset.refreshFocusFallback = 'tab-all';
+  }
+}
+function openAchievementStatistics(button) {
+  var intent = { key: button && button.dataset.achievementStatistics, provider: ccuProviderName() };
+  var entry = achievementStatisticsEntry(intent);
+  if (!entry || entry.button !== button) { return; }
+  flushScrollPosition(); saveScrollPosition(); savePersistedDetails();
+  ccuWriteUiState('achievementStatisticsReturn', intent);
+  showTab('all', false, true);
+  restoreAchievementStatisticsReturn();
+  entry.target.focus({ preventScroll: true }); entry.target.scrollIntoView({ block: 'center' });
+}
+function backFromAchievementStatistics() {
+  var entry = achievementStatisticsEntry(ccuReadUiState().achievementStatisticsReturn);
+  if (!entry) { restoreAchievementStatisticsReturn(); return; }
+  flushScrollPosition(); saveScrollPosition();
+  showTab('achievements', false, true);
+  ccuWriteUiState('achievementStatisticsReturn', undefined);
+  restoreAchievementStatisticsReturn(); restorePersistedDetails();
+  entry.button.focus({ preventScroll: true }); restoreScrollPosition();
 }
 function openAchievementDetail(key) {
   var card = Array.from(document.querySelectorAll('.achievement-card')).find(function(card) {
@@ -14999,7 +15079,7 @@ function restoreTableSorts(root) {
   });
 }
 
-function showTab(tabName, restoring) {
+function showTab(tabName, restoring, preserveAchievementDetails) {
   try {
     // Reselecting the current view is not a tab switch. Preserve disclosures
     // and avoid repeating host tab/inventory work; restoration still reconciles.
@@ -15033,7 +15113,11 @@ function showTab(tabName, restoring) {
       if (!restoring) {
         vscode.postMessage({ command: 'tabChanged', tab: tabName, documentId: __ccuDocumentId });
         // Switching tabs resets expanded rows to their default (Carl's rule).
-        clearPersistedDetails();
+        if (!preserveAchievementDetails) {
+          clearPersistedDetails();
+          ccuWriteUiState('achievementStatisticsReturn', undefined);
+          restoreAchievementStatisticsReturn();
+        }
         // Persist in localStorage too — survives the reload, restored before paint.
         try { localStorage.setItem('ccu.activeTab', tabName); } catch (e) {}
         if (tabName === 'settings') { requestLocalDataInventory(); }

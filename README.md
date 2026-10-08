@@ -182,6 +182,10 @@ real account or an installed-VSIX capture.*
 
 ## Local achievements (candidate)
 
+Badge details link to existing current model/token statistics for the same provider,
+with a keyboard-safe return. Shared and historical-period badges do not substitute
+one provider's current totals for award evidence; navigation does not scan logs.
+
 Removing a legacy pin keeps keyboard focus within its theme, without refreshing data.
 Exploration details show three saved local steps: collection, share preview and
 successful export. Missing step records are not inferred from old awards;

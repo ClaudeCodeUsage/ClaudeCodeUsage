@@ -60,6 +60,9 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Pencapaian lokal (kandidat)
 
+Detail lencana membuka statistik model/token saat ini dari penyedia yang sama, dengan kembali dan fokus terjaga.
+Tidak memindai ulang log atau mengganti bukti lintas penyedia/periode lama dengan jumlah saat ini.
+
 Saat melepas sematan lama, fokus keyboard tetap dalam tema tanpa menyegarkan data.
 Detail eksplorasi menampilkan langkah tersimpan: koleksi, pratinjau, dan ekspor lokal yang berhasil.
 Lencana lama tidak mengisi langkah yang hilang; umpan balik dan pengaturan tetap terpisah.

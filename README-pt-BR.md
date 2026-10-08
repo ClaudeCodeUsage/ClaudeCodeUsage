@@ -55,6 +55,9 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Conquistas locais (candidato)
 
+Os detalhes abrem estatísticas atuais existentes de modelos/tokens do mesmo provedor, com retorno e foco preservado.
+Não releem logs nem substituem evidências compartilhadas ou de períodos anteriores pelos totais atuais.
+
 Ao desafixar um emblema antigo, o foco do teclado permanece no tema, sem atualizar os dados.
 Os detalhes da exploração mostram coleção, prévia e exportação local bem-sucedida registradas.
 Emblemas antigos não inventam etapas ausentes; feedback e configurações continuam separados.

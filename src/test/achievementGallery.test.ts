@@ -2,6 +2,28 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } from '../achievements';
 import { ACHIEVEMENT_GALLERY, achievementGalleryKey } from '../achievementGallery';
+import * as gallery from '../achievementGallery';
+
+test('current statistics destinations are provider-bound and never substitute shared or calendar evidence', () => {
+  const destination = (gallery as any).achievementStatisticsDestination;
+  assert.equal(typeof destination, 'function');
+  for (const [provider, key, family] of [
+    ['claude', 'sonnet-main', 'sonnet'], ['claude', 'opus-cannon', 'opus'],
+    ['claude', 'haiku-worker', 'haiku'], ['claude', 'fable-volume', 'fable'],
+    ['codex', 'astra-regular', 'astra'], ['codex', 'sol-regular', 'sol'], ['codex', 'luna-regular', 'luna'],
+  ]) {
+    assert.deepEqual(destination(key, provider), { section: 'models', family });
+    assert.equal(destination(key, provider === 'claude' ? 'codex' : 'claude'), undefined);
+  }
+  for (const key of ['cache-wizard', 'claude-output', 'claude-cache-creation'])
+    assert.deepEqual(destination(key, 'claude'), { section: 'tokens' });
+  for (const key of ['codex-output', 'codex-cache-read'])
+    assert.deepEqual(destination(key, 'codex'), { section: 'tokens' });
+  for (const provider of ['claude', 'codex', 'compare', '', '__proto__'])
+    for (const key of ['weekly-volume', 'cumulative-volume', 'weekly-average', 'active-day-streak',
+      'dual-provider-day', 'output-hours', 'safe-feature-explorer', 'effort-breadth', 'unknown', '__proto__', 'constructor'])
+      assert.equal(destination(key, provider), undefined);
+});
 
 test('gallery gives all 124 formal rules exactly one detail position in 44 display themes', () => {
   const before = JSON.stringify([ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES]);

@@ -538,7 +538,10 @@ test('Claude dashboard shell markers and provider switching behavior remain inta
   assert.match(source, /id="refreshNowBtn" class="btn-secondary btn-refresh-now"/);
   assert.match(source, /onclick="showTab\('content'\)" class="btn-secondary">✨/);
   assert.match(source, /onclick="showTab\('settings'\)" class="btn-secondary">⚙/);
-  assert.match(source, /function showProvider\(provider, tab\) \{\s*vscode\.postMessage\(\{ command: 'providerChanged', provider: provider, tab: tab \|\| '' \}\);\s*\}/);
+  const switching = source.match(/function showProvider\(provider, tab\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(switching, /vscode\.postMessage\(\{ command: 'providerChanged', provider: provider, tab: tab \|\| '' \}\);/);
+  assert.equal((switching.match(/vscode\.postMessage/g) ?? []).length, 1);
+  assert.doesNotMatch(switching, /refresh\(|export|fetch\(|setInterval\(/);
   assert.match(source, /renderProviderTabs\(\)[\s\S]*renderQuotaBanner\(provider\)/);
 });
 

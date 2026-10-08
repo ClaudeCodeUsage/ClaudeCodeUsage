@@ -361,6 +361,14 @@ not the notice root or text. Reduced motion and both native high-contrast body
 classes disable it entirely. Existing delivery, cooldown, dismissal and ACK
 protocols are unchanged; no new timer, persistence, network or replay is added.
 
+`achievementGallery.ts` allowlists same-provider current model/token destinations.
+The shared renderer requires existing materialized data and a matching family for
+model links; shared/calendar/action badges have no substitute totals link. The client
+resolves only fixed DOM destinations from current rendered buttons. One public theme
+key and provider enum in existing Webview UI state preserve the statistics return;
+special navigation retains disclosures/scroll, while ordinary tab/provider changes
+retire the intent. No host command, log scan, award evidence/date or share consent is added.
+
 `achievementStages.ts` adds display-only 1/2/5 integer nodes between formal
 Token tiers, not before the first tier or after the last. Closed cards show current
 progress toward the next formal level and, where applicable, the next intermediate

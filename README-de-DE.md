@@ -58,6 +58,9 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Lokale Erfolge (Kandidat)
 
+Abzeichendetails öffnen vorhandene aktuelle Modell-/Tokenstatistiken desselben Anbieters
+mit Rückweg und erhaltenem Fokus. Keine Logsuche oder Ersetzung historischer Nachweise durch aktuelle Summen.
+
 Beim Lösen alter angehefteter Abzeichen bleibt der Tastaturfokus im Thema, ohne Datenaktualisierung.
 Die Erkundungsdetails zeigen gespeicherte Schritte: Sammlung, Vorschau und erfolgreicher lokaler Export.
 Alte Abzeichen erfinden keine fehlenden Schritte; Feedback und Einstellungsänderungen bleiben unabhängig.

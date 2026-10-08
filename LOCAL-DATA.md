@@ -153,6 +153,9 @@ existing Webview UI state; disclosure keys are public series IDs. The sharing
 return route remembers only a Claude/Codex enum and a one-shot focus boolean. They contain no
 usage, paths or identities and are removed by Reset Dashboard UI State. Opening,
 filtering or expanding the gallery does not read logs or add network calls.
+Current-statistics navigation also keeps one public theme key and a provider enum
+in that same UI state until return, ordinary navigation or UI reset. It stores no
+dates, models, paths or new action history and does not scan provider logs.
 Badge-sharing preferences remember only manually selected public rule IDs (at
 most nine). One accepted SVG and its opaque preview handle stay in provider
 memory, not on disk as an export history. The current language is checked before

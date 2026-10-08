@@ -28,3 +28,25 @@ const displayKey = new Map<string, string>(ACHIEVEMENT_GALLERY.flatMap(entry =>
 export function achievementGalleryKey(key: string): string | undefined {
   return displayKey.get(key);
 }
+
+/** Current materialized statistics, never award-date or shared-calendar proof. */
+const statisticsModels = new Map<string, { provider: string; family: string }>([
+  ['sonnet-main', { provider: 'claude', family: 'sonnet' }],
+  ['opus-cannon', { provider: 'claude', family: 'opus' }],
+  ['haiku-worker', { provider: 'claude', family: 'haiku' }],
+  ['fable-volume', { provider: 'claude', family: 'fable' }],
+  ['astra-regular', { provider: 'codex', family: 'astra' }],
+  ['sol-regular', { provider: 'codex', family: 'sol' }],
+  ['luna-regular', { provider: 'codex', family: 'luna' }],
+]);
+const statisticsTokens = new Map([
+  ['cache-wizard', 'claude'], ['claude-output', 'claude'], ['claude-cache-creation', 'claude'],
+  ['codex-output', 'codex'], ['codex-cache-read', 'codex'],
+]);
+export function achievementStatisticsDestination(key: string, provider: string):
+  { section: 'models'; family: string } | { section: 'tokens' } | undefined {
+  const model = statisticsModels.get(key);
+  if (model?.provider === provider) return { section: 'models', family: model.family };
+  return statisticsTokens.get(key) === provider && (provider === 'claude' || provider === 'codex')
+    ? { section: 'tokens' } : undefined;
+}

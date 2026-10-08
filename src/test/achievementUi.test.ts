@@ -49,6 +49,48 @@ async function withAchievementStorage(run: (directory: string) => Promise<void>)
   try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
+test('statistics links require an existing same-provider view and matching model family', async () => {
+  await withProvider(new Map(), async provider => {
+    provider.currentProvider = 'claude';
+    provider.providerAvailability = { claude: true, codex: true, codexData: false };
+    provider.allTimeData = { totalInputTokens: 100, totalOutputTokens: 10,
+      totalCacheReadTokens: 20, totalCacheCreationTokens: 0,
+      modelBreakdown: { 'claude-sonnet-4-5': { inputTokens: 100, outputTokens: 10,
+        cacheReadTokens: 20, cacheCreationTokens: 0 } } };
+    const html = provider.renderAchievementData();
+    assert.ok(html.includes('id="achievement-statistics-sonnet-main"'));
+    assert.ok(html.includes('data-achievement-statistics="sonnet-main" data-statistics-section="models"'));
+    assert.ok(html.includes('id="achievement-statistics-claude-output"'));
+    for (const key of ['opus-cannon', 'fable-volume', 'sol-regular', 'weekly-volume', 'cumulative-volume', 'safe-feature-explorer'])
+      assert.ok(!html.includes('id="achievement-statistics-' + key + '"'), key);
+    provider.allTimeData = null;
+    assert.doesNotMatch(provider.renderAchievementData(), /data-achievement-statistics=/);
+    provider.achievementGrants = new Set(['sonnet-main-gold']);
+    assert.doesNotMatch(provider.renderAchievementData(), /data-achievement-statistics=/,
+      'a saved historical award cannot recreate a missing statistics view');
+  });
+});
+
+test('Codex statistics use current materialized rows, not grants or another provider snapshot', async () => {
+  await withProvider(new Map(), async provider => {
+    provider.currentProvider = 'codex';
+    provider.providerAvailability = { claude: true, codex: true, codexData: true };
+    provider.codexView = { allTime: { total: { processed: 10 },
+      models: [{ key: 'gpt-6.1-sol' }] } };
+    assert.equal(provider.achievementStatisticsSection('sol-regular'), 'models');
+    assert.equal(provider.achievementStatisticsSection('codex-output'), 'tokens');
+    for (const key of ['astra-regular', 'luna-regular', 'sonnet-main', 'weekly-volume', 'cumulative-volume'])
+      assert.equal(provider.achievementStatisticsSection(key), undefined);
+    provider.revokedAchievementEvidence.add('codex');
+    assert.equal(provider.achievementStatisticsSection('sol-regular'), undefined);
+    provider.revokedAchievementEvidence.clear();
+    provider.codexView = null;
+    assert.equal(provider.achievementStatisticsSection('codex-output'), undefined);
+    provider.currentProvider = 'compare';
+    assert.equal(provider.achievementStatisticsSection('sol-regular'), undefined);
+  });
+});
+
 test('plugin journey shows only saved deliberate steps, not pending export or optional advice', async () => {
   const language = I18n.getLocale();
   try { for (const locale of Object.keys(ACHIEVEMENT_COPY)) {
