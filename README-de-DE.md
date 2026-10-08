@@ -58,6 +58,8 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Lokale Erfolge (Kandidat)
 
+Beim Lösen alter angehefteter Abzeichen bleibt der Tastaturfokus im Thema, ohne Datenaktualisierung.
+
 Modelle je Aufgabe und die Anzahl von Mehrmodell-Aufgaben sind getrennte Erlebnisse.
 Fable: gemeinsame Sitzung verlangt Ausgabe von Fable und einer weiteren erkannten
 Claude-Familie in derselben Sitzung, nicht eine bestimmte Reihenfolge.

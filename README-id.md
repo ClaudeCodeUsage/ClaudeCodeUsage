@@ -60,6 +60,8 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Pencapaian lokal (kandidat)
 
+Saat melepas sematan lama, fokus keyboard tetap dalam tema tanpa menyegarkan data.
+
 Model dalam satu tugas dibedakan dari jumlah tugas multimodel yang terkumpul.
 Fable dalam sesi yang sama memerlukan output Fable dan keluarga Claude lain
 yang dikenali dalam satu sesi, tanpa menyiratkan urutan eksekusi.

@@ -88,6 +88,10 @@ test('two legacy theme pins stay individually removable and a confirmed removal 
   await expect(card.locator('[data-achievement-pin]')).toHaveCount(1);
   await expect(card.locator('[data-achievement-pin="active-day-streak"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(card.locator('details')).toHaveAttribute('open');
+  await page.clock.runFor(200);
+  await expect(card.locator('summary')).toBeFocused();
+  expect(await page.evaluate(() => window.__ccuPostedMessages.map(row => row.command)))
+    .not.toContain('refresh');
   await page.goto(confirmedUrl.href); await page.reload();
   await expect(card.locator('details')).toHaveAttribute('open');
   await expect(card.locator('[data-achievement-pin]')).toHaveCount(1);

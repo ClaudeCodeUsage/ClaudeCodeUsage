@@ -345,6 +345,9 @@ tier pip. A milestone-only award is earned but has zero earned formal tiers.
 Overview/recent/disclosure aliases use this map. Saved pin keys remain exact; old
 duplicate pins are individually removable in the same card. Sharing, grant IDs,
 dates and unread batches are unchanged; rendering neither writes nor reads logs.
+If a legacy unpin control disappears, the existing transient focus fallback
+returns to the canonical theme summary, then the achievement tab if unavailable.
+Surviving control IDs still take precedence; no persistent focus state is added.
 
 `achievementStages.ts` adds display-only 1/2/5 integer nodes between formal
 Token tiers, not before the first tier or after the last. Closed cards show current

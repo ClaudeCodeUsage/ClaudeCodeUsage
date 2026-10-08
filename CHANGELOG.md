@@ -7,6 +7,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Keyboard-safe legacy pins** — removing a merged milestone pin restores focus
+  to that theme's summary when its button disappears. Surviving controls retain
+  focus normally; no refresh, read acknowledgement or new preference is added.
 - **Growing themes without duplicate cards** — the default gallery has 44 theme
   cards, with all 124 rules and 46 artwork groups intact. The fourteen-day and
   first shared-day milestones live inside their growing themes, not as extra

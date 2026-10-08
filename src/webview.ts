@@ -5231,7 +5231,8 @@ export class UsageWebviewProvider {
         const name = copy.titles[(ids ? ids[0] : pin) as AchievementId];
         return '<button id="achievement-pin-' + pin + '" class="achievement-pin" data-achievement-pin="' + pin +
           '" data-achievement-generation="' + this.achievementRecordState!.generation + '" aria-pressed="' + pinned +
-          '" aria-describedby="achievementPinStatus" title="' + this.escapeHtml(copy.pinLimit) + '" onclick="requestAchievementPin(this)">' +
+          '" aria-describedby="achievementPinStatus" data-refresh-focus-fallback="achievement-summary-' + key +
+          ' tab-achievements" title="' + this.escapeHtml(copy.pinLimit) + '" onclick="requestAchievementPin(this)">' +
           this.escapeHtml((pinned ? copy.unpinBadge : copy.pinBadge) + (savedPins.length > 1 ? ' · ' + name : '')) + '</button>';
       }).join('');
       const next = series ? hasNextTier : !earned;
@@ -5262,7 +5263,7 @@ export class UsageWebviewProvider {
         '" data-achievement-id="' + result.id + '">' +
         '<details class="achievement-disclosure" data-persist="achievement:' + key + '"' +
         ' data-persist-aliases="' + allResults.map(entry => 'achievement:' + entry.id).join(' ') + '">' +
-        '<summary aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' +
+        '<summary id="achievement-summary-' + key + '" aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' +
           (proofReady ? bound + formatted + ' ' + unitFor(result.id) : proofLabel) +
           (series ? ' · ' + earnedTiers + '/' + tierCount : '')) + '">' +
         '<span class="achievement-emblem" aria-hidden="true">' +

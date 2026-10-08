@@ -205,7 +205,7 @@ test('a compact number cannot make unfinished progress look equal to its target'
     assert.doesNotMatch(card, /≥Next level/);
     assert.doesNotMatch(card, /1\.0B \/ 1\.0B/);
     assert.match(card, /999M \/ 1B/);
-    assert.match(card, /summary aria-label="[^\"]*≥/);
+    assert.match(card, /summary[^>]* aria-label="[^\"]*≥/);
   });
 });
 
