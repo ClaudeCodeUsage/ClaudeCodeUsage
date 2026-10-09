@@ -1215,30 +1215,36 @@ test('completed malformed content lines do not poison unchanged cutoff rebases',
 });
 
 test('cross-file content UUID clones keep the legacy first-owner deduplication', async () => {
-  const { root, first, second } = await fixture();
-  const cloned = JSON.stringify({
-    type: 'assistant',
-    uuid: 'cross-file-content-clone',
-    timestamp: '2026-08-21T08:04:00.000Z',
-    message: { role: 'assistant', content: [{ type: 'text', text: 'count this once' }] },
-  });
-  await appendFile(first, `${cloned}\n`, 'utf8');
-  await appendFile(second, `${cloned}\n`, 'utf8');
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first, second } = await fixture();
+    const cloned = JSON.stringify({
+      type: 'assistant',
+      uuid: 'cross-file-content-clone',
+      timestamp: '2026-08-21T08:04:00.000Z',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'count this once' }] },
+    });
+    await appendFile(first, `${cloned}\n`, 'utf8');
+    await appendFile(second, `${cloned}\n`, 'utf8');
 
-  const incremental = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
-    analyzeContent: true,
-  });
-  const full = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
+    const incremental = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+    });
+    const full = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
 
-  assert.deepEqual(incremental.contentAnalysis, full.contentAnalysis);
+    assert.deepEqual(incremental.contentAnalysis, full.contentAnalysis);
 
-  await unlink(first);
-  const fallback = await updateClaudeUsageIndex(incremental.index, root, {
-    analyzeContent: true,
-  });
-  const fallbackFull = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
-  assert.equal(fallback.diagnostics.bodyReads, 1);
-  assert.deepEqual(fallback.contentAnalysis, fallbackFull.contentAnalysis);
+    await unlink(first);
+    const fallback = await updateClaudeUsageIndex(incremental.index, root, {
+      analyzeContent: true,
+    });
+    const fallbackFull = await ClaudeDataLoader.loadUsageRecords(root, { analyzeContent: true });
+    assert.equal(fallback.diagnostics.bodyReads, 1, 'only the surviving twin is re-read');
+    assert.deepEqual(fallback.contentAnalysis, fallbackFull.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
 });
 
 test('content analysis ages out records later on the same configured-zone day', async () => {
@@ -2411,6 +2417,80 @@ test('truncate, atomic replacement, move, and delete update only affected files'
   assert.equal(current.diagnostics.bodyReads, 0);
   assert.deepEqual(current.diagnostics.changed, { append: 0, rebuild: 0, move: 0, delete: 1 });
   await assertMatchesFull(root, current.records);
+});
+
+test('a deleted transcript is dropped without re-reading the remaining history', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, second } = await fixture();
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    await unlink(second);
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.changed.delete, 1);
+    assert.equal(warm.diagnostics.bodyReads, 0, 'the surviving file is not re-read');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('deleting the owner of a duplicated uuid re-reads only the surviving twin', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-delete-ownership-'));
+    roots.push(root);
+    const project = path.join(root, 'projects', '-fixture-project');
+    await mkdir(project, { recursive: true });
+    const owner = path.join(project, 'session-owner.jsonl');
+    const twin = path.join(project, 'session-twin.jsonl');
+    const shared = promptLine('shared prompt', '2026-08-21T08:00:00.000Z');
+    await writeFile(owner, [
+      shared,
+      usageLine('owner', 10, 4, { timestamp: '2026-08-21T08:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(twin, [
+      shared,
+      usageLine('twin', 20, 8, { timestamp: '2026-08-21T09:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    await unlink(owner);
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.changed.delete, 1);
+    assert.equal(warm.diagnostics.bodyReads, 1, 'only the twin carrying the shared uuid is re-read');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
 });
 
 test('a failed body read keeps the previous index and visible snapshot atomic', async () => {
