@@ -506,6 +506,14 @@ are deferred to the next version; neither is implemented in 2.5.0.
   dialogs and checks language before accepting an export.
 
 ### Fixed
+- **Rewriting a transcript re-read the whole history (#99)** — a mid-file edit
+  or truncation (`/rewind`, session repair, an external touch) tripped the
+  source-mutation guard and every file was rebuilt from its body. The rewrite
+  now re-reads only that file; UUIDs it used to own go to the
+  ownership-restoration pass, a moved first event or a UUID claimed ahead of
+  its later owner still falls back to one ordered rebuild. Measured on a
+  976-file, 1.58 GB corpus: 19.3 s CPU and 976 body reads become 0.8 s and
+  one body read.
 - **Source-scoped Codex caches** — different Codex homes, profile salts and
   data timezones sharing VS Code global storage no longer replace one another's
   incremental index. Proven legacy checkpoints are adopted without rereading
