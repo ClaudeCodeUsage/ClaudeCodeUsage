@@ -7,6 +7,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Fixed
+- **Manifest scans stat files concurrently (#99)** — every refresh statted the
+  whole history one file at a time; through the Windows filter stack that is
+  the difference between a stalled and an invisible refresh when the system is
+  busy. Results stay in discovery order.
 - **Source-scoped Codex caches** — different Codex homes, profile salts and
   data timezones sharing VS Code global storage no longer replace one another's
   incremental index. Proven legacy checkpoints are adopted without rereading
