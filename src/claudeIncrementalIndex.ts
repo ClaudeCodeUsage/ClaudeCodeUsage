@@ -2687,51 +2687,19 @@ export async function updateClaudeUsageIndex(
 
   let forcedFullAnalysisRebuild = false;
   if (analyzeContent) {
-    const sourcePlans = plans.filter((plan) => plan.analysisReason === 'source');
-    // Several sessions appending between two refreshes is the ordinary case on a
-    // machine running more than one agent, not an edge case: with the fast path
-    // limited to a single changed file, such a machine never took it and every
-    // refresh re-read the whole history. Any number of pure tail appends is
-    // safe here; the per-file UUID ownership check below still guards order.
-    // A file that simply appeared is as safe as a tail append: its own body is
-    // read in full, and the established contributions are untouched. Every new
-    // session starts a new transcript, so treating this as an unsafe mutation
-    // cost a full rebuild many times a day.
-    const isTailAppend = (plan: FilePlan): boolean =>
-      plan.kind === 'append' && Boolean(plan.prior) && (plan.prior?.firstTimestampMs ?? 0) > 0;
-    const isNewFile = (plan: FilePlan): boolean =>
-      plan.kind === 'rebuild' && !plan.prior && !plan.replacedFileId;
-    // The window keeps drifting, so on a long history almost every refresh also
-    // carries a file whose oldest event has just fallen out of it. Such a file
-    // is re-read only to recompute its aggregate under the new cutoff — its
-    // body on disk is unchanged ('cutoff' is assigned only when bodyUnchanged),
-    // so it owns exactly the UUIDs it owned before and cannot preempt anyone.
-    // A verified append can cross that cutoff in the same file; it and other
-    // appends remain bounded to their changed bodies. UUID ownership preemption
-    // is checked after parsing, while dropped UUIDs are handed to the ownership
-    // restoration pass below.
-    //
-    // Requiring "appends and nothing else" therefore rejected the fast path on
-    // ordinary drift: measured on a 650-file history, 136 of 140 refreshes
-    // re-read every body — 1.4 GB, ~60 s — to serve one appended file.
-    // 'cutoff' — тело не менялось; 'window' — файл дописан и потерял событие
-    // за окном. Второй случай может нести новые UUID, поэтому его пропускает
-    // проверка владения после разбора, ниже.
-    const isWindowRebuild = (plan: FilePlan): boolean =>
-      plan.analysisReason === 'cutoff' || plan.analysisReason === 'window';
-    const appendOnlyPlans = plans.length > 0 &&
-      plans.every((plan) => isTailAppend(plan) || isNewFile(plan) || isWindowRebuild(plan));
-    const safeTailAppend = Boolean(
-      appendOnlyPlans &&
-      previousAnalysisRuntime && !timeZoneChanged &&
-      previous.windowDays === windowDays,
-    );
     const priorAnalysisCutoffMs = previousAnalysisRuntime?.cutoffMs ??
       (previous.analyzeContent ? previous.analysisCutoffMs : undefined);
     const cutoffMovedBackward = priorAnalysisCutoffMs !== undefined &&
       analysisCutoffMs < priorAnalysisCutoffMs;
-    const unsafeSourceMutation = deletions.length > 0 || moves.length > 0 ||
-      (sourcePlans.length > 0 && !safeTailAppend);
+    // A mid-file rewrite ('source' rebuild with a prior) stays bounded: the
+    // file itself is re-read in full, UUIDs it used to own are handed to the
+    // ownership restoration pass below, and two post-parse probes guard the
+    // rest — a moved first event changes the canonical order, and a newly
+    // claimed UUID owned by a later file changes first-owner dedup; either one
+    // falls back to the full rebuild. Measured on a 650-file history, a rewind
+    // or truncation touching one transcript used to re-read all 1.4 GB,
+    // 20–40 s, and such rewrites happen many times a day.
+    const unsafeSourceMutation = deletions.length > 0 || moves.length > 0;
     forcedFullAnalysisRebuild = cutoffMovedBackward || unsafeSourceMutation ||
       canonicalOrderChanged;
     if (forcedFullAnalysisRebuild) {
@@ -2879,9 +2847,20 @@ export async function updateClaudeUsageIndex(
     const windowRebasedAppends = parsedPlans.some(
       (plan) => plan.analysisReason === 'window',
     );
-    if ((fastAppendAnalysis || windowRebasedAppends) &&
+    // A mid-file rewrite is probed like a 'window' append. Two order hazards
+    // decide: its first event moved, so its place in the canonical order may
+    // be wrong; or it now claims a UUID a later file owns, which the full
+    // loader resolves by scan order. Either one retries as a full rebuild.
+    const sourceRebasedRebuilds = parsedPlans.some(
+      (plan) => plan.analysisReason === 'source' && Boolean(plan.prior),
+    );
+    const orderShiftedRebuild = parsedPlans.some(
+      (plan) => plan.analysisReason === 'source' && plan.prior &&
+        plan.contribution.firstTimestampMs !== plan.prior.firstTimestampMs,
+    );
+    if ((fastAppendAnalysis || windowRebasedAppends || sourceRebasedRebuilds) &&
       previousAnalysisRuntime && parsedPlans.length > 0) {
-      let laterOwnerCollision = false;
+      let laterOwnerCollision = orderShiftedRebuild;
       for (const appended of parsedPlans) {
         if (laterOwnerCollision) break;
         if (appended.kind === 'rebuild' && !appended.prior) {
