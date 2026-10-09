@@ -50,6 +50,40 @@ test('manifest scanning fails closed on permission errors but tolerates stat ENO
   assert.equal(missing.entries.size, 0);
 });
 
+test('manifest scanning stats files concurrently and keeps discovery order', async () => {
+  const { root, file } = await fixture();
+  const project = path.dirname(file);
+  const names = Array.from({ length: 20 }, (_, index) => `session-${String(index).padStart(2, '0')}.jsonl`);
+  for (const name of names) {
+    await writeFile(path.join(project, name), '{"timestamp":"2026-01-01T00:00:00.000Z"}\n');
+  }
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const started = performance.now();
+  const manifest = await scanUsageManifest([root], {
+    readdir: (dir: string) => readdir(dir, { withFileTypes: true }),
+    stat: async (filePath: string) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      try {
+        return await stat(filePath);
+      } finally {
+        inFlight -= 1;
+      }
+    },
+  });
+  assert.ok(maxInFlight > 1, 'stats overlap instead of running one by one');
+  assert.ok(
+    performance.now() - started < 20 * 50,
+    'twenty 50 ms stats finish well under the sequential second',
+  );
+  assert.deepEqual(
+    [...manifest.entries.keys()],
+    names.map((name) => path.join(project, name)),
+  );
+});
+
 test('manifest diff reports changed, reused, and removed without exposing them in counters', async () => {
   const { root, file } = await fixture();
   await writeFile(file, '{"timestamp":"2026-01-01T00:00:00.000Z"}\n');
