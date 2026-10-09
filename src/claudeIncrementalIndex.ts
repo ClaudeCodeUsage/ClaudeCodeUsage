@@ -2730,7 +2730,16 @@ export async function updateClaudeUsageIndex(
       (previous.analyzeContent ? previous.analysisCutoffMs : undefined);
     const cutoffMovedBackward = priorAnalysisCutoffMs !== undefined &&
       analysisCutoffMs < priorAnalysisCutoffMs;
-    const unsafeSourceMutation = deletions.length > 0 || moves.length > 0 ||
+    // A deletion needs no body re-reads: removeFile below drops the file's
+    // records and its stored contribution, UUIDs it owned are handed to the
+    // ownership restoration pass (a surviving twin that also carries them is
+    // re-read there, and only that twin), and the analysis leaves the append
+    // fast path — deletions.length === 0 is part of its condition — to be
+    // rebuilt in memory from the retained per-file contributions. Measured on
+    // a 650-file history, deleting one transcript used to re-read the whole
+    // 1.4 GB corpus, 75–110 s; now it re-reads only twins sharing its UUIDs,
+    // usually nothing.
+    const unsafeSourceMutation = moves.length > 0 ||
       (sourcePlans.length > 0 && !safeTailAppend);
     forcedFullAnalysisRebuild = cutoffMovedBackward || unsafeSourceMutation ||
       canonicalOrderChanged;
