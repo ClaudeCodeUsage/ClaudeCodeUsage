@@ -4,6 +4,7 @@ import {
   appendFile,
   mkdir,
   mkdtemp,
+  readFile,
   rename,
   rm,
   stat,
@@ -2411,6 +2412,175 @@ test('truncate, atomic replacement, move, and delete update only affected files'
   assert.equal(current.diagnostics.bodyReads, 0);
   assert.deepEqual(current.diagnostics.changed, { append: 0, rebuild: 0, move: 0, delete: 1 });
   await assertMatchesFull(root, current.records);
+});
+
+test('a truncated transcript re-reads only that file, not the whole history', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first } = await fixture();
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    const content = await readFile(first, 'utf8');
+    const lines = content.trim().split('\n');
+    await writeFile(first, `${lines.slice(0, 2).join('\n')}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.changed.rebuild, 1);
+    assert.equal(warm.diagnostics.bodyReads, 1, 'only the truncated file is re-read');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a mid-file rewrite re-reads only the rewritten file', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first } = await fixture();
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    await writeFile(first, [
+      JSON.stringify({ type: 'custom-title', customTitle: 'Edited title' }),
+      promptLine('first prompt'),
+      usageLine('first-edited', 99, 9),
+      '',
+    ].join('\n'), 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.changed.rebuild, 1);
+    assert.equal(warm.diagnostics.bodyReads, 1, 'only the rewritten file is re-read');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a rewrite that moves the first event falls back to a full ordered rebuild', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first } = await fixture();
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    // Dropping the prompt line moves the file's first timestamped event from
+    // 08:00 to 08:01, behind nothing here but past its established position.
+    await writeFile(first, `${usageLine('first', 10, 4)}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    // 1 bounded read is the evidence, then the fallback re-reads both files.
+    assert.equal(warm.diagnostics.bodyReads, 3, 'the order shift forces a full rebuild');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a rewrite claiming a uuid owned by a later file falls back to a full rebuild', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first, second } = await fixture();
+    await appendFile(second, `${promptLine('shared late', '2026-08-21T09:00:00.000Z')}\n`, 'utf8');
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    await writeFile(first, [
+      JSON.stringify({ type: 'custom-title', customTitle: 'Edited title' }),
+      promptLine('first prompt'),
+      promptLine('shared late', '2026-08-21T08:30:00.000Z'),
+      usageLine('first', 10, 4),
+      '',
+    ].join('\n'), 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    // 1 bounded read is the evidence, then the fallback re-reads both files.
+    assert.equal(warm.diagnostics.bodyReads, 3, 'the ownership conflict forces a full rebuild');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a rewrite that drops an owned uuid re-reads the twin that also carries it', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first, second } = await fixture();
+    await appendFile(first, `${promptLine('duplicated prompt', '2026-08-21T08:02:00.000Z')}\n`, 'utf8');
+    await appendFile(second, `${promptLine('duplicated prompt', '2026-08-21T09:02:00.000Z')}\n`, 'utf8');
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    // The rewrite drops the duplicated line from the earlier file, so the
+    // later twin takes over the uuid — and only it is re-read alongside.
+    await writeFile(first, [
+      JSON.stringify({ type: 'custom-title', customTitle: 'First title' }),
+      promptLine('first prompt'),
+      usageLine('first', 10, 4),
+      '',
+    ].join('\n'), 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.bodyReads, 2, 'the rewritten file and the twin, nothing else');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
 });
 
 test('a failed body read keeps the previous index and visible snapshot atomic', async () => {
