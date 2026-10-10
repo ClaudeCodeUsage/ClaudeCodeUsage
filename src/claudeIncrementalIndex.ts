@@ -32,9 +32,10 @@ import { I18n } from './i18n';
 import { claudeAchievementFamily, claudeSessionAchievementEvidence, ClaudeSessionAchievementEvidence } from './achievements';
 import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
 import { ownRecordValue, setRecordValue } from './ownRecord';
-import { addClaudeReferenceUsage } from './claudeReferenceUsage';
+import { addClaudeReferenceUsage, claudeReferenceUsage } from './claudeReferenceUsage';
 import {claudeAchievementMoneyProjection,inheritClaudeAchievementMoneyProjection} from './claudeAchievementMoneyProjection';
-import type {AchievementMoneyBackend} from './achievementMoney';
+import { getAchievementMoneyPricebook, priceAchievementModelBucket, type AchievementMoneyBackend } from './achievementMoney';
+import { accumulateMoneyProof, type AchievementMoneyProofs } from './achievementMoneyOrigin';
 import type {AchievementMoneyScopes} from './achievementMoneyScopes';
 import {
   buildProjectUsageMatrixSnapshot,
@@ -285,6 +286,8 @@ export interface ClaudeAchievementUsageDelta {
   cacheRead: number;
   cacheCreation: number;
   families: Record<'sonnet' | 'opus' | 'haiku' | 'fable', number>;
+  /** Frozen reference subsets only, runtime-only and cumulative-only. */
+  money?: AchievementMoneyProofs;
 }
 
 export interface ClaudeUsageIndexUpdateResult {
@@ -416,6 +419,21 @@ function acceptedTailUsageDelta(
     delta.cacheCreation += parts[2];
     delta.cacheRead += parts[3];
     if (family) delta.families[family] += processed;
+    // This loop already admits only additional response identities. Use the
+    // same TTL-complete shadow semantics as materialized historical evidence;
+    // counter rewrites, missing TTL and mutable dashboard prices are excluded.
+    if (claudeReferenceUsage(usage)) {
+      for (const backend of ['anthropic', 'aws-bedrock-in-region'] as const) {
+        const priced = priceAchievementModelBucket({ provider: 'claude', model: winner.record.message.model, usage }, backend);
+        if (priced.reason !== null || priced.microUsd === null || priced.pricedTokens === 0) continue;
+        const proof = accumulateMoneyProof(delta.money?.[backend], {
+          provider: 'claude', backend, pricebookVersion: getAchievementMoneyPricebook(backend).version,
+          exactMicroUsdUnits: priced.exactMicroUsdUnits, microUsd: priced.microUsd, eligibleProcessed: priced.pricedTokens,
+        });
+        if (proof) (delta.money ??= {})[backend] = proof;
+        else if (delta.money) delete delta.money[backend];
+      }
+    }
   };
   for (const message of affectedMessages) {
     // Request-less identities may be re-keyed when a later request ID appears.
@@ -428,6 +446,7 @@ function acceptedTailUsageDelta(
     if (stable) for (const identity of next.canonicalIdentitiesByMessage.get(message) ?? []) add(identity);
   }
   for (const identity of affectedDirect) add(identity);
+  if (delta.money && !Object.keys(delta.money).length) delete delta.money;
   return !overflow && delta.processed > 0 ? delta : undefined;
 }
 
