@@ -392,4 +392,3 @@ if(!threads.isMainThread) {
     }
   })().catch(error=>{process.stderr.write(error.stack+'\n');process.exitCode=1;});
 }
-
