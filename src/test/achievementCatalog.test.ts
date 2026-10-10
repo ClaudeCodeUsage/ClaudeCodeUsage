@@ -92,6 +92,20 @@ test('review catalog includes exactly twenty monetary conditions in six provider
   }
 });
 
+test('API badges select six versioned coin or pouch emblems without changing award identities', () => {
+  const images = new Set<string>();
+  for (const rule of API_ACHIEVEMENT_DEFINITIONS) {
+    const expected = rule.id.replace(/-(bronze|silver|gold|platinum)$/, '-v242-v2.png');
+    assert.equal(ACHIEVEMENT_IMAGE_FILES[rule.id], expected);
+    const bytes = Buffer.from(achievementImageDataUrl(rule.id).split(',')[1], 'base64');
+    assert.equal(bytes.readUInt32BE(16), 256);
+    assert.equal(bytes.readUInt32BE(20), 256);
+    images.add(expected);
+  }
+  assert.equal(images.size, 6);
+  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 20);
+});
+
 test('monetary review displays floored USD while retaining exact production microUSD targets', () => {
   for (const locale of ['zh-CN', 'en']) {
     const catalog = achievementCatalog(locale).filter((card: any) => isAchievementMoneyId(card.levels[0].id));

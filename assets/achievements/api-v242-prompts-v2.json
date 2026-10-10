@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "mode": "built-in image_gen edit",
+  "generatedOn": "2026-10-10",
+  "transparentBackground": false,
+  "packagedSize": {
+    "width": 256,
+    "height": 256
+  },
+  "designIntent": "Restrained gold coins and small money pouches identify API-equivalent resource use; no wealth, profit or productivity claim.",
+  "packaging": "Selected built-in outputs copied into versioned project siblings and downscaled with macOS sips; no content edits.",
+  "assets": [
+    {
+      "file": "claude-api-total-v242-v2.png",
+      "prompt": "Use case: precise-object-edit. Asset type: a bundled raster API-equivalent usage achievement emblem for a VS Code tracker. Input image 1 is the edit target. Preserve the exact friendly robot character, its provider color, off-white square canvas, thick near-black rounded-square border, bold flat outlines, generous margins and clean legibility at 56px. Add intuitive, restrained monetary imagery so this denotes metered API-equivalent resources, not wealth, profit or personal success. Use muted warm-gold coins or a small neutral drawstring pouch as a supporting clue, not a dominant trophy. No huge piles, overflowing treasure, crowns, money rain, luxury objects, sparkly rewards, celebratory wealth poses, logos, text, letters, numerals or currency signs. Keep the existing image's overall composition. Produce exactly one square emblem, not a contact sheet. Change only the three small chip symbols on the stacked resource-ledger tiles into three simple modest gold coin emblems with raised coin rims. Retain all three ledger tiles and their teal record lines, and the orange crab robot. The restrained ledger-with-coins arrangement should read as cumulative resource accounting, not a pile of cash.",
+      "reference": "claude-api-total-v242.png"
+    },
+    {
+      "file": "claude-api-week-v242-v2.png",
+      "prompt": "Use case: precise-object-edit. Asset type: a bundled raster API-equivalent usage achievement emblem for a VS Code tracker. Input image 1 is the edit target. Preserve the exact friendly robot character, its provider color, off-white square canvas, thick near-black rounded-square border, bold flat outlines, generous margins and clean legibility at 56px. Add intuitive, restrained monetary imagery so this denotes metered API-equivalent resources, not wealth, profit or personal success. Use muted warm-gold coins or a small neutral drawstring pouch as a supporting clue, not a dominant trophy. No huge piles, overflowing treasure, crowns, money rain, luxury objects, sparkly rewards, celebratory wealth poses, logos, text, letters, numerals or currency signs. Keep the existing image's overall composition. Produce exactly one square emblem, not a contact sheet. Retain the orange crab robot and calendar with exactly seven day squares in a single row. Replace only the small chip at the calendar's lower corner with one simple warm-gold coin with a raised rim. Keep the recording line and quiet weekly-accounting composition; no additional coins.",
+      "reference": "claude-api-week-v242.png"
+    },
+    {
+      "file": "claude-api-session-v242-v2.png",
+      "prompt": "Use case: precise-object-edit. Asset type: a bundled raster API-equivalent usage achievement emblem for a VS Code tracker. Input image 1 is the edit target. Preserve the exact friendly robot character, its provider color, off-white square canvas, thick near-black rounded-square border, bold flat outlines, generous margins and clean legibility at 56px. Add intuitive, restrained monetary imagery so this denotes metered API-equivalent resources, not wealth, profit or personal success. Use muted warm-gold coins or a small neutral drawstring pouch as a supporting clue, not a dominant trophy. No huge piles, overflowing treasure, crowns, money rain, luxury objects, sparkly rewards, celebratory wealth poses, logos, text, letters, numerals or currency signs. Keep the existing image's overall composition. Produce exactly one square emblem, not a contact sheet. Retain the orange crab robot holding exactly one large session tile and the bracket-shaped session outline. In the tile, introduce one small plain drawstring money pouch between the session brackets, with at most one modest gold coin peeking out. Keep a small resource-record line, remove the former chip symbol, and avoid making the pouch overflow or dominate the robot. This is one session's resource budget.",
+      "reference": "claude-api-session-v242.png"
+    },
+    {
+      "file": "codex-api-total-v242-v2.png",
+      "prompt": "Use case: precise-object-edit. Asset type: a bundled raster API-equivalent usage achievement emblem for a VS Code tracker. Input image 1 is the edit target. Preserve the exact friendly robot character, its provider color, off-white square canvas, thick near-black rounded-square border, bold flat outlines, generous margins and clean legibility at 56px. Add intuitive, restrained monetary imagery so this denotes metered API-equivalent resources, not wealth, profit or personal success. Use muted warm-gold coins or a small neutral drawstring pouch as a supporting clue, not a dominant trophy. No huge piles, overflowing treasure, crowns, money rain, luxury objects, sparkly rewards, celebratory wealth poses, logos, text, letters, numerals or currency signs. Keep the existing image's overall composition. Produce exactly one square emblem, not a contact sheet. Change only the three small blue chip symbols on the stacked resource-ledger tiles into three simple modest gold coin emblems with raised rims. Preserve all three ledger tiles and teal record lines, and the friendly blue cloud-shaped terminal robot. The restrained ledger-with-coins arrangement denotes cumulative metered API resources, not wealth.",
+      "reference": "codex-api-total-v242.png"
+    },
+    {
+      "file": "codex-api-week-v242-v2.png",
+      "prompt": "Use case: precise-object-edit. Asset type: a bundled raster API-equivalent usage achievement emblem for a VS Code tracker. Input image 1 is the edit target. Preserve the exact friendly robot character, its provider color, off-white square canvas, thick near-black rounded-square border, bold flat outlines, generous margins and clean legibility at 56px. Add intuitive, restrained monetary imagery so this denotes metered API-equivalent resources, not wealth, profit or personal success. Use muted warm-gold coins or a small neutral drawstring pouch as a supporting clue, not a dominant trophy. No huge piles, overflowing treasure, crowns, money rain, luxury objects, sparkly rewards, celebratory wealth poses, logos, text, letters, numerals or currency signs. Keep the existing image's overall composition. Produce exactly one square emblem, not a contact sheet. Retain the friendly blue robot and calendar with exactly seven checked day squares in a single row. Replace only the small blue chip below the calendar with one simple muted warm-gold coin with a raised rim; retain the teal connecting resource line. Keep the completed-week accounting symbolism and no extra coins.",
+      "reference": "codex-api-week-v242.png"
+    },
+    {
+      "file": "codex-api-task-v242-v2.png",
+      "prompt": "Use case: precise-object-edit. Asset type: a bundled raster API-equivalent usage achievement emblem for a VS Code tracker. Input image 1 is the edit target. Preserve the exact friendly robot character, its provider color, off-white square canvas, thick near-black rounded-square border, bold flat outlines, generous margins and clean legibility at 56px. Add intuitive, restrained monetary imagery so this denotes metered API-equivalent resources, not wealth, profit or personal success. Use muted warm-gold coins or a small neutral drawstring pouch as a supporting clue, not a dominant trophy. No huge piles, overflowing treasure, crowns, money rain, luxury objects, sparkly rewards, celebratory wealth poses, logos, text, letters, numerals or currency signs. Keep the existing image's overall composition. Produce exactly one square emblem, not a contact sheet. Retain the blue-violet friendly robot holding exactly one ledger tile with exactly one connected task-tree glyph: one top square linked to three lower squares. Replace only the chip at the tile's lower corner with one small plain neutral drawstring pouch featuring a single subtle gold coin emblem. Preserve the tree glyph as the dominant scope clue. No additional pouches or coin piles; this represents the API-equivalent resources for one task.",
+      "reference": "codex-api-task-v242.png"
+    }
+  ]
+}

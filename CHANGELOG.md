@@ -7,6 +7,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+- **Recognizable API resource emblems** — six Claude/Codex cumulative, week and
+  single-session/task emblems use restrained gold coins or small money pouches
+  alongside their ledger, calendar or task scope. These cues identify API-equivalent
+  resources, not income, wealth or task quality. Original artwork is retained;
+  gallery, notices and explicitly selected SVG exports share the versioned lookup.
+  中文：六枚 API 资源徽章以少量金币或小钱袋增强金额辨识度，保留账册、周历及单次
+  会话／任务标记，不使用财富炫耀意象，也不表示收入或任务质量；旧图案保留。
 - **Current statistics from badge details** — model/token badges link to existing
   same-provider statistics, with a reload-safe keyboard return and preserved
   disclosures. Shared/calendar conditions and absent views have no misleading
@@ -24,8 +31,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Keyboard-safe legacy pins** — removing a merged milestone pin restores focus
   to that theme's summary when its button disappears. Surviving controls retain
   focus normally; no refresh, read acknowledgement or new preference is added.
-- **Growing themes without duplicate cards** — the default gallery has 44 theme
-  cards, with all 124 rules and 46 artwork groups intact. The fourteen-day and
+- **Growing themes without duplicate cards** — the current default gallery has 50 theme
+  cards, 144 rules and 52 artwork groups, including six API resource themes. The fourteen-day and
   first shared-day milestones live inside their growing themes, not as extra
   tiers. Old disclosure links and pins still work; duplicate old pins can be
   removed separately. Recent views collapse themes but preserve exact records,
