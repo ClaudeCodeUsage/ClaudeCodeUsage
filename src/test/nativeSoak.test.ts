@@ -94,6 +94,150 @@ test('native soak recurring-readiness failures identify the exact fixed assertio
   }
 });
 
+test('native soak setup readback projects only fixed phases, equality booleans, types and bounded counters', () => {
+  const counts = { claude: { started: 1, completed: 1 }, codex: { started: 1, completed: 0 },
+    other: { started: 32, completed: 32 }, private: 'never retain' };
+  const projected = helper().projectSetupReadback('after-codex-set', '1', '10', '1', '10', 1, 10, counts);
+  assert.deepEqual(projected, {
+    phase: 'after-codex-set',
+    memento: { claude: { expectedEqual: true, type: 'string' }, codex: { expectedEqual: true, type: 'string' } },
+    settings: { claude: { expectedEqual: true, type: 'string' }, codex: { expectedEqual: true, type: 'string' } },
+    configuration: { claude: { expectedEqual: true, type: 'number' }, codex: { expectedEqual: true, type: 'number' } },
+    updates: { claude: { started: 1, completed: 1 }, codex: { started: 1, completed: 0 },
+      other: { started: 32, completed: 32 } },
+  });
+  counts.claude.started = 9;
+  assert.equal(projected.updates.claude.started, 1);
+  for (const phase of ['after-cold-settle', 'after-claude-set', 'after-codex-set',
+    'after-handler', 'after-settle', 'after-focus']) {
+    assert.equal(helper().projectSetupReadback(phase, '1', '10', '1', '10', 1, 10, counts).phase, phase);
+  }
+  assert.equal(helper().projectSetupReadback('private-phase', '1', '10', '1', '10', 1, 10, counts), null);
+  for (const invalid of [-1, NaN, Infinity, 33, '1', undefined]) {
+    assert.equal(helper().projectSetupReadback('after-focus', '1', '10', '1', '10', 1, 10,
+      { ...counts, claude: { started: invalid, completed: 0 } }), null);
+  }
+});
+
+test('native soak setup readback never inspects or retains unknown values', () => {
+  let inspected = 0;
+  const hostile = new Proxy({}, { get() { inspected++; throw new Error('private-proxy-detail'); } });
+  const counts = { claude: { started: 0, completed: 0 }, codex: { started: 0, completed: 0 },
+    other: { started: 0, completed: 0 } };
+  for (const value of [undefined, null, false, 2, NaN, Infinity, 'private-setting-value',
+    Symbol('private-symbol'), 123n, () => 'private-function', hostile]) {
+    const row = helper().projectSetupReadback('after-focus', value, value, value, value, value, value, counts);
+    for (const source of ['memento', 'settings', 'configuration']) {
+      assert.deepEqual(row[source].claude, { expectedEqual: false, type: typeof value });
+      assert.deepEqual(row[source].codex, { expectedEqual: false, type: typeof value });
+    }
+    assert.ok(!JSON.stringify(row).includes('private'));
+  }
+  assert.equal(helper().projectSetupReadback(hostile, hostile, hostile, hostile, hostile, hostile, hostile, counts), null);
+  assert.equal(inspected, 0);
+});
+
+test('native soak setup update probe preserves receiver, result, rejection and restoration with saturated counters', async () => {
+  const values = new Map<string, unknown>();
+  const state: any = { get: (key: string) => values.get(key) };
+  let returned: Promise<void>;
+  const original = function(this: unknown, key: string, value: unknown): Promise<void> {
+    assert.equal(this, state);
+    values.set(key, value);
+    returned = key === 'private-rejected-key'
+      ? Promise.reject(new Error('private-update-detail')) : Promise.resolve();
+    return returned;
+  };
+  Object.setPrototypeOf(state, { update: original });
+  const probe = helper().createSetupReadbackProbe(state);
+  const first = state.update('ccu.setting.fileWatchSeconds', '1');
+  assert.equal(first, returned!);
+  await first;
+  await state.update('ccu.setting.codex.fileWatchSeconds', '10');
+  for (let i = 0; i < 40; i++) await state.update('private-other-key', 'private-value');
+  await assert.rejects(state.update('private-rejected-key', 'private-value'), /private-update-detail/);
+  const settings = { get: (key: string) => values.get('ccu.setting.' + key) };
+  const rows: any[] = [];
+  assert.equal(probe.capture(rows, 'after-focus', settings, { fileWatchSeconds: 1, codexFileWatchSeconds: 10 }), true);
+  assert.deepEqual(rows[0].updates, { claude: { started: 1, completed: 1 },
+    codex: { started: 1, completed: 1 }, other: { started: 32, completed: 32 } });
+  assert.ok(!JSON.stringify(rows).includes('private'));
+  for (let i = 1; i < 32; i++) probe.capture(rows, 'after-focus', settings, { fileWatchSeconds: 1, codexFileWatchSeconds: 10 });
+  assert.equal(probe.capture(rows, 'after-focus', settings, { fileWatchSeconds: 1, codexFileWatchSeconds: 10 }), false);
+  assert.equal(rows.length, 32);
+  probe.restore();
+  probe.restore();
+  assert.equal(state.update, original);
+  assert.equal(Object.prototype.hasOwnProperty.call(state, 'update'), false);
+});
+
+test('native soak records six setup phases before the unchanged failure and restores updates before stop', async t => {
+  const { plan } = await fixtures(t);
+  await fs.writeFile(path.join(plan.root, 'native-stage-manifest.json'), JSON.stringify({ sourceHead: 'fea8879' }));
+  const values = new Map<string, unknown>([
+    ['ccu.setting.fileWatchSeconds', '0'], ['ccu.setting.codex.fileWatchSeconds', '0'],
+  ]);
+  const state = { get: (key: string) => values.get(key),
+    update: async function(key: string, value: unknown) {
+      assert.equal(this, state);
+      values.set(key, value);
+      // Synthetic divergence only: this test does not attribute a native cause.
+      if (key === 'ccu.setting.codex.fileWatchSeconds') values.set('ccu.setting.fileWatchSeconds', '2');
+    } };
+  const original = state.update;
+  const context = { extensionMode: 3, extensionPath: plan.directories.developmentExtension, globalState: state };
+  let stopped = false, handlerCalled = false;
+  const instance = {
+    context, initializationWrites: Promise.resolve(), initializationWriteFailure: null,
+    refreshGate: { active: false }, activeCodexRefreshes: new Set(), codexCheckpointHydration: false,
+    pendingResourceStops: new Set(), codexProviderRetirements: new Set(), codexProviderRetirementFailure: null,
+    codexBackgroundStateWrite: Promise.resolve(),
+    cache: { dataDirectory: plan.directories.claudeHome }, codexSnapshotHome: plan.directories.codexHome,
+    codexHasData: true, webviewProvider: { panel: undefined }, windowActivity: { focused: false },
+    outputChannel: { appendLine() {} },
+    resourceOwnership: { snapshotForTests: () => stopped ? { activeCount: 0 } : owned },
+    settings: {
+      get: (key: string) => key === 'advice.apiKey' ? '' : state.get('ccu.setting.' + key),
+      set: (key: string, value: unknown) => state.update('ccu.setting.' + key, value),
+    },
+    getConfiguration: () => ({ usageLimitTracking: false,
+      fileWatchSeconds: Number(state.get('ccu.setting.fileWatchSeconds')),
+      codexFileWatchSeconds: Number(state.get('ccu.setting.codex.fileWatchSeconds')) }),
+    refreshData: async () => undefined,
+    onSettingsChangedFromPanel: () => { handlerCalled = true; },
+    handleWindowFocusChange: (focused: boolean) => { instance.windowActivity.focused = focused; },
+  };
+  const api = { plan, context, instance, isolation: { testModeVerified: true, actualStatePathsVerified: true,
+    syntheticHomesVerified: true, ownSafetySeedCompleted: true },
+  stop: async () => { assert.equal(state.update, original); stopped = true; } };
+  const load = (Module as any)._load;
+  (Module as any)._load = function(request: string, parent: unknown, isMain: boolean) {
+    if (request === 'vscode') return { version: 'synthetic-api-not-native', ExtensionMode: { Test: 3 },
+      window: { state: { focused: false }, onDidChangeWindowState: () => ({ dispose() {} }) },
+      extensions: { getExtension: () => ({ activate: async () => api }) } };
+    return load.call(this, request, parent, isMain);
+  };
+  try {
+    await assert.rejects(helper().run(plan, { durationMs: 100 }), /^Error: native-soak:failed-recurring-setup$/);
+    const text = await fs.readFile(path.join(plan.root, 'native-soak-result.json'), 'utf8');
+    const report = JSON.parse(text), rows = report.setupReadbacks;
+    assert.deepEqual(rows.map((row: any) => row.phase), ['after-cold-settle', 'after-claude-set',
+      'after-codex-set', 'after-handler', 'after-settle', 'after-focus']);
+    assert.equal(rows[0].memento.claude.expectedEqual, false);
+    assert.equal(rows[1].memento.claude.expectedEqual, true);
+    assert.equal(rows[2].memento.claude.expectedEqual, false);
+    assert.equal(rows[5].configuration.codex.expectedEqual, true);
+    assert.deepEqual(rows[5].updates, { claude: { started: 1, completed: 1 },
+      codex: { started: 1, completed: 1 }, other: { started: 0, completed: 0 } });
+    assert.equal(report.failureReason, 'setup-claude-watch-setting');
+    assert.equal(report.stopCompleted, true);
+    assert.equal(report.counters.cycles, 0);
+    assert.equal(handlerCalled, true);
+    assert.equal(state.update, original);
+    assert.ok(!text.includes('ccu.setting.') && !text.includes(plan.root));
+  } finally { (Module as any)._load = load; }
+});
+
 test('native soak failure reasons distinguish its own resource, sample and operation guards', async () => {
   const sample = helper().sampleOwnedResources(memory, owned, 0, false, false, 0, 0);
   const work = [

@@ -58,6 +58,66 @@ function assertRecurringReady(configuration, resources) {
   if (configuration.codexFileWatchSeconds !== 10) fail('setup-codex-watch-setting');
   if (resources.byKind.watcher !== 2) fail('setup-watchers');
 }
+const setupReadbackPhases = new Set(['after-cold-settle', 'after-claude-set', 'after-codex-set',
+  'after-handler', 'after-settle', 'after-focus']);
+const setupReadbackBound = 32;
+function projectSetupReadback(phase, mementoClaude, mementoCodex, settingsClaude, settingsCodex,
+  configurationClaude, configurationCodex, counts) {
+  if (!setupReadbackPhases.has(phase)) return null;
+  const updates = {};
+  for (const kind of ['claude', 'codex', 'other']) {
+    const started = counts?.[kind]?.started, completed = counts?.[kind]?.completed;
+    if (!finiteCount(started) || !finiteCount(completed) || completed > started ||
+      started > setupReadbackBound) return null;
+    updates[kind] = { started, completed };
+  }
+  // Never stringify, coerce or inspect a value. Unknown objects/proxies and
+  // secrets can contribute only a typeof enum and strict expected equality.
+  const readback = (value, expected) => ({ expectedEqual: value === expected, type: typeof value });
+  return { phase,
+    memento: { claude: readback(mementoClaude, '1'), codex: readback(mementoCodex, '10') },
+    settings: { claude: readback(settingsClaude, '1'), codex: readback(settingsCodex, '10') },
+    configuration: { claude: readback(configurationClaude, 1), codex: readback(configurationCodex, 10) },
+    updates };
+}
+function createSetupReadbackProbe(globalState) {
+  const original = globalState.update;
+  const descriptor = Object.getOwnPropertyDescriptor(globalState, 'update');
+  const counts = { claude: { started: 0, completed: 0 }, codex: { started: 0, completed: 0 },
+    other: { started: 0, completed: 0 } };
+  const increment = (kind, field) => {
+    counts[kind][field] = Math.min(setupReadbackBound, counts[kind][field] + 1);
+  };
+  globalState.update = function (...args) {
+    const kind = args[0] === 'ccu.setting.fileWatchSeconds' ? 'claude'
+      : args[0] === 'ccu.setting.codex.fileWatchSeconds' ? 'codex' : 'other';
+    increment(kind, 'started');
+    const result = original.apply(globalState, args);
+    // Observe completion without replacing the original result/rejection or
+    // retaining keys, values, IDs or exceptions in diagnostic state.
+    void Promise.resolve(result).then(() => increment(kind, 'completed'), () => undefined);
+    return result;
+  };
+  let restored = false;
+  return Object.freeze({
+    capture(rows, phase, settings, configuration) {
+      if (rows.length >= setupReadbackBound || !setupReadbackPhases.has(phase)) return false;
+      const row = projectSetupReadback(phase,
+        globalState.get('ccu.setting.fileWatchSeconds'), globalState.get('ccu.setting.codex.fileWatchSeconds'),
+        settings.get('fileWatchSeconds'), settings.get('codex.fileWatchSeconds'),
+        configuration.fileWatchSeconds, configuration.codexFileWatchSeconds, counts);
+      if (!row) return false;
+      rows.push(row);
+      return true;
+    },
+    restore() {
+      if (restored) return;
+      if (descriptor) Object.defineProperty(globalState, 'update', descriptor);
+      else delete globalState.update;
+      restored = true;
+    },
+  });
+}
 function sampleOwnedResources(memory, resources, elapsedMs, achievementsEnabled, panelOpen, panelCacheEntries, pendingNoticeEntries) {
   if (![memory.rss, memory.heapUsed, memory.external, memory.arrayBuffers, resources.activeCount,
     elapsedMs, panelCacheEntries, pendingNoticeEntries, ...kinds.map(k => resources.byKind[k])].every(finiteCount) ||
@@ -121,12 +181,12 @@ async function run(plan, rawOptions) {
     createRefreshIoProbe, assertZeroBodyWarmRefreshes } = require(path.basename(__filename) === 'native-soak.cjs'
       ? './native-runner.cjs' : './runner.cjs');
   const manifest = JSON.parse(await fs.readFile(path.join(plan.root, 'native-stage-manifest.json'), 'utf8'));
-  const started = performance.now(), samples = [], assertions = [];
+  const started = performance.now(), samples = [], assertions = [], setupReadbacks = [];
   const warm = { on: createRefreshIoProbe(), off: createRefreshIoProbe() };
   const counters = { cycles: 0, onCycles: 0, offCycles: 0, panelDisposals: 0, settingsToggles: 0,
     syntheticFocusTransitions: 0, nativeWindowTransitions: 0,
     appendBytes: 0, claudeWatchRefreshes: 0, codexWatchRefreshes: 0 };
-  let api, append, warmMode, timer, focusObserver, failureStage, failureReason,
+  let api, append, warmMode, timer, focusObserver, setupReadbackProbe, failureStage, failureReason,
     failureFocus = null, stage = 'activation', stopCompleted = false;
   let soakStarted, completedSoakMs = 0, watchdogFailure = null;
   const elapsed = () => Math.floor(performance.now() - started);
@@ -184,8 +244,17 @@ async function run(plan, rawOptions) {
     assert.equal(api.instance.getConfiguration().usageLimitTracking, false);
     assert.equal(api.instance.settings.get('advice.apiKey'), '');
     assertions.push('actual guarded Test-mode host, own synthetic data, no quota/BYOK');
+    // Only the already guarded Test host's captured production context may be
+    // wrapped. No subscription to private storage notifications is installed.
+    assert.equal(api.context.extensionMode, vscode.ExtensionMode.Test);
+    assert.equal(api.context.extensionPath, plan.directories.developmentExtension);
+    assert.equal(api.instance.context, api.context);
+    setupReadbackProbe = createSetupReadbackProbe(api.context.globalState);
+    const setupReadback = phase => setupReadbackProbe.capture(setupReadbacks, phase,
+      api.instance.settings, api.instance.getConfiguration());
     await markStage('cold-refresh');
     await bounded(api.instance.refreshData(false, 'manual')); await bounded(settle(api.instance), 65000);
+    setupReadback('after-cold-settle');
     assert.equal(api.instance.cache.dataDirectory, plan.directories.claudeHome);
     assert.equal(api.instance.codexSnapshotHome, plan.directories.codexHome);
     assert.equal(api.instance.codexHasData, true);
@@ -201,9 +270,15 @@ async function run(plan, rawOptions) {
     };
     await markStage('recurring-setup');
     await instance.settings.set('fileWatchSeconds', '1');
+    setupReadback('after-claude-set');
     await instance.settings.set('codex.fileWatchSeconds', '10');
+    setupReadback('after-codex-set');
     instance.onSettingsChangedFromPanel('fileWatchSeconds');
-    await bounded(settle(instance), 65000); await focus(true);
+    setupReadback('after-handler');
+    await bounded(settle(instance), 65000);
+    setupReadback('after-settle');
+    await focus(true);
+    setupReadback('after-focus');
     assertRecurringReady(instance.getConfiguration(), instance.resourceOwnership.snapshotForTests());
     sample();
     timer = setInterval(() => {
@@ -279,6 +354,7 @@ async function run(plan, rawOptions) {
   } finally {
     if (timer) clearInterval(timer);
     focusObserver?.dispose();
+    setupReadbackProbe?.restore();
     if (api) {
       if (append) api.instance.outputChannel.appendLine = append;
       try {
@@ -291,7 +367,7 @@ async function run(plan, rawOptions) {
     const report = { kind: 'actual-native-resource-diagnostic-synthetic-focus-not-final-vsix',
       sourceHead: manifest.sourceHead, vscodeVersion: vscode.version, platform: process.platform,
       outcome: failureStage ? 'fail' : 'pass', failureStage: failureStage ?? null,
-      failureReason: failureReason ?? null, failureFocus, assertions, counters, samples,
+      failureReason: failureReason ?? null, failureFocus, assertions, counters, samples, setupReadbacks,
       warmIo: { on: warm.on.snapshot(), off: warm.off.snapshot() }, stopCompleted,
       elapsedMs: elapsed(), completedSoakMs, requestedSoakMs: options.durationMs,
       longSoakDurationPassed: !failureStage && longSoakDurationPassed(completedSoakMs),
@@ -304,4 +380,4 @@ async function run(plan, rawOptions) {
 }
 module.exports = { run, validateSoakOptions, longSoakDurationPassed, sampleOwnedResources,
   assertResourceBudget, appendBoundedSample, appendSyntheticActivity, bounded, failureFocusObservation,
-  assertRecurringReady, diagnosticFailureReason };
+  assertRecurringReady, diagnosticFailureReason, projectSetupReadback, createSetupReadbackProbe };
