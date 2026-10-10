@@ -68,6 +68,10 @@ Module._load = load;
     const values = new Map(SETTINGS.map(def => [def.key, def.default]));
     values.set('dashboardAutoRefresh', true);
     values.set('advice.effectiveness.enabled', false);
+    values.set('enableAchievements', true);
+    values.set('pricingBackend', 'anthropic');
+    values.set('usageLimitTracking', false);
+    values.set('showWeeklyQuotaPace', false);
     const settings = { get: key => values.get(key), snapshot: () => SETTINGS.map(def => ({
       ...def, value: values.get(def.key), configured: false,
     })) };
@@ -86,7 +90,9 @@ Module._load = load;
       webviewProvider: p, outputChannel: { appendLine: line => diagnostics.push(line) },
       statusBar: { updateContext() {}, updateUsageData() {}, updateQuota() {}, setProvider() {}, setLoading() {} },
       getConfiguration: () => ({ dataDirectory: root, dashboardAutoRefresh: true, statusBarProvider: 'claude',
-        enableContentAnalysis: true, advicePromptWindowDays: 30, projectGroupingMode: 'flat', contextWindowOverride: 0 }),
+        enableContentAnalysis: true, enableAchievements: true, pricingBackend: 'anthropic',
+        usageLimitTracking: false, showWeeklyQuotaPace: false,
+        advicePromptWindowDays: 30, projectGroupingMode: 'flat', contextWindowOverride: 0 }),
       maybeFetchUsageLimits: async () => null, refreshCodexData: async () => undefined,
     });
     const coldStarted = performance.now();
@@ -179,7 +185,9 @@ Module._load = load;
     assert.ok(renders > 0, 'a real append still invalidates panels');
     process.stdout.write(JSON.stringify({ kind: 'synthetic-production-coordinator-plus-renderer-not-native-UI-or-OOM-proof',
       assetMode: 'extension-resource-uri',
-      records: recordCount, contentAnalysis: true, coldMs, claude, hourBoundary, compare, appendInvalidates: true, peakSampledRssBytes }, null, 2) + '\n');
+      records: recordCount, contentAnalysis: true, achievements: true, pricingBackend: 'anthropic',
+      usageLimitTracking: false, weeklyQuotaPace: false,
+      coldMs, claude, hourBoundary, compare, appendInvalidates: true, peakSampledRssBytes }, null, 2) + '\n');
   } finally {
     ClaudeDataLoader.getUsageAttribution = originalAttribution;
     restoreClock();
