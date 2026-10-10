@@ -59,7 +59,7 @@ function assertRecurringReady(configuration, resources) {
   if (resources.byKind.watcher !== 2) fail('setup-watchers');
 }
 const setupReadbackPhases = new Set(['after-cold-settle', 'after-claude-set', 'after-codex-set',
-  'after-handler', 'after-settle', 'after-focus']);
+  'after-handler', 'after-settle', 'after-focus', 'on-failure']);
 const setupReadbackBound = 32;
 function projectSetupReadback(phase, mementoClaude, mementoCodex, settingsClaude, settingsCodex,
   configurationClaude, configurationCodex, counts) {
@@ -346,6 +346,10 @@ async function run(plan, rawOptions) {
   } catch (error) {
     failureStage = stage;
     failureReason = watchdogFailure ?? diagnosticFailureReason(error);
+    try {
+      if (api && setupReadbackProbe) setupReadbackProbe.capture(setupReadbacks, 'on-failure',
+        api.instance.settings, api.instance.getConfiguration());
+    } catch { /* Preserve the original fixed failure if readback is unavailable. */ }
     try {
       failureFocus = failureFocusObservation(api?.instance?.windowActivity?.focused,
         vscode.window?.state?.focused, api?.instance?.resourceOwnership.snapshotForTests().byKind.watcher);

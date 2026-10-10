@@ -171,7 +171,7 @@ test('native soak setup update probe preserves receiver, result, rejection and r
   assert.equal(Object.prototype.hasOwnProperty.call(state, 'update'), false);
 });
 
-test('native soak records six setup phases before the unchanged failure and restores updates before stop', async t => {
+test('native soak records setup and final failure readbacks before restoring updates and stopping', async t => {
   const { plan } = await fixtures(t);
   await fs.writeFile(path.join(plan.root, 'native-stage-manifest.json'), JSON.stringify({ sourceHead: 'fea8879' }));
   const values = new Map<string, unknown>([
@@ -222,7 +222,9 @@ test('native soak records six setup phases before the unchanged failure and rest
     const text = await fs.readFile(path.join(plan.root, 'native-soak-result.json'), 'utf8');
     const report = JSON.parse(text), rows = report.setupReadbacks;
     assert.deepEqual(rows.map((row: any) => row.phase), ['after-cold-settle', 'after-claude-set',
-      'after-codex-set', 'after-handler', 'after-settle', 'after-focus']);
+      'after-codex-set', 'after-handler', 'after-settle', 'after-focus', 'on-failure']);
+    assert.equal(rows[6].memento.claude.expectedEqual, false);
+    assert.equal(rows[6].configuration.codex.expectedEqual, true);
     assert.equal(rows[0].memento.claude.expectedEqual, false);
     assert.equal(rows[1].memento.claude.expectedEqual, true);
     assert.equal(rows[2].memento.claude.expectedEqual, false);
