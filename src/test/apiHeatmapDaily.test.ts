@@ -15,7 +15,7 @@ type Model = UsageData['modelBreakdown'][string];
 const model = (inputTokens: number, cost: number, count = 1): Model => ({
   inputTokens, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cost, count,
 });
-const usage = (models: Record<string, Model> = { 'claude-new-fallback[1m]': model(100, 12.345) }, totalCost = 12.345): UsageData => ({
+const usage = (models: Record<string, Model> = { 'claude-sonnet-next[1m]': model(100, 12.345) }, totalCost = 12.345): UsageData => ({
   totalInputTokens: 100, totalOutputTokens: 0, totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
   totalCost, costBreakdown: { input: totalCost, output: 0, cacheWrite: 0, cacheRead: 0 },
   messageCount: 0, modelBreakdown: models,
@@ -36,8 +36,8 @@ const trap = (object: object, keys: string[]) => {
 };
 
 test('current Claude amount is preserved exactly; fallbacks/overrides stay estimated without TTL or repricing', () => {
-  const input = usage({ 'proxy/unlisted-model': model(100, 0.30000000000000004) }, 0.3);
-  trap(input.modelBreakdown['proxy/unlisted-model'], ['referenceUsage', 'pricebookVersion', 'path']);
+  const input = usage({ 'proxy/claude-sonnet-next[1m]': model(100, 0.30000000000000004) }, 0.3);
+  trap(input.modelBreakdown['proxy/claude-sonnet-next[1m]'], ['referenceUsage', 'pricebookVersion', 'path']);
   trap(input, ['costBreakdown', 'records', 'sessionId']);
   assert.deepEqual(buildApiHeatmapDaily([claude(input)], [], { ...range, provider: 'claude' })[date]?.claude,
     dto(100, 0.3, 'complete', true, 100));
@@ -69,16 +69,16 @@ test('absent day is empty; present true zero is complete; missing estimate/bucke
 
 test('Claude partial pricing sums identifiable model costs and retains unpriced token/component gaps', () => {
   const cases: Record<string, Model>[] = [
-    { 'known-raw-model': model(60, 2), '<unknown>': model(40, 9) },
-    { 'known-raw-model': model(60, 2) },
-    { 'known-raw-model': model(60, 2), 'missing-cost': { ...model(40, 0), cost: undefined } as unknown as Model },
+    { 'claude-sonnet-next': model(60, 2), '<unknown>': model(40, 9) },
+    { 'claude-sonnet-next': model(60, 2) },
+    { 'claude-sonnet-next': model(60, 2), 'claude-opus-next': { ...model(40, 0), cost: undefined } as unknown as Model },
   ];
   for (const models of cases) assert.deepEqual(buildApiHeatmapDaily([claude(usage(models, 11))], [], range)[date]?.claude,
     dto(100, 2, 'partial', true, 60, 40));
-  const componentGap = { ...usage({ 'known-raw-model': model(100, 3) }, 3), totalCacheCreationTokens: 50 };
+  const componentGap = { ...usage({ 'claude-sonnet-next': model(100, 3) }, 3), totalCacheCreationTokens: 50 };
   assert.deepEqual(buildApiHeatmapDaily([claude(componentGap)], [], range)[date]?.claude,
     dto(150, 3, 'partial', true, 100, 50));
-  assert.deepEqual(buildApiHeatmapDaily([claude(usage({ 'known-raw-model': model(100, 0) }, 0))], [], range)[date]?.claude,
+  assert.deepEqual(buildApiHeatmapDaily([claude(usage({ 'claude-sonnet-next': model(100, 0) }, 0))], [], range)[date]?.claude,
     dto(100, 0, 'complete', true, 100));
 });
 

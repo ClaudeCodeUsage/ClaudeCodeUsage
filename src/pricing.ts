@@ -591,6 +591,19 @@ function inferPricingByFamily(modelName: string): { pricing: ModelPricing; famil
  * @returns Pricing information, or null if not found
  */
 export function getModelPricing(modelName: string | undefined): ModelPricing | null {
+  return resolveModelPricing(modelName, true, true);
+}
+
+/** Current floating estimate coverage: explicit runtime/built-in/family rates
+ * qualify, but the generic default has no model attribution. No diagnostics,
+ * network or price update, and missing component fields remain missing.
+ */
+export function getCurrentEstimatePricing(modelName: string | undefined): ModelPricing | null {
+  return resolveModelPricing(modelName, false, false);
+}
+
+function resolveModelPricing(modelName: string | undefined, genericDefault: boolean,
+  diagnostics: boolean): ModelPricing | null {
   if (typeof modelName !== 'string' || !modelName || modelName === '<unknown>') {
     return null;
   }
@@ -632,12 +645,13 @@ export function getModelPricing(modelName: string | undefined): ModelPricing | n
   // Family-aware fallback for unrecognised (typically newer) snapshots.
   const inferred = inferPricingByFamily(modelName);
   if (inferred) {
-    warnUnknownModelOnce(modelName, inferred.family);
+    if (diagnostics) warnUnknownModelOnce(modelName, inferred.family);
     return inferred.pricing;
   }
 
   // Truly unknown model (no family keyword) — fall back to Sonnet, the most common default.
-  warnUnknownModelOnce(modelName, 'Sonnet');
+  if (!genericDefault) return null;
+  if (diagnostics) warnUnknownModelOnce(modelName, 'Sonnet');
   return SONNET;
 }
 

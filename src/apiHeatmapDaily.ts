@@ -2,6 +2,8 @@ import type { ApiHeatmapConfig, ApiHeatmapDaily, ApiHeatmapDailyUsage, ApiHeatma
 import { addCalendarDays } from './combinedHeatmap';
 import type { CodexDailyUsageView } from './providers/codex/codexUsage';
 import type { UsageData } from './types';
+import {getCurrentEstimatePricing} from './pricing';
+import type {ModelPricing} from './types';
 
 export interface ApiHeatmapDailyRange {
   startDateISO: string;
@@ -50,7 +52,8 @@ function identifiableModel(name: string): boolean {
     !Object.prototype.hasOwnProperty.call(Object.prototype, name);
 }
 
-function claudeDay(data: UsageData, amounts: boolean): ApiHeatmapDailyUsage {
+function claudeDay(data: UsageData, amounts: boolean,
+  pricingFor: (model: string) => ModelPricing | null): ApiHeatmapDailyUsage {
   const components: Components = [data.totalInputTokens, data.totalOutputTokens,
     data.totalCacheCreationTokens, data.totalCacheReadTokens];
   const tokens = tokenSum(components);
@@ -68,7 +71,8 @@ function claudeDay(data: UsageData, amounts: boolean): ApiHeatmapDailyUsage {
   const attributed = [0, 0, 0, 0];
   // Sort model keys so subtotal rounding and duplicate comparison do not depend
   // on object insertion order. Only existing model scalar estimates are read;
-  // no price lookup, TTL evidence, achievement book or record inspection.
+  // Only bounded in-memory rate admission, no repricing, TTL evidence,
+  // achievement book, network or record inspection. Missing rates are not zero.
   for (const name of Object.keys(models).sort()) {
     const part = models[name];
     if (!part || typeof part !== 'object') return unpriced(tokens, 'claude');
@@ -85,7 +89,14 @@ function claudeDay(data: UsageData, amounts: boolean): ApiHeatmapDailyUsage {
     if (!validTokens(count) || count === 0 || !validMoney(cost)) continue;
     const partTokens = tokenSum(values);
     if (partTokens === 0) continue;
-    pricedTokens = tokenSum([pricedTokens, partTokens]);
+    const pricing = pricingFor(name);
+    if (!pricing) continue;
+    const rates = [pricing.input_cost_per_token, pricing.output_cost_per_token,
+      pricing.cache_creation_input_token_cost, pricing.cache_read_input_token_cost];
+    const knownTokens = tokenSum(values.map((value,index) =>
+      typeof rates[index] === 'number' && Number.isFinite(rates[index]) && rates[index]! >= 0 ? value : 0));
+    if (knownTokens === 0) continue;
+    pricedTokens = tokenSum([pricedTokens, knownTokens]);
     if (!validMoney(subtotal + cost)) return unpriced(tokens, 'claude');
     subtotal += cost;
   }
@@ -179,6 +190,7 @@ export function buildApiHeatmapDaily(
   claudeDaily: readonly ClaudeApiHeatmapDailyRow[],
   codexDaily: readonly CodexDailyUsageView[],
   options: ApiHeatmapDailyRange | ApiHeatmapConfig,
+  pricingResolver: (model: string) => ModelPricing | null = getCurrentEstimatePricing,
 ): ApiHeatmapDaily {
   const config: ApiHeatmapDailyRange = options;
   const start = calendarKey(config.startDateISO);
@@ -190,8 +202,13 @@ export function buildApiHeatmapDaily(
   new Intl.DateTimeFormat('en', { timeZone: config.timezone });
   const provider = config.provider === 'claude' || config.provider === 'codex' ? config.provider : 'both';
   const amounts = config.hideAmounts !== true && config.metric === 'apiEquivalent' && config.showAmounts === true;
+  const prices = new Map<string, ModelPricing | null>();
+  const pricingFor = (model: string): ModelPricing | null => {
+    if (!prices.has(model)) prices.set(model, pricingResolver(model));
+    return prices.get(model)!;
+  };
   const claude = provider === 'codex' ? undefined : selectedDays(claudeDaily, row => row.date,
-    row => claudeDay(row.data, amounts), start, end, 'claude');
+    row => claudeDay(row.data, amounts, pricingFor), start, end, 'claude');
   const codex = provider === 'claude' ? undefined : selectedDays(codexDaily, row => row.day,
     row => codexDay(row, amounts), start, end, 'codex');
   const output: Record<string, { claude?: ApiHeatmapDailyUsage; codex?: ApiHeatmapDailyUsage }> = {};
