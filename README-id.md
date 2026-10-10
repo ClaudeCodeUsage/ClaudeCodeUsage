@@ -79,7 +79,7 @@ menyimpan lencana dan catatan belum dibaca tanpa notifikasi melayang; mengaktifk
 Tingkat Token Claude/Codex baru yang terbukti menyimpan status belum dibaca dan
 hari pencatatan pertama meski pembaruan dasbor dijeda. Aturan mencakup volume
 keluarga model, output, pembacaan cache, pembuatan cache Claude, dan volume kumulatif.
-Impor dan pembangunan ulang manual tetap senyap; penghargaan selain Token masih memerlukan bukti asal.
+Impor dan pembangunan ulang manual tetap senyap; nilai referensi API kumulatif kini memiliki bukti sendiri, cakupan penggunaan lain masih memerlukan bukti asal.
 
 Catatan penghargaan hanya lokal, maksimal 64 KiB. Tanggal lama tetap tidak diketahui;
 tindakan baru yang tersimpan mempertahankan status belum dibaca dan hari pencatatan pertama
@@ -110,8 +110,19 @@ output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugi
 Ada 20 syarat nilai uang dalam enam tema terpisah Claude/Codex: subtotal kumulatif yang memiliki harga, minggu kalender yang telah berakhir dan dimulai pada Senin, serta penggunaan tunggal.
 Minggu mengikuti zona waktu data saat ini; penggunaan tunggal berarti satu sesi Claude atau satu pohon tugas Codex yang terverifikasi.
 Harga referensi USD tetap dengan versi memerlukan model yang dikenal secara tepat dan tarif komponen lengkap, termasuk TTL cache Claude.
-Model tak dikenal tetap tanpa harga; bagian terverifikasi membuktikan batas bawah, bukan tagihan, kualitas, atau pendapatan. Riwayat nilai uang tetap senyap; notifikasi asal nilai uang baru belum terhubung.
-Model/tim/effort/pelangi memakai syarat gabungan output, pengalaman berulang, dan volume. Generator heatmap nilai uang serta dasar perhitungan/bilah status laju kuota mingguan tersedia; UI utama dan integrasi produksi masih tertunda.
+Model tak dikenal tetap tanpa harga; bagian terverifikasi membuktikan batas bawah, bukan tagihan, kualitas atau pendapatan. Hanya tonggak uang kumulatif dari tambahan baru terverifikasi dengan referensi sama menyimpan status belum dibaca dan hari pertama tercatat. Riwayat, minggu selesai dan sesi/tugas tunggal tetap senyap dengan tanggal tak diketahui. Bukti Token/uang terpisah dan memakai satu kelompok notifikasi; gagal simpan tidak menampilkan tanggal optimistis.
+Kartu effort Codex yang ada menampilkan enam tingkat ketika dibuka: Token, output, tugas akar, progres gabungan dan subtotal USD referensi tetap/cakupan sebagai informasi. Hanya output positif milik akar × effort itu sendiri yang dihitung, tanpa approval-reviewer. Atribusi model ambigu tidak dibagi proporsional; bukti hilang tetap tak diketahui. Tanpa aturan/preferensi baru atau atribusi effort Claude.
+Model/tim/effort/pelangi memakai syarat gabungan output, pengalaman berulang, dan volume.
+Heatmap berbagi menyediakan Claude / Codex / Keduanya dan Token / Nilai setara API. Token adalah default; nilai uang dipilih secara eksplisit dan memakai estimasi harian terkini, bukan harga referensi pencapaian.
+Claude berupa estimasi, Codex hanya memakai harga model tepat yang dikenal. Harga hilang dan subtotal batas bawah ditandai dengan cakupan; nilai kedua penyedia tidak pernah dijumlahkan.
+Cakupan Claude hanya memeriksa tarif model/komponen terpilih dalam memori. Fallback Sonnet generik untuk model tak dikenal tidak dihitung; tarif hilang tetap tanpa harga, nol eksplisit sah. Biaya tersimpan tidak dihitung ulang; mode Token/nilai tersembunyi tidak mencari tarif atau uang.
+Menyembunyikan nilai mengembalikan warna, teks dan Markdown ke Token serta membatalkan pratinjau lama. Ekspor memakai byte SVG yang diterima, dengan pemeriksaan sebelum/sesudah dialog simpan, tanpa pemindaian log atau jaringan baru.
+**Laju kuota mingguan** (`showWeeklyQuotaPace`) default nonaktif dan memakai observasi yang sudah ada: terpakai 29% saat 25% siklus berlalu memproyeksikan 116%.
+Tidak ada prediksi dalam enam jam pertama, setelah tiga puluh menit tanpa observasi baru, atau setelah reset. Kredensial tidak valid segera menarik prediksi meski dasbor dijeda; pergantian akun/sumber dan penurunan penghitung menunggu pergantian tujuh hari normal yang terverifikasi.
+Log Codex saat ini tidak memverifikasi akun, sehingga prediksi tidak tersedia. Dasbor dan tooltip bilah status berbagi terjemahan; teks bilah dan format khusus tetap sama. Tanpa permintaan, timer atau riwayat baru.
+Pilihan ukuran mendahului ringkasan: koleksi 56 / 80 / 112 px, etalase 72 / 96 / 128 px; kesalahan semat dekat kontrol dan fokus keyboard tetap stabil.
+Subtotal USD effort bukan syarat pencapaian. Kosong dan tanpa harga dibedakan; nilai parsial menunjukkan batas bawah, sedangkan nilai tidak valid/overflow tidak tersedia.
+Integrasi dalam kode kandidat saja tidak membuktikan penerimaan lengkap Node/UI, native/F5, VSIX terpasang atau performa. Hasil dicatat terpisah dalam bukti kandidat lokal; pemeriksaan browser tidak membuktikan validasi native/F5, pemasangan paket atau Windows. Kandidat belum dirilis; tampilan subjektif perlu tinjauan pengguna. [Detail bahasa Inggris](README-en.md#heatmap-sharing-and-weekly-quota-pace-candidate).
 Setiap seri memiliki gambar berbeda, dipakai bersama oleh tingkatnya dengan warna tingkat. Angka hanya bilangan bulat; batas data dapat dibuka.
 Bukti belum lengkap atau kedaluwarsa ditandai, bukan dianggap progres nol, dan dikecualikan dari target berikutnya; lencana yang diperoleh tetap tersimpan.
 Kartu tertutup menampilkan progres menuju tingkat berikutnya; tahap perantara pada tangga token panjang bukan lencana, pemberitahuan, atau pilihan berbagi tambahan.

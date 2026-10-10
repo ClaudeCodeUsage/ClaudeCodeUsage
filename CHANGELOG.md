@@ -7,6 +7,55 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added — 2.4.2 local candidate
+
+- **Provider/metric heatmap sharing** — Claude / Codex / Both × Tokens /
+  API-equivalent amount, defaulting to Tokens with explicit amount disclosure.
+  Current daily Claude estimates and Codex exact-model-priced subsets remain
+  separate from achievement reference prices. Both amount panels never sum;
+  missing/partial pricing and incomplete sources retain explicit coverage/lower bounds.
+  Hiding amounts restores Token colors/text/tooltips/metadata/Markdown and retires
+  the old handle. A read-only ≤366-date projector reuses materialized daily rows,
+  without scanning the corpus, repricing or adding network access. Export writes
+  the accepted immutable SVG after document/source/pricing/display/config checks
+  before and after the single-flight save dialog; stale replies cannot enable it.
+- **Weekly quota pace** — default-off shared STATE preference uses existing quota
+  snapshots and their original observation time. At 25% elapsed, 29% used forecasts
+  116% over the account-wide cycle. No forecast in the first six hours, beyond
+  thirty minutes without a fresh observation or after reset. Credential invalidation
+  withdraws it immediately. Verified account-HMAC/window continuity stays runtime-
+  only; counter/source/account/reset discontinuities latch until a verified ordinary
+  seven-day rollover. Codex local-log account trust is unknown, so forecasting is
+  unavailable. Existing callbacks update a document/provider-bound dashboard fragment
+  even with auto-refresh off; no optimistic client calculation, new request, timer
+  or history. Dashboard/status tooltip share eight-locale copy; bar text and custom
+  formats are unchanged. Off avoids source getter, clock/cache/client access.
+- **Candidate validation boundary** — source integration is present, but does not
+  establish full Node/UI, native/F5, installed-VSIX or performance acceptance.
+  Gate outcomes are recorded separately in local candidate evidence. Browser
+  checks cannot prove native/F5, installed-package or Windows acceptance. The
+  candidate is unreleased; subjective appearance still requires user review.
+- **Verified cumulative-money awards** — four existing cumulative tiers per provider
+  now use accepted native Claude/Codex tail-window increments under the same frozen
+  public pricebook as the before/after scope. The increment must be sufficient from
+  prior progress and necessary to the new crossing. Token/money receipts remain
+  independent; money-only book/scope invalidation cannot erase a separately valid
+  Token receipt. Common source/index, clear, OFF and disposal guards still apply
+  to both; a Claude backend switch can retire pending Token proof via its index
+  invalidation. Atomic saves retain unread first-record day/zone and public
+  `referencePricebook`, never numeric money or proof. Same-book provisional history
+  after the accepted baseline can be repaired; older or different-book history
+  keeps its basis/date. Failed saves have no optimistic dates, and one update uses
+  one existing notice batch. History, completed weeks and single sessions/tasks stay
+  quiet with unknown dates; price changes and rebuilds are not new activity.
+- **Inline Codex effort statistics** — the existing effort-breadth disclosure shows
+  low/medium/high/xhigh/max/ultra rows from complete current root-task × effort
+  populations with their own positive output, excluding approval reviewers.
+  Processed/output/root-count progress uses the existing three shared tier criteria.
+  Frozen USD subtotal/coverage is informational, never an effort qualification.
+  Ambiguous model × effort attribution is not allocated by ratios; empty/unpriced/
+  partial/invalid/overflow states remain explicit and absent evidence is unknown,
+  not six zero rows. The optional DTO is cached by proof revision; no new rule,
+  preference, stored history or log read.
 - **Recognizable API resource emblems** — six Claude/Codex cumulative, week and
   single-session/task emblems use restrained gold coins or small money pouches
   alongside their ledger, calendar or task scope. These cues identify API-equivalent
@@ -59,14 +108,19 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   not rewritten. Failed saves retain bounded retryable proof, retired sources
   release it. Claude commits its index before handoff and explicit rebuilds stay
   quiet. Four Claude families, output, cache reads, cache creation and cumulative
-  volume are supported; non-Token live rules remain pending;
+  volume are supported; cumulative-money crossings use their independent proof
+  above, while other live usage scopes still require their own origin proof;
   unsupported or historical crossings stay quiet with unknown dates.
-- **Personal badge pins** — earned badge details can pin or unpin up to three
-  showcase series. Atomic intents preserve other windows' choices; pins precede
-  automatic representatives without changing goals or sharing consent. Only a
+- **Personal badge pins and size controls** — closed-card icons and a searchable
+  editor select/order up to six manual showcase themes. Manual mode shows only
+  chosen pins; automatic mode recommends at most three. Revision-checked atomic
+  intents preserve other windows' choices without changing goals or sharing consent. Only a
   saved host preference updates the UI; failed saves retain the old choice.
   Disabled-source pins remain removable from a folded management list without
   re-enabling that source, reading logs or deleting other saved pins.
+  Size/filter controls precede the overview; collection emblems use 56/80/112 px,
+  showcase emblems 72/96/128 px. Errors stay near controls and disabled/removed
+  controls fall back to a stable summary without losing keyboard focus.
 - **Recent award views** — up to three actually recorded new series, plus a
   collapsible thirty-row list linked to the existing rules. First-record dates
   stay distinct from historical unknown dates; browsing neither marks records
@@ -82,7 +136,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Display ACK reads only its bounded batch; missed, failed or retired deliveries
   remain unread. Hover/keyboard interaction pauses dismissal without stealing
   focus. Verified Claude/Codex Token crossings use the same delivery guards;
-  non-Token live rule integration remains pending.
+  cumulative-money crossings now share this guarded delivery path. Other live
+  usage scopes still require their own origin proof.
 - **Bounded durable award records** — a ≤64 KiB canonical file keeps each public
   rule once, with quiet unknown-date migration and unread saved-action records.
   Cross-process leases merge peers' awards; an empty clear-generation fence
@@ -91,7 +146,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   envelope, not mirrored into stale window caches. Invalid/future
   input remains untouched; OFF does not initialize it. Inventory and Clear All
   cover the file. Pins and explicit unread confirmations use the same envelope.
-- **Badge overview** — up to three representative earned badges and three
+- **Badge overview** — automatic mode shows up to three earned representatives,
+  manual mode only the selected themes (up to six); three
   reachable goals precede the complete collection. Selection favors distinct
   themes and current-provider ties, and stays stable during browsing. Unused,
   zero-progress, pending or stale goals are not promoted. Clicking opens the
@@ -100,7 +156,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   the next formal tier; long Token ladders include display-only 1/2/5 stage targets.
   These are not extra awards, notifications or sharing choices, and do not change
   any formal threshold. Pending/outdated proof never fabricates stage progress.
-- **Tiered local achievements** — 44 icon-first themes and 124 award conditions,
+- **Tiered local achievements** — 50 icon-first themes and 144 award conditions,
   with distinct bundled artwork per series, shared by its colored tiers. Token-led Claude Sonnet/Opus/Haiku/Fable and Codex
   Astra/Sol/Luna progression, output/cache, model/effort and agent experiences,
   calendar activity, weekly peaks, completed four-week averages, and a few safe
@@ -119,12 +175,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
-- **Usage-origin foundation (internal)** — Claude's existing append verification
-  now supports an optional runtime-only, deduplicated numeric delta. Per-level
-  checks cannot turn unrelated live tokens into dated historical awards. Analysis
-  reparsing keeps verified tail boundaries; observation windows are captured before
-  asynchronous work. Host/Codex/atomic-award wiring is still pending, so this does
-  not yet enable usage notices or new dates. No new scan, timer or index field.
+
+- **Usage-origin integration** — verified Claude/Codex Token append proof now reaches
+  atomic awards independently of dashboard delivery, as described above. Per-level
+  checks cannot turn unrelated live tokens into dated historical awards; analysis
+  reparsing retains verified boundaries and observation windows precede asynchronous
+  work. Cumulative money has independent origin proof; other live usage scopes
+  still need their own proof. No new scan, timer
+  or index field.
 - **Retired dashboard messages** — readiness, tab changes and unread receipts
   carry a runtime document identity. Full replacement and failed-patch fallback
   retire the old identity; ordinary in-place patches retain it. A late old page

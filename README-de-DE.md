@@ -77,7 +77,7 @@ Abzeichen und ungelesene Einträge bleiben; erneutes Einschalten spielt keine al
 Nachweislich neue Claude-/Codex-Token-Stufen behalten ungelesene Erstaufnahmetage,
 auch bei pausierten Dashboard-Updates. Unterstützt sind Modellfamilien, Ausgabe,
 Cache-Lesezugriffe, Claude-Cache-Erstellung und Gesamtvolumen. Importe und manuelle
-Neuindizierung bleiben still; andere Live-Erfolge benötigen noch eigene Ursprungsnachweise.
+Neuindizierung bleiben still; kumulative API-Referenzwerte haben eigene Live-Nachweise, andere Nutzungsbereiche benötigen sie noch.
 
 Der lokale Nachweisspeicher ist auf 64 KiB begrenzt. Alte Abzeichen haben kein
 bekanntes Datum; neue gespeicherte Aktionen behalten ungelesene Erstaufnahmetage,
@@ -112,8 +112,18 @@ Davon betreffen 20 Bedingungen sechs getrennte Claude-/Codex-API-Äquivalent-The
 abgeschlossene Wochen ab Montag in der aktuellen Datenzeitzone und eine Claude-Sitzung bzw. ein verifizierter Codex-Aufgabenbaum.
 Feste USD-Referenzpreise mit Versionsangabe verlangen bekannte exakte Modelle und vollständige Komponentenpreise einschließlich Claude-Cache-TTL.
 Unbekannte Modelle bleiben unbepreist; belegte Teilmengen zeigen eine Untergrenze. Die Beträge sind keine Rechnung, Qualitätswertung oder Einkommensangabe.
-Geldhistorie bleibt still; neue Geld-Ursprungshinweise sind noch nicht angebunden. Modell-/Team-/Effort-/Regenbogenregeln verbinden Ausgabe, wiederholte Nutzung und Umfang.
-API-Geld-Heatmap-Generator und Berechnung/Statusleistenbasis für das Wochenkontingent sind vorhanden; Hauptoberfläche und Produktionsanbindung stehen noch aus.
+Geldhistorie bleibt still. Nur kumulative Geldmeilensteine speichern bei verifizierten neuen Anhängen unter derselben Preisreferenz ungelesene Erstaufnahmetage; Wochen- und Einzelaufgabenwerte bleiben still mit unbekanntem Datum. Token-/Geldnachweise sind unabhängig und teilen einen Hinweisbatch; fehlgeschlagenes Speichern erzeugt kein Datum. Modell-/Team-/Effort-/Regenbogenregeln verbinden Ausgabe, wiederholte Nutzung und Umfang.
+Die bestehende Codex-Effort-Karte zeigt aufgeklappt sechs Stufen mit Token-, Ausgabe-, Wurzelaufgabenfortschritt und informativem festen USD-Subtotal samt Abdeckung. Nur eigene positive Ausgabe je Wurzel × Effort zählt, ohne Approval-Reviewer; uneindeutige Modellzuordnung wird nicht proportional verteilt. Fehlende Nachweise bleiben unbekannt; keine neuen Regeln oder Einstellungen, keine Claude-Effort-Zuordnung.
+Die Heatmap bietet Claude / Codex / Beide und standardmäßig Tokens; API-Äquivalent-Beträge müssen ausdrücklich gewählt werden.
+Sie nutzt aktuelle Tagesschätzungen, keine Erfolgspreise: Claude geschätzt, Codex nur mit exakten bekannten Modellpreisen; fehlende Preise bleiben sichtbar, Teilbeträge sind Untergrenzen. Beträge beider Anbieter werden nie addiert.
+Claude-Abdeckung prüft ausgewählte Modelle/Komponenten nur im Speicher; generische unbekannte Sonnet-Ersatzpreise zählen nicht. Fehlende Raten bleiben unbekannt, explizite Null ist gültig; gespeicherte Kosten bleiben gleich. Token-/versteckter Modus fragt weder Raten noch Geld ab.
+Beträge ausblenden stellt Token-Farben, Texte und Markdown wieder her und verwirft die alte Vorschau. Export speichert die bestätigten SVG-Bytes mit Prüfungen vor und nach dem Speicherdialog, ohne neue Logsuche oder Netzaufrufe.
+**Wöchentliches Kontingenttempo** (`showWeeklyQuotaPace`) ist standardmäßig aus und nutzt vorhandene Beobachtungen: 29% Nutzung bei 25% Zeit ergibt 116% für den Zyklus.
+Keine Prognose in den ersten sechs Stunden, nach dreißig Minuten ohne neue Beobachtung oder nach Reset; ungültige Zugangsdaten ziehen sie auch bei pausiertem Dashboard zurück. Konto-/Quellenwechsel und Zählerrückgänge sperren sie bis zu einem verifizierten normalen Sieben-Tage-Wechsel.
+Codex-Logs verifizieren derzeit kein Konto, daher ist die Prognose nicht verfügbar. Dashboard und Statusleisten-Tooltip teilen die Übersetzungen; Balkentext und eigene Formate bleiben gleich. Keine neuen Anfragen, Timer oder Historien.
+Größenwahl vor der Übersicht: Sammlung 56 / 80 / 112 px, Schaukasten 72 / 96 / 128 px; Pinfehler stehen beim Steuerelement, der Tastaturfokus bleibt stabil.
+Der USD-Effort-Teilbetrag zählt nicht zur Qualifikation. Leere und unbepreiste Werte werden gekennzeichnet, Teilbeträge als Untergrenze; ungültige oder überlaufende Beträge bleiben unverfügbar.
+Diese Anbindung ist im Kandidatencode vorhanden, belegt aber allein keine vollständige Node/UI-, native/F5-, installierte-VSIX- oder Leistungsabnahme. Ergebnisse stehen separat in lokalen Kandidatennachweisen; Browserprüfungen belegen keine native/F5-, Paketinstallations- oder Windows-Abnahme. Der Kandidat ist unveröffentlicht; die subjektive Darstellung braucht Nutzerprüfung. Details: [Englisch](README-en.md#heatmap-sharing-and-weekly-quota-pace-candidate).
 Jede Serie hat ein eigenes Motiv, ihre Stufen teilen es mit Stufenfarben. Zahlen sind ganzzahlig; Datengrenzen sind aufklappbar.
 Fehlende oder veraltete Nachweise werden statt Nullfortschritt angezeigt und vom nächsten Ziel ausgeschlossen; erworbene Abzeichen bleiben gespeichert.
 Geschlossene Karten zeigen den aktuellen Fortschritt zur nächsten Stufe; Zwischenziele auf langen Token-Leitern sind keine zusätzlichen Abzeichen, Hinweise oder Exportoptionen.

@@ -204,7 +204,8 @@ and unread records without floating notices; re-enabling does not replay them.
 Proven new Claude/Codex Token tier crossings save unread first-record days even
 when dashboard updates are paused. Supported rules cover model-family volume,
 output, cache reads, Claude cache creation and cumulative volume. Imports and
-explicit rebuilds stay quiet; non-Token live awards still need their own origin proof.
+explicit rebuilds stay quiet. Proven cumulative API-reference crossings now have
+their own live receipts; other usage scopes still need their own origin proof.
 
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.
@@ -269,11 +270,26 @@ its existing rule without reading logs or selecting it for sharing.
   Claude's known 5-minute/1-hour cache-write TTL. Codex counts uncached input,
   cached input and output once. Unknown models stay unpriced; a verified priced
   subset can prove a lower bound (`≥`), not full coverage. This is neither a bill,
-  quality score nor income. Money history is recognized quietly; live monetary
-  origin notices are not yet wired.
+  quality score nor income. History is recognized quietly. Only cumulative money
+  milestones now save unread first-record days from verified new appends under
+  the same reference book; completed-week and single-session/task awards stay
+  quiet with unknown dates. Token and money receipts remain independent and use
+  one existing notice batch; failed saves never show optimistic dates.
 - **Recalibrated experiences:** model, team, effort and rainbow rules combine
   output with repeated use and usage scale. Duplicate aliases, input-only activity and
   unverified task structures cannot substitute for the joint evidence.
+- **Codex effort details:** expand the existing effort-breadth card to see low,
+  medium, high, xhigh, max and ultra rows with processed/output Tokens, qualifying
+  root tasks and progress toward its existing next tier. Per-row tier criteria are
+  processed **100M / 500M / 2B**, output **100K / 500K / 2M** and roots **5 / 10 / 30**,
+  jointly required. Only each root × effort population's own positive output counts;
+  approval-reviewer usage is excluded. An informational USD subtotal and coverage
+  use `api-reference-2026-10-openai-v1` (2026-10-09) and do not qualify effort awards.
+  Ambiguous model × effort attribution is not divided proportionally; partial money
+  shows a lower bound, and invalid/overflow money is withheld. Empty and unpriced
+  states are explicit. Incomplete evidence shows unknown,
+  not six zero rows. This adds no rules, targets, navigation or preferences;
+  Claude effort attribution is not currently available.
 - **On by default, easy to stop:** turn off **Local achievements** in ⚙ Settings
   (`enableAchievements`). On upgrade, with release announcements enabled, one
   non-modal reminder offers **View achievements** and **Turn achievements off**.
@@ -286,8 +302,6 @@ its existing rule without reading logs or selecting it for sharing.
   profile lookup or background upload.
 
 Evaluation reuses verified numeric aggregates; opening cards never reads logs.
-API-equivalent heatmap sharing has generator foundations, and weekly quota pace
-has calculation/status-bar foundations; their main production UI and wiring remain pending.
 After complete current indexing, unrelated Codex identity conflicts no longer block
 milestones supported by independently verified lineages; calendar awards still need
 complete identity and date evidence. Conflicting branches are excluded, not estimated.
@@ -301,6 +315,45 @@ badges; they are not proof of one person's activity. Continuous output means a
 positive-output record in each UTC hour, not continuous human work. Clearing all
 extension-derived data removes the local award ledger, never provider logs.
 See [local storage and clearing](LOCAL-DATA.md#local-achievements-242-candidate).
+
+## Heatmap sharing and weekly quota pace (candidate)
+
+The unreleased 2.4.2 candidate connects the sharing heatmap to **Claude / Codex /
+Both** and **Tokens / API-equivalent amount** controls. Tokens are the default;
+amounts require an explicit choice. Amount mode uses current daily pricing estimates,
+separate from achievements' fixed USD references: Claude is estimated, and Codex
+prices only exact known models. Missing pricing shows an unavailable amount or a
+priced lower bound with coverage. Both keeps two monetary panels; amounts are never summed.
+Hiding amounts switches the metric, colors, labels, tooltips, metadata and Markdown
+back to Tokens and retires the previous preview. Export writes the exact accepted
+SVG bytes, checking the document, controls, source, pricing and display revisions
+before and after the save dialog. Preview/export reads only bounded materialized
+daily aggregates, with no new log scan or network request. Selected-range Claude
+coverage uses memoized in-memory model/component rates: the generic unknown-model
+Sonnet fallback does not count as known coverage, missing rates stay unpriced,
+and an explicit zero rate is valid. Stored daily/model costs are not recomputed;
+family/runtime prices remain estimates. Hidden/Token mode performs no rate or money lookup.
+
+**Weekly quota pace** (`showWeeklyQuotaPace`) is off by default and shared by both
+provider settings. When quota tracking is already enabled, it compares the original
+account-wide weekly observation with uniform progress from reset minus seven days:
+29% used at 25% elapsed projects 116% for the cycle. There is no forecast in the
+first six hours, after thirty minutes without a fresh observation, or after reset.
+Credential invalidation withdraws it immediately, including while dashboard
+auto-refresh is paused. Counter drops, changed accounts/sources and unexpected
+resets suspend trust until a verified ordinary seven-day rollover. Current Codex
+local-log evidence cannot verify an account, so its forecast remains unavailable.
+The dashboard and status-bar tooltip share localized copy; compact bar text and
+custom quota formats are unchanged. This adds no requests, timers or stored history.
+
+Gallery size controls precede the overview: Small / Medium / Large use 56 / 80 /
+112 px collection emblems and 72 / 96 / 128 px showcase emblems. Pin errors stay
+near their controls, and keyboard focus returns to a stable summary when a control
+disappears or becomes disabled. These are source-integrated candidate changes;
+integration alone does not establish full Node/UI, native/F5, installed-VSIX or
+performance acceptance. Gate outcomes are recorded separately in local candidate
+evidence; browser checks cannot prove native/F5, installed-package or Windows
+acceptance. The candidate is unreleased. Subjective appearance still requires user review.
 
 ## What's new in 2.4
 

@@ -74,7 +74,7 @@ os prêmios e registros não lidos sem avisos flutuantes; reativar não repete a
 Novos níveis de Token comprovados de Claude/Codex guardam estado não lido e dia
 do primeiro registro mesmo com o painel pausado. São cobertos volume por família,
 saída, leituras de cache, criação de cache do Claude e volume acumulado. Importações
-e reconstruções manuais ficam silenciosas; outros prêmios ao vivo ainda precisam de prova da origem.
+e reconstruções manuais ficam silenciosas; valores cumulativos de referência API têm prova própria, e outros escopos ainda aguardam sua origem.
 
 O registro local é limitado a 64 KiB. Datas antigas continuam desconhecidas;
 novas ações salvas mantêm o estado não lido e o dia do primeiro registro mesmo
@@ -104,8 +104,19 @@ atividade, recordes semanais e algumas ações deliberadas no plugin.
 São 20 condições monetárias em seis temas separados de Claude/Codex: subtotal acumulado com preço conhecido, semanas encerradas que começam na segunda-feira e uso individual.
 As semanas usam o fuso atual dos dados; uso individual é uma sessão Claude ou uma árvore de tarefa Codex verificada.
 Preços de referência fixos em USD, com versão, exigem modelos exatos conhecidos e todas as tarifas dos componentes, incluindo TTL do cache Claude.
-Modelos desconhecidos ficam sem preço; parcelas verificadas comprovam um limite inferior, não uma fatura, qualidade ou renda. O histórico monetário é silencioso; avisos de nova origem monetária ainda não estão conectados.
-Modelo/equipe/effort/arco-íris combinam saída, repetição e volume. O gerador do mapa monetário e as bases de cálculo/barra de status do ritmo da cota semanal estão prontos; a interface principal e a integração de produção estão pendentes.
+Modelos desconhecidos ficam sem preço; parcelas verificadas comprovam um limite inferior, não uma fatura, qualidade ou renda. Só marcos monetários cumulativos de novos acréscimos verificados, com a mesma referência, salvam estado não lido e primeiro dia registrado. Histórico, semanas e sessões/tarefas individuais continuam silenciosos com datas desconhecidas; provas de Token/dinheiro são independentes e compartilham um lote de aviso, sem datas otimistas se a gravação falhar.
+O cartão Codex effort existente mostra, quando expandido, seis níveis com Tokens, saída, tarefas raiz, progresso conjunto e subtotal informativo USD fixo/cobertura. Cada raiz × effort precisa de saída própria positiva, sem approval-reviewer; atribuição ambígua de modelo não é dividida por proporção. Prova ausente fica desconhecida; sem novas regras/preferências ou atribuição Claude effort.
+Modelo/equipe/effort/arco-íris combinam saída, repetição e volume.
+O mapa oferece Claude / Codex / Ambos e Tokens por padrão; valores equivalentes à API exigem escolha explícita e usam estimativas diárias atuais, não preços das conquistas.
+Claude é estimado; Codex usa apenas preços de modelos exatos conhecidos. Preços ausentes e limites inferiores têm indicação de cobertura; valores dos provedores nunca são somados.
+A cobertura Claude consulta apenas taxas de modelos/componentes selecionados em memória; fallback Sonnet genérico de modelo desconhecido não conta. Taxa ausente fica sem preço, zero explícito vale; custos salvos não são recalculados. Token/valores ocultos não consultam taxas ou dinheiro.
+Ocultar valores restaura cores, textos e Markdown de Tokens e invalida a prévia antiga. A exportação salva os mesmos bytes SVG, com verificações antes e depois do diálogo, sem nova leitura de logs ou rede.
+**Ritmo da cota semanal** (`showWeeklyQuotaPace`) vem desligado e reutiliza observações: 29% usado com 25% do ciclo decorrido projeta 116%.
+Não há previsão nas primeiras seis horas, após trinta minutos sem nova observação ou após o reset. Credenciais invalidadas retiram a previsão mesmo com o painel pausado; mudanças de conta/origem e quedas do contador exigem uma virada normal de sete dias verificada.
+Logs Codex não verificam a conta, portanto a previsão está indisponível. Painel e tooltip compartilham traduções; texto da barra e formatos próprios ficam iguais. Sem novas requisições, timers ou histórico.
+O seletor de tamanho precede o resumo: ícones da coleção 56 / 80 / 112 px, vitrine 72 / 96 / 128 px, erros de fixação junto aos controles e foco estável.
+O subtotal USD de effort não qualifica a conquista. Valores vazios e sem preço são distintos; valores parciais mostram limite inferior, e valores inválidos ou com overflow ficam indisponíveis.
+A integração no código candidato, por si só, não comprova aceitação completa Node/UI, nativa/F5, de VSIX instalado ou de desempenho. Os resultados ficam registrados separadamente nas evidências locais do candidato; testes no navegador não comprovam validação nativa/F5, de instalação do pacote ou de Windows. O candidato não foi lançado; a aparência subjetiva requer revisão do usuário. [Detalhes em inglês](README-en.md#heatmap-sharing-and-weekly-quota-pace-candidate).
 Cada série tem arte própria, compartilhada entre seus níveis coloridos. Os números são inteiros; limites dos dados ficam na seção expansível.
 Evidências pendentes ou desatualizadas substituem o progresso zero e ficam fora do próximo alvo; emblemas conquistados são preservados.
 Cartões fechados mostram o progresso até o próximo nível; etapas intermediárias nas longas escalas de tokens não geram prêmios, avisos ou opções de compartilhamento extras.

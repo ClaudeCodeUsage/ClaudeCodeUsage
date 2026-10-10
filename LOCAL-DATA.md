@@ -17,7 +17,9 @@ v2.3.1 normative field-level contract is in
 | Codex usage records | `$CODEX_HOME/sessions/**/*.jsonl` and `archived_sessions/**/*.jsonl` | A versioned incremental index of pseudonymous file keys, offsets, numeric usage, dates, model/effort, and sanitized structural aggregates | Until rebuild, explicit clear, schema replacement, or host removal | None |
 | Codex titles | Exactly `$CODEX_HOME/session_index.jsonl` | `id → thread_name` is streamed for runtime display; titles are not written to the index | Runtime only | None |
 | Quota observations | Claude's official quota response or structured Codex rate-limit events | Provider, machine-local anonymous account epoch, observed/reset time, period, used/remaining fraction, anonymous window identity, source, confidence, and quality flags | At most 180 days and 512 observations per provider/account/period after boundary-preserving compaction; clear separately or with all derived data | Claude quota lookup contacts Anthropic when enabled; an expired Claude token is refreshed with Anthropic and written back to its credential source. Codex quota evidence is local |
-| Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy preview, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
+| Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy/palette/provider/metric/show-amounts controls, gallery filter/size, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
+| Heatmap artifact (2.4.2 candidate) | At most 366 selected materialized civil-day aggregates | One accepted immutable SVG/Markdown artifact, opaque document-bound preview ID, source references and whitelisted config/quality identity | Runtime only; replaced/retired on control, source, pricing or display change, reset or disposal | None; preview/local export adds no source-log reads or network requests |
+| Weekly quota pace (2.4.2 candidate) | Existing successful raw quota cache and original observation time | Runtime-only ≤16-window numeric projection, original-response metadata and bounded verified-account/window continuity anchors; default-off shared `showWeeklyQuotaPace` STATE preference | No extra observation store; source/credential invalidation withdraws forecasts and disposal releases runtime state | None added; does not enable quota tracking or request new credentials |
 | Share destination | User-entered GitHub target | One versioned `ccu.heatmapDestination.v1` object containing optional `owner/repository/path`; no GitHub credential | Until sharing preferences are reset | Only after an explicit publish action and exact destination confirmation. A successful write is reported even if saving this convenience preference fails |
 | Advice evidence | Derived local aggregates and explicit feedback | Coarse observations, recommendations, ratings, snoozes, comparable-task metrics, coverage, and versions | Bounded local ledger; clear independently | Nothing by default; only the exact previewed request is sent after a separate action |
 | Local achievements (2.4.2 candidate) | Verified numeric usage and deliberate allowlisted local actions | A ≤64 KiB award envelope with public IDs, sequence/reason/unread state and optional first-record day/zone; safe setting-key/feature enums (never values), hour-streak maximum and qualified four-week peak | Default on; off stops new grants and extra proof work. Clear all removes exact achievement state and retains only an empty clear fence | None; sharing requires explicit local preview/export, not GitHub authentication |
@@ -94,12 +96,40 @@ token volume—not productivity, billing, model capability, or provider
 equivalence.
 
 Local SVG and Markdown exports contain only a bounded title, selected date
-range, daily Claude/Codex/combined aggregates, labels, and caveats. They do not
+range, daily Claude/Codex/combined Token aggregates or explicitly selected separate
+provider amount estimates, pricing/source coverage, labels and caveats. They do not
 contain accounts, projects, thread titles, paths, prompts, or log content.
 Claude Share Card and Claude token heatmap presentations consume Claude
 aggregates only; they do not imply that Codex exposes equivalent fields.
 Preview and local export are strictly network-free and do not request GitHub
 authentication, profile, avatar, or name data.
+
+The candidate heatmap defaults to Tokens and allowlists Claude/Codex/Both plus
+Tokens/API-equivalent amount. Amounts require an explicit choice and reuse current
+floating daily estimates, not the fixed USD pricebooks used for achievements.
+Claude estimates retain current backend/fallback/override semantics; Codex prices
+exact known models only. Missing/unpriced/partial/true-zero days remain distinct;
+incomplete data or pricing is labelled, and a priced subset proves a lower bound.
+Both renders independent monetary panels and never sums provider amounts.
+The read-only projector selects at most 366 dates from existing daily arrays;
+it neither scans the retained corpus nor reprices usage. Token/hidden mode does
+not access money/quality getters. Hiding amounts restores Token text, colors,
+titles/tooltips, metadata and Markdown and retires the old opaque preview handle.
+
+One accepted heatmap artifact is retained in host memory, not as an export history.
+Document/request checks reject superseded replies; source references, controls,
+pricing/timezone/locale/currency/display revisions bind acceptance. A changed
+source or pending repricing cannot export a previous amount preview. Export checks
+before and after the save dialog, including the current visible/ready document,
+then writes the immutable accepted SVG bytes;
+Markdown copying also requires current acceptance.
+
+Reset Sharing Preferences clears exactly twelve browser keys: `ccu.sharing.template`,
+`ccu.sharing.achievementBadges`, `ccu.sharing.shareCardDraft`, and the nine
+`ccu.combinedHeatmap.` suffixes `title`, `range`, `intensityMode`, `privacyPreview`,
+`palette`, `customAccent`, `provider`, `metric`, `showAmounts`. These are bounded
+presentation choices, not provider logs, quota observations or credentials. It
+uses the existing request-ID/ACK path and applies defaults only after deletion succeeds.
 
 Direct GitHub publication is a separate optional action and never runs in the
 background. It requests `public_repo`, verifies the repository is public and resolves its
@@ -108,6 +138,30 @@ default branch, then asks the user to confirm the exact
 Private repositories use local SVG plus Markdown instead of silently requesting
 broader access. After GitHub accepts the write, success is authoritative and is
 reported before any warning that the atomic destination preference could not be saved.
+
+## Weekly quota pace (2.4.2 candidate)
+
+`showWeeklyQuotaPace` defaults false, is shared by both providers and does not
+enable quota tracking. Off exits before source getters, clock/cache/client access
+or projection. On uses only the existing successful raw response and its original
+`observedAt`; repainting never refreshes the observation time. Account continuity
+uses the existing verified request-account HMAC in memory, not a profile, home,
+label, raw account ID or credential. No new request, timer, log scan, observation
+store or account history is added. The numeric DTO exposes no HMAC or identity.
+
+The inferred start is reset minus seven days. A 29% observation at 25% elapsed
+projects 116% account-wide cycle use, including other devices/members. No forecast
+is shown in the first six hours; after thirty minutes without a fresh observation
+or after reset it is withdrawn. Credential invalidation zeroes the successful-cache
+time and withdraws it immediately. Counter drops, changed account/source/window
+or unexpected resets latch distrust until a verified ordinary seven-day rollover;
+higher counters or a repaint alone cannot restore it. Current Codex local-log
+evidence has unknown account trust, so forecasting remains unavailable.
+
+Existing refresh callbacks send a minimal document/provider-bound host patch,
+including when dashboard auto-refresh is off. The client does not optimistically
+recompute forecasts. The dashboard and status-bar tooltip reuse shared eight-locale
+copy without changing compact bar text or custom quota formats.
 
 ## Local achievements (2.4.2 candidate)
 
@@ -142,14 +196,20 @@ Intermediate Token stages are ephemeral display targets derived from formal
 thresholds, not new awards. They store no milestone history, produce no notices,
 and never become selectable export badges.
 
-The overview retains at most six public series/rule selection keys in host
-memory during a visit. It adds no persistent field, timestamp, usage history or
+The automatic overview retains at most six public series/rule selection keys
+(three badges plus three goals) in host memory during a visit. It adds no timestamp, usage history or
 share consent. Entering the gallery can recompute this small display selection
 from accepted aggregates without reading logs. Manual pins and first-record dates
 use the canonical envelope below, not a second Webview preference copy.
+Manual mode shows only up to six chosen themes, with saved order and no automatic
+fillers. Closed-card pin controls and the searchable editor use the same lease;
+bulk selection/reorder checks the current pin revision. Nearby save errors retain
+the old choice, with stable summary focus when a control is removed or disabled.
+The toolbar precedes the overview; Small/Medium/Large changes collection emblems
+to 56/80/112 px and showcase emblems to 72/96/128 px while preserving text/click areas.
 
-The gallery's persisted filter is only an `all` / `next` / `earned` enum in the
-existing Webview UI state; disclosure keys are public series IDs. The sharing
+The gallery persists only `all` / `next` / `earned` filter and small/medium/large
+size enums in existing Webview UI state; disclosure keys are public series IDs. The sharing
 return route remembers only a Claude/Codex enum and a one-shot focus boolean. They contain no
 usage, paths or identities and are removed by Reset Dashboard UI State. Opening,
 filtering or expanding the gallery does not read logs or add network calls.
@@ -165,13 +225,19 @@ replacement, reset, disable or panel close releases the retained artifact.
 
 The extension-owned ledger contains only the following validated fields:
 
-- `globalStorage/achievements-v1.json`: the canonical award envelope, at most
-  64 KiB and one record for each of 124 public rule IDs. Fields are schema/rule
+- `globalStorage/achievements-v2.json`: the canonical award envelope, at most
+  64 KiB and one current record for each of 144 public rule IDs. Fields are schema/catalog/rule
   version, monotonic clear generation/record sequence, four reason enums
   (`existing`, `history`, `usage`, `activity`), unread boolean, optional first-record
-  calendar day and timezone, at most three public series pins and one notification
+  calendar day and timezone, at most six ordered public series pins, automatic/manual
+  showcase mode, pin revision and one notification
   cooldown number, plus the existing auxiliary proof described below. The entire
-  envelope, including auxiliary proof, shares the 64 KiB limit. Notice reservation
+  envelope, including auxiliary proof, shares the 64 KiB limit. A bounded legacy
+  boundary contains only the old derived-store generation/sequence/signature.
+  At most 48 old-rule records retain saved awards from the 21 changed model/team/
+  effort/rainbow conditions without authorizing new rules; unknown dates stay unknown.
+  Money records may retain a public frozen-reference pricebook version, never
+  personal amounts. Notice reservation
   updates the shared five-minute cooldown, not unread state. Only foreground display
   confirmation with a current opaque runtime token reads its represented IDs through
   the issued sequence; other/later awards remain unread. Failed delivery, OFF, blur,
@@ -183,10 +249,10 @@ The extension-owned ledger contains only the following validated fields:
   identities exist only in memory, not in the file or network. Failed saves
   retain unread state; browsing/pinning/sharing are not confirmation. No extra
   timer or log scan is added. Earned badge details save one pin/unpin intent under the
-  shared lease, with at most three public keys; no award, read status or share choice
+  shared v1 lease, with at most six public keys; no award, read status or share choice
   is changed. Failed saves retain the old preference; old/OFF/clear requests are rejected.
   Disabled-source pins can be removed explicitly from a folded list of at most
-  three saved public keys; this does not enable a provider or read its logs.
+  six saved public keys; this does not enable a provider or read its logs.
   The gallery shows at most three recent non-historical series and a folded
   thirty-row record projection without deleting awards. Dates are first-record
   days in their saved zones, not inferred attainment dates. Old records explicitly
@@ -211,14 +277,17 @@ The extension-owned ledger contains only the following validated fields:
   private temporary files and atomic rename. Missing-state initialization waits
   for legacy audits and does not run while OFF. Unknown/future/malformed/oversized
   or symlink files fail closed without quarantine or overwrite. Clear All deletes
-  exact regular `.achievements-v1.json.<UUID>.tmp` files and related old keys under
-  that lease, replacing the canonical file with only an empty clear fence
+  exact regular `.achievements-v1.json.<UUID>.tmp` / `.achievements-v2.json.<UUID>.tmp`
+  files and related old keys under that lease, replacing the canonical v2 file with an empty clear fence
   (schema/generation/sequence, empty records/pins/activity, zero cooldown/hour
-  maximum and no calendar peak). It is not
+  maximum and no calendar peak), then writes an empty v1 downgrade fence. It is not
   unlinked, preventing a still-running old host from resurrecting legacy awards.
   Candidate hosts with the old generation suspend writes until reload. Leases,
   lookalikes, unknown files and provider sources are not deleted. Inventory P12
   reports only aggregate byte/record counts, not record contents or dates.
+- `globalStorage/achievements-v1.json`: read-only migration input outside explicit
+  clearing; not a current award mirror. Existing v2 is authoritative after downgrade.
+  Both files share the existing v1 lease; interrupted clear fences resume under it.
 
 - `ccu.achievements.grants.v5`: audited legacy migration input of at most 124 IDs;
   real hosts do not write a grant mirror after adopting the canonical envelope.
@@ -238,8 +307,48 @@ The extension-owned ledger contains only the following validated fields:
   fields are rejected. Clear All includes these and known older achievement schemas
   by exact name, without deleting unrelated or future state.
 
-Numeric evaluation reuses materialized indexes. Once the current manifest is fully
-indexed, positive Codex milestones may use independently verified lineages while
+Numeric evaluation reuses materialized indexes. Six API-equivalent achievement
+themes use fixed versioned USD reference prices
+(`api-reference-2026-10-{backend}-v1`, dated 2026-10-09), exact known models and
+complete component rates (including known Claude
+cache-write TTL). They cover cumulative priced subtotals, completed Monday-start
+weeks in the current data zone and one Claude session/verified Codex task tree.
+Priced subsets prove a lower bound, not a bill. Monetary history stays quiet;
+only the four cumulative money tiers per provider can save unread first-record
+day/zone from accepted native Claude/Codex tail-window increments. Before/after
+cumulative evidence and the increment must use the same frozen public pricebook;
+the increment must suffice from the prior total and be necessary to the new total
+crossing the tier. Price changes, imports and rebuilds do not establish live origin.
+Completed-week and single-session/task money awards stay quiet with unknown dates.
+
+Monetary-origin proof is runtime-only: public provider/backend/book version,
+bounded exact units, microUSD and eligible processed Tokens. The new numeric money,
+exact units and proof counters are never added to the index or award file; the award
+retains only public `referencePricebook` plus its ordinary bounded record metadata.
+Money-only pricebook/scope invalidation does not cancel independently valid Token
+receipts; common source/index, clear, OFF and disposal guards still apply to both.
+A Claude backend change also invalidates the index generation and can retire pending
+Token proof. Saves recheck source/scope/book, date/timezone, clear generation and OFF
+under the shared lease. Failed saves retain bounded retryable proof without an
+optimistic date. Same-book provisional peer history written after the accepted
+baseline sequence may be repaired; pre-baseline history or a different pricebook
+keeps its saved basis/date. One accepted update uses the existing notice batch.
+
+The existing Codex effort-breadth details consume an optional six-row runtime
+`effortStatistics` DTO, cached by complete-current-index proof revision. It pools
+each non-approval-reviewer root task × effort and requires that population's own
+positive output; no raw root/session IDs, model labels or exact-unit strings reach
+the UI. Processed Tokens, output and distinct qualifying roots jointly determine
+progress using the existing shared tier constants. The frozen USD subtotal and
+coverage are informational and do not qualify effort awards. Model/effort marginals
+are never allocated proportionally; only a reconciled single-model or single-effort
+population admits a known priced subset. Empty, unpriced, partial, invalid and
+overflow states remain explicit: partial money shows a lower bound, unsafe money
+is withheld; absent/incomplete evidence shows
+unknown, not six zero rows. No new effort preference, rule, storage or log read is added.
+
+Once the current manifest is fully indexed, positive Codex milestones may use
+independently verified lineages while
 withholding conflicting branches and descendants. Calendar awards retain their
 complete identity/date requirement. This selection is in memory only: no new
 scan, network call, persisted identity list or storage field is added.
@@ -321,6 +430,13 @@ exists only in a closed workspace remains there until that workspace is opened
 and the clear control is run again (or the setting is removed manually).
 
 ## Known limits
+
+The source-integrated candidate is unreleased. Integration alone does not establish
+full Node/UI, native/F5, installed-VSIX or performance acceptance; gate outcomes
+are recorded separately in local candidate evidence. Browser checks cannot prove
+native/F5, installed-package or Windows acceptance. Subjective appearance still
+requires user review. Cumulative-only live money awards and inline Codex effort
+statistics are integrated in the current source.
 
 - A reset that never appears in an official response or local structured event
   cannot be reconstructed. Day-only Codex evidence lowers boundary confidence.

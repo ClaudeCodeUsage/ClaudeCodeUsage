@@ -23,6 +23,13 @@ heatmap, the legacy Claude Share Card, and the Claude-only token heatmap; the
 full-width export preview always precedes its controls.
 The unreleased 2.4.2 candidate adds default-on, local-only tiered achievements
 (`enableAchievements`), a once-only upgrade opt-out, and evidence/performance guards.
+It also integrates provider/metric heatmap sharing, a six-pin manual showcase and
+default-off weekly quota pace. These describe the unreleased working candidate.
+Source integration alone does not establish full Node/UI, native/F5, installed-VSIX
+or performance acceptance; gate outcomes are recorded separately in local candidate
+evidence. Browser checks cannot establish native/F5, installed-package or Windows
+acceptance, and subjective appearance still requires user review.
+Codex effort statistics and cumulative-only monetary-origin receipts are integrated.
 GitHub-linked achievements, personal reviews and visualization redesign are not
 part of this candidate.
 
@@ -48,12 +55,20 @@ only the separate publish action can perform that network operation.
 | Module | Role |
 |---|---|
 | `extension.ts` | Activation, commands, settings, provider lifecycle, refresh orchestration, watchers, status/webview wiring, and anonymous diagnostics. |
+| `claudeApiClient.ts` | Existing Claude OAuth/quota transport and runtime one-way identity signal for the credentials used by the last successful request; pace reads this signal without a new request or credential lookup. |
 | `dataLoader.ts` | Claude parsing, validation, attribution, and content-analysis primitives retained for exact compatibility. |
 | `claudeIncrementalIndex.ts` | Production in-memory per-file Claude index: append-tail parsing, exact cross-file response deduplication, affected-group aggregation, content-analysis contributions, and materialized dashboard rows. |
 | `achievements.ts`, `achievementSnapshot.ts`, `achievementCalendar.ts`, `achievementHours.ts` | Versioned rule catalog and validated token/day/week/hour evidence, consuming numeric materialized inputs rather than log bodies. |
 | `achievementActivity.ts`, `achievementIcons.ts`, `achievementShare.ts` | Allowlisted deliberate local-action enums, bundled emblem lookup and explicit self-contained badge SVG export. |
+| `achievementGallery.ts`, `achievementOverview.ts`, `achievementRecordStore.ts` | Pure theme ownership/record projections, stable goals, automatic/manual showcase selection and the ≤64 KiB canonical v2 envelope; six ordered manual pins and shared v1 lease/migration fences. |
+| `achievementMoney.ts`, `achievementMoneyScopes.ts`, `achievementMoneyCatalog.ts` | Fixed, versioned USD reference-price evidence for six provider-specific achievement themes; independent from floating dashboard/heatmap estimates. |
+| `achievementMoneyOrigin.ts` | Runtime-only frozen-book increment validation, fixed-field copying/economic bounds and necessary-and-sufficient cumulative crossings; independent of Token origin and never persisted as index proof. |
+| `achievementEffortStatistics.ts`, `achievementCollaboration.ts` | Complete-current-census Codex root × effort statistics and existing joint tier criteria; optional `CodexAchievementSignals.effortStatistics` is cached by proof revision and rendered only inside the existing effort-breadth disclosure. |
+| `apiHeatmapDaily.ts`, `pricing.ts#getCurrentEstimatePricing` | Read-only ≤366-date projection with per-projection memoized, in-memory selected-model/component rate admission; preserves current cost scalars, excludes generic unknown-model fallback coverage and adds no network/corpus reads. |
+| `apiHeatmap.ts`, `apiHeatmapCopy.ts` | Whitelisted provider/metric configuration and canonical local SVG/Markdown artifact; Token default, explicit amounts, separate provider monetary panels and eight-locale artifact copy. |
+| `quotaPace.ts`, `quotaPaceAdapters.ts`, `quotaPaceSource.ts` | Pure cycle-average calculation, ≤16-window numeric adapters and runtime account/window continuity owner using original successful quota observations; no I/O, timers or persisted history. |
 | `providers/codex/codexHourProof.ts` | Bounded UTC positive-output hour proof tied to canonical files, verified offsets, current identity and lineage. Optional old-checkpoint proof migration never resets primary totals. |
-| `providers/codex/codexAchievementOrigin.ts` | Runtime-only main-tail numeric lower bounds, settled canonical-lineage admission and strict copied worker-window/DTO guards. No persistent index fields or extra source reads. |
+| `providers/codex/codexAchievementOrigin.ts` | Runtime-only main-tail Token and frozen-reference-money lower bounds; known native per-event pricing, affected aggregate-difference admission, settled canonical lineages and fixed copied worker DTOs. No persistent index fields or extra source reads. |
 | `adviceEffectiveness/contract.ts`, `adapters.ts`, and `payload.ts` | Strict observation/evidence/recommendation/action/result contracts, privacy-rebuilding provider adapters, and canonical aggregate/personalization payloads. |
 | `adviceEffectiveness/preparedRequest.ts` and `remoteAdvice.ts` | One host-owned full HTTP request object, exact preview/send bytes, BYOK-only authorization, cancellation, and strict structured-advice parsing. |
 | `adviceEffectiveness/comparisonPairing.ts`, `comparisonResult.ts`, and `versionedPersistence.ts` | Sanitized comparable-task pairing, frozen measurement-version envelopes, and bounded local feedback/comparison storage. |
@@ -74,8 +89,9 @@ only the separate publish action can perform that network operation.
 | `providers/codex/codexInsights.ts` | Deterministic structural usage guidance; no prompt/body inspection. |
 | `codexView.ts` / `codexViewComponents.ts` | Codex localized-copy and default-provider contracts; no HTML renderer, client script, or CSS ownership. |
 | `settings.ts` | Canonical `SETTINGS` catalog and `SettingsStore`; ordinary values use configuration/globalState, while BYOK credentials use SecretStorage and never enter Webview snapshots. Do not scatter direct reads. |
-| `statusBar.ts` / `codexStatus.ts` | Provider-specific status presentation and generic Claude quota formatting. |
+| `statusBar.ts` / `codexStatus.ts` | Provider-specific status presentation and generic Claude quota formatting; weekly-pace tooltip additions reuse shared I18n copy without changing bar text/custom formats. |
 | `webview.ts` | Single provider-aware Claude/Codex dashboard shell, shared render functions, shared client behavior, provider tabs, Compare presentation, and the unified sharing workspace. |
+| `dashboardRefreshClient.ts` | Shared live-patch anchor/focus restoration, including disabled-control rejection and stable summary fallbacks; no provider I/O. |
 | `i18n.ts` | All user-facing copy for all eight UI locales. |
 | `types.ts` | Shared extension and Claude contracts. |
 
@@ -109,9 +125,20 @@ Claude aggregates + Codex scopes ──> side-by-side Compare (no cross-provider
 verified numeric provider evidence + deliberate allowlisted local actions
   ──> versioned achievement rules ──> bounded local grants/peak ledger
   ──> icon-first gallery ──> explicitly selected badge preview ──> local SVG export
+verified new Claude/Codex append window + same frozen-book priced increment
+  ──> necessary-and-sufficient cumulative crossings ──> independent Token/money receipts
+  ──> guarded atomic recordUsage ──> first-record day/unread + one existing notice batch
+complete current canonical Codex census + proof revision
+  ──> cached optional six-row effortStatistics ──> existing effort-breadth disclosure only
 
 materialized Claude + Codex daily aggregates
-  ──> unified sharing selector ──> combined activity preview ──> explicit local SVG/Markdown export
+  ──> ≤366-date read-only projection ──> Claude / Codex / Both × Tokens / API-equivalent amount
+  ──> immutable accepted SVG + Markdown + opaque document-bound handle
+  ──> checked explicit local export (amounts never sum across providers)
+existing successful raw quota + original observedAt + verified machine-local account HMAC
+  ──> runtime continuity owner ──> bounded numeric weekly DTO ──> cycle-average pace
+  ──> existing refresh callback ──> document/provider-bound dashboard patch + status tooltip
+existing Codex local-log limits ──> account trust unknown ──> forecast unavailable
 materialized Claude aggregates
   ──> unified sharing selector ──> legacy Share Card or Claude token heatmap preview
   ──> explicit local export, or public-only exact-target GitHub publication for the Claude heatmap
@@ -221,7 +248,9 @@ Codex 仅在同一数据目录内保留失败前的已验证统计；切换目�
 不能改写新任务。已完成且未变化的轮询复用视图，不制造回填进度或重复渲染隐藏面板。
 
 The sharing workspace is rendered once: in Compare when both providers have
-data, otherwise as a Claude All-time fallback. `enableShareCard` is the only
+data, otherwise as a Claude All-time fallback. Codex-only All-time also exposes
+it while achievements are enabled. The heatmap presentation itself supports one
+provider or both. `enableShareCard` is the only
 visible sharing on/off control. The public command IDs `exportShareCard`,
 `exportHeatmap`, and `publishHeatmapToGitHub` remain registered for compatibility
 and open the matching presentation; they do not bypass preview. The retired
@@ -234,7 +263,7 @@ exact revision; the host then removes the live intent without rewinding the
 revision history, so an acknowledged command cannot replay on a normal render,
 sharing reset, or dispose/reopen of the same provider. Reset Sharing
 Preferences uses the existing confirmed local-data action: the host sends a
-request-id client action, the Webview verifies deletion of the eight allowlisted
+request-id client action, the Webview verifies deletion of the twelve allowlisted
 localStorage keys, and the host reports failure (with its recovery tombstone)
 unless the matching ACK is true.
 
@@ -318,11 +347,23 @@ credentials or make a network call to refresh it.
 
 ### Local achievements (2.4.2 candidate)
 
-The gallery has 44 display themes and 124 award conditions. `enableAchievements` defaults
+The gallery has 50 display themes and 144 award conditions. `enableAchievements` defaults
 on, but an existing opt-out wins; a once-only non-modal upgrade announcement offers
 view/disable actions without opening the gallery automatically. Historical grants
 establish a quiet baseline. Subsequent eligible in-panel notices have no sound or
 focus change; night and 24/48-hour output badges remain silent.
+
+Twenty API-equivalent conditions belong to six separate Claude/Codex cumulative,
+completed-week and single-session/task themes. `achievementMoney.ts` freezes
+`api-reference-2026-10-{backend}-v1`, dated 2026-10-09; exact decimal components
+sum before flooring to microUSD. Exact models and complete rates, including known
+Claude cache-write TTL, qualify; unknown models remain unpriced. Verified priced
+subsets prove only lower bounds. Week scopes use completed Monday-start weeks in
+the current data zone; single scopes require one Claude session or an independently
+verified Codex task tree. Historical recognition is quiet. Cumulative monetary
+crossings now use verified live append receipts; completed-week and single-session/
+task monetary scopes still reconcile quietly with unknown dates. Dashboard pricing/
+display currency does not alter these rules.
 
 Gallery counts use the enabled-provider series and level denominators separately.
 Canonical series keys own disclosure/focus restoration across tier changes, with
@@ -330,7 +371,7 @@ aliases for older level-specific keys. All/Next/Earned filtering uses only a loc
 UI enum; it never schedules provider work. A safe provider enum and one-shot focus
 intent return from sharing to the originating gallery. A compact next target precedes the
 expandable all-tier rules. The settings shortcut focuses the existing opt-out.
-Each of the 46 series/singles has distinct bundled raster artwork. Tiers share
+The catalog supplies 52 artwork groups with distinct bundled raster artwork. Tiers share
 their series emblem; level color/labels provide the progression. Gallery numbers
 are floored integer abbreviations, never rounded up to an unmet target; full
 integer progress remains in tooltips and accessibility text. Detailed data caveats
@@ -415,7 +456,8 @@ level; calendar/session/agent rules are not inferred from volume. The host now
 captures the canonical award fence before parsing and commits the accepted index
 before handing off existing materialized references, independently of rendering.
 Four-family, output, cache-read, cache-creation and cumulative crossings use atomic
-usage awards; non-Token rules remain quiet pending their own origin proof. Claude's
+usage awards. Cumulative monetary proof follows the separate path below; other
+usage rules remain quiet pending their own origin proof. Claude's
 creation, read and output components must be safe integers with a sum no greater
 than processed volume; cached creation is counted once in the native vector.
 Explicit rebuilds never provide a live window. Retiring only presentation does not
@@ -453,7 +495,73 @@ ordinary-refresh retry; retired receipts release their source guards. No new
 index fields, body reads, watcher or timer are added. Foreground notice delivery
 uses the existing shared cooldown and ACK guards. Claude uses the same bounded
 receipt queue and lease; either provider's failure retires only its own proofs.
-Non-Token live rules still reconcile quietly pending origin proof.
+Other usage scopes still reconcile quietly pending their own origin proof;
+cumulative money uses the independent runtime path below.
+
+`achievementMoneyOrigin.ts` admits only the four cumulative monetary tiers per
+provider, and only when before/after full-scope evidence and the new increment use
+the same frozen book. The admitted
+increment must both suffice from the previous total and be necessary to the new
+total reaching the existing target. Claude's normal parser/index includes only
+additional accepted response identities with complete reference-price TTL evidence;
+two fixed Claude backend books are supported. Codex's real worker/facade path prices
+known native events under the OpenAI book and bounds each admitted candidate by the
+affected file's priced aggregate difference. No accepted window or achievements OFF
+means no extra monetary-origin work. Primary parser accounting is unchanged.
+
+The optional runtime money proof contains only provider/backend/public book version,
+an exact-unit decimal string of at most 64 digits, microUSD and eligible processed
+Tokens. Fixed-field reconstruction at IPC boundaries and a frozen-book maximum
+per-Token-rate economic bound reject invalid proof independently of Token proof.
+The new monetary-origin amounts, exact units, eligible-Token counters, raw event/source
+IDs and proof are never written to the index or award file; only the public
+`referencePricebook` version accompanies a money award's ordinary record metadata.
+Existing usage aggregates retain their documented storage contract. Price evidence
+is always the frozen reference, never current floating prices.
+
+The host keeps bounded independent money receipts behind source, identity, scope,
+date/timezone, clear-generation and feature-OFF guards. It rechecks the current book
+and qualified full cumulative scope at the lease commit. A money-only book/scope
+invalidation withdraws money without cancelling an independently valid Token receipt;
+the common source/index, clear, OFF and disposal guards still apply to both. In
+particular, a Claude backend change also invalidates the index generation and can
+retire pending Token proof. Failed saves retain retryable
+runtime proof and never display an optimistic date. `recordUsage` saves origin
+`usage`, first-record day/zone and unread state atomically. Only same-book peer history
+written after the accepted baseline sequence can be repaired with a new sequence;
+different-book or established history keeps its original basis/date. Token and money
+writes from one accepted update coalesce into one existing five-minute notice batch.
+No timer is added; hidden-panel/unread-summary behavior is unchanged. Completed-week,
+single-session/task and other unsupported live usage scopes stay quiet with unknown dates.
+
+`CodexAchievementSignals.effortStatistics` is optional evidence from a complete,
+current canonical index census. `extension.ts` computes it only when the proof
+revision changes and reuses the same signal object/helper result on unchanged warm
+updates. OFF skips the helper; source/config replacement or incomplete indexing
+withdraws evidence as unknown, not six fabricated zero rows. The pure helper pools
+non-approval-reviewer root × effort populations and admits only each population's
+own positive output. Six rows (low/medium/high/xhigh/max/ultra) appear only inside
+the expanded existing effort-breadth card, using its next existing tier's three
+joint criteria:
+
+| Existing tier | Processed Tokens per effort | Output Tokens per effort | Qualifying roots per effort |
+|---|---|---|---|
+| Ordinary | 100M | 100K | 5 |
+| Silver | 500M | 500K | 10 |
+| Gold | 2B | 2M | 30 |
+
+Row progress is the minimum of the three criterion fractions, capped at 100%;
+renderer and evaluator share `EFFORT_PROCESSED`, `EFFORT_OUTPUT` and `EFFORT_ROOTS`.
+The informational subtotal/coverage is fixed USD under
+`api-reference-2026-10-openai-v1` (2026-10-09), independent of display currency;
+it is not an effort-qualification condition.
+Separate model and effort marginals cannot establish a model × effort cross-tab;
+there is no ratio allocation. A single-model or single-effort full pricing-component
+reconciliation admits a known priced subset; remaining Tokens stay unpriced.
+Empty, unpriced, partial, invalid and overflow states remain distinct, with unsafe
+money withheld. The DTO exports no identities/model labels/exact-unit strings,
+stores no history and adds no rules, thresholds, navigation or preferences. Current
+Claude logs supply no effort attribution for this surface.
 
 Plugin-action provenance compares the committed before/after activity ledger
 through the canonical rule evaluator. Only newly crossed plugin targets enter
@@ -465,11 +573,20 @@ usage IDs still check the provider-evidence epoch; plugin IDs check the separate
 clear/activity epoch so provider revocation cannot erase independent action proof.
 This adds neither storage fields nor timestamps and is not cross-host coordination.
 
-`achievementRecordStore.ts` now owns the canonical `achievements-v1.json` award
+`achievementRecordStore.ts` now owns the canonical `achievements-v2.json` award
 envelope in extension global storage, separately from those runtime latches.
-It validates at most 124 unique rule IDs, monotonic sequence/generation, reason
+It validates at most 144 current unique rule IDs, monotonic sequence/generation, reason
 enums and optional first-record day/zone within 64 KiB. Audited old grants seed
-it only when absent, quietly with unknown dates; an existing file wins over
+only a missing canonical file. The v1 file is read-only migration input outside
+explicit clearing. Versioned migration archives saved awards from the 21 changed
+model/team/effort/rainbow conditions; legacy records are capped at 48 and never
+prove current rules. Fixed-price award rows may retain a public reference-pricebook
+version, never a personal amount. Schema/catalog versions, automatic/manual mode,
+ordered pins, pin revision and a bounded legacy-file boundary share the same envelope.
+The existing v1 lease coordinates both files; Clear All commits a v2 tombstone
+then an empty v1 downgrade fence, with interrupted clears resumed under that lease.
+Old Gold is not evidence for recalibrated rules. Migration preserves unknown
+dates; an existing canonical file wins over
 stale globalState. Each transaction rereads under the existing filesystem lease,
 flushes a private temporary file and atomically renames it. Concurrent hosts do
 not overwrite peers' awards. Clear holds that lease while deleting exact related
@@ -499,7 +616,7 @@ issued sequence. Other or later unread records survive. False/rejected/slow deli
 does not block award writes or clear. The client confirms only after visible insertion,
 without focus theft, and pauses its six-second dismissal during hover/keyboard use.
 Lost batches never replay as live notices. A foreground unread summary now provides
-explicit bounded confirmation; non-Token live origin remains pending. Sharing
+explicit bounded confirmation; unsupported live usage scopes remain pending. Sharing
 consent is still explicit.
 
 `showAchievementNotices` is a default-on local presentation preference alongside
@@ -514,9 +631,13 @@ This opt-out is excluded from the plugin-action achievement allowlist.
 `achievementOverview.ts` now prepares read-only record projections: at most three
 recent non-historical series, thirty recording-order rows and exact visible unread
 level IDs. Recording order is not inferred attainment time, and projection eviction
-does not remove awards. Optional earned pins precede automatic showcase selection
-without changing next goals. `setPinned` applies one idempotent intent under the
-filesystem lease, rejects unearned keys, and never exceeds three slots or overwrites
+does not remove awards. Automatic mode recommends at most three earned themes;
+manual mode shows only the chosen pins, up to six, without automatic fillers or
+changes to next goals. Closed-card pin controls and a searchable editor save
+selection/order/mode under the shared lease. Bulk selection/reordering checks the
+current pin revision so stale windows cannot replace peers' choices.
+`setPinned` applies one idempotent intent under the
+filesystem lease, rejects unearned keys, and never exceeds six slots or overwrites
 a peer's unrelated pins. The record projection is now rendered with up to three
 recent series and a folded thirty-row history. Each row keeps the exact public
 level and first-record day/zone or an explicit historical unknown-date label;
@@ -528,7 +649,7 @@ state and the showcase without modifying next goals or sharing. Stable control I
 preserve focus/anchor; save failure preserves the old preference and uses fixed
 localized inline feedback. A render failure is not reported as a failed durable save.
 Disabled-source guards apply to pin acquisition, not to deliberate cancellation
-of a known public key. A folded list exposes at most three hidden saved pins;
+of a known public key. A folded list exposes at most six hidden saved pins;
 canceling one preserves peers' unrelated preferences under the same lease, without
 provider activation, log reads, awards or read acknowledgement. Error dispatch
 matches existing data keys, including hidden controls, without constructing selectors.
@@ -575,7 +696,7 @@ group ownership rather than replaying missed notices.
 拒绝旧页面就绪／切页／已读消息；普通数据补丁保留身份。失焦／关闭／清除／销毁／
 切换供应商或页签退役组所有权，不重放错过提示。
 
-关闭供应商只阻止新增固定，不阻止明确取消已保存的公开键。折叠入口最多列出三个
+关闭供应商只阻止新增固定，不阻止明确取消已保存的公开键。折叠入口最多列出六个
 隐藏固定项，共享 lease 下仅移除选中项，不启用供应商、不读日志、不改变奖章、
 未读及分享；错误反馈匹配既有数据键，兼容隐藏项按钮，不拼接任意选择器。
 取消按钮消失时，焦点优先回到管理组摘要，列表消失则回到成就页签；最多两个
@@ -730,6 +851,76 @@ does not retain a history of artifacts or perform network/log reads.
 中文：分享卡在运行期仅保留一份已接受的 SVG、匿名预览 ID 与允许字段配置摘要。
 修改控制项后须重新预览；过期回复不会恢复导出权限。导出在保存对话框之前捕获已确认
 的 SVG，不重新生成不同内容，也不保留产物历史。
+
+The candidate's heatmap config allowlists `provider=claude|codex|both` and
+`metric=tokens|apiEquivalent`. Amounts require `showAmounts=true`; otherwise it
+normalizes to Tokens. `apiHeatmapDaily.ts` locates the interval with logarithmic
+date-key lookup in existing descending daily arrays and projects only selected
+payloads. The caller supplies civil-day bounds/timezone; it never re-buckets days,
+reads retained records, recomputes old daily/model cost scalars or calls an API.
+For selected Claude model rows only, `getCurrentEstimatePricing` checks existing
+in-memory rates, memoized once per model per projection. The generic unknown-model
+Sonnet fallback cannot supply known coverage; a missing required component rate
+is unpriced, an explicit zero is valid, and partial coverage counts known components.
+Runtime/family rates remain estimates. The legacy 1-hour-to-5-minute cache estimate
+is not a frozen-book definition. General cost accounting is unchanged. At most
+366 dates are materialized. Equal duplicate rows deduplicate; conflicting rows withhold money
+and retain the largest observed Token bound, never add duplicate totals.
+
+Amounts are current floating daily estimates, not achievement reference money.
+Claude keeps current backend/fallback/override estimates; Codex keeps exact known-
+model-priced Token subsets. Empty/missing days, unpriced activity, partial pricing
+and genuinely priced zero remain distinct. Incomplete source coverage is explicit;
+a priced subtotal is a lower bound, not a complete total. Both renders separate
+Claude/Codex amount blocks and never computes a joint monetary total. Hiding amounts
+restores Token colors, labels, titles/tooltips, metadata and Markdown; Token mode
+does not access rates or daily money/quality getters. The renderer's identity contains only
+whitelisted config, numeric quality, source/pricing/display revisions and bundled
+currency metadata; internal signatures are not exported.
+
+The host retains one accepted immutable artifact with an opaque preview ID,
+document identity and materialized source references. Control changes retire it;
+request sequence and document checks reject old responses. Source, pricing,
+timezone, locale/currency/display changes invalidate acceptance. Monetary previews
+are unavailable during pending repricing. Export requires the current visible,
+ready document and rechecks acceptance before and after the single-flight save
+dialog, then writes the accepted SVG bytes without
+rebuilding. Markdown copying also requires the accepted artifact. No second corpus,
+export history, authentication or network path is introduced.
+
+`showWeeklyQuotaPace` is a default-false STATE setting shared by Claude and Codex.
+With it off, the owner exits before source getters, clock/cache/client access or
+projection; enabling it does not enable quota tracking. On consumes the existing
+successful raw cache, original `observedAt` and existing verified request-account
+HMAC signal in memory, never profile/home/window labels as account proof. The
+runtime source owner preserves original metadata per response and checks numeric
+counter/reset/window continuity across toggles. Changed account/source, drops or
+unexpected resets latch distrust until a verified ordinary seven-day rollover;
+repainting or a restored high counter does not clear it. Current Codex local-log
+snapshots always carry unknown account trust, so their forecast is unavailable.
+
+The pure formula uses start = reset − seven days, reference = elapsed fraction
+at the original observation, forecast = used fraction / elapsed fraction. Thus
+29% used at 25% elapsed forecasts 116%, and deviation is +4 percentage points.
+It describes account-wide cycle-average consumption, including other devices or
+members. The first six hours show insufficient sample; after thirty minutes of
+staleness or reset, the forecast is withdrawn. A zeroed successful-cache time on
+credential invalidation withdraws it immediately. Existing refresh callbacks
+deliver a minimal document/provider-bound host patch even with dashboard auto-
+refresh off; the client performs no optimistic forecast repaint. No new request,
+timer, historical scan or persistent state is added. Dashboard and status-bar
+tooltip share eight-locale `weeklyQuotaPaceCopy`; bar text/custom formats are unchanged.
+
+The gallery toolbar precedes showcase/overview. Small/Medium/Large set collection
+emblems to 56/80/112 px and showcase emblems to 72/96/128 px, retaining text size and
+click areas. Saved pin errors appear near the requesting controls; disabled or
+removed controls fall back to a stable summary. Existing browser gallery/API checks
+exercise these surfaces, but do not validate native/F5, new VSIX or performance.
+The stylesheet contract checks all 47 used VS Code variables against each matching
+registered fixture theme, treating registered null colors as CSS `initial`.
+The unregistered pink-variable reference now uses its exact existing endpoint
+`#d16ba5`; this is no palette/appearance change or broader visual redesign.
+Automated checks do not replace the user's subjective appearance review.
 
 Combined activity adds Claude processed volume to Codex processed volume only for the
 explicit activity visualization; Codex cached input and reasoning subsets are

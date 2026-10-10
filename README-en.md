@@ -84,7 +84,8 @@ and unread records without floating notices; re-enabling does not replay them.
 Proven new Claude/Codex Token tier crossings save unread first-record days even
 when dashboard updates are paused. Supported rules cover model-family volume,
 output, cache reads, Claude cache creation and cumulative volume. Imports and
-explicit rebuilds stay quiet; non-Token live awards still need their own origin proof.
+explicit rebuilds stay quiet. Proven cumulative API-reference crossings now have
+their own live receipts; other usage scopes still need their own origin proof.
 
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.
@@ -146,12 +147,27 @@ exact known models and complete component rates, including Claude's known
 5-minute/1-hour cache-write TTL. Codex counts uncached input, cached input and
 output once. Unknown models remain unpriced; verified priced subsets can prove
 a lower bound (`≥`), not full coverage. These amounts are neither bills, quality
-scores nor income. Money history stays quiet; live monetary origin notices are
-not yet wired. Model/team/effort/rainbow rules now combine output, repeated use
+scores nor income. History stays quiet; only cumulative money milestones now save
+unread first-record days from verified new appends under the same reference book.
+Completed-week and single-session/task money awards stay quiet with unknown dates.
+Independent Token/money receipts use one existing notice batch; failed saves do
+not show optimistic dates. Model/team/effort/rainbow rules now combine output, repeated use
 and usage scale, excluding duplicate aliases, input-only activity and unverified structures.
 
-API-equivalent heatmap sharing has generator foundations; weekly quota pace has
-calculation/status-bar foundations. Their main production UI and wiring remain pending.
+Expand the existing Codex effort-breadth card for six rows: low, medium, high,
+xhigh, max and ultra. Each shows processed/output Tokens, qualifying root tasks
+and joint progress toward the existing next tier. Per-row processed targets are
+**100M / 500M / 2B**, output **100K / 500K / 2M**, and roots **5 / 10 / 30**; all three
+must hold. Each root × effort population requires its own positive output and
+excludes approval-reviewer usage. The informational USD subtotal/coverage uses
+`api-reference-2026-10-openai-v1` (2026-10-09) and does not qualify effort awards.
+Model × effort ambiguity is never
+allocated by ratios; known pricing needs reconciled full component coverage under
+a single model or single effort. Empty, unpriced, partial, invalid and overflow
+states stay distinct: partial amounts show a lower bound, invalid/overflow amounts
+are withheld; absent/incomplete proof shows unknown, not six zero rows.
+No rules, targets, navigation or preferences are added. Claude effort attribution
+is currently unavailable.
 
 The gallery is **on by default**. Disable **Local achievements** in ⚙ Settings
 (`enableAchievements`). With release announcements enabled, an upgrade shows one
@@ -178,6 +194,45 @@ not personal productivity or subscription allowance. Hour streaks mean recorded
 output in each UTC hour, not continuous human work. Safe-setting exploration and
 local feedback never require credentials or network consent. The exact bounded
 award storage and clear controls are in [LOCAL-DATA.md](LOCAL-DATA.md#local-achievements-242-candidate).
+
+## Heatmap sharing and weekly quota pace (candidate)
+
+The unreleased 2.4.2 candidate's sharing heatmap offers **Claude / Codex / Both**
+and **Tokens / API-equivalent amount**. Tokens are the default; amounts require
+an explicit choice. Amounts use current daily estimates, not achievement reference
+prices: Claude is estimated, while Codex prices exact known models only. Missing
+pricing stays unavailable or shows a priced lower bound with coverage. Both uses
+two monetary panels and never sums amounts. Hiding amounts restores Token colors,
+text, tooltips, metadata and Markdown and retires the old preview. Export saves the
+exact accepted SVG bytes after checking document, controls, source, pricing and
+display revisions before and after the save dialog. The bounded daily projection
+reuses materialized data without a new log scan or network request. For selected
+Claude days, a memoized in-memory rate lookup admits known model/component coverage;
+the generic unknown-model Sonnet fallback is unpriced. Missing component rates
+reduce coverage; explicit zero rates are valid. Stored daily/model costs are not
+recomputed, family/runtime prices remain estimated, and hidden/Token mode never
+looks up rates or money.
+
+**Weekly quota pace** (`showWeeklyQuotaPace`) defaults off, with one setting for both
+providers, and uses only existing quota observations when quota tracking is enabled.
+Uniform progress starts at reset minus seven days; 29% used at 25% elapsed forecasts
+116% over the cycle. The first six hours have no forecast; an observation older than
+thirty minutes or a passed reset withdraws it. Credential invalidation withdraws
+it immediately, even with dashboard auto-refresh off. Account/source changes,
+counter drops or unexpected resets suspend trust until a verified ordinary seven-day
+rollover. Current Codex local logs cannot verify an account, so forecasting is
+unavailable. Dashboard and status-bar tooltip copy is shared across all eight
+locales; bar text/custom formats stay unchanged. No requests, timers or history are added.
+
+Gallery size controls now precede the overview. Small / Medium / Large use 56 / 80 /
+112 px collection icons and 72 / 96 / 128 px showcase icons, with nearby pin errors
+and stable keyboard focus when controls disappear or become disabled. These changes
+are integrated in candidate source. Integration alone does not establish full
+Node/UI, native/F5, installed-VSIX or performance acceptance; gate outcomes are
+recorded separately in local candidate evidence. Browser checks cannot prove
+native/F5, installed-package or Windows acceptance. The candidate is unreleased;
+subjective appearance requires user review. See [the data inventory](LOCAL-DATA.md)
+for exact storage boundaries.
 
 ## What's new in v2.4
 
