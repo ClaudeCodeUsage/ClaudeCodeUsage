@@ -7,6 +7,7 @@ import {
 import { CODEX_COPY_EN, CodexViewCopy } from './codexView';
 import type { AchievementId } from './achievements';
 import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievementMoneyCatalog';
+import { API_HEATMAP_COPY } from './apiHeatmapCopy';
 
 function apiAchievementTitles(locale: SupportedLanguage): Record<AchievementMoneyId,string> {
   const themes:Record<SupportedLanguage,readonly string[]> = {
@@ -6118,6 +6119,186 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   },
 };
 
+/** Shared quota presentation copy for the status bar and dashboard. */
+export function weeklyQuotaPaceCopy(language: SupportedLanguage): {
+  title: string; used: string; reference: string; forecast: string; sample: string; hint: string; unavailable: string; observed: string;
+} {
+  const copy: Record<SupportedLanguage, readonly string[]> = {
+    en: ['Weekly quota pace', 'Used', 'Reference progress', 'Estimated at reset ≈', 'Insufficient sample', 'Uniform cycle-average reference; start inferred as reset minus 7 days. Account-wide use includes other devices and members.'],
+    'de-DE': ['Wöchentliches Kontingenttempo', 'Verbraucht', 'Referenzfortschritt', 'Geschätzt beim Zurücksetzen ≈', 'Zu wenig Daten', 'Gleichmäßige Zyklusreferenz; Beginn als Zurücksetzen minus 7 Tage abgeleitet. Kontoweite Nutzung umfasst andere Geräte und Mitglieder.'],
+    'zh-TW': ['週額度使用節奏', '已用', '參考進度', '週期末預計約', '樣本不足', '均勻消耗的週期平均參考；起點推定為重置時間減去7天。帳號總用量包含其他裝置及成員。'],
+    'zh-CN': ['周额度使用节奏', '已用', '参考进度', '周期末预计约', '样本不足', '均匀消耗的周期平均参考；起点推定为重置时间减去7天。账号总用量包含其他设备及成员。'],
+    ja: ['週間クォータの使用ペース', '使用済み', '基準の進捗', 'リセット時の予測 ≈', 'サンプル不足', '均等消費の周期平均基準。開始はリセットの7日前と推定。アカウント全体の使用量には他の端末やメンバーを含みます。'],
+    ko: ['주간 할당량 사용 속도', '사용량', '기준 진행률', '초기화 시 예상 ≈', '표본 부족', '균등 사용의 주기 평균 기준이며 시작은 초기화 7일 전으로 추정합니다. 계정 전체 사용량에는 다른 기기와 구성원이 포함됩니다.'],
+    'pt-BR': ['Ritmo da cota semanal', 'Usado', 'Progresso de referência', 'Estimativa na redefinição ≈', 'Amostra insuficiente', 'Referência uniforme da média do ciclo; início inferido como redefinição menos 7 dias. O uso da conta inclui outros dispositivos e membros.'],
+    id: ['Laju kuota mingguan', 'Terpakai', 'Progres acuan', 'Perkiraan saat reset ≈', 'Sampel belum cukup', 'Acuan rata-rata siklus dengan pemakaian merata; awal diasumsikan 7 hari sebelum reset. Pemakaian akun mencakup perangkat dan anggota lain.'],
+  };
+  const [title, used, reference, forecast, sample, hint] = copy[language];
+  const extra:Record<SupportedLanguage,readonly [string,string]> = {
+    en:['Forecast unavailable','Observed'],
+    'de-DE':['Prognose nicht verfügbar','Beobachtet'],
+    'zh-TW':['預測暫不可用','觀測時間'], 'zh-CN':['预测暂不可用','观测时间'],
+    ja:['予測は利用できません','観測時刻'], ko:['예측을 사용할 수 없음','관측 시각'],
+    'pt-BR':['Previsão indisponível','Observado'], id:['Perkiraan tidak tersedia','Diamati'],
+  };
+  return {title,used,reference,forecast,sample,hint,unavailable:extra[language][0],observed:extra[language][1]};
+}
+
+export function achievementEffortCopyFor(language: SupportedLanguage): {
+  title:string;processed:string;output:string;tasks:string;money:string;coverage:string;
+  joint:string;criteria:string;unpriced:string;empty:string;note:string;
+} {
+  const words:Record<SupportedLanguage,readonly string[]>={
+    en:['Effort usage and progress','Processed Token','Output Token','Tasks with output','API-equivalent subtotal (USD)',
+      'Priced coverage','Joint progress','Criteria','Unpriced','No qualifying usage',
+      'Only verified tasks with output in the same effort count; approval reviewers are excluded. Amounts use the frozen reference and do not qualify this badge. Mixed model–effort attribution stays unpriced; no proportional split.'],
+    'de-DE':['Denkstufen: Nutzung und Fortschritt','Verarbeitete Token','Ausgabe-Token','Aufgaben mit Ausgabe','API-Teilsumme (USD)',
+      'Preisbedeckung','Gemeinsamer Fortschritt','Kriterien','Ohne Preis','Keine qualifizierte Nutzung',
+      'Nur bestätigte Aufgaben mit Ausgabe in derselben Denkstufe zählen; Freigabeprüfer sind ausgeschlossen. Beträge nutzen die feste Referenz und qualifizieren diesen Nachweis nicht. Gemischte Modell–Stufen-Zuordnung bleibt unbepreist; keine anteilige Aufteilung.'],
+    'zh-TW':['檔位用量與進度','已處理 Token','輸出 Token','有輸出任務','API 等價小計（USD）',
+      '已定價覆蓋','聯合進度','比較條件','未定價','尚無合格用量',
+      '僅統計可確認、同檔有輸出的任務；排除審批審查器。金額採用固定參考價，不參與此徽章門檻。混合模型與檔位無法確認對應時保留未定價，不按比例分攤。'],
+    'zh-CN':['档位用量与进度','已处理 Token','输出 Token','有输出任务','API 等价小计（USD）',
+      '已定价覆盖','联合进度','比较条件','未定价','尚无合格用量',
+      '仅统计可确认、同档有输出的任务；排除审批审查器。金额采用固定参考价，不参与此徽章门槛。混合模型与档位无法确认对应时保留未定价，不按比例分摊。'],
+    ja:['推論レベル別の使用量と進捗','処理トークン','出力トークン','出力のあるタスク','API 等価小計（USD）',
+      '価格確認率','共同進捗','比較条件','価格未確認','対象となる使用なし',
+      '同じレベルで出力のある確認済みタスクのみを数え、承認レビュアーを除外します。金額は固定参照価格であり、この実績の条件ではありません。モデルとレベルの対応が不明な混合分は未定価のまま、比率で配分しません。'],
+    ko:['추론 단계별 사용량과 진행률','처리 토큰','출력 토큰','출력이 있는 작업','API 환산 소계(USD)',
+      '가격 확인 비율','공동 진행률','비교 조건','가격 미확인','조건에 맞는 사용 없음',
+      '같은 단계에서 출력이 있는 확인된 작업만 집계하며 승인 검토자는 제외합니다. 금액은 고정 참조 가격이며 이 배지의 조건이 아닙니다. 모델과 단계의 대응이 불명확한 혼합 사용은 미확인으로 유지하고 비례 배분하지 않습니다.'],
+    'pt-BR':['Uso e progresso por esforço','Tokens processados','Tokens de saída','Tarefas com saída','Subtotal equivalente de API (USD)',
+      'Cobertura de preço','Progresso conjunto','Critérios','Sem preço','Nenhum uso qualificado',
+      'Contam apenas tarefas verificadas com saída nesse esforço; revisores de aprovação são excluídos. Valores usam a referência fixa e não qualificam esta conquista. Atribuições mistas de modelo–esforço ficam sem preço; sem divisão proporcional.'],
+    id:['Penggunaan dan progres per upaya','Token diproses','Token keluaran','Tugas dengan keluaran','Subtotal setara API (USD)',
+      'Cakupan harga','Progres gabungan','Kriteria','Tanpa harga','Belum ada penggunaan yang memenuhi',
+      'Hanya tugas terverifikasi dengan keluaran pada upaya yang sama dihitung; peninjau persetujuan dikecualikan. Nilai memakai harga referensi tetap dan bukan syarat lencana ini. Atribusi model–upaya campuran tetap tanpa harga; tidak dibagi proporsional.'],
+  };
+  const [title,processed,output,tasks,money,coverage,joint,criteria,unpriced,empty,note]=words[language];
+  return {title,processed,output,tasks,money,coverage,joint,criteria,unpriced,empty,note};
+}
+
+export interface ApiHeatmapUiTranslations {
+  providerLabel: string;
+  bothProviders: string;
+  metricLabel: string;
+  amountMetric: string;
+  showAmounts: string;
+  amountDisclosure: string;
+  stale: string;
+  failed: string;
+  saved: string;
+  cancelled: string;
+  titleDisclosure: string;
+}
+
+export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUiTranslations> = {
+  "en": {
+    "providerLabel": "Provider",
+    "bothProviders": "Claude + Codex",
+    "metricLabel": "Dimension",
+    "amountMetric": "API equivalent (includes amounts)",
+    "showAmounts": "Include monetary amounts",
+    "amountDisclosure": "The export includes current estimated amounts and amount-based colors for each selected provider. It is not a bill or subscription usage.",
+    "stale": "Preview changed. Generate a new preview before exporting.",
+    "failed": "Could not generate or save this preview. Try again.",
+    "saved": "SVG saved.",
+    "cancelled": "Export cancelled.",
+    "titleDisclosure": "Your custom title is included in the export."
+  },
+  "de-DE": {
+    "providerLabel": "Anbieter",
+    "bothProviders": "Claude + Codex",
+    "metricLabel": "Dimension",
+    "amountMetric": "API-Gegenwert (mit Beträgen)",
+    "showAmounts": "Geldbeträge einschließen",
+    "amountDisclosure": "Der Export enthält aktuelle geschätzte Beträge und betragsabhängige Farben je gewähltem Anbieter. Er ist keine Rechnung oder Abonutzung.",
+    "stale": "Vorschau geändert. Vor dem Export neu erzeugen.",
+    "failed": "Vorschau konnte nicht erzeugt oder gespeichert werden. Erneut versuchen.",
+    "saved": "SVG gespeichert.",
+    "cancelled": "Export abgebrochen.",
+    "titleDisclosure": "Der eigene Titel wird mit exportiert."
+  },
+  "zh-TW": {
+    "providerLabel": "供應商",
+    "bothProviders": "Claude + Codex",
+    "metricLabel": "維度",
+    "amountMetric": "API 等價金額（含金額）",
+    "showAmounts": "包含金額",
+    "amountDisclosure": "匯出將包含各所選供應商的目前估值及金額色階，不代表帳單或訂閱用量。",
+    "stale": "預覽已變更，請重新產生預覽後匯出。",
+    "failed": "無法產生或儲存預覽，請重試。",
+    "saved": "SVG 已儲存。",
+    "cancelled": "已取消匯出。",
+    "titleDisclosure": "自訂標題也會包含於匯出。"
+  },
+  "zh-CN": {
+    "providerLabel": "供应商",
+    "bothProviders": "Claude + Codex",
+    "metricLabel": "维度",
+    "amountMetric": "API 等价金额（含金额）",
+    "showAmounts": "包含金额",
+    "amountDisclosure": "导出将包含各所选供应商的当前估值及金额色阶，不代表账单或订阅用量。",
+    "stale": "预览已变更，请重新生成预览后导出。",
+    "failed": "无法生成或保存预览，请重试。",
+    "saved": "SVG 已保存。",
+    "cancelled": "已取消导出。",
+    "titleDisclosure": "自定义标题也会包含于导出。"
+  },
+  "ja": {
+    "providerLabel": "プロバイダー",
+    "bothProviders": "Claude + Codex",
+    "metricLabel": "指標",
+    "amountMetric": "API 相当額（金額を含む）",
+    "showAmounts": "金額を含める",
+    "amountDisclosure": "選択した各プロバイダーの現在の推定額と金額に基づく色を出力します。請求額やサブスク使用量ではありません。",
+    "stale": "プレビューが変わりました。再生成してから出力してください。",
+    "failed": "プレビューを生成または保存できませんでした。再試行してください。",
+    "saved": "SVG を保存しました。",
+    "cancelled": "出力をキャンセルしました。",
+    "titleDisclosure": "カスタムタイトルも出力されます。"
+  },
+  "ko": {
+    "providerLabel": "제공자",
+    "bothProviders": "Claude + Codex",
+    "metricLabel": "지표",
+    "amountMetric": "API 환산 금액(금액 포함)",
+    "showAmounts": "금액 포함",
+    "amountDisclosure": "선택한 각 제공자의 현재 추정 금액과 금액 기반 색상이 내보내기에 포함됩니다. 청구액이나 구독 사용량이 아닙니다.",
+    "stale": "미리보기가 변경되었습니다. 다시 생성한 후 내보내세요.",
+    "failed": "미리보기를 생성하거나 저장하지 못했습니다. 다시 시도하세요.",
+    "saved": "SVG가 저장되었습니다.",
+    "cancelled": "내보내기가 취소되었습니다.",
+    "titleDisclosure": "사용자 지정 제목도 내보내기에 포함됩니다."
+  },
+  "pt-BR": {
+    "providerLabel": "Provedor",
+    "bothProviders": "Claude + Codex",
+    "metricLabel": "Dimensão",
+    "amountMetric": "Equivalente de API (inclui valores)",
+    "showAmounts": "Incluir valores monetários",
+    "amountDisclosure": "A exportação inclui estimativas atuais e cores baseadas nos valores de cada provedor selecionado. Não representa fatura ou uso da assinatura.",
+    "stale": "A prévia mudou. Gere uma nova antes de exportar.",
+    "failed": "Não foi possível gerar ou salvar a prévia. Tente novamente.",
+    "saved": "SVG salvo.",
+    "cancelled": "Exportação cancelada.",
+    "titleDisclosure": "O título personalizado também será exportado."
+  },
+  "id": {
+    "providerLabel": "Penyedia",
+    "bothProviders": "Claude + Codex",
+    "metricLabel": "Dimensi",
+    "amountMetric": "Setara API (termasuk nilai uang)",
+    "showAmounts": "Sertakan nilai uang",
+    "amountDisclosure": "Ekspor memuat estimasi saat ini dan warna berbasis nilai untuk tiap penyedia terpilih. Bukan tagihan atau penggunaan langganan.",
+    "stale": "Pratinjau berubah. Buat ulang sebelum mengekspor.",
+    "failed": "Pratinjau tidak dapat dibuat atau disimpan. Coba lagi.",
+    "saved": "SVG disimpan.",
+    "cancelled": "Ekspor dibatalkan.",
+    "titleDisclosure": "Judul kustom juga disertakan dalam ekspor."
+  }
+};
+
 export class I18n {
   private static currentLanguage: SupportedLanguage = 'en';
   private static currentDecimalPlaces: number = 2;
@@ -6241,6 +6422,10 @@ export class I18n {
 
   static get sharingWorkspace(): SharingWorkspaceTranslations {
     return SHARING_WORKSPACE_TRANSLATIONS[this.currentLanguage];
+  }
+
+  static get apiHeatmap() {
+    return { ...API_HEATMAP_COPY[this.currentLanguage], ...API_HEATMAP_UI_TRANSLATIONS[this.currentLanguage] };
   }
 
   static get dashboardFeedback(): typeof DASHBOARD_FEEDBACK_TRANSLATIONS.en {

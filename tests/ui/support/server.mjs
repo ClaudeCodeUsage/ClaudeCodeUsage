@@ -26,7 +26,8 @@ const server = createServer(async (request, response) => {
     const provider = requestedProvider === 'claude' || requestedProvider === 'compare'
       ? requestedProvider
       : 'codex';
-    const theme = url.searchParams.get('theme') === 'dark' ? 'dark' : 'light';
+    const requestedTheme = url.searchParams.get('theme');
+    const theme = ['dark', 'highContrast'].includes(requestedTheme) ? requestedTheme : 'light';
     const requestedFixture = url.searchParams.get('fixture') ?? 'default';
     const fixture = [
       'default',
@@ -36,6 +37,7 @@ const server = createServer(async (request, response) => {
       'persisted-details',
       'weekly-usage-only',
       'weekly-claude-completed',
+      'weekly-quota-pace',
       'unknown-models',
       'zero-input',
       'covered-day-without-hourly-rows',
@@ -47,10 +49,17 @@ const server = createServer(async (request, response) => {
       'session-timezone-boundaries',
       'local-currency',
       'achievement-token-stages',
+      'achievement-effort-statistics',
+      'achievement-effort-statistics-empty',
+      'achievement-effort-statistics-retired',
       'achievement-records',
       'achievement-records-read',
       'achievement-history-only',
       'achievement-pins',
+      'achievement-six-pins',
+      'achievement-six-pins-reordered',
+      'achievement-last-pin',
+      'achievement-last-pin-removed',
       'achievement-theme-milestones',
       'achievement-theme-pins',
       'achievement-theme-pins-released',
@@ -89,6 +98,10 @@ const server = createServer(async (request, response) => {
       ? requestedCommandTemplate
       : '';
     const commandAfterReset = url.searchParams.get('commandAfterReset') === 'true';
+    const quotaPace = url.searchParams.get('quotaPace') === 'true';
+    const requestedPaceState = url.searchParams.get('quotaPaceState') ?? 'fresh';
+    const quotaPaceState = ['fresh', 'stale', 'reset', 'null', 'raw-mismatch'].includes(requestedPaceState)
+      ? requestedPaceState : 'fresh';
     const html = await renderHarness({
       provider,
       locale,
@@ -107,6 +120,8 @@ const server = createServer(async (request, response) => {
       codexOnly,
       commandTemplate,
       commandAfterReset,
+      quotaPace,
+      quotaPaceState,
     });
     response.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',

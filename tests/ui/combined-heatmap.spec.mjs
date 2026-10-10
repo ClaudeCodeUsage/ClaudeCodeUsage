@@ -3,7 +3,30 @@ import { createRequire } from 'node:module';
 import { test, expect, openClaude, openCompare } from './support/app.mjs';
 
 const require = createRequire(import.meta.url);
-const { renderCombinedHeatmapSvg } = require('../../out/combinedHeatmapSvg.js');
+const { buildApiHeatmapArtifact } = require('../../out/apiHeatmap.js');
+
+// This is a fakeHost browser bridge, not evidence of a real save dialog or
+// filesystem export. Matching ACK bytes are produced by the canonical builder.
+async function acknowledgeCombinedPreview(page, options = {}) {
+  const request = await page.evaluate(() => window.__ccuPostedMessages.findLast(
+    message => message.command === 'previewCombinedHeatmap',
+  ));
+  expect(request.documentId).toMatch(/^[0-9a-f]{48}$/);
+  expect(request.requestId).toBeGreaterThan(0);
+  const artifact = buildApiHeatmapArtifact({
+    '2026-07-20': {
+      claude: { tokens: 170000, amountUSD: 17, pricingStatus: 'complete', estimated: true, pricedCount: 1, unpricedCount: 0 },
+      codex: { tokens: 270000, amountUSD: 27, pricingStatus: 'complete', estimated: false, pricedCount: 1, unpricedCount: 0 },
+    },
+  }, { ...request, endDateISO: '2026-07-20', timezone: 'Asia/Hong_Kong', locale: 'en', ...options });
+  const previewId = request.requestId.toString(16).padStart(48, '0');
+  await page.evaluate(data => {
+    window.dispatchEvent(new MessageEvent('message', { data }));
+  }, { command: 'combinedHeatmapResult', documentId: request.documentId, requestId: request.requestId,
+    previewId, hasData: true, svg: artifact.svg, markdown: artifact.markdown, filename: artifact.filename });
+  await expect(page.locator('#combinedHeatmapExport')).toBeEnabled();
+  return { request, previewId };
+}
 
 test('Compare opens one preview-first sharing workspace on the combined presentation', async ({ page }) => {
   await openCompare(page, { fixture: 'combined-heatmap', locale: 'en' });
@@ -18,7 +41,7 @@ test('Compare opens one preview-first sharing workspace on the combined presenta
   const markdown = page.locator('#combinedHeatmapMarkdown');
   await expect(markdown).toHaveAttribute('aria-label', 'README / Markdown snippet');
   await expect(markdown).toHaveValue(
-    /^!\[Claude \+ Codex local activity\]\(claude-codex-activity-year-\d{4}-\d{2}-\d{2}\.svg\)$/,
+    /^!\[Claude \+ Codex local activity · Claude .* · Codex .*\]\(api-heatmap-both-tokens-year-\d{4}-\d{2}-\d{2}\.svg\)$/,
   );
   await page.locator('.combined-output-panel summary').click();
   await expect(markdown).toBeVisible();
@@ -319,7 +342,14 @@ test('combined share preferences stay local and every export action is explicit'
   await page.evaluate(() => { window.__ccuPostedMessages = []; });
 
   await page.getByRole('button', { name: 'Update preview' }).click();
+  await expect(page.locator('#combinedHeatmapExport')).toBeDisabled();
+  await expect(page.locator('#combinedHeatmapCopy')).toBeDisabled();
+  const accepted = await acknowledgeCombinedPreview(page);
   await page.getByRole('button', { name: 'Export SVG…' }).click();
+  await page.evaluate(data => {
+    window.dispatchEvent(new MessageEvent('message', { data }));
+  }, { command: 'combinedHeatmapExportResult', documentId: accepted.request.documentId,
+    previewId: accepted.previewId, ok: true });
   await page.getByRole('button', { name: 'Copy Markdown' }).click();
 
   const state = await page.evaluate(() => ({
@@ -337,10 +367,18 @@ test('combined share preferences stay local and every export action is explicit'
     title: 'My local activity', range: '30d', privacy: 'false',
     intensityMode: 'logarithmic', palette: 'custom', customAccent: '#0f766e',
   });
+  const draft = { title: 'My local activity', range: '30d', intensityMode: 'logarithmic',
+    palette: 'custom', customAccent: '#0f766e', privacyPreview: false,
+    provider: 'both', metric: 'tokens', showAmounts: false };
   expect(state.messages).toEqual([
-    { command: 'previewCombinedHeatmap', title: 'My local activity', range: '30d', intensityMode: 'logarithmic', palette: 'custom', customAccent: '#0f766e' },
-    { command: 'exportCombinedHeatmap', title: 'My local activity', range: '30d', intensityMode: 'logarithmic', palette: 'custom', customAccent: '#0f766e' },
-    { command: 'copyCombinedHeatmapMarkdown', title: 'My local activity', range: '30d', intensityMode: 'logarithmic', palette: 'custom', customAccent: '#0f766e' },
+    { command: 'retireCombinedHeatmapPreview', requestId: accepted.request.requestId - 1,
+      documentId: accepted.request.documentId },
+    { command: 'previewCombinedHeatmap', requestId: accepted.request.requestId,
+      documentId: accepted.request.documentId, ...draft },
+    { command: 'exportCombinedHeatmap', previewId: accepted.previewId,
+      documentId: accepted.request.documentId, ...draft },
+    { command: 'copyCombinedHeatmapMarkdown', previewId: accepted.previewId,
+      documentId: accepted.request.documentId, ...draft },
   ]);
   expect(state.messages.some((message) => /publish/i.test(message.command))).toBe(false);
 
@@ -385,6 +423,8 @@ test('combined share preferences stay local and every export action is explicit'
     intensityMode: localStorage.getItem('ccu.combinedHeatmap.intensityMode'),
     palette: localStorage.getItem('ccu.combinedHeatmap.palette'),
     customAccent: localStorage.getItem('ccu.combinedHeatmap.customAccent'),
+    remainingSharingKeys: Object.keys(localStorage).filter(key =>
+      key.startsWith('ccu.combinedHeatmap.') || key.startsWith('ccu.sharing.') || key.startsWith('ccu.github.')),
     messages: window.__ccuPostedMessages,
   }));
   expect(reset).toMatchObject({
@@ -394,6 +434,7 @@ test('combined share preferences stay local and every export action is explicit'
     intensityMode: null,
     palette: null,
     customAccent: null,
+    remainingSharingKeys: [],
   });
   expect(reset.messages.some((message) => message.command === 'resetCombinedHeatmapPreferences')).toBe(false);
   await expect(page.locator('#combinedHeatmapStatus')).toContainText('Sharing preferences and destination strings were reset.');
@@ -554,22 +595,10 @@ test('combined heatmap remains usable at a 360px webview width', async ({ page }
 test('maximum ASCII and CJK titles remain inside the rendered SVG viewBox', async ({ page }) => {
   await openCompare(page, { fixture: 'combined-heatmap', locale: 'en', width: 360, height: 900 });
   for (const title of ['W'.repeat(80), '综合活动热力图'.repeat(12)]) {
-    const svg = renderCombinedHeatmapSvg({}, {
-      range: '30d',
-      endDateISO: '2026-07-22',
-      title,
-    });
-    await page.evaluate((renderedSvg) => {
-      window.dispatchEvent(new MessageEvent('message', {
-        data: {
-          command: 'combinedHeatmapResult',
-          svg: renderedSvg,
-          markdown: '',
-          filename: 'contained.svg',
-          hasData: true,
-        },
-      }));
-    }, svg);
+    await page.locator('#combinedHeatmapTitle').fill(title.slice(0, 80));
+    await page.locator('#combinedHeatmapRange').selectOption('30d');
+    await page.getByRole('button', { name: 'Update preview' }).click();
+    await acknowledgeCombinedPreview(page);
     const geometry = await page.locator('#combinedHeatmapPreview svg').evaluate((element) => {
       const viewBox = element.viewBox.baseVal;
       const titleNode = element.querySelector('text');

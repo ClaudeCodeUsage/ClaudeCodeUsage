@@ -1,6 +1,7 @@
 import { ACHIEVEMENT_DEFINITIONS, AchievementId, AchievementResult } from './achievements';
 import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
 import { CodexAchievementUsageDelta, copyCodexUsageWindow, copyCodexUsageDelta } from './providers/codex/codexAchievementOrigin';
+import {copyMoneyProofs} from './achievementMoneyOrigin';
 
 /** Same per-level causal test as Claude, with Codex's native input + output
  * semantics. Volume proof never authorizes calendar, effort breadth or agents. */
@@ -40,24 +41,11 @@ export function codexTailAchievementCrossings(
  * The caller still owns readiness, accepted producer window and lease fencing. */
 export function claudeTailAchievementCrossings(
   before: readonly AchievementResult[], after: readonly AchievementResult[],
-  delta: ClaudeAchievementUsageDelta | undefined,
+  rawDelta: ClaudeAchievementUsageDelta | undefined,
 ): AchievementId[] {
-  const count = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
-  if (!delta || delta.provider !== 'claude' || !count(delta.after) || !count(delta.through) ||
-      delta.through > 8.64e15 || delta.through <= delta.after ||
-      !count(delta.processed) || delta.processed === 0 || !count(delta.output) ||
-      !count(delta.cacheRead) || !count(delta.cacheCreation) ||
-      !Number.isSafeInteger(delta.output + delta.cacheRead + delta.cacheCreation) ||
-      delta.output + delta.cacheRead + delta.cacheCreation > delta.processed ||
-      !delta.families || typeof delta.families !== 'object' || Array.isArray(delta.families)) return [];
-  let families = 0;
-  for (const family of ['sonnet', 'opus', 'haiku', 'fable'] as const) {
-    const value = delta.families[family];
-    if (!count(value)) return [];
-    families += value;
-  }
-  if (!Number.isSafeInteger(families) || families > delta.processed ||
-      before.length > ACHIEVEMENT_DEFINITIONS.length || after.length > ACHIEVEMENT_DEFINITIONS.length) return [];
+  const delta = copyClaudeUsageDelta(rawDelta, rawDelta);
+  if (!delta || delta.processed === 0 || before.length > ACHIEVEMENT_DEFINITIONS.length ||
+      after.length > ACHIEVEMENT_DEFINITIONS.length) return [];
   const previous = new Map(before.map((row) => [row.id, row]));
   const current = new Map(after.map((row) => [row.id, row]));
   if (previous.size !== before.length || current.size !== after.length) return [];
@@ -81,6 +69,34 @@ export function claudeTailAchievementCrossings(
     if (old.progress + addition >= rule.target && next.progress - addition < rule.target) ids.push(rule.id);
   }
   return ids;
+}
+
+const count = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+/** Fixed-field native copy. Invalid optional money cannot invalidate Tokens. */
+export function copyClaudeUsageDelta(raw: unknown,
+  window: {after:number;through:number} | undefined): ClaudeAchievementUsageDelta | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !window) return undefined;
+  const delta = raw as ClaudeAchievementUsageDelta;
+  if (!delta || delta.provider !== 'claude' || !count(delta.after) || !count(delta.through) ||
+      delta.after !== window.after || delta.through !== window.through ||
+      delta.through > 8.64e15 || delta.through <= delta.after ||
+      !count(delta.processed) || !count(delta.output) ||
+      !count(delta.cacheRead) || !count(delta.cacheCreation) ||
+      !Number.isSafeInteger(delta.output + delta.cacheRead + delta.cacheCreation) ||
+      delta.output + delta.cacheRead + delta.cacheCreation > delta.processed ||
+      !delta.families || typeof delta.families !== 'object' || Array.isArray(delta.families)) return undefined;
+  let families = 0;
+  for (const family of ['sonnet', 'opus', 'haiku', 'fable'] as const) {
+    const value = delta.families[family];
+    if (!count(value)) return undefined;
+    families += value;
+  }
+  if (!Number.isSafeInteger(families) || families > delta.processed) return undefined;
+  const money = copyMoneyProofs(delta.money,'claude',delta.processed);
+  return {provider:'claude',after:delta.after,through:delta.through,processed:delta.processed,
+    output:delta.output,cacheRead:delta.cacheRead,cacheCreation:delta.cacheCreation,
+    families:{sonnet:delta.families.sonnet,opus:delta.families.opus,haiku:delta.families.haiku,fable:delta.families.fable},
+    ...(money ? {money} : {})};
 }
 
 export const ACHIEVEMENT_EVIDENCE_DOMAINS = [

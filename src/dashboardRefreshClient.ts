@@ -437,6 +437,14 @@ function ccuRestoreTransientControls(context, panel) {
   });
 }
 
+function ccuResolveRefreshFocus(descriptor, panel) {
+  var target = ccuResolveRefreshDescriptor(descriptor, panel);
+  // A surviving ID is not a usable focus target when the confirmed patch
+  // disables it (for example Up after moving a pin to the first position).
+  if (!target || target.disabled === true ||
+      (target.matches && target.matches(':disabled'))) { return null; }
+  return target;
+}
 function ccuRestoreRefreshPosition(context, panel) {
   requestAnimationFrame(function() {
     requestAnimationFrame(function() {
@@ -444,7 +452,7 @@ function ccuRestoreRefreshPosition(context, panel) {
         ? ccuResolveRefreshDescriptor(context.anchor.descriptor, panel)
         : null;
       var fallback = (context.focusFallbacks || []).find(function(saved) {
-        return !!ccuResolveRefreshDescriptor(saved.descriptor, panel);
+        return !!ccuResolveRefreshFocus(saved.descriptor, panel);
       });
       var anchorTop = context.anchor ? context.anchor.top : 0;
       if (!anchor && fallback) {
@@ -457,8 +465,8 @@ function ccuRestoreRefreshPosition(context, panel) {
         window.scrollTo(0, context.scrollY);
       }
       ccuRestoreLocalScrollPositions(context.localScrollPositions, panel);
-      var focused = ccuResolveRefreshDescriptor(context.focus, panel) ||
-        (fallback ? ccuResolveRefreshDescriptor(fallback.descriptor, panel) : null);
+      var focused = ccuResolveRefreshFocus(context.focus, panel) ||
+        (fallback ? ccuResolveRefreshFocus(fallback.descriptor, panel) : null);
       if (focused && typeof focused.focus === 'function') {
         try { focused.focus({ preventScroll: true }); } catch (e) { focused.focus(); }
       }

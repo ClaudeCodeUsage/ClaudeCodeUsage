@@ -48,6 +48,10 @@ Module._load = function load(request, parent, isMain) {
 const { UsageWebviewProvider } = require('../../../out/webview.js');
 const { I18n } = require('../../../out/i18n.js');
 const { SETTINGS } = require('../../../out/settings.js');
+const { ClaudeQuotaPaceSource } = require('../../../out/quotaPaceSource.js');
+const { QUOTA_PACE_WEEK_MS } = require('../../../out/quotaPaceAdapters.js');
+const { codexModelSignals } = require('../../../out/achievements.js');
+const { codexAchievementEffortStatistics } = require('../../../out/achievementEffortStatistics.js');
 const { buildCodexUsageView } = require('../../../out/providers/codex/codexUsage.js');
 const { buildScopedCodexInsights } = require('../../../out/providers/codex/codexInsights.js');
 const { buildProjectUsageMatrixSnapshot } = require('../../../out/projectUsageMatrix.js');
@@ -114,6 +118,11 @@ const THEMES = {
     '--vscode-charts-green:#388A34;' +
     '--vscode-charts-purple:#652D90;' +
     '--vscode-charts-yellow:#BF8803;' +
+    '--vscode-list-inactiveSelectionBackground:#E4E6F1;' +
+    '--vscode-sideBar-background:#F3F3F3;' +
+    '--vscode-editor-foreground:#000000;' +
+    '--vscode-editorWidget-foreground:#616161;' +
+    '--vscode-widget-shadow:rgba(0,0,0,0.16);' +
     '}*,*::before,*::after{animation:none!important;transition:none!important}',
   dark: ':root{' +
     '--vscode-font-family:-apple-system,BlinkMacSystemFont,sans-serif;' +
@@ -159,8 +168,42 @@ const THEMES = {
     '--vscode-charts-green:#89D185;' +
     '--vscode-charts-purple:#B180D7;' +
     '--vscode-charts-yellow:#CCA700;' +
+    '--vscode-list-inactiveSelectionBackground:#37373D;' +
+    '--vscode-sideBar-background:#252526;' +
+    '--vscode-editor-foreground:#D4D4D4;' +
+    '--vscode-editorWidget-foreground:#CCCCCC;' +
+    '--vscode-widget-shadow:rgba(0,0,0,0.36);' +
     '}*,*::before,*::after{animation:none!important;transition:none!important}',
 };
+
+// VS Code built-in Dark High Contrast (hc_black.json) and registered hcDark
+// defaults, resolved from the installed workbench color registry. Null color
+// registrations use `initial`, matching the existing Light+/Dark+ harness.
+THEMES.highContrast = ':root{' + Object.entries({
+  'font-family': '-apple-system,BlinkMacSystemFont,sans-serif',
+  'font-size': '13px',
+  'editor-font-family': 'Menlo,Monaco,"Courier New",monospace',
+  'editor-background': '#000000', 'foreground': '#FFFFFF',
+  'descriptionForeground': 'rgba(255,255,255,0.7)', 'errorForeground': '#F48771',
+  'textLink-foreground': '#21A6FF', 'textCodeBlock-background': '#000000',
+  'textBlockQuote-background': 'initial', 'textBlockQuote-border': '#FFFFFF',
+  'panel-border': '#6FC3DF', 'toolbar-hoverBackground': 'initial',
+  'input-background': '#000000', 'input-foreground': '#FFFFFF', 'input-border': '#6FC3DF',
+  'inputValidation-warningBackground': '#000000', 'inputValidation-warningBorder': '#6FC3DF',
+  'dropdown-background': '#000000', 'dropdown-foreground': '#FFFFFF', 'dropdown-border': '#6FC3DF',
+  'button-background': '#000000', 'button-foreground': '#FFFFFF', 'button-hoverBackground': '#000000',
+  'button-secondaryBackground': 'initial', 'button-secondaryForeground': '#FFFFFF',
+  'button-secondaryHoverBackground': 'initial', 'badge-background': '#000000', 'badge-foreground': '#FFFFFF',
+  'focusBorder': '#F38518', 'list-hoverBackground': 'rgba(255,255,255,0.1)',
+  'progressBar-background': '#6FC3DF', 'editorWidget-background': '#0C141F',
+  'testing-iconPassed': '#73c991', 'symbolIcon-functionForeground': '#B180D7',
+  'charts-foreground': '#FFFFFF', 'charts-lines': 'rgba(255,255,255,0.5)',
+  'charts-blue': '#59A4F9', 'charts-orange': 'initial', 'charts-red': '#F48771',
+  'charts-green': '#89D185', 'charts-purple': '#B180D7', 'charts-yellow': '#FFD370',
+  'list-inactiveSelectionBackground': 'initial', 'sideBar-background': '#000000',
+  'editor-foreground': '#FFFFFF', 'editorWidget-foreground': '#FFFFFF', 'widget-shadow': 'initial',
+}).map(([name, value]) => `--vscode-${name}:${value};`).join('') +
+  '}*,*::before,*::after{animation:none!important;transition:none!important}';
 
 function settingsStore({
   autoRefresh = false,
@@ -172,6 +215,7 @@ function settingsStore({
   projectMatrix = true,
   achievementsEnabled = true,
   achievementNotices = true,
+  quotaPace = false,
 } = {}) {
   const values = new Map(SETTINGS.map((definition) => [definition.key, definition.default]));
   values.set('codex.optimization.enabled', true);
@@ -184,6 +228,7 @@ function settingsStore({
   values.set('showProjectUsageMatrix', projectMatrix);
   values.set('enableAchievements', achievementsEnabled);
   values.set('showAchievementNotices', achievementNotices);
+  if (quotaPace) values.set('showWeeklyQuotaPace', true);
   return {
     get: (key) => values.get(key),
     snapshot: () => SETTINGS.map((definition) => ({
@@ -192,6 +237,27 @@ function settingsStore({
       isDefault: values.get(definition.key) === definition.default,
     })),
   };
+}
+
+// Explicit synthetic account evidence and raw successful response. This is a
+// pure source projection: no credentials, cache, logs or Extension Host I/O.
+function quotaPaceFixture(state = 'fresh') {
+  const resetAt = CODEX_WEBVIEW_NOW + 3 * QUOTA_PACE_WEEK_MS / 4;
+  const usage = { limits: [
+    { kind: 'session', percent: 73, resets_at: new Date(CODEX_WEBVIEW_NOW + 3_600_000).toISOString() },
+    { kind: 'weekly_all', percent: 29, resets_at: new Date(resetAt).toISOString() },
+    { kind: 'weekly_scoped', percent: 40, resets_at: new Date(resetAt).toISOString(),
+      scope: { model: { id: 'synthetic-model', display_name: 'Synthetic scoped model' } } },
+  ] };
+  const snapshot = new ClaudeQuotaPaceSource().project({
+    enabled: true, usage, observedAt: CODEX_WEBVIEW_NOW,
+    verifiedAccountFingerprint: 'acct_0123456789abcdef0123456789abcdef',
+  });
+  // Stale/reset fixtures advance the renderer clock below, retaining this
+  // original observation and its pure source DTO. A repaint is not a fetch.
+  if (state === 'null') return { usage, snapshot: null };
+  if (state === 'raw-mismatch') usage.limits[1].percent = 30;
+  return { usage, snapshot };
 }
 
 function claudeProjectUsageMatrix() {
@@ -336,12 +402,12 @@ function addClaudeData(provider, { fixture = 'default', enableContent = false } 
     claudeUsage(6),
     claudeUsage(18),
     [
-      { date: '2026-07-19', data: claudeUsage(0.4) },
       { date: '2026-07-20', data: claudeUsage(0.6) },
+      { date: '2026-07-19', data: claudeUsage(0.4) },
     ],
     [
-      { date: '2026-06-01', data: claudeUsage(5) },
       { date: '2026-07-01', data: claudeUsage(13) },
+      { date: '2026-06-01', data: claudeUsage(5) },
     ],
     [
       { hour: '18:00', data: claudeUsage(0.35) },
@@ -372,9 +438,9 @@ function addClaudeData(provider, { fixture = 'default', enableContent = false } 
     },
     claudeProjectUsageMatrix(),
     [
-      { date: '2026-06-01', data: claudeUsage(5) },
-      { date: '2026-07-19', data: claudeUsage(0.4) },
       { date: '2026-07-20', data: claudeUsage(0.6) },
+      { date: '2026-07-19', data: claudeUsage(0.4) },
+      { date: '2026-06-01', data: claudeUsage(5) },
     ],
   );
   if (completedWeeklyFixture) {
@@ -461,6 +527,39 @@ function completedHistorySnapshot(snapshot) {
   return snapshot;
 }
 
+function effortStatisticsFixture(empty = false) {
+  const t = (inputTotal, outputTotal) => ({ inputTotal, outputTotal, cachedInput: 0, cacheWriteInput: 0 });
+  const file = (key, models, efforts, parentSessionKey, role = 'root') => {
+    const total = Object.values(models).reduce((sum, row) => t(sum.inputTotal + row.inputTotal,
+      sum.outputTotal + row.outputTotal), t(0, 0));
+    return { total, byModel: models, byEffort: efforts, byDay: { '2026-07-20': { ...total } },
+      session: { sessionKey: 'private-effort-' + key, role, ...(parentSessionKey ? { parentSessionKey } : {}),
+        startedAt: CODEX_WEBVIEW_NOW - 60_000, endedAt: CODEX_WEBVIEW_NOW },
+      structural: { patchCalls: 0, toolCalls: 0, postPatchToolCalls: 0, compactCount: 0, taskCompleteCount: 0 } };
+  };
+  const known = t(100_000_000, 100_000), small = t(0, 1), unknown = t(10, 1);
+  const files = empty ? [] : [
+    file('known-high', { 'gpt-6.1-sol': known }, { high: known }),
+    file('unknown-high', { 'private-custom-model': unknown }, { high: unknown }),
+    file('unknown-medium', { 'private-custom-model': unknown }, { medium: unknown }),
+    file('small-xhigh', { 'gpt-6-luna': small }, { xhigh: small }),
+    file('mixed', { 'gpt-6.1-sol': small, 'gpt-6-astra': small }, { max: small, ultra: small }),
+    // Own root × effort output is required; idle input and APR must not inflate rows.
+    file('idle-low', { 'gpt-6.1-sol': t(100_000_000, 0) }, { low: t(100_000_000, 0) }),
+    file('apr', { 'gpt-6-astra': known }, { high: known }, 'private-effort-known-high', 'approval-reviewer'),
+  ];
+  const snapshot = codexWebviewFixture();
+  snapshot.files = files;
+  snapshot.total = files.reduce((sum, row) => t(sum.inputTotal + row.total.inputTotal,
+    sum.outputTotal + row.total.outputTotal), t(0, 0));
+  // Only current indexed-census authority is supplied. This is not historical
+  // calendar, request-money-origin, accepted-receipt or durable badge proof.
+  snapshot.currentManifestVerified = true;
+  Object.assign(snapshot.coverage, { complete: true, indexedFiles: files.length, totalFiles: files.length,
+    indexedBytes: files.length, totalBytes: files.length });
+  return snapshot;
+}
+
 exports.renderHarness = async function renderHarness({
   provider: selectedProvider = 'codex',
   locale = 'en',
@@ -479,6 +578,8 @@ exports.renderHarness = async function renderHarness({
   codexOnly = false,
   commandTemplate = '',
   commandAfterReset = false,
+  quotaPace = false,
+  quotaPaceState = 'fresh',
 } = {}) {
   I18n.setLanguage(locale);
   I18n.setTimezone(timeZone);
@@ -486,10 +587,16 @@ exports.renderHarness = async function renderHarness({
   const localCurrencyFixture = fixture === 'local-currency';
   const displayCurrency = localCurrencyFixture ? 'EUR' : 'USD';
   I18n.setCurrencyDisplay(displayCurrency);
-  vscodeHost.window.activeColorTheme.kind = theme === 'dark' ? 2 : 1;
-  const restoreClock = freezeClock(CODEX_WEBVIEW_NOW);
+  vscodeHost.window.activeColorTheme.kind = theme === 'highContrast' ? 3 : theme === 'dark' ? 2 : 1;
+  const paceRenderTime = fixture !== 'weekly-quota-pace' ? CODEX_WEBVIEW_NOW
+    : quotaPaceState === 'stale' ? CODEX_WEBVIEW_NOW + 31 * 60_000
+    : quotaPaceState === 'reset' ? CODEX_WEBVIEW_NOW + 3 * QUOTA_PACE_WEEK_MS / 4
+    : CODEX_WEBVIEW_NOW;
+  const restoreClock = freezeClock(paceRenderTime);
   try {
-    const baseSnapshot = fixture === 'rootless-cycle'
+    const effortFixture = fixture.startsWith('achievement-effort-statistics');
+    const baseSnapshot = effortFixture ? effortStatisticsFixture(fixture.endsWith('-empty'))
+      : fixture === 'rootless-cycle'
       ? rootlessCrossProjectCycleFixture()
       : fixture === 'root-over-limit'
         ? rootedTaskBeyondRecentRowCapFixture()
@@ -515,6 +622,14 @@ exports.renderHarness = async function renderHarness({
           ? completedHistorySnapshot(baseSnapshot)
         : baseSnapshot;
     const view = buildCodexUsageView(snapshot, CODEX_WEBVIEW_NOW);
+    if (fixture === 'weekly-quota-pace' && view.limit) {
+      // Give Codex the same valid 29% weekly numeric sample. Its local-log
+      // account attribution remains unknown and must never yield 116%.
+      view.limit = { ...view.limit, observedAt: CODEX_WEBVIEW_NOW,
+        windows: view.limit.windows.map(row => row.windowMinutes === 10_080
+          ? { ...row, usedPercent: 29, resetsAt: CODEX_WEBVIEW_NOW + 3 * QUOTA_PACE_WEEK_MS / 4 }
+          : row) };
+    }
     const provider = new UsageWebviewProvider({ globalState: memoryGlobalState() });
     // The real extension loads globalState asynchronously before enabling any
     // consent or feedback control. Let that same path settle in the harness.
@@ -537,6 +652,7 @@ exports.renderHarness = async function renderHarness({
       projectMatrix,
       achievementsEnabled,
       achievementNotices,
+      quotaPace,
     });
     if (!codexOnly) addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
     if (fixture === 'achievement-token-stages') {
@@ -590,15 +706,59 @@ exports.renderHarness = async function renderHarness({
         }],
       };
     }
+    let effortSignals;
+    if (effortFixture) {
+      effortSignals = achievementsEnabled ? { ...codexModelSignals(snapshot.files),
+        effortStatistics: codexAchievementEffortStatistics(snapshot.files) }
+        : { modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 } };
+      if (!achievementsEnabled) Object.defineProperty(effortSignals, 'effortStatistics', {
+        get: () => { throw new Error('Achievements OFF must not access effort statistics'); },
+      });
+    }
     provider.updateProviderData(
       claudeOnly ? null : view,
       buildScopedCodexInsights(view),
       claudeOnly
         ? { claude: true, codex: false, codexData: false }
         : { claude: !codexOnly, codex: true, codexData: true },
+      effortSignals,
     );
     provider.currentProvider = selectedProvider;
+    if (fixture === 'achievement-effort-statistics-retired') provider.invalidateAchievementEvidence('codex');
+    if (fixture === 'weekly-quota-pace') {
+      const { usage, snapshot: paceSnapshot } = quotaPaceFixture(quotaPaceState);
+      // Set catalog state before supplying the original raw response and the
+      // numeric DTO, exactly as the production opt-in renderer expects.
+      provider.updateQuotaPace(paceSnapshot, usage);
+    }
 
+    if (fixture === 'combined-heatmap') {
+      // Sharing protocol tests need one explicitly saved award. Their tiny
+      // heatmap usage is no longer enough for output-qualified model rainbow.
+      const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
+      provider.achievementRecordState = parseAchievementRecordStore({schemaVersion:2,catalogVersion:2,generation:1,
+        sequence:1,lastNoticeAt:0,pinRevision:0,showcaseMode:'automatic',legacyBoundary:null,legacyRecords:[],pins:[],
+        records:[{id:'local-share-export',seq:1,ruleVersion:1,origin:'history',unread:false,recordedDay:null,timeZone:null}],
+        auxiliary:{activity:{schemaVersion:2,settingKeys:[],features:[]},hours:{schemaVersion:3,maxStreak:0},calendarPeak:null}});
+      provider.achievementGrants = new Set(['local-share-export']);
+    }
+    if (['achievement-six-pins', 'achievement-six-pins-reordered', 'achievement-last-pin', 'achievement-last-pin-removed'].includes(fixture)) {
+      const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
+      const ids = ['local-share-export','local-advice-feedback','settings-explorer-bronze','hundred-million-club','sonnet-main','opus-cannon'];
+      const pins = ['local-share-export','local-advice-feedback','settings-explorer','cumulative-volume','sonnet-main','opus-cannon'];
+      if (fixture === 'achievement-six-pins-reordered') [pins[0], pins[1]] = [pins[1], pins[0]];
+      if (fixture === 'achievement-last-pin') pins.splice(1);
+      if (fixture === 'achievement-last-pin-removed') pins.splice(0);
+      provider.achievementRecordState = parseAchievementRecordStore({schemaVersion:2,catalogVersion:2,generation:1,
+        sequence:6,lastNoticeAt:0,pinRevision:fixture.endsWith('-reordered') || fixture.endsWith('-removed') ? 1 : 0,
+        showcaseMode:'manual',legacyBoundary:null,legacyRecords:[],pins,
+        records:ids.map((id,index)=>({id,seq:index+1,ruleVersion:1,origin:'history',unread:false,recordedDay:null,timeZone:null})),
+        auxiliary:{activity:{schemaVersion:2,settingKeys:[],features:[]},hours:{schemaVersion:3,maxStreak:0},calendarPeak:null}});
+      provider.achievementGrants = new Set(ids);
+      // Claude-only focus fixtures include the real sharing presentation so a
+      // patch can preserve a deliberate choice independently of showcase pins.
+      provider.sharingTemplate = 'achievements';
+    }
     if (fixture === 'achievement-records' || fixture === 'achievement-records-read' || fixture === 'achievement-history-only' || fixture === 'achievement-pins' || fixture.startsWith('achievement-hidden-pins')) {
       // Validated synthetic local records, not claimed personal achievement dates.
       const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
@@ -674,7 +834,7 @@ exports.renderHarness = async function renderHarness({
     const fixtureHtml = persistedDetailsFixture
       ? html.replace('<details class="model-item"', '<details class="model-item" data-persist="test-model"')
       : html;
-    const bodyClass = theme === 'dark' ? 'vscode-dark ' : 'vscode-light ';
+    const bodyClass = theme === 'highContrast' ? 'vscode-high-contrast ' : theme === 'dark' ? 'vscode-dark ' : 'vscode-light ';
     return fixtureHtml
       .replace('</head>', `<style id="test-vscode-theme">${THEMES[theme]}</style></head>`)
       .replace('<body class="', `<body class="${bodyClass}`);

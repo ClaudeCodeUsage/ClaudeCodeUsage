@@ -230,6 +230,21 @@ export interface CodexQuotaPaceSourceInput {
   readonly snapshot: ProviderLimitSnapshot | null;
 }
 
+/** Strict display join, before the normalizer's intentionally tolerant zero.
+ * Reuses the same bounded raw projection without account/state/clock work.
+ */
+export function matchesClaudeQuotaPaceWindow(usage: ClaudeApiUsageResponse | null,
+  evidence: QuotaPaceAdapterWindow): boolean {
+  if (!record(usage) || !Number.isInteger(evidence.slot) || evidence.slot < 0 ||
+      evidence.slot >= QUOTA_PACE_MAX_WINDOWS) return false;
+  const projection = projectClaude(usage);
+  if (projection.ambiguous) return false;
+  const actual = projection.rows[evidence.slot]?.window;
+  return !!actual && actual.kind !== 'other' && actual.kind === evidence.kind &&
+    Number.isFinite(actual.usedPercent) && actual.usedPercent === evidence.usedPercent &&
+    actual.resetAt !== null && actual.resetAt === evidence.resetAt && actual.periodMs === evidence.periodMs;
+}
+
 /** Existing Codex local-log snapshots carry no verified account signal. Numeric
  * weekly rows are useful display joins but ALWAYS remain unknown account trust.
  * Never infer identity from limitId, path, confidence or single-window count.

@@ -20,6 +20,21 @@ const codexFacts = (volume: number): AchievementFacts => ({ ...usageFacts(0), co
 const codexDelta = (processed: number) => ({ provider: 'codex', after: 100, through: 200,
   processed, output: 0, cacheRead: 0, families: { astra: processed, sol: 0, luna: 0 } });
 
+test('Claude native copy strips malformed optional money without losing independent Token proof', () => {
+  const raw = { ...usageDelta(1), privatePath: 'private-source', money: {
+    anthropic: { provider: 'claude', backend: 'anthropic', pricebookVersion: 'forged',
+      exactMicroUsdUnits: '1', microUsd: 0, eligibleProcessed: 1 }, privateBackend: 'private-source',
+  } };
+  const copied = proof.copyClaudeUsageDelta(raw, { after: 100, through: 200 });
+  assert.deepEqual(copied, usageDelta(1));
+  raw.families.sonnet = 0;
+  assert.equal(copied.families.sonnet, 1, 'copied native counters must not retain the source object');
+  assert.equal(proof.copyClaudeUsageDelta(raw, { after: 101, through: 200 }), undefined);
+  for (const patch of [{ processed: -1 }, { through: Infinity }, { families: [] }, { output: 2 }]) {
+    assert.equal(proof.copyClaudeUsageDelta({ ...usageDelta(1), ...patch }, { after: 100, through: 200 }), undefined);
+  }
+});
+
 test('Codex tail crossings use exact approved family tiers and cannot date imported growth', () => {
   const before = evaluateAchievements(codexFacts(600_000_000));
   const after = evaluateAchievements(codexFacts(6_600_000_000));

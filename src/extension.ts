@@ -43,6 +43,9 @@ import {
   SettingsStore,
 } from './settings';
 import { normalizeQuotaWindows } from './quotaWindows';
+import { ClaudeQuotaPaceSource, projectCodexQuotaPaceSource } from './quotaPaceSource';
+import type { QuotaPaceAdapterSnapshot } from './quotaPaceAdapters';
+import {codexAchievementEffortStatistics} from './achievementEffortStatistics';
 import {
   WeeklyQuotaObservation,
 } from './weeklyValue';
@@ -533,6 +536,7 @@ export class ClaudeCodeUsageExtension {
   private quotaObservationStore: QuotaObservationStoreV2;
   private readonly quotaFingerprintSalt: string;
   private activeClaudeQuotaFingerprint: string | undefined;
+  private readonly claudeQuotaPaceSource = new ClaudeQuotaPaceSource();
   private activePricingBackend: ExtensionConfig['pricingBackend'] = 'anthropic';
   private codexProvider: CodexProvider;
   private readonly codexSalt: string;
@@ -1934,7 +1938,7 @@ export class ClaudeCodeUsageExtension {
     try {
       const result = await fetchLatestPricing();
       this.invalidateClaudeUsagePricingCache();
-      this.webviewProvider.invalidateShareCardPreview();
+      this.webviewProvider.invalidateShareCardPreview({pricingChanged:true});
       vscode.window.showInformationMessage(`${I18n.t.popup.pricingUpdated} (${result.updated})`);
       // Force a full recompute so the new prices take effect.
       void this.refreshData(true, 'pricing');
@@ -2272,7 +2276,7 @@ export class ClaudeCodeUsageExtension {
     this.activePricingBackend = config.pricingBackend;
     setPricingBackend(config.pricingBackend);
     this.applyFormattingConfiguration(config);
-    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat, config.statusBarQuotaFormat);
+    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat, config.statusBarQuotaFormat, config.showWeeklyQuotaPace);
 
     // Listen for configuration changes
     vscode.workspace.onDidChangeConfiguration(e => {
@@ -2334,6 +2338,7 @@ export class ClaudeCodeUsageExtension {
       contextWindowOverride: s.get<number>('contextWindowOverride'),
       statusBarMetric: s.get<'cost' | 'monthly-cost' | 'tokens'>('statusBarMetric'),
       showScopedWeekly: s.get<boolean>('showScopedWeekly'),
+      showWeeklyQuotaPace: s.get<boolean>('showWeeklyQuotaPace') === true,
       showResetInStatusBar: s.get<boolean>('showResetInStatusBar'),
       quotaFiveHourOnly: s.get<boolean>('quotaFiveHourOnly'),
       resetCountdownFormat: s.get<'decimal' | 'units' | 'clock'>('resetCountdownFormat'),
@@ -2506,6 +2511,11 @@ export class ClaudeCodeUsageExtension {
 
   private syncProviderUi(trigger: RefreshTrigger = 'settings'): void {
     const config = this.getConfiguration();
+    if (config.showWeeklyQuotaPace === true && config.usageLimitTracking) {
+      const pace = this.getClaudeQuotaPaceSnapshot();
+      this.statusBar.updateQuota(this.cache.usageLimits ?? null, pace);
+      this.webviewProvider.updateQuotaPace?.(pace, this.cache.usageLimits ?? null);
+    }
     const claudeHasData = this.cache.records.length > 0;
     // This non-rendering handoff revokes prepared handles when the verified
     // source revision or consent changes, including while the page is paused.
@@ -2526,6 +2536,8 @@ export class ClaudeCodeUsageExtension {
           this.codexView.today,
           config.codexStatusMetric,
           this.codexView.limit,
+          projectCodexQuotaPaceSource({enabled: config.showWeeklyQuotaPace === true && config.usageLimitTracking,
+            snapshot: this.codexView.limit}),
         );
       } else {
         this.statusBar.clearCodex?.();
@@ -2924,8 +2936,9 @@ export class ClaudeCodeUsageExtension {
       }
       void this.maybeFetchUsageLimits(this.getConfiguration()).then((retry) => {
         if (retry) {
-          this.statusBar.updateQuota(retry);
+          this.statusBar.updateQuota(retry, this.getClaudeQuotaPaceSnapshot());
           this.webviewProvider.updateQuota(retry);
+          this.webviewProvider.updateQuotaPace?.(this.getClaudeQuotaPaceSnapshot(), this.cache.usageLimits ?? null);
         }
       });
     }, 8_000);
@@ -3531,6 +3544,8 @@ export class ClaudeCodeUsageExtension {
       });
       if (this.codexAchievementRevision !== revision) {
         this.codexAchievementSignals = codexModelSignals(snapshot.files);
+        this.codexAchievementSignals.effortStatistics = indexed
+          ? codexAchievementEffortStatistics(snapshot.files) : undefined;
         this.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(snapshot.files, indexed);
         this.codexAchievementSignals.dayEvidence = codexAchievementDayEvidence(
           snapshot.files, nextView.periodCoverage.timeZone,
@@ -3610,6 +3625,7 @@ export class ClaudeCodeUsageExtension {
     'showCost', 'showContext', 'statusBarMetric',
     'showScopedWeekly', 'quotaFiveHourOnly', 'showResetInStatusBar', 'resetCountdownFormat',
     'statusBarQuotaFormat', 'statusBarProvider', 'codex.statusMetric',
+    'showWeeklyQuotaPace',
   ]);
 
   // Presentation-only dashboard toggles must not restart watchers, recreate
@@ -3656,8 +3672,10 @@ export class ClaudeCodeUsageExtension {
     }
     if (key && ClaudeCodeUsageExtension.STATUS_BAR_ONLY_SETTINGS.has(key)) {
       const config = this.getConfiguration();
-      this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat, config.statusBarQuotaFormat);
-      this.statusBar.updateQuota(this.cache.usageLimits ?? null);
+      this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat, config.statusBarQuotaFormat, config.showWeeklyQuotaPace);
+      this.statusBar.updateQuota(this.cache.usageLimits ?? null, this.getClaudeQuotaPaceSnapshot());
+      if (key === 'showWeeklyQuotaPace') this.webviewProvider.updateQuotaPace?.(
+        this.getClaudeQuotaPaceSnapshot(),this.cache.usageLimits ?? null);
       this.syncProviderUi();
       return;
     }
@@ -3724,10 +3742,11 @@ export class ClaudeCodeUsageExtension {
     setPricingBackend(config.pricingBackend);
     if (pricingBackendChanged) {
       this.invalidateClaudeUsagePricingCache();
-      this.webviewProvider.invalidateShareCardPreview();
+      this.webviewProvider.invalidateShareCardPreview({pricingChanged:true});
     }
     this.applyFormattingConfiguration(config);
-    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat, config.statusBarQuotaFormat);
+    this.statusBar.setVisibility(config.showCost, config.showContext, config.usageLimitTracking, config.statusBarMetric, config.showScopedWeekly, config.quotaFiveHourOnly, config.showResetInStatusBar, config.resetCountdownFormat, config.statusBarQuotaFormat, config.showWeeklyQuotaPace);
+    this.webviewProvider.updateQuotaPace?.(this.getClaudeQuotaPaceSnapshot(),this.cache.usageLimits ?? null);
 
     // Restart auto-refresh with new interval
     this.startAutoRefresh();
@@ -3741,6 +3760,9 @@ export class ClaudeCodeUsageExtension {
     if (this.codexView) {
       // A replacement provider has not verified the published display data.
       // Withdraw award proof before any asynchronous retirement or blur return.
+      this.codexAchievementRevision = undefined;
+      this.codexAchievementMoneyRevision = undefined;
+      this.codexAchievementSignals = {...this.codexAchievementSignals,effortStatistics:undefined};
       this.codexView = {
         ...this.codexView,
         currentManifestVerified: false,
@@ -4373,6 +4395,8 @@ export class ClaudeCodeUsageExtension {
     this.cache.usageLimitsBackoffUntil = new Date(0);
     this.claudeProfileGeneration += 1;
     this.activeClaudeQuotaFingerprint = undefined;
+    this.statusBar.updateQuota(this.cache.usageLimits ?? null, null);
+    this.webviewProvider.updateQuotaPace?.(null);
     this.claudeWeeklyQuotaHistory = [];
     this.webviewProvider.updateWeeklyQuotaHistory([]);
     void this.refreshData(false, 'credentials');
@@ -4660,6 +4684,20 @@ export class ClaudeCodeUsageExtension {
     if (!this.disposed) this.syncProviderUiSafely('poll');
   }
 
+  /** Existing successful quota only. OFF performs no source/clock/storage work.
+   * A zero cache time explicitly retires even a previously verified response.
+   */
+  private getClaudeQuotaPaceSnapshot(): QuotaPaceAdapterSnapshot | null {
+    if (this.settings.get<boolean>('showWeeklyQuotaPace') !== true ||
+        this.settings.get<boolean>('usageLimitTracking') !== true) return null;
+    const observedAt = this.cache.usageLimitsLastUpdate.getTime();
+    if (!(observedAt > 0) || !this.cache.usageLimits) return null;
+    const signal = this.apiClient.getLastQuotaIdentitySignal();
+    return this.claudeQuotaPaceSource.project({enabled: true, usage: this.cache.usageLimits,
+      observedAt, verifiedAccountFingerprint: signal
+        ? fingerprintForStableIdentity(this.quotaFingerprintSalt, 'claude', signal) ?? null : null});
+  }
+
   private async maybeFetchUsageLimits(config: ExtensionConfig): Promise<ClaudeApiUsageResponse | null> {
     if (
       this.disposed ||
@@ -4743,7 +4781,7 @@ export class ClaudeCodeUsageExtension {
     if (fetched) {
       const observedAt = Date.now();
       this.cache.usageLimits = fetched;
-      this.cache.usageLimitsLastUpdate = new Date();
+      this.cache.usageLimitsLastUpdate = new Date(observedAt);
       this.cache.usageLimitsFailStreak = 0;
       // Even on success, hold off /usage for 30s — this floor also covers the
       // expired-window bypass so a just-rolled window can't trigger an immediate
@@ -4883,8 +4921,9 @@ export class ClaudeCodeUsageExtension {
       // request delay the local usage refresh.
       void this.maybeFetchUsageLimits(config).then((limits) => {
         if (!current()) return;
-        this.statusBar.updateQuota(limits);
+        this.statusBar.updateQuota(limits, this.getClaudeQuotaPaceSnapshot());
         this.webviewProvider.updateQuota(limits);
+        this.webviewProvider.updateQuotaPace?.(this.getClaudeQuotaPaceSnapshot(), this.cache.usageLimits ?? null);
         if (!limits && !this.cache.usageLimits && !this.quotaColdRetryDone) {
           this.quotaColdRetryDone = true;
           this.scheduleQuotaColdRetry();

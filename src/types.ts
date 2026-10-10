@@ -346,6 +346,8 @@ export interface ExtensionConfig {
   // as "wk 9% (fable 17%)".
   // Was showOpusWeekly (PR #38) before the API began naming the scope itself.
   showScopedWeekly: boolean;
+  // Default-off presentation only; consumes existing account observations.
+  showWeeklyQuotaPace?: boolean;
   // Quota status-bar display (V2.2): inline reset countdown; 5h-only.
   showResetInStatusBar: boolean;
   quotaFiveHourOnly: boolean;

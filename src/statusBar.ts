@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { ClaudeApiUsageResponse, ContextWindowInfo, SupportedLanguage, UsageData } from './types';
-import { I18n } from './i18n';
+import { ClaudeApiUsageResponse, ContextWindowInfo, UsageData } from './types';
+import { I18n, weeklyQuotaPaceCopy } from './i18n';
 import {
   CONTEXT_FILL_THRESHOLDS,
   QUOTA_FILL_THRESHOLDS,
@@ -39,24 +39,6 @@ import {
   QuotaPaceAdapterSnapshot,
   QUOTA_PACE_MAX_WINDOWS,
 } from './quotaPaceAdapters';
-
-/** Compact local pure copy while i18n.ts belongs to the integration owner. */
-export function weeklyQuotaPaceCopy(language: SupportedLanguage): {
-  title: string; used: string; reference: string; forecast: string; sample: string; hint: string;
-} {
-  const copy: Record<SupportedLanguage, readonly string[]> = {
-    en: ['Weekly quota pace', 'Used', 'Reference progress', 'Estimated at reset ≈', 'Insufficient sample', 'Uniform cycle-average reference; start inferred as reset minus 7 days. Account-wide use includes other devices and members.'],
-    'de-DE': ['Wöchentliches Kontingenttempo', 'Verbraucht', 'Referenzfortschritt', 'Geschätzt beim Zurücksetzen ≈', 'Zu wenig Daten', 'Gleichmäßige Zyklusreferenz; Beginn als Zurücksetzen minus 7 Tage abgeleitet. Kontoweite Nutzung umfasst andere Geräte und Mitglieder.'],
-    'zh-TW': ['週額度使用節奏', '已用', '參考進度', '週期末預計約', '樣本不足', '均勻消耗的週期平均參考；起點推定為重置時間減去7天。帳號總用量包含其他裝置及成員。'],
-    'zh-CN': ['周额度使用节奏', '已用', '参考进度', '周期末预计约', '样本不足', '均匀消耗的周期平均参考；起点推定为重置时间减去7天。账号总用量包含其他设备及成员。'],
-    ja: ['週間クォータの使用ペース', '使用済み', '基準の進捗', 'リセット時の予測 ≈', 'サンプル不足', '均等消費の周期平均基準。開始はリセットの7日前と推定。アカウント全体の使用量には他の端末やメンバーを含みます。'],
-    ko: ['주간 할당량 사용 속도', '사용량', '기준 진행률', '초기화 시 예상 ≈', '표본 부족', '균등 사용의 주기 평균 기준이며 시작은 초기화 7일 전으로 추정합니다. 계정 전체 사용량에는 다른 기기와 구성원이 포함됩니다.'],
-    'pt-BR': ['Ritmo da cota semanal', 'Usado', 'Progresso de referência', 'Estimativa na redefinição ≈', 'Amostra insuficiente', 'Referência uniforme da média do ciclo; início inferido como redefinição menos 7 dias. O uso da conta inclui outros dispositivos e membros.'],
-    id: ['Laju kuota mingguan', 'Terpakai', 'Progres acuan', 'Perkiraan saat reset ≈', 'Sampel belum cukup', 'Acuan rata-rata siklus dengan pemakaian merata; awal diasumsikan 7 hari sebelum reset. Pemakaian akun mencakup perangkat dan anggota lain.'],
-  };
-  const [title, used, reference, forecast, sample, hint] = copy[language];
-  return { title, used, reference, forecast, sample, hint };
-}
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;

@@ -4483,6 +4483,8 @@ for (const focused of [false, true]) {
 test('credentials change clears quota failure backoff before refreshing', async () => {
   const extension = bareExtension();
   const calls: string[] = [];
+  const quotaUpdates: unknown[][] = [];
+  extension.statusBar = {updateQuota: (...args: unknown[]) => quotaUpdates.push(args)};
   extension.cache = {
     usageLimitsLastUpdate: new Date(123_000),
     usageLimitsFailStreak: 6,
@@ -4503,6 +4505,7 @@ test('credentials change clears quota failure backoff before refreshing', async 
   assert.equal(extension.cache.usageLimitsFailStreak, 0);
   assert.equal(extension.cache.usageLimitsBackoffUntil.getTime(), 0);
   assert.deepEqual(calls, ['refresh:credentials']);
+  assert.deepEqual(quotaUpdates, [[null,null]], 'credential retirement also withdraws the published forecast');
 });
 
 test('changing Claude profiles replaces the quota client and clears account state', () => {
@@ -4580,6 +4583,8 @@ test('a quota response from the previous profile is discarded after a switch', a
 
 test('a same-path credential rotation cannot persist the stale in-flight quota response', async () => {
   const extension = bareExtension();
+  const quotaUpdates: unknown[][] = [];
+  extension.statusBar = {updateQuota: (...args: unknown[]) => quotaUpdates.push(args)};
   let releaseRequest: ((value: unknown) => void) | undefined;
   const client = {
     getCredentialsPath: () => '/private/profile/.credentials.json',
@@ -4615,6 +4620,7 @@ test('a same-path credential rotation cannot persist the stale in-flight quota r
   assert.equal(await pending, null);
   assert.equal(extension.quotaObservationStore.observations.length, 0);
   assert.equal(extension.cache.usageLimits, null);
+  assert.deepEqual(quotaUpdates, [[null,null]], 'old request cannot republish the retired forecast');
 });
 
 test('disabled quota tracking neither calls the provider nor records an observation', async () => {

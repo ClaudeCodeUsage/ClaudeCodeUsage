@@ -37,6 +37,8 @@ export interface ApiHeatmapDailyUsage {
   readonly estimated: boolean;
   readonly pricedCount: number;
   readonly unpricedCount: number;
+  /** False when a missing date cannot prove absence in an incomplete index. */
+  readonly sourceComplete?: boolean;
 }
 
 export type ApiHeatmapDaily = Readonly<Record<string, {
@@ -95,7 +97,7 @@ export interface ApiHeatmapArtifact {
   dataQualitySignature: string;
 }
 
-export const API_HEATMAP_RENDER_VERSION = 2;
+export const API_HEATMAP_RENDER_VERSION = 3;
 
 function counter(value: unknown): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
@@ -156,6 +158,7 @@ interface SelectedDay {
     estimated: boolean;
     pricedCount: number;
     unpricedCount: number;
+    sourceComplete: boolean;
   };
 }
 
@@ -172,8 +175,9 @@ function addTotal(a: number, b: number): number {
 
 function selectPricing(source: ApiHeatmapDailyUsage | undefined, tokens: number, provider: Provider): NonNullable<SelectedDay['pricing']> {
   const status = source?.pricingStatus;
-  const empty = { status: 'empty' as const, amountUSD: null, estimated: false, pricedCount: 0, unpricedCount: 0 };
-  if (!source || (status === 'empty' && tokens === 0)) return empty;
+  const sourceComplete = source?.sourceComplete === undefined || source.sourceComplete === true;
+  const empty = {status:'empty' as const,amountUSD:null,estimated:false,pricedCount:0,unpricedCount:0,sourceComplete};
+  if (!source || (status === 'empty' && tokens === 0 && sourceComplete)) return empty;
   const rawPriced = source.pricedCount;
   const rawUnpriced = source.unpricedCount;
   const rawEstimated = source.estimated;
@@ -182,7 +186,7 @@ function selectPricing(source: ApiHeatmapDailyUsage | undefined, tokens: number,
   const estimated = rawEstimated === true;
   const unknown = {
     status: 'unpriced' as const, amountUSD: null, estimated,
-    pricedCount: 0, unpricedCount: Math.max(1, addTotal(priced, unpriced)),
+    pricedCount:0,unpricedCount:addTotal(priced,unpriced),sourceComplete,
   };
   if (status !== 'complete' && status !== 'partial') return unknown;
   if (typeof rawPriced !== 'number' || !Number.isSafeInteger(rawPriced) || rawPriced < 0 ||
@@ -194,7 +198,7 @@ function selectPricing(source: ApiHeatmapDailyUsage | undefined, tokens: number,
       (tokens > 0 && priced === 0) ||
       (status === 'complete' && unpriced > 0) ||
       (status === 'partial' && (priced === 0 || unpriced === 0))) return unknown;
-  return { status, amountUSD: amount, estimated, pricedCount: priced, unpricedCount: unpriced };
+  return {status,amountUSD:amount,estimated,pricedCount:priced,unpricedCount:unpriced,sourceComplete};
 }
 
 /** Bounded range access, without Object.entries/spread on provider payloads.
@@ -246,8 +250,10 @@ function pricingSummary(days: readonly SelectedDay[], config: ApiHeatmapConfig):
   let unpriced = 0;
   let hasPriced = false;
   let hasData = false;
+  let sourceComplete = true;
   for (const day of days) {
     const quality = day.pricing!;
+    sourceComplete &&= quality.sourceComplete;
     hasData ||= quality.status !== 'empty';
     priced = addTotal(priced, quality.pricedCount);
     unpriced = addTotal(unpriced, quality.unpricedCount);
@@ -257,8 +263,9 @@ function pricingSummary(days: readonly SelectedDay[], config: ApiHeatmapConfig):
     }
   }
   if (!hasData) return copy.noData;
-  if (!hasPriced) return `${copy.unpriced} · ${coverage(priced, unpriced, config)}`;
-  return `${unpriced > 0 ? `${copy.subtotal} ` : ''}${money(subtotal, config)} · ${coverage(priced, unpriced, config)}`;
+  const note=sourceComplete ? '' : ` · ${copy.sourceIncomplete}`;
+  if (!hasPriced) return `${copy.unpriced} · ${coverage(priced,unpriced,config)}${note}`;
+  return `${unpriced>0 || !sourceComplete ? `${copy.subtotal} ≥` : ''}${money(subtotal,config)} · ${coverage(priced,unpriced,config)}${note}`;
 }
 
 function activityScale(config: ApiHeatmapConfig): string[] {
@@ -297,10 +304,11 @@ function renderAmountBlock(days: readonly SelectedDay[], provider: Provider, con
     tooltip: date => {
       const quality = byDate.get(date)!.pricing!;
       const prefix = `${date} · ${name} · ${copy.apiEquivalent}`;
+      const note=quality.sourceComplete ? '' : ` · ${copy.sourceIncomplete}`;
       if (quality.status === 'empty') return `${prefix} · ${copy.noData}`;
-      if (quality.status === 'unpriced') return `${prefix} · ${copy.unpriced} · ${coverage(quality.pricedCount, quality.unpricedCount, config)}`;
-      return `${prefix} · ${label} · ${quality.status === 'partial' ? `${copy.subtotal} ` : ''}` +
-        `${money(quality.amountUSD!, config)} · ${coverage(quality.pricedCount, quality.unpricedCount, config)}`;
+      if (quality.status === 'unpriced') return `${prefix} · ${copy.unpriced} · ${coverage(quality.pricedCount, quality.unpricedCount, config)}${note}`;
+      return `${prefix} · ${label} · ${quality.status==='partial' || !quality.sourceComplete ? `${copy.subtotal} ≥` : ''}` +
+        `${money(quality.amountUSD!,config)} · ${coverage(quality.pricedCount,quality.unpricedCount,config)}${note}`;
     },
   };
   const fx = currency.converted ? ` · FX ${currency.referenceDate}` : '';
@@ -389,7 +397,7 @@ export function buildApiHeatmapArtifact(daily: ApiHeatmapDaily, options: ApiHeat
     selections.map(({ provider, days }) => [provider, days.map(day =>
       config.metric === 'tokens' ? [day.dateISO, day.tokens]
         : [day.dateISO, day.tokens, day.pricing!.status, day.pricing!.amountUSD,
-          day.pricing!.estimated, day.pricing!.pricedCount, day.pricing!.unpricedCount],
+          day.pricing!.estimated,day.pricing!.pricedCount,day.pricing!.unpricedCount,day.pricing!.sourceComplete],
     )]),
   ]);
   const dataQualitySignature = createHash('sha256').update(signature).digest('hex');

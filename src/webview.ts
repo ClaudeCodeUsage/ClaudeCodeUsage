@@ -2,9 +2,14 @@ import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import type { ClaudeUsageRecord } from './types';
 import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
-import { I18n, achievementCopyFor, achievementAppearanceCopyFor } from './i18n';
+import { I18n, achievementCopyFor, achievementAppearanceCopyFor, achievementEffortCopyFor, weeklyQuotaPaceCopy } from './i18n';
+import {CODEX_ACHIEVEMENT_EFFORTS,EFFORT_STATISTICS_PRICEBOOK_VERSION} from './achievementEffortStatistics';
+import {EFFORT_PROCESSED,EFFORT_OUTPUT,EFFORT_ROOTS} from './achievementCollaboration';
+import {adaptClaudeQuotaPace,adaptCodexQuotaPace,QUOTA_PACE_MAX_WINDOWS,type QuotaPaceAdapterSnapshot} from './quotaPaceAdapters';
+import {matchesClaudeQuotaPaceWindow,projectCodexQuotaPaceSource} from './quotaPaceSource';
 import { achievementConditionFor } from './achievementConditions';
-import {API_ACHIEVEMENT_DEFINITIONS,isAchievementMoneyId,type AchievementMoneyFacts} from './achievementMoneyCatalog';
+import {API_ACHIEVEMENT_DEFINITIONS,isAchievementMoneyId,type AchievementMoneyFacts,type AchievementMoneyId} from './achievementMoneyCatalog';
+import {cumulativeCrossings} from './achievementMoneyOrigin';
 import type {AchievementMoneyScopes} from './achievementMoneyScopes';
 import {achievementMoneyCopyFor} from './achievementMoneyCopy';
 import { achievementRuleVersion } from './achievementRuleVersions';
@@ -40,6 +45,9 @@ import {
 } from './settings';
 import { buildResumeCommand, isUsableCwd, isValidSessionId, isUnderDir } from './sessionResume';
 import { renderHeatmapSvg } from './heatmapSvg';
+import { buildApiHeatmapArtifact, normalizeApiHeatmapConfig, type ApiHeatmapArtifact,
+  type ApiHeatmapConfig, type ApiHeatmapOptions } from './apiHeatmap';
+import { buildApiHeatmapDaily } from './apiHeatmapDaily';
 import {
   CombinedHeatmapRange,
   claudeDailyPointsFromUsage,
@@ -66,7 +74,7 @@ import { nextAchievementStage } from './achievementStages';
 import { ACHIEVEMENT_GALLERY, achievementGalleryKey, achievementStatisticsDestination } from './achievementGallery';
 import { AchievementOverviewSelection, AchievementUnreadBatch, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords, selectUnreadAchievementBatch } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
-  AchievementNoticeBaseline, codexTailAchievementCrossings, claudeTailAchievementCrossings } from './achievementEvidence';
+  AchievementNoticeBaseline, copyClaudeUsageDelta, codexTailAchievementCrossings, claudeTailAchievementCrossings } from './achievementEvidence';
 import { CodexAchievementUsageWindow, CodexAchievementUsageDelta, copyCodexUsageWindow,
   copyCodexUsageDelta } from './providers/codex/codexAchievementOrigin';
 import { ACHIEVEMENT_RECORD_FILE, AchievementAuxiliaryProof, AchievementRecordRepository, AchievementRecordStore, AchievementRecord } from './achievementRecordStore';
@@ -1066,6 +1074,7 @@ export class UsageWebviewProvider {
   private claudeAchievementObservation?: {
     handle: { readonly window?: { readonly after: number; readonly through: number } };
     before: AchievementResult[]; generation?: number; sequence?: number;
+    beforeMoney?: AchievementMoneyScopes;
     through: number; timeZone: string; guard: () => boolean;
   };
   // References to accepted materialized inputs, not another index or paused UI.
@@ -1074,11 +1083,13 @@ export class UsageWebviewProvider {
   private codexAchievementObservation?: {
     handle: { readonly window?: CodexAchievementUsageWindow };
     before: AchievementResult[]; generation?: number; sequence?: number;
+    beforeMoney?: AchievementMoneyScopes;
     through: number; timeZone: string; guard: () => boolean;
   };
   private usageAchievementReceipts = new Map<AchievementId, {
     ids: AchievementId[]; generation: number; sequence: number;
     recordedDay: string; timeZone: string; guard: () => boolean;
+    referencePricebooks?: Partial<Record<AchievementMoneyId,string>>;
   }>();
   private queuedUsageAchievementIds = new Set<AchievementId>();
   private revokedAchievementEvidence = new Set<SettingProvider>();
@@ -1201,6 +1212,15 @@ export class UsageWebviewProvider {
     locale: string;
     svg: string;
   };
+  private apiHeatmapRevision = 0;
+  private apiHeatmapRequestSequence = 0;
+  private apiHeatmapExportPending = false;
+  private apiHeatmapPricingPending = false;
+  private acceptedApiHeatmapPreview?: {
+    id: string; documentId: string;
+    sources: readonly unknown[];
+    artifact: ApiHeatmapArtifact & { title: string; range: CombinedHeatmapRange; endDateISO: string; hasData: boolean };
+  };
   private claudeDailyUsageCache?: {
     dailyRows: { date: string; data: UsageData }[];
     timeZone: string;
@@ -1220,6 +1240,8 @@ export class UsageWebviewProvider {
   // Real quota utilisation (pushed asynchronously) for the workflow quota
   // guard banner; dismissal lasts for the lifetime of this window.
   private usageLimits: ClaudeApiUsageResponse | null = null;
+  private claudeQuotaPaceSnapshot: QuotaPaceAdapterSnapshot | null = null;
+  private lastWeeklyQuotaPaceHtml: string | undefined;
   private claudeWeeklyQuotaHistory: WeeklyQuotaObservation[] = [];
   private quotaWarnDismissed: boolean = false;
   // Extension-host hooks make the optimizer use the same prepare -> preview ->
@@ -2042,16 +2064,29 @@ export class UsageWebviewProvider {
 
   /** Pricing or display changes invalidate derived previews but not the user's
    * chosen share-card range, scope, sections, or theme. */
-  public invalidateShareCardPreview(): void {
+  public invalidateShareCardPreview(options?: {pricingChanged?:boolean}): void {
+    if (options?.pricingChanged === true) this.apiHeatmapPricingPending = true;
     this.invalidateSharingCaches();
   }
 
   private invalidateSharingCaches(): void {
+    this.apiHeatmapRevision += 1;
+    this.retireApiHeatmapPreview();
     this.shareCardPreviewCache = undefined;
     this.claudeHeatmapPreviewCache = undefined;
     this.claudeDailyUsageCache = undefined;
     this.dataPanelCache.clear();
     this.todayAttributionCache = undefined;
+  }
+
+  private retireApiHeatmapPreview(notify = true): void {
+    const accepted = this.acceptedApiHeatmapPreview;
+    this.acceptedApiHeatmapPreview = undefined;
+    if (notify && accepted && this.panel) {
+      try { void Promise.resolve(this.panel.webview.postMessage({
+        command: 'combinedHeatmapPreviewRetired', documentId: this.dashboardDocumentId,
+      })).catch(() => undefined); } catch { /* Retired panel. */ }
+    }
   }
 
   private async handleClearAdviceLocalDataMessage(): Promise<void> {
@@ -2670,10 +2705,19 @@ export class UsageWebviewProvider {
           }
           break;
         }
+        case 'retireCombinedHeatmapPreview': {
+          if (message.documentId !== this.dashboardDocumentId || !Number.isSafeInteger(message.requestId) ||
+              message.requestId <= this.apiHeatmapRequestSequence) break;
+          this.apiHeatmapRequestSequence = message.requestId;
+          this.retireApiHeatmapPreview(false);
+          break;
+        }
         case 'previewCombinedHeatmap': {
-          if (!this.panel) {
-            break;
-          }
+          if (!this.panel || message.documentId !== this.dashboardDocumentId ||
+              !Number.isSafeInteger(message.requestId) || message.requestId <= this.apiHeatmapRequestSequence ||
+              !(this.setting<boolean>('enableShareCard', true) || this.sharingWorkspaceRequested)) break;
+          this.apiHeatmapRequestSequence = message.requestId;
+          this.retireApiHeatmapPreview(false);
           try {
             const artifact = this.buildCombinedHeatmapArtifact(
               message.range,
@@ -2681,74 +2725,65 @@ export class UsageWebviewProvider {
               message.palette,
               message.customAccent,
               message.intensityMode,
+              message.provider, message.metric, message.showAmounts,
             );
+            const accepted = this.acceptApiHeatmapArtifact(artifact);
             this.panel.webview.postMessage({
               command: 'combinedHeatmapResult',
+              documentId: this.dashboardDocumentId, requestId: message.requestId, previewId: accepted.id,
               svg: artifact.svg,
               markdown: artifact.markdown,
               filename: artifact.filename,
               hasData: artifact.hasData,
             });
-          } catch (error) {
+          } catch {
             this.panel.webview.postMessage({
               command: 'combinedHeatmapResult',
-              error: error instanceof Error ? error.message : String(error),
+              documentId: this.dashboardDocumentId, requestId: message.requestId,
+              failed: true,
             });
           }
           break;
         }
         case 'exportCombinedHeatmap': {
           const copy = combinedHeatmapUiCopy(I18n.getLocale());
-          let artifact: ReturnType<UsageWebviewProvider['buildCombinedHeatmapArtifact']>;
+          const accepted = this.acceptedApiHeatmapForMessage(message);
+          const reply = (result: {ok:boolean;stale?:boolean;cancelled?:boolean}) => {
+            try { void Promise.resolve(this.panel?.webview.postMessage({command:'combinedHeatmapExportResult',
+              previewId:message.previewId,documentId:message.documentId,...result})).catch(() => undefined); } catch { /* Retired panel. */ }
+          };
+          if (!accepted || this.apiHeatmapExportPending) { reply({ok:false,stale:true}); break; }
+          if (!accepted.artifact.hasData) { reply({ok:false}); break; }
+          this.apiHeatmapExportPending = true;
           try {
-            artifact = this.buildCombinedHeatmapArtifact(
-              message.range,
-              message.title,
-              message.palette,
-              message.customAccent,
-              message.intensityMode,
-            );
-          } catch (error) {
-            vscode.window.showErrorMessage(`Combined heatmap export failed: ${error instanceof Error ? error.message : String(error)}`);
-            break;
-          }
-          if (!artifact.hasData) {
-            vscode.window.showWarningMessage(copy.noData);
-            break;
-          }
-          const uri = await vscode.window.showSaveDialog({
-            defaultUri: vscode.Uri.file(path.join(os.homedir(), artifact.filename)),
-            filters: { 'SVG image': ['svg'] },
-            saveLabel: copy.exportSvg.replace('…', ''),
-          });
-          if (!uri) {
-            break;
-          }
-          try {
-            await vscode.workspace.fs.writeFile(uri, Buffer.from(artifact.svg, 'utf8'));
+            const uri = await vscode.window.showSaveDialog({
+              defaultUri: vscode.Uri.file(path.join(os.homedir(), accepted.artifact.filename)),
+              filters: { 'SVG image': ['svg'] }, saveLabel: copy.exportSvg.replace('…', ''),
+            });
+            if (!uri) { reply({ok:false,cancelled:true}); break; }
+            if (this.acceptedApiHeatmapForMessage(message) !== accepted) { reply({ok:false,stale:true}); break; }
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(accepted.artifact.svg, 'utf8'));
             this.recordAchievementFeature('localShareExport');
-            vscode.window.showInformationMessage(`Combined activity SVG exported: ${path.basename(uri.fsPath)}`);
-          } catch (error) {
-            vscode.window.showErrorMessage(`Combined heatmap export failed: ${error instanceof Error ? error.message : String(error)}`);
-          }
+            reply({ok:true});
+          } catch { reply({ok:false}); }
+          finally { this.apiHeatmapExportPending = false; }
           break;
         }
         case 'copyCombinedHeatmapMarkdown': {
+          const accepted = this.acceptedApiHeatmapForMessage(message);
+          if (!accepted) {
+            this.panel?.webview.postMessage({command:'combinedHeatmapMarkdownCopied',ok:false,stale:true,
+              documentId:message.documentId,previewId:message.previewId});
+            break;
+          }
           try {
-            const artifact = this.buildCombinedHeatmapArtifact(
-              message.range,
-              message.title,
-              message.palette,
-              message.customAccent,
-              message.intensityMode,
-            );
-            await vscode.env.clipboard.writeText(artifact.markdown);
-            this.panel?.webview.postMessage({ command: 'combinedHeatmapMarkdownCopied', ok: true });
-          } catch (error) {
+            await vscode.env.clipboard.writeText(accepted.artifact.markdown);
+            this.panel?.webview.postMessage({command:'combinedHeatmapMarkdownCopied',ok:true,
+              documentId:message.documentId,previewId:message.previewId});
+          } catch {
             this.panel?.webview.postMessage({
-              command: 'combinedHeatmapMarkdownCopied',
-              ok: false,
-              error: error instanceof Error ? error.message : String(error),
+              command:'combinedHeatmapMarkdownCopied',ok:false,
+              documentId:message.documentId,previewId:message.previewId,
             });
           }
           break;
@@ -3092,6 +3127,7 @@ export class UsageWebviewProvider {
     this.invalidateAchievementEvidence('claude');
     this.achievementNoticeBaseline.reset();
     this.usageLimits = null;
+    this.updateQuotaPace(null);
     this.claudeWeeklyQuotaHistory = [];
     this.invalidatePreparedAiRequests();
     this.weeklyUsageCache = undefined;
@@ -3140,6 +3176,9 @@ export class UsageWebviewProvider {
       this.invalidateSharingCaches();
     }
     this.dailyDataForEveryDay = dailyDataForEveryDay;
+    // This transport is supplied only after the canonical loader has accepted
+    // the materialized snapshot under its source/pricing generation guard.
+    if (!error) this.apiHeatmapPricingPending = false;
     this.hourlyDataForToday = hourlyDataForToday;
     this.hourlyDataForRolling30DaysByDay = hourlyDataForRolling30DaysByDay;
     this.error = error || null;
@@ -3194,6 +3233,7 @@ export class UsageWebviewProvider {
     else if (codexView?.currentManifestVerified === true && this.revokedAchievementEvidence.delete('codex')) {
       this.achievementHourCache = undefined;
     }
+    if (this.codexView?.daily !== codexView?.daily) this.invalidateSharingCaches();
     this.codexView = codexView;
     this.codexAchievementSignals = codexAchievementSignals ?? {
       modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 },
@@ -3356,6 +3396,64 @@ export class UsageWebviewProvider {
     if (changed && this.panel && !this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)) {
       this.updateWebview();
     }
+  }
+
+  /** Existing refresh callbacks only: this patch can withdraw stale forecasts
+   * even while dashboard auto-refresh is paused. No timer, fetch or persistence.
+   */
+  updateQuotaPace(snapshot: QuotaPaceAdapterSnapshot | null, usage?: ClaudeApiUsageResponse | null): void {
+    const enabled = this.setting<boolean>('showWeeklyQuotaPace', false) === true &&
+      this.setting<boolean>('usageLimitTracking', true) === true;
+    this.claudeQuotaPaceSnapshot = enabled ? snapshot : null;
+    if (!enabled && this.lastWeeklyQuotaPaceHtml === undefined) return;
+    if (enabled && usage !== undefined) this.usageLimits = usage;
+    const html = this.currentProvider === 'compare' ? '' : this.renderWeeklyQuotaPace(this.currentProvider);
+    if (html === this.lastWeeklyQuotaPaceHtml) return;
+    this.lastWeeklyQuotaPaceHtml = html;
+    if (this.panel) void Promise.resolve(this.panel.webview.postMessage({
+      command: 'weeklyQuotaPace', documentId: this.dashboardDocumentId,
+      provider: this.currentProvider, html,
+    })).catch(() => undefined);
+  }
+
+  private renderWeeklyQuotaPace(provider: SettingProvider): string {
+    if (this.setting<boolean>('showWeeklyQuotaPace', false) !== true ||
+        this.setting<boolean>('usageLimitTracking', true) !== true) return '';
+    const copy = weeklyQuotaPaceCopy(I18n.getCurrentLanguage());
+    const snapshot = provider === 'claude' ? this.claudeQuotaPaceSnapshot :
+      projectCodexQuotaPaceSource({enabled: true, snapshot: this.codexView?.limit ?? null});
+    const entries = (provider === 'claude' ? adaptClaudeQuotaPace : adaptCodexQuotaPace)(
+      {enabled: true, now: Date.now(), snapshot});
+    // Avoid normalizing an unbounded raw array just to name a forecast row.
+    const raw = provider === 'claude' && !(Array.isArray(this.usageLimits?.limits) &&
+      this.usageLimits!.limits!.length > QUOTA_PACE_MAX_WINDOWS) ? normalizeQuotaWindows(this.usageLimits) : [];
+    const t = I18n.t.popup;
+    const rows = entries.map(entry => {
+      const window = raw[entry.slot];
+      const evidence = snapshot?.windows.find(row => row.slot === entry.slot);
+      const matches = provider === 'claude' && window && evidence && window.kind === entry.kind &&
+        matchesClaudeQuotaPaceWindow(this.usageLimits,evidence) &&
+        window.utilization === evidence.usedPercent && Date.parse(window.resetsAt) === evidence.resetAt;
+      const label = provider === 'claude' && window && window.kind === entry.kind
+        ? t.quotaWeekly + ' (' + (window.kind === 'weekly_all' ? t.quotaAllModels : window.scopeLabel || t.quotaScoped) + ')'
+        : t.quotaWeekly;
+      const value = entry.result;
+      const ready = matches && (value.status === 'ready' || value.status === 'insufficient-sample');
+      const text = ready ? copy.used + ' ' + Math.round(value.usedPercent) + '% · ' +
+        copy.reference + ' ' + Math.round(value.referencePercent) + '% · ' +
+        (value.status === 'ready' ? copy.forecast + ' ' + Math.round(value.forecastPercent) + '%' : copy.sample)
+        : copy.unavailable;
+      return '<div class="summary-item" data-quota-pace-status="' + (ready ? value.status : 'unavailable') + '">' +
+        '<div class="label">' + this.escapeHtml(label) + '</div><div class="model-details">' +
+        this.escapeHtml(text) + '</div></div>';
+    }).join('');
+    const observedAt = snapshot?.observedAt;
+    const observed = typeof observedAt === 'number' && Number.isFinite(observedAt) && observedAt > 0 && observedAt <= 8_640_000_000_000_000
+      ? '<p class="model-details">' + this.escapeHtml(copy.observed + ': ' + new Date(observedAt).toISOString()) + '</p>' : '';
+    return '<section class="usage-summary quota-pace"><div class="section-header"><h3>' +
+      this.escapeHtml(copy.title) + '</h3></div>' + (rows ? '<div class="summary-grid">' + rows + '</div>' :
+        '<p class="model-details">' + this.escapeHtml(copy.unavailable) + '</p>') + observed +
+      '<p class="model-details">' + this.escapeHtml(copy.hint) + '</p></section>';
   }
 
   /** Sanitized weekly quota observations, persisted per Claude profile by the
@@ -3523,6 +3621,8 @@ export class UsageWebviewProvider {
   /** One runtime document identity; unchanged patches retain it, replacements retire it. */
   private renewDashboardDocument(html: string): string {
     this.dashboardDocumentId = randomBytes(24).toString('hex');
+    this.apiHeatmapRequestSequence = 0;
+    if (this.acceptedApiHeatmapPreview) this.acceptedApiHeatmapPreview.documentId = this.dashboardDocumentId;
     if (this.achievementUnreadPacket) this.achievementUnreadPacket = {
       ...this.achievementUnreadPacket, documentId: this.dashboardDocumentId,
     };
@@ -3660,70 +3760,91 @@ export class UsageWebviewProvider {
     return html + '</nav>';
   }
 
-  private buildCombinedHeatmapArtifact(
+  private apiHeatmapConfigFor(
     rangeInput: unknown,
     titleInput: unknown,
     paletteInput: unknown = 'academicViolet',
     customAccentInput: unknown = '#4f2f87',
     intensityModeInput: unknown = 'quantile',
-  ): {
-    range: CombinedHeatmapRange;
-    title: string;
-    endDateISO: string;
-    filename: string;
-    markdown: string;
-    svg: string;
-    hasData: boolean;
-  } {
+    providerInput: unknown = 'both', metricInput: unknown = 'tokens', showAmountsInput: unknown = false,
+  ): ApiHeatmapConfig {
     const copy = combinedHeatmapUiCopy(I18n.getLocale());
-    const range = normalizeCombinedHeatmapRange(rangeInput);
     const title = sanitizeCombinedHeatmapTitle(titleInput, copy.defaultTitle);
-    const palette = normalizeCombinedHeatmapPalette(paletteInput);
-    const customAccent = normalizeCombinedHeatmapAccent(customAccentInput);
-    const intensityMode = normalizeCombinedHeatmapIntensityMode(intensityModeInput);
-    const timeZone = I18n.getTimezone();
+    const timeZone = resolveTimeZone(I18n.getTimezone());
     const endDateISO = dayKeyInZone(new Date(), timeZone);
-    if (!endDateISO) {
-      throw new Error('Could not resolve the configured timezone date.');
-    }
-    const claudeDaily = this.getClaudeDailyUsageMap(timeZone);
-    const daily = mergeCombinedDailyUsage(
-      claudeDailyPointsFromUsage(claudeDaily),
-      codexDailyPointsFromUsage(this.codexView?.daily ?? []),
-    );
-    const selected = selectCombinedHeatmapWindow(daily, range, endDateISO);
-    const filename = combinedHeatmapFilename(range, endDateISO);
-    return {
-      range,
-      title,
-      endDateISO,
-      filename,
-      markdown: combinedHeatmapMarkdown(filename, title),
-      svg: renderCombinedHeatmapSvg(daily, {
-        range,
-        endDateISO,
-        title,
-        locale: I18n.getLocale(),
-        palette,
-        customAccent,
-        intensityMode,
-        labels: {
-          combined: copy.combinedLabel,
-          processedTokens: copy.processedTokensLabel,
-          footerNote: copy.svgFooterNote,
-        },
-      }),
-      hasData: selected.totals.combinedProcessed > 0,
+    const options: ApiHeatmapOptions = {
+      endDateISO, title, range: normalizeCombinedHeatmapRange(rangeInput), timezone: timeZone,
+      locale: I18n.getLocale(), currency: I18n.getCurrencyDisplay().code,
+      palette: normalizeCombinedHeatmapPalette(paletteInput),
+      customAccent: normalizeCombinedHeatmapAccent(customAccentInput),
+      intensityMode: normalizeCombinedHeatmapIntensityMode(intensityModeInput),
+      provider: providerInput === 'claude' || providerInput === 'codex' ? providerInput : 'both',
+      metric: metricInput === 'apiEquivalent' ? 'apiEquivalent' : 'tokens', showAmounts: showAmountsInput === true,
+      claudeBackend: getPricingBackend(), dataRevision: this.apiHeatmapRevision,
+      pricingRevision: getPricingLastFetched()?.time ?? 0,
     };
+    return normalizeApiHeatmapConfig(options);
+  }
+
+  private buildCombinedHeatmapArtifact(
+    rangeInput: unknown, titleInput: unknown, paletteInput: unknown = 'academicViolet',
+    customAccentInput: unknown = '#4f2f87', intensityModeInput: unknown = 'quantile',
+    providerInput: unknown = 'both', metricInput: unknown = 'tokens', showAmountsInput: unknown = false,
+  ): ApiHeatmapArtifact & {title:string;range:CombinedHeatmapRange;endDateISO:string;hasData:boolean} {
+    const config = this.apiHeatmapConfigFor(rangeInput,titleInput,paletteInput,customAccentInput,intensityModeInput,
+      providerInput,metricInput,showAmountsInput);
+    if (config.metric === 'apiEquivalent' && this.apiHeatmapPricingPending) throw new Error('Pricing refresh pending');
+    if ((config.provider !== 'codex' && this.achievementCalendarTimeZone !== undefined &&
+        resolveTimeZone(this.achievementCalendarTimeZone) !== config.timezone) ||
+        (config.provider !== 'claude' && this.codexView &&
+          this.codexView.periodCoverage.timeZone !== config.timezone)) throw new Error('Stale daily timezone');
+    const daily = buildApiHeatmapDaily(this.dailyDataForEveryDay,this.codexView?.daily ?? [],config);
+    if (config.metric === 'apiEquivalent') {
+      const claudeComplete = this.providerAvailability.claude && !this.error;
+      const codexComplete = this.codexView?.currentManifestVerified === true &&
+        this.codexView.periodCoverage.allTime?.complete === true &&
+        this.codexView.periodCoverage.asOfDay === config.endDateISO;
+      for (const day of Object.values(daily)) {
+        if (day.claude) (day as {claude:typeof day.claude}).claude = {...day.claude,sourceComplete:claudeComplete};
+        if (day.codex) (day as {codex:typeof day.codex}).codex = {...day.codex,sourceComplete:codexComplete};
+      }
+    }
+    const artifact = buildApiHeatmapArtifact(daily,config);
+    const hasData = Object.values(daily).some(day => Object.values(day).some(row =>
+      row && (row.tokens > 0 || config.metric === 'apiEquivalent' &&
+        (row.pricingStatus !== 'empty' || row.sourceComplete === false))));
+    return {...artifact,title:config.title,range:config.range,endDateISO:config.endDateISO,hasData};
+  }
+
+  private acceptApiHeatmapArtifact(artifact: ReturnType<UsageWebviewProvider['buildCombinedHeatmapArtifact']>) {
+    const previous = this.acceptedApiHeatmapPreview;
+    if (previous?.artifact.cacheKey === artifact.cacheKey && previous.documentId === this.dashboardDocumentId) return previous;
+    const accepted = {id:randomBytes(24).toString('hex'),documentId:this.dashboardDocumentId,artifact,
+      sources:[this.dailyDataForEveryDay,this.codexView?.daily]};
+    this.acceptedApiHeatmapPreview = accepted;
+    return accepted;
+  }
+
+  private acceptedApiHeatmapForMessage(message: Record<string,unknown>) {
+    const accepted = this.acceptedApiHeatmapPreview;
+    if (!accepted || !this.panel || this.panel.visible !== true || !this.webviewClientReady ||
+        !(this.setting<boolean>('enableShareCard',true) || this.sharingWorkspaceRequested) || message.documentId !== this.dashboardDocumentId ||
+        accepted.documentId !== this.dashboardDocumentId || message.previewId !== accepted.id ||
+        accepted.sources[0] !== this.dailyDataForEveryDay || accepted.sources[1] !== this.codexView?.daily) return;
+    const config = this.apiHeatmapConfigFor(message.range,message.title,message.palette,message.customAccent,
+      message.intensityMode,message.provider,message.metric,message.showAmounts);
+    return JSON.stringify(config) === JSON.stringify(accepted.artifact.config) ? accepted : undefined;
   }
 
   private renderSharingWorkspace(): string {
     const copy = combinedHeatmapUiCopy(I18n.getLocale());
+    const apiCopy = I18n.apiHeatmap;
     const workspaceCopy = I18n.sharingWorkspace;
-    const combinedAvailable = this.providerAvailability.claude && this.providerAvailability.codexData;
     const claudeAvailable = this.providerAvailability.claude || this.dailyDataForEveryDay.length > 0;
+    const codexAvailable = this.providerAvailability.codexData === true;
+    const combinedAvailable = claudeAvailable || codexAvailable;
     const achievementsAvailable = this.setting<boolean>('enableAchievements', true);
-    const fallback: SharingTemplate = claudeAvailable ? 'claudeShareCard' : 'achievements';
+    const fallback: SharingTemplate = claudeAvailable ? 'claudeShareCard' : codexAvailable ? 'combinedHeatmap' : 'achievements';
     const selected: SharingTemplate =
       (this.sharingTemplate === 'combinedHeatmap' && !combinedAvailable) ||
       ((this.sharingTemplate === 'claudeShareCard' || this.sharingTemplate === 'claudeHeatmap') && !claudeAvailable) ||
@@ -3734,13 +3855,25 @@ export class UsageWebviewProvider {
     const selectedOption = (template: SharingTemplate): string => template === selected ? ' selected' : '';
     const presentationState = (template: SharingTemplate): string =>
       ' data-sharing-presentation="' + template + '"' + (template === selected ? '' : ' hidden');
-    const artifact = selected === 'combinedHeatmap'
-      ? this.buildCombinedHeatmapArtifact('year', copy.defaultTitle)
-      : undefined;
+    const defaultProvider = claudeAvailable && codexAvailable ? 'both' : codexAvailable ? 'codex' : 'claude';
+    let artifact: ReturnType<UsageWebviewProvider['buildCombinedHeatmapArtifact']> | undefined;
+    let previewFailure = false;
+    if (selected === 'combinedHeatmap') {
+      try { artifact = this.buildCombinedHeatmapArtifact('year',copy.defaultTitle,
+        'academicViolet','#4f2f87','quantile',defaultProvider); }
+      catch {
+        previewFailure = true;
+        const config = this.apiHeatmapConfigFor('year',copy.defaultTitle,'academicViolet','#4f2f87','quantile',defaultProvider);
+        artifact = {config,title:config.title,range:config.range,endDateISO:config.endDateISO,
+          svg:'',filename:'',markdown:'',summary:'',cacheKey:'',dataQualitySignature:'',hasData:false};
+      }
+    }
+    const accepted = artifact?.hasData ? this.acceptApiHeatmapArtifact(artifact) : undefined;
+    if (!accepted) this.retireApiHeatmapPreview(false);
     const preview = artifact
       ? (artifact.hasData
           ? artifact.svg
-          : '<p class="table-hint">' + this.escapeHtml(copy.noData) + '</p>')
+          : '<p class="table-hint">' + this.escapeHtml(previewFailure ? apiCopy.stale : copy.noData) + '</p>')
       : '';
     const paletteChoice = (
       value: string,
@@ -3749,7 +3882,7 @@ export class UsageWebviewProvider {
       checked = false,
     ): string => '<label class="combined-palette-choice">' +
       '<input type="radio" name="combinedHeatmapPalette" value="' + value + '"' + (checked ? ' checked' : '') +
-      ' onchange="toggleCombinedCustomAccent()">' +
+      ' onchange="toggleCombinedCustomAccent(true)">' +
       '<span class="combined-palette-swatch" aria-hidden="true">' +
       colors.map((color) => '<i style="background:' + color + '"></i>').join('') + '</span>' +
       '<span>' + this.escapeHtml(label) + '</span></label>';
@@ -3769,22 +3902,34 @@ export class UsageWebviewProvider {
       '<div class="combined-preview-column">' +
       '<div class="combined-preview-toolbar"><strong>' + this.escapeHtml(copy.previewLabel) + '</strong>' +
       '<span id="combinedHeatmapStatus" role="status" aria-live="polite"></span></div>' +
-      '<div id="combinedHeatmapPreview" class="heatmap-svg combined-heatmap-preview" role="region" tabindex="0" aria-label="' + this.escapeHtml(copy.previewLabel) + '">' + preview + '</div>' +
+      '<div id="combinedHeatmapPreview" class="heatmap-svg combined-heatmap-preview" role="region" tabindex="0" data-preview-id="' +
+      (accepted?.id ?? '') + '" aria-label="' + this.escapeHtml(copy.previewLabel) + '">' + preview + '</div>' +
       '<p class="combined-activity-disclaimer">' + this.escapeHtml(copy.activityDisclaimer) + '</p>' +
       '</div>' +
       '<div class="combined-config-card sharing-controls-panel" aria-label="' + this.escapeHtml(copy.settingsLabel) + '">' +
       '<h4>' + this.escapeHtml(copy.settingsLabel) + '</h4>' +
       '<div class="combined-heatmap-controls">' +
+      '<label class="sc-field" for="combinedHeatmapProvider"><span>' + this.escapeHtml(apiCopy.providerLabel) + '</span>' +
+      '<select id="combinedHeatmapProvider" data-default-value="' + defaultProvider + '" onchange="combinedHeatmapConfigChanged()">' +
+      (['claude','codex','both'] as const).map(value => '<option value="' + value + '"' +
+        (value === defaultProvider ? ' selected' : '') +
+        (value === 'claude' && !claudeAvailable || value === 'codex' && !codexAvailable ||
+          value === 'both' && !(claudeAvailable && codexAvailable) ? ' disabled' : '') + '>' +
+        this.escapeHtml(value === 'both' ? apiCopy.bothProviders : value === 'claude' ? 'Claude' : 'Codex') + '</option>').join('') + '</select></label>' +
+      '<label class="sc-field" for="combinedHeatmapMetric"><span>' + this.escapeHtml(apiCopy.metricLabel) + '</span>' +
+      '<select id="combinedHeatmapMetric" data-default-value="tokens" onchange="combinedHeatmapMetricChanged()">' +
+      '<option value="tokens" selected>' + this.escapeHtml(apiCopy.tokens) + '</option>' +
+      '<option value="apiEquivalent">' + this.escapeHtml(apiCopy.amountMetric) + '</option></select></label>' +
       '<label class="sc-field" for="combinedHeatmapTitle"><span>' + this.escapeHtml(copy.titleLabel) + '</span>' +
-      '<input type="text" id="combinedHeatmapTitle" maxlength="80" value="' + this.escapeHtml(artifact.title) + '" data-default-value="' + this.escapeHtml(artifact.title) + '"></label>' +
+      '<input type="text" id="combinedHeatmapTitle" maxlength="80" value="' + this.escapeHtml(artifact.title) + '" data-default-value="' + this.escapeHtml(artifact.title) + '" oninput="combinedHeatmapConfigChanged()"></label>' +
       '<label class="sc-field" for="combinedHeatmapRange"><span>' + this.escapeHtml(copy.rangeLabel) + '</span>' +
-      '<select id="combinedHeatmapRange" data-default-value="year">' +
+      '<select id="combinedHeatmapRange" data-default-value="year" onchange="combinedHeatmapConfigChanged()">' +
       '<option value="30d">' + this.escapeHtml(copy.last30) + '</option>' +
       '<option value="90d">' + this.escapeHtml(copy.last90) + '</option>' +
       '<option value="year" selected>' + this.escapeHtml(copy.year) + '</option>' +
       '</select></label>' +
       '<label class="sc-field" for="combinedHeatmapIntensityMode"><span>' + this.escapeHtml(copy.intensityLabel) + '</span>' +
-      '<select id="combinedHeatmapIntensityMode" data-default-value="quantile">' +
+      '<select id="combinedHeatmapIntensityMode" data-default-value="quantile" onchange="combinedHeatmapConfigChanged()">' +
       '<option value="quantile" selected>' + this.escapeHtml(copy.intensityQuantile) + '</option>' +
       '<option value="logarithmic">' + this.escapeHtml(copy.intensityLogarithmic) + '</option>' +
       '<option value="linear">' + this.escapeHtml(copy.intensityLinear) + '</option>' +
@@ -3792,16 +3937,20 @@ export class UsageWebviewProvider {
       '<fieldset class="combined-palette-fieldset"><legend>' + this.escapeHtml(copy.paletteLabel) + '</legend>' +
       '<div class="combined-palette-options">' + palettes + '</div>' +
       '<label class="combined-custom-accent" for="combinedHeatmapCustomAccent"><span>' + this.escapeHtml(copy.customAccent) + '</span>' +
-      '<input type="color" id="combinedHeatmapCustomAccent" value="#4f2f87" disabled></label></fieldset>' +
+      '<input type="color" id="combinedHeatmapCustomAccent" value="#4f2f87" disabled onchange="combinedHeatmapConfigChanged()"></label></fieldset>' +
+      '<label class="sc-check"><input type="checkbox" id="combinedHeatmapShowAmounts" onchange="combinedHeatmapAmountsChanged()"> ' +
+      this.escapeHtml(apiCopy.showAmounts) + '</label>' +
+      '<p id="combinedHeatmapAmountDisclosure" class="table-hint" hidden>' + this.escapeHtml(apiCopy.amountDisclosure) + '</p>' +
+      '<p class="table-hint">' + this.escapeHtml(apiCopy.titleDisclosure) + '</p>' +
       '<label class="sc-check combined-privacy-toggle"><input type="checkbox" id="combinedHeatmapPrivacy" checked onchange="toggleCombinedHeatmapPrivacy(true)"> ' +
       this.escapeHtml(copy.privacyToggle) + '</label>' +
       '<div id="combinedHeatmapPrivacyPreview" class="combined-privacy-preview" role="note">' +
-      '<p>✓ ' + this.escapeHtml(copy.privacyIncludes) + '</p>' +
+      '<p id="combinedHeatmapPrivacyIncludes" data-token-copy="' + this.escapeHtml(copy.privacyIncludes) + '">✓ ' + this.escapeHtml(copy.privacyIncludes) + '</p>' +
       '<p>✓ ' + this.escapeHtml(copy.privacyExcludes) + '</p></div>' +
       '<div class="share-actions combined-share-actions">' +
       '<button class="btn-primary btn-small" onclick="generateCombinedHeatmapPreview()">' + this.escapeHtml(copy.updatePreview) + '</button>' +
-      '<button class="btn-secondary btn-small" onclick="exportCombinedHeatmap()">' + this.escapeHtml(copy.exportSvg) + '</button>' +
-      '<button class="btn-secondary btn-small" onclick="copyCombinedHeatmapMarkdown()">' + this.escapeHtml(copy.copyMarkdown) + '</button>' +
+      '<button id="combinedHeatmapExport" class="btn-secondary btn-small" onclick="exportCombinedHeatmap()"' + (accepted ? '' : ' disabled') + '>' + this.escapeHtml(copy.exportSvg) + '</button>' +
+      '<button id="combinedHeatmapCopy" class="btn-secondary btn-small" onclick="copyCombinedHeatmapMarkdown()"' + (accepted ? '' : ' disabled') + '>' + this.escapeHtml(copy.copyMarkdown) + '</button>' +
       '<button class="btn-secondary btn-small" onclick="resetCombinedHeatmapPreferences()">' + this.escapeHtml(copy.resetSharing) + '</button></div>' +
       '</div></div>' +
       '<details class="combined-output-panel"><summary>' + this.escapeHtml(copy.markdownLabel) + '</summary>' +
@@ -4088,7 +4237,9 @@ export class UsageWebviewProvider {
       dashboardTab('settings', settingsTab, settingsActive) + `
           </div>
 
-          ` + dashboardPanel('today', todayActive, cached('today', () => this.renderTodayData(provider))) +
+          ` + dashboardPanel('today', todayActive,
+        '<div id="weeklyQuotaPace" data-quota-pace-provider="' + provider + '">' + this.renderWeeklyQuotaPace(provider) + '</div>' +
+        cached('today', () => this.renderTodayData(provider))) +
       dashboardPanel('month', rolling30Active, cached('month', () => this.renderMonthData(provider))) +
       dashboardPanel('all', allActive,
         (achievementsEnabled ? '<button id="achievement-statistics-back" class="btn-secondary btn-small achievement-statistics-return" hidden ' +
@@ -4202,7 +4353,7 @@ export class UsageWebviewProvider {
       Number.isSafeInteger(through) && through <= 8.64e15 && through > after
       ? Object.freeze({ after, through }) : undefined;
     const handle = Object.freeze({ window });
-    this.claudeAchievementObservation = { handle, before, generation: state?.generation,
+    this.claudeAchievementObservation = { handle, before, beforeMoney:this.achievementMoneyFacts.claude, generation: state?.generation,
       sequence: state?.sequence, through, timeZone, guard };
     this.queueUsageAchievementReceipts();
     return handle;
@@ -4212,7 +4363,7 @@ export class UsageWebviewProvider {
    * optional. Aggregate growth alone does not establish new activity. */
   acceptClaudeAchievementSnapshot(snapshot: ClaudeAchievementSnapshot,
     handle: { readonly window?: { readonly after: number; readonly through: number } } | undefined,
-    delta?: ClaudeAchievementUsageDelta): void {
+    rawDelta?: ClaudeAchievementUsageDelta): void {
     const observation = this.claudeAchievementObservation;
     if (!observation || observation.handle !== handle || !observation.guard()) return;
     this.claudeAchievementObservation = undefined;
@@ -4220,8 +4371,8 @@ export class UsageWebviewProvider {
     this.revokedAchievementEvidence.delete('claude');
     const after = this.achievementResults();
     const window = handle?.window;
-    const ids = window && delta?.after === window.after && delta.through === window.through
-      ? claudeTailAchievementCrossings(observation.before, after, delta) : [];
+    const delta = copyClaudeUsageDelta(rawDelta,window);
+    const ids = delta ? claudeTailAchievementCrossings(observation.before, after, delta) : [];
     this.claudeAchievementObservedThrough = observation.through;
     if (ids.length && observation.generation !== undefined && observation.sequence !== undefined) {
       const receipt = { ids, generation: observation.generation, sequence: observation.sequence,
@@ -4229,6 +4380,9 @@ export class UsageWebviewProvider {
         guard: observation.guard };
       for (const id of ids) if (!this.usageAchievementReceipts.has(id)) this.usageAchievementReceipts.set(id, receipt);
     }
+    if (delta) this.retainCumulativeMoneyReceipt(
+      cumulativeCrossings(observation.beforeMoney,this.achievementMoneyFacts.claude,delta.money),
+      observation,this.achievementMoneyFacts.claude);
     this.queueUsageAchievementReceipts();
   }
 
@@ -4268,7 +4422,7 @@ export class UsageWebviewProvider {
       this.acceptedCodexAchievement.view.periodCoverage.timeZone === timeZone
       ? copyCodexUsageWindow({ after: this.codexAchievementObservedThrough, through }) : undefined;
     const handle = Object.freeze({ window: window ? Object.freeze(window) : undefined });
-    this.codexAchievementObservation = { handle, before, generation: state?.generation,
+    this.codexAchievementObservation = { handle, before, beforeMoney:this.achievementMoneyFacts.codex, generation: state?.generation,
       sequence: state?.sequence, through, timeZone, guard };
     this.queueUsageAchievementReceipts();
     return handle;
@@ -4295,7 +4449,35 @@ export class UsageWebviewProvider {
         guard: observation.guard };
       for (const id of ids) if (!this.usageAchievementReceipts.has(id)) this.usageAchievementReceipts.set(id, receipt);
     }
+    if (delta) this.retainCumulativeMoneyReceipt(
+      cumulativeCrossings(observation.beforeMoney,this.achievementMoneyFacts.codex,delta.money),
+      observation,this.achievementMoneyFacts.codex);
     this.queueUsageAchievementReceipts();
+  }
+
+  /** Keep money and Token receipts independent. Source/price retirement may
+   * withdraw money proof without discarding another sound numeric receipt.
+   */
+  private retainCumulativeMoneyReceipt(ids: readonly AchievementMoneyId[],
+    observation: {generation?:number;sequence?:number;timeZone:string;guard:()=>boolean},
+    scope: AchievementMoneyScopes | undefined): void {
+    if (!ids.length || observation.generation === undefined || observation.sequence === undefined ||
+        !scope?.pricebookVersion || !scope.backend) return;
+    const provider=scope.provider,backend=scope.backend,basis=scope.pricebookVersion;
+    const sourceGuard=observation.guard;
+    const referencePricebooks = Object.freeze(Object.fromEntries(ids.map(id=>[id,basis]))) as Partial<Record<AchievementMoneyId,string>>;
+    const guard = () => sourceGuard() && !this.revokedAchievementEvidence.has(provider) && ids.every(id=>{
+      const current=this.achievementMoneyFacts[provider],value=current?.cumulative;
+      const rule=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===id);
+      return current?.provider === provider && current.backend === backend && current.pricebookVersion === basis &&
+        value?.provider === provider && value.backend === backend && value.pricebookVersion === basis &&
+        typeof value.microUsd === 'number' && Number.isSafeInteger(value.microUsd) &&
+        !!rule && rule.scope === 'cumulative' && value.microUsd >= rule.target &&
+        ['complete','partial'].includes(value.status) && current.coverage.cumulative.status === value.status;
+    });
+    const receipt = {ids:[...ids],generation:observation.generation,sequence:observation.sequence,
+      recordedDay:dayKeyInZone(new Date(),observation.timeZone),timeZone:observation.timeZone,guard,referencePricebooks};
+    for (const id of ids) if (!this.usageAchievementReceipts.has(id)) this.usageAchievementReceipts.set(id,receipt);
   }
 
   private queueUsageAchievementReceipts(): void {
@@ -4316,8 +4498,11 @@ export class UsageWebviewProvider {
       this.achievementWrite = this.achievementWrite.catch(() => undefined).then(async () => {
         try {
           if (!guard() || !this.achievementRecordRepository) return;
+          const references = receipt.referencePricebooks ? Object.fromEntries(ids.filter(isAchievementMoneyId)
+            .map(id=>[id,receipt.referencePricebooks![id]])) as Partial<Record<AchievementMoneyId,string>> : undefined;
           const saved = await this.achievementRecordRepository.recordUsage(receipt.generation, receipt.sequence,
-            ids, { recordedDay: receipt.recordedDay, timeZone: receipt.timeZone }, guard);
+            ids, { recordedDay: receipt.recordedDay, timeZone: receipt.timeZone,
+              ...(references ? {referencePricebooks:references} : {}) }, guard);
           if (!guard()) return;
           this.achievementRecordState = saved.store;
           this.achievementGrants = new Set(saved.store.records.map(row => row.id));
@@ -4325,7 +4510,6 @@ export class UsageWebviewProvider {
           if (visible && this.panel?.visible) for (const id of notifiableAchievementIds(saved.added.map(row => row.id))) {
             if (!this.silentAchievementRechecks.has(id)) this.pendingAchievementNotice.add(id);
           }
-          this.dispatchAchievementNotice();
         } catch (error) {
           if ((error as Error)?.message === 'achievement-record:generation') {
             this.clearingAchievements = true; this.usageAchievementReceipts.clear();
@@ -4334,6 +4518,9 @@ export class UsageWebviewProvider {
         } finally {
           releaseRetired();
           for (const id of ids) this.queuedUsageAchievementIds.delete(id);
+          // Independent local receipt writes form one source-update batch.
+          // Wait for its other queued writes, not for any new timer or network.
+          if (this.queuedUsageAchievementIds.size === 0) this.dispatchAchievementNotice();
         }
       });
     }
@@ -5232,6 +5419,55 @@ export class UsageWebviewProvider {
     return destination.section;
   }
 
+  private renderAchievementEffortStatistics(tierInput: number): string {
+    if (!this.setting<boolean>('enableAchievements',true)) return '';
+    const locale = I18n.getCurrentLanguage(), copy = achievementEffortCopyFor(locale);
+    const badge = achievementCopyFor(locale);
+    const pending = '<p class="achievement-proof-status">' + this.escapeHtml(badge.evidencePending) + '</p>';
+    if (this.revokedAchievementEvidence.has('codex')) return pending;
+    const data = (this.acceptedCodexAchievement?.signals ?? this.codexAchievementSignals).effortStatistics;
+    if (!data || data.pricingVersion !== EFFORT_STATISTICS_PRICEBOOK_VERSION ||
+        data.referenceDate !== '2026-10-09' || !Array.isArray(data.rows) || data.rows.length !== 6 ||
+        data.rows.some((row,index) => row.effort !== CODEX_ACHIEVEMENT_EFFORTS[index] ||
+          [row.processed,row.output,row.qualifyingRoots,row.pricedTokens,row.unpricedTokens].some(value =>
+            !Number.isSafeInteger(value) || value < 0) || row.output > row.processed ||
+          row.pricedTokens + row.unpricedTokens !== row.processed ||
+          !Number.isFinite(row.pricingCoverage) || row.pricingCoverage < 0 || row.pricingCoverage > 1)) return pending;
+    const tier = Number.isInteger(tierInput) && tierInput >= 0 && tierInput < 3 ? tierInput : 0;
+    const targets = [EFFORT_PROCESSED[tier],EFFORT_OUTPUT[tier],EFFORT_ROOTS[tier]];
+    const labels = [copy.processed,copy.output,copy.tasks];
+    const compact = (value:number) => formatAchievementCompact(value,I18n.getLocale());
+    const rows = data.rows.map(row => {
+      const values = [row.processed,row.output,row.qualifyingRoots];
+      const joint = Math.floor(Math.min(1,...values.map((value,index) => value / targets[index]))*100);
+      const lower = row.status === 'overflow' ? '≥' : '';
+      const metrics = values.map((value,index) => {
+        const full = labels[index] + ': ' + lower + formatAchievementInteger(value,I18n.getLocale()) + ' / ' +
+          formatAchievementInteger(targets[index],I18n.getLocale());
+        return '<div class="achievement-effort-metric"><span>' + this.escapeHtml(labels[index]) + '</span><strong title="' +
+          this.escapeHtml(full) + '">' + this.escapeHtml(lower + compact(value) + ' / ' + compact(targets[index])) + '</strong>' +
+          '<progress data-effort-progress="' + ['processed','output','tasks'][index] + '" max="' + targets[index] +
+          '" value="' + Math.min(targets[index],value) + '" aria-label="' + this.escapeHtml(full) + '"></progress></div>';
+      }).join('');
+      const available = row.valid && (row.status === 'complete' || row.status === 'partial') &&
+        row.microUsd !== null && Number.isSafeInteger(row.microUsd) && row.microUsd >= 0;
+      const amount = available ? (row.amountPositive && row.microUsd! < 1_000_000 ? '<$1' :
+        (row.boundState === 'lower-bound' ? '≥' : '') + '$' +
+          formatAchievementInteger(Math.floor(row.microUsd! / 1_000_000),I18n.getLocale()))
+        : row.status === 'empty' ? copy.empty : copy.unpriced;
+      return '<article data-effort-statistics-row="' + row.effort + '"><h6>' + row.effort +
+        '</h6><span data-effort-joint-progress="' + joint + '">' + this.escapeHtml(copy.joint + ': ' + joint + '%') +
+        '</span>' + metrics + '<p data-effort-money="' + this.escapeHtml(row.status) + '">' +
+        this.escapeHtml(copy.money + ': ' + amount) + '</p><p>' + this.escapeHtml(copy.coverage + ': ' +
+          Math.floor(row.pricingCoverage*100) + '%') + '</p></article>';
+    }).join('');
+    const reference = achievementMoneyCopyFor(locale).reference;
+    return '<section class="achievement-effort-statistics"><h5>' + this.escapeHtml(copy.title) + '</h5><p>' +
+      this.escapeHtml(copy.criteria + ': ' + badge.levels[tier]) + '</p><div class="achievement-effort-rows">' + rows +
+      '</div><p>' + this.escapeHtml(reference + ': ' + data.pricingVersion + ' · ' + data.referenceDate) + '</p><p>' +
+      this.escapeHtml(copy.note) + '</p></section>';
+  }
+
   private renderAchievementData(): string {
     const copy = achievementCopyFor(I18n.getLocale());
     const appearance = achievementAppearanceCopyFor(I18n.getLocale());
@@ -5349,7 +5585,8 @@ export class UsageWebviewProvider {
         'billion-token-club', 'ten-billion-token-club', 'hundred-billion-token-club', 'trillion-token-club']
         .includes(result.id);
       const baseName = themeName(key, result);
-      const bound = proofReady && (monetary ? quality?.status==='partial' || (moneyProof?.coverage.excludedFiles ?? 0)>0 :
+      const bound = proofReady && (monetary ? !moneyValue(nextResult.id,progress).startsWith('<') &&
+        (quality?.status==='partial' || (moneyProof?.coverage.excludedFiles ?? 0)>0) :
         cumulativeLowerBound && (cumulativeVolume || result.group === 'codex')) ? '≥' : '';
       const levelName = series && earnedTiers > 0
         ? copy.levels[tierOrder.indexOf(tier)] : earned ? copy.milestone : copy.locked;
@@ -5462,7 +5699,9 @@ export class UsageWebviewProvider {
           ' ' + unitFor(result.id)) + '"></progress>' :
           '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p>') +
         '<h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
-        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + monetaryDetails + statisticsButton + '</div></details></article>';
+        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + monetaryDetails +
+        (key === 'effort-breadth' ? this.renderAchievementEffortStatistics(nextTierIndex) : '') +
+        statisticsButton + '</div></details></article>';
     };
     const groups: Array<'claude' | 'codex' | 'combined' | 'plugin'> =
       ['claude', 'codex', 'combined', 'plugin'];
@@ -5517,8 +5756,8 @@ export class UsageWebviewProvider {
           const proofLabel = state.proof === 'stale' ? copy.evidenceStale : copy.evidencePending;
           const monetary=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===entry.nextResult.id);
           const moneyProof=monetary ? this.achievementMoneyFacts[monetary.group] : undefined;
-          const moneyLowerBound=monetary && (moneyProof?.coverage[monetary.scope].status==='partial' ||
-            (moneyProof?.coverage.excludedFiles ?? 0)>0);
+          const moneyLowerBound=monetary && !moneyValue(entry.nextResult.id,state.progress).startsWith('<') &&
+            (moneyProof?.coverage[monetary.scope].status==='partial' || (moneyProof?.coverage.excludedFiles ?? 0)>0);
           const progress = (state.proof === 'ready' ?
             (monetary ? moneyLowerBound ? '≥' : '' : cumulativeLowerBound && (entry.series === 'cumulative-volume' || entry.result.group === 'codex') ? '≥' : '') +
             compactValue(entry.nextResult.id,state.progress) + ' / ' + compactValue(entry.nextResult.id,state.target) : proofLabel);
@@ -11636,9 +11875,9 @@ export class UsageWebviewProvider {
       }
 
       .cache-creation-bar {
-        /* NB: VS Code has no --vscode-charts-pink; without a fallback the whole
-           gradient is invalid and the bar renders transparent (invisible). */
-        background: linear-gradient(to top, var(--vscode-charts-purple), var(--vscode-charts-pink, #d16ba5));
+        /* Keep the established endpoint directly: there is no registered
+           VS Code pink token. No phantom variable or new palette is needed. */
+        background: linear-gradient(to top, var(--vscode-charts-purple), #d16ba5);
       }
 
       .cache-read-bar {
@@ -12331,6 +12570,7 @@ export class UsageWebviewProvider {
       .sharing-controls-panel .sc-field > span {
         color: var(--vscode-foreground);
       }
+      .combined-config-card .table-hint { color: var(--vscode-foreground); }
       .combined-heatmap-controls {
         display: grid;
         grid-template-columns: minmax(0, 2fr) repeat(2, minmax(160px, 0.8fr));
@@ -13424,7 +13664,7 @@ export class UsageWebviewProvider {
         display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 7px; padding: 12px 8px; min-width: 0; }
       .achievement-overview-item { position: relative; min-width: 0; }
       .achievement-overview-badge { width: 100%; }
-      .achievement-overview-badge img { width: var(--achievement-showcase-size); height: var(--achievement-showcase-size); object-fit: contain; }
+      .achievement-overview-badge img { width: var(--achievement-showcase-size); max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; }
       .achievement-overview-name { font-weight: 650; text-wrap: balance; overflow-wrap: anywhere; }
       .achievement-overview-rank { font-size: .9rem; }
       .achievement-overview-progress { color: var(--vscode-descriptionForeground); font-size: .8rem; overflow-wrap: anywhere; }
@@ -13501,6 +13741,15 @@ export class UsageWebviewProvider {
       .achievement-card[data-achievement-series] { --achievement-tier-label-color: var(--vscode-foreground); }
       .achievement-card[data-achievement-series].earned { border-color: var(--achievement-tier-color); }
       .achievement-card details { min-width: 0; }
+      .achievement-card.achievement-statistics-expanded { grid-column: 1 / -1; }
+      .achievement-effort-statistics { color: var(--vscode-foreground); font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
+      .achievement-effort-rows { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,240px),1fr)); gap: 12px; }
+      .achievement-effort-rows article { min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 10px; }
+      .achievement-effort-rows h6 { font-size: inherit; margin: 0 0 4px; }
+      .achievement-effort-metric { display: grid; grid-template-columns: minmax(0,1fr); margin-top: 7px; }
+      .achievement-effort-metric strong { font-variant-numeric: tabular-nums; }
+      .achievement-effort-metric progress { width: 100%; max-width: 100%; }
+      .achievement-effort-rows p { margin: 7px 0 0; }
       .achievement-card summary { display: grid; justify-items: center; align-content: start; gap: 4px; min-height: var(--achievement-card-height); padding: 38px 10px 12px; cursor: pointer; list-style: none; text-align: center; }
       .achievement-card summary::-webkit-details-marker { display: none; }
       .achievement-card summary:hover { background: var(--vscode-list-hoverBackground); }
@@ -13873,7 +14122,12 @@ function clearPersistedDetails() {
 }
 // 'toggle' doesn't bubble — listen in the capture phase.
 document.addEventListener('toggle', function(e){
-  if (e.target && e.target.matches && e.target.matches('details[data-persist]')) { savePersistedDetails(); }
+  if (e.target && e.target.matches && e.target.matches('details[data-persist]')) {
+    if (e.target.dataset.persist === 'achievement:effort-breadth') {
+      e.target.closest('.achievement-card').classList.toggle('achievement-statistics-expanded',e.target.open);
+    }
+    savePersistedDetails();
+  }
 }, true);
 
 // Restore the active tab from localStorage before first paint, so a reload can't change it.
@@ -13995,6 +14249,7 @@ const __currencyDisplay = ${JSON.stringify({
   decimalPlaces: I18n.getDecimalPlaces(),
 })};
 const __combinedHeatmapCopy = ${JSON.stringify(combinedHeatmapUiCopy(I18n.getLocale()))};
+const __apiHeatmapCopy = ${JSON.stringify(I18n.apiHeatmap)};
 const __sharingWorkspaceCopy = ${JSON.stringify(I18n.sharingWorkspace)};
 const __sharingTemplateCommand = ${JSON.stringify(this.sharingCommandIntents.pending() ?? null)};
 const __localDataCopy = ${JSON.stringify(localDataUiCopy(I18n.getLocale()))};
@@ -14542,13 +14797,19 @@ function combinedHeatmapReadConfig() {
   var privacy = document.getElementById('combinedHeatmapPrivacy');
   var palette = document.querySelector('input[name="combinedHeatmapPalette"]:checked');
   var customAccent = document.getElementById('combinedHeatmapCustomAccent');
+  var provider = document.getElementById('combinedHeatmapProvider');
+  var metric = document.getElementById('combinedHeatmapMetric');
+  var amounts = document.getElementById('combinedHeatmapShowAmounts');
+  var showAmounts = !!(amounts && amounts.checked && metric && metric.value === 'apiEquivalent');
   return {
     title: title ? title.value : __combinedHeatmapCopy.defaultTitle,
     range: range ? range.value : 'year',
     intensityMode: intensityMode ? intensityMode.value : 'quantile',
     privacyPreview: privacy ? privacy.checked : true,
     palette: palette ? palette.value : 'academicViolet',
-    customAccent: customAccent ? customAccent.value : '#4f2f87'
+    customAccent: customAccent ? customAccent.value : '#4f2f87',
+    provider: provider ? provider.value : 'both',
+    metric: showAmounts ? 'apiEquivalent' : 'tokens', showAmounts: showAmounts
   };
 }
 function combinedHeatmapSaveConfig(config) {
@@ -14559,12 +14820,72 @@ function combinedHeatmapSaveConfig(config) {
     localStorage.setItem('ccu.combinedHeatmap.privacyPreview', config.privacyPreview ? 'true' : 'false');
     localStorage.setItem('ccu.combinedHeatmap.palette', config.palette);
     localStorage.setItem('ccu.combinedHeatmap.customAccent', config.customAccent);
+    localStorage.setItem('ccu.combinedHeatmap.provider', config.provider);
+    localStorage.setItem('ccu.combinedHeatmap.metric', config.metric);
+    localStorage.setItem('ccu.combinedHeatmap.showAmounts', config.showAmounts ? 'true' : 'false');
   } catch (e) {}
 }
-function toggleCombinedCustomAccent() {
+function toggleCombinedCustomAccent(changed) {
   var config = combinedHeatmapReadConfig();
   var customAccent = document.getElementById('combinedHeatmapCustomAccent');
   if (customAccent) { customAccent.disabled = config.palette !== 'custom'; }
+  if (changed === true) { combinedHeatmapConfigChanged(); }
+}
+var __apiHeatmapRequestId = 0;
+var __apiHeatmapPendingConfigKey = '';
+var __apiHeatmapExportPreviewId = '';
+function combinedHeatmapConfigKey(config) {
+  return JSON.stringify([config.title,config.range,config.intensityMode,config.palette,config.customAccent,
+    config.provider,config.metric,config.showAmounts]);
+}
+function combinedHeatmapSetExportState() {
+  var preview = document.getElementById('combinedHeatmapPreview');
+  var valid = preview && preview.dataset.previewId && preview.dataset.configKey === combinedHeatmapConfigKey(combinedHeatmapReadConfig());
+  ['combinedHeatmapExport','combinedHeatmapCopy'].forEach(function(id) {
+    var button = document.getElementById(id);
+    if (button) { button.disabled = !valid || !!__apiHeatmapExportPreviewId; }
+  });
+}
+function combinedHeatmapRetire(notify, clear) {
+  var preview = document.getElementById('combinedHeatmapPreview');
+  var markdown = document.getElementById('combinedHeatmapMarkdown');
+  if (preview) {
+    preview.dataset.previewId = ''; preview.dataset.configKey = '';
+    preview.setAttribute('aria-busy','false');
+    if (clear !== false) { preview.innerHTML = ''; }
+  }
+  if (markdown) { markdown.value = ''; }
+  __apiHeatmapPendingConfigKey = '';
+  __apiHeatmapRequestId += 1;
+  combinedHeatmapSetExportState();
+  if (notify) { vscode.postMessage({command:'retireCombinedHeatmapPreview',requestId:__apiHeatmapRequestId,documentId:__ccuDocumentId}); }
+}
+function combinedHeatmapUpdateDisclosure() {
+  var config = combinedHeatmapReadConfig();
+  var disclosure = document.getElementById('combinedHeatmapAmountDisclosure');
+  var includes = document.getElementById('combinedHeatmapPrivacyIncludes');
+  if (disclosure) { disclosure.hidden = !config.showAmounts; }
+  if (includes) { includes.textContent = '✓ ' + (config.showAmounts ? __apiHeatmapCopy.amountDisclosure : includes.dataset.tokenCopy); }
+}
+function combinedHeatmapConfigChanged() {
+  var config = combinedHeatmapReadConfig();
+  combinedHeatmapSaveConfig(config);
+  combinedHeatmapRetire(true, true);
+  combinedHeatmapUpdateDisclosure();
+  var status = document.getElementById('combinedHeatmapStatus');
+  if (status) { status.textContent = __apiHeatmapCopy.stale; }
+}
+function combinedHeatmapMetricChanged() {
+  var metric = document.getElementById('combinedHeatmapMetric');
+  var amounts = document.getElementById('combinedHeatmapShowAmounts');
+  if (amounts && metric) { amounts.checked = metric.value === 'apiEquivalent'; }
+  combinedHeatmapConfigChanged();
+}
+function combinedHeatmapAmountsChanged() {
+  var metric = document.getElementById('combinedHeatmapMetric');
+  var amounts = document.getElementById('combinedHeatmapShowAmounts');
+  if (metric && amounts) { metric.value = amounts.checked ? 'apiEquivalent' : 'tokens'; }
+  combinedHeatmapConfigChanged();
 }
 function toggleCombinedHeatmapPrivacy(save) {
   var config = combinedHeatmapReadConfig();
@@ -14578,6 +14899,9 @@ function restoreCombinedHeatmapConfig() {
   var intensityMode = document.getElementById('combinedHeatmapIntensityMode');
   var privacy = document.getElementById('combinedHeatmapPrivacy');
   var customAccent = document.getElementById('combinedHeatmapCustomAccent');
+  var provider = document.getElementById('combinedHeatmapProvider');
+  var metric = document.getElementById('combinedHeatmapMetric');
+  var amounts = document.getElementById('combinedHeatmapShowAmounts');
   if (!title || !range || !intensityMode || !privacy || !customAccent) { return; }
   var changed = false;
   try {
@@ -14587,7 +14911,21 @@ function restoreCombinedHeatmapConfig() {
     var storedPrivacy = localStorage.getItem('ccu.combinedHeatmap.privacyPreview');
     var storedPalette = localStorage.getItem('ccu.combinedHeatmap.palette');
     var storedAccent = localStorage.getItem('ccu.combinedHeatmap.customAccent');
-    if (storedTitle) { title.value = storedTitle; changed = storedTitle !== title.getAttribute('data-default-value'); }
+    var storedProvider = localStorage.getItem('ccu.combinedHeatmap.provider');
+    var storedMetric = localStorage.getItem('ccu.combinedHeatmap.metric');
+    var storedAmounts = localStorage.getItem('ccu.combinedHeatmap.showAmounts');
+    var sourceAvailable = true;
+    if (provider && ['claude','codex','both'].includes(storedProvider)) {
+      var option = Array.from(provider.options).find(function(option) { return option.value === storedProvider; });
+      sourceAvailable = !!option && !option.disabled;
+      if (sourceAvailable) { provider.value = storedProvider; changed = changed || storedProvider !== provider.dataset.defaultValue; }
+    }
+    if (metric && amounts) {
+      amounts.checked = sourceAvailable && storedMetric === 'apiEquivalent' && storedAmounts === 'true';
+      metric.value = amounts.checked ? 'apiEquivalent' : 'tokens';
+      changed = changed || amounts.checked;
+    }
+    if (storedTitle) { title.value = storedTitle; changed = changed || storedTitle !== title.getAttribute('data-default-value'); }
     if (storedRange === '30d' || storedRange === '90d' || storedRange === 'year') {
       range.value = storedRange;
       changed = changed || storedRange !== range.getAttribute('data-default-value');
@@ -14609,24 +14947,42 @@ function restoreCombinedHeatmapConfig() {
   } catch (e) {}
   toggleCombinedCustomAccent();
   toggleCombinedHeatmapPrivacy(false);
+  combinedHeatmapUpdateDisclosure();
   if (changed) { generateCombinedHeatmapPreview(); }
+  else {
+    var preview = document.getElementById('combinedHeatmapPreview');
+    if (preview && preview.dataset.previewId) { preview.dataset.configKey = combinedHeatmapConfigKey(combinedHeatmapReadConfig()); }
+    combinedHeatmapSetExportState();
+  }
 }
-function generateCombinedHeatmapPreview() {
+function generateCombinedHeatmapPreview(save) {
   var config = combinedHeatmapReadConfig();
-  combinedHeatmapSaveConfig(config);
+  if (save !== false) { combinedHeatmapSaveConfig(config); }
+  combinedHeatmapRetire(true, true);
+  __apiHeatmapPendingConfigKey = combinedHeatmapConfigKey(config);
+  __apiHeatmapRequestId += 1;
+  var preview = document.getElementById('combinedHeatmapPreview');
+  if (preview) { preview.setAttribute('aria-busy','true'); }
   var status = document.getElementById('combinedHeatmapStatus');
   if (status) { status.textContent = __combinedHeatmapCopy.updatePreview + '…'; }
-  vscode.postMessage({ command: 'previewCombinedHeatmap', title: config.title, range: config.range, intensityMode: config.intensityMode, palette: config.palette, customAccent: config.customAccent });
+  vscode.postMessage(Object.assign({command:'previewCombinedHeatmap',requestId:__apiHeatmapRequestId,documentId:__ccuDocumentId},config));
 }
 function exportCombinedHeatmap() {
   var config = combinedHeatmapReadConfig();
+  var preview = document.getElementById('combinedHeatmapPreview');
+  if (!preview || !preview.dataset.previewId || __apiHeatmapExportPreviewId ||
+      preview.dataset.configKey !== combinedHeatmapConfigKey(config)) { return; }
   combinedHeatmapSaveConfig(config);
-  vscode.postMessage({ command: 'exportCombinedHeatmap', title: config.title, range: config.range, intensityMode: config.intensityMode, palette: config.palette, customAccent: config.customAccent });
+  __apiHeatmapExportPreviewId = preview.dataset.previewId;
+  combinedHeatmapSetExportState();
+  vscode.postMessage(Object.assign({command:'exportCombinedHeatmap',previewId:preview.dataset.previewId,documentId:__ccuDocumentId},config));
 }
 function copyCombinedHeatmapMarkdown() {
   var config = combinedHeatmapReadConfig();
+  var preview = document.getElementById('combinedHeatmapPreview');
+  if (!preview || !preview.dataset.previewId || preview.dataset.configKey !== combinedHeatmapConfigKey(config)) { return; }
   combinedHeatmapSaveConfig(config);
-  vscode.postMessage({ command: 'copyCombinedHeatmapMarkdown', title: config.title, range: config.range, intensityMode: config.intensityMode, palette: config.palette, customAccent: config.customAccent });
+  vscode.postMessage(Object.assign({command:'copyCombinedHeatmapMarkdown',previewId:preview.dataset.previewId,documentId:__ccuDocumentId},config));
 }
 function resetCombinedHeatmapPreferences() {
   __ccuDirectSharingResetPending = true;
@@ -14703,7 +15059,10 @@ var __ccuSharingPreferenceKeys = [
   'ccu.combinedHeatmap.intensityMode',
   'ccu.combinedHeatmap.privacyPreview',
   'ccu.combinedHeatmap.palette',
-  'ccu.combinedHeatmap.customAccent'
+  'ccu.combinedHeatmap.customAccent',
+  'ccu.combinedHeatmap.provider',
+  'ccu.combinedHeatmap.metric',
+  'ccu.combinedHeatmap.showAmounts'
 ];
 function ccuCountPresentStorageKeys(storage, keys) {
   var count = 0;
@@ -14782,18 +15141,18 @@ function ccuApplyDefaultSharingControls() {
   var defaultPalette = document.querySelector('input[name="combinedHeatmapPalette"][value="academicViolet"]');
   if (defaultPalette) { defaultPalette.checked = true; }
   if (customAccent) { customAccent.value = '#4f2f87'; }
+  var provider = document.getElementById('combinedHeatmapProvider');
+  var metric = document.getElementById('combinedHeatmapMetric');
+  var amounts = document.getElementById('combinedHeatmapShowAmounts');
+  if (provider) { provider.value = provider.dataset.defaultValue; }
+  if (metric) { metric.value = 'tokens'; }
+  if (amounts) { amounts.checked = false; }
   selectDefaultSharingTemplate();
   scApplyDefaultControls();
   toggleCombinedCustomAccent();
   toggleCombinedHeatmapPrivacy(false);
-  vscode.postMessage({
-    command: 'previewCombinedHeatmap',
-    title: __combinedHeatmapCopy.defaultTitle,
-    range: 'year',
-    intensityMode: 'quantile',
-    palette: 'academicViolet',
-    customAccent: '#4f2f87'
-  });
+  combinedHeatmapUpdateDisclosure();
+  generateCombinedHeatmapPreview(false);
 }
 
 function ccuApplyLocalDataClientAction(action) {
@@ -16088,6 +16447,16 @@ document.addEventListener('visibilitychange', function() { if (document.hidden) 
 window.addEventListener('message', async function(event) {
   const message = event.data;
 
+  if (message.command === 'weeklyQuotaPace') {
+    var pace = document.getElementById('weeklyQuotaPace');
+    if (message.documentId === __ccuDocumentId && pace &&
+        message.provider === pace.dataset.quotaPaceProvider && typeof message.html === 'string') {
+      pace.innerHTML = message.html;
+      pace.hidden = message.html.length === 0;
+    }
+    return;
+  }
+
   if (message.command === 'achievementUnlockNotice') {
     ccuShowAchievementNotice(message);
     return;
@@ -16494,31 +16863,64 @@ window.addEventListener('message', async function(event) {
       exportPreview.getAttribute('aria-busy') === 'true'; }
   }
 
+  if (message.command === 'combinedHeatmapPreviewRetired' && message.documentId === __ccuDocumentId) {
+    combinedHeatmapRetire(false, true);
+    var retiredStatus = document.getElementById('combinedHeatmapStatus');
+    if (retiredStatus) { retiredStatus.textContent = __apiHeatmapCopy.stale; }
+  }
+
   if (message.command === 'combinedHeatmapResult') {
+    if (message.documentId !== __ccuDocumentId || message.requestId !== __apiHeatmapRequestId ||
+        __apiHeatmapPendingConfigKey !== combinedHeatmapConfigKey(combinedHeatmapReadConfig())) { return; }
     var combinedPreview = document.getElementById('combinedHeatmapPreview');
     var combinedMarkdown = document.getElementById('combinedHeatmapMarkdown');
     var combinedStatus = document.getElementById('combinedHeatmapStatus');
-    if (message.error) {
-      if (combinedStatus) { combinedStatus.textContent = String(message.error); }
+    var accepted = message.failed !== true && message.hasData === true &&
+      typeof message.previewId === 'string' && /^[0-9a-f]{48}$/.test(message.previewId) &&
+      typeof message.svg === 'string' && message.svg.length > 0 && message.svg.length <= 1048576;
+    if (combinedPreview) {
+      combinedPreview.dataset.previewId = accepted ? message.previewId : '';
+      combinedPreview.dataset.configKey = accepted ? __apiHeatmapPendingConfigKey : '';
+      combinedPreview.setAttribute('aria-busy','false');
+    }
+    if (message.failed === true) {
+      if (combinedPreview) { combinedPreview.textContent = __apiHeatmapCopy.failed; }
+      if (combinedMarkdown) { combinedMarkdown.value = ''; }
+      if (combinedStatus) { combinedStatus.textContent = __apiHeatmapCopy.failed; }
     } else {
       if (combinedPreview) {
-        if (message.hasData) {
+        if (accepted) {
           combinedPreview.innerHTML = message.svg || '';
         } else {
           combinedPreview.textContent = __combinedHeatmapCopy.noData;
         }
       }
-      if (combinedMarkdown) { combinedMarkdown.value = message.markdown || ''; }
+      if (combinedMarkdown) { combinedMarkdown.value = accepted && typeof message.markdown === 'string' ? message.markdown : ''; }
       if (combinedStatus) { combinedStatus.textContent = ''; }
     }
+    __apiHeatmapPendingConfigKey = '';
+    combinedHeatmapSetExportState();
   }
 
-  if (message.command === 'combinedHeatmapMarkdownCopied') {
+  if (message.command === 'combinedHeatmapExportResult' && message.documentId === __ccuDocumentId &&
+      message.previewId === __apiHeatmapExportPreviewId && __apiHeatmapExportPreviewId) {
+    __apiHeatmapExportPreviewId = '';
+    var exportedPreview = document.getElementById('combinedHeatmapPreview');
+    var exportedStatus = document.getElementById('combinedHeatmapStatus');
+    if (exportedPreview && exportedPreview.dataset.previewId === message.previewId) {
+      if (message.stale === true) { combinedHeatmapRetire(false, true); }
+      if (exportedStatus) { exportedStatus.textContent = message.ok === true ? __apiHeatmapCopy.saved :
+        message.cancelled === true ? __apiHeatmapCopy.cancelled : message.stale === true ? __apiHeatmapCopy.stale : __apiHeatmapCopy.failed; }
+    }
+    combinedHeatmapSetExportState();
+  }
+
+  if (message.command === 'combinedHeatmapMarkdownCopied' && message.documentId === __ccuDocumentId) {
     var copyStatus = document.getElementById('combinedHeatmapStatus');
     if (copyStatus) {
       copyStatus.textContent = message.ok
         ? __combinedHeatmapCopy.copyMarkdown + ' ✓'
-        : String(message.error || 'Could not copy Markdown.');
+        : message.stale === true ? __apiHeatmapCopy.stale : __apiHeatmapCopy.failed;
     }
   }
 

@@ -50,10 +50,10 @@ test('pricing changes also invalidate sharing projections before a dashboard ref
   );
   assert.match(
     source,
-    /private async refreshPricing\(\)[\s\S]*?this\.invalidateClaudeUsagePricingCache\(\);\s*this\.webviewProvider\.invalidateShareCardPreview\(\);/,
+    /private async refreshPricing\(\)[\s\S]*?this\.invalidateClaudeUsagePricingCache\(\);\s*this\.webviewProvider\.invalidateShareCardPreview\(\{\s*pricingChanged:\s*true\s*\}\);/,
   );
   assert.match(
     source,
-    /if \(pricingBackendChanged\) \{\s*this\.invalidateClaudeUsagePricingCache\(\);\s*this\.webviewProvider\.invalidateShareCardPreview\(\);/,
+    /if \(pricingBackendChanged\) \{\s*this\.invalidateClaudeUsagePricingCache\(\);\s*this\.webviewProvider\.invalidateShareCardPreview\(\{\s*pricingChanged:\s*true\s*\}\);/,
   );
 });

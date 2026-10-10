@@ -330,7 +330,7 @@ test('custom amount titles keep provider semantics, current-price evidence and m
 
 test('styled hidden mode never reads money fields or unrelated option getters', () => {
   const protectedDay = { tokens: 10 };
-  for (const key of ['amountUSD', 'pricingStatus', 'estimated', 'pricedCount', 'unpricedCount']) {
+  for (const key of ['amountUSD', 'pricingStatus', 'estimated', 'pricedCount', 'unpricedCount','sourceComplete']) {
     Object.defineProperty(protectedDay, key, { get() { throw new Error(`read ${key}`); } });
   }
   const config = controlled({ title: 'My activity', palette: 'custom', customAccent: '#123456', intensityMode: 'linear' },
@@ -342,6 +342,31 @@ test('styled hidden mode never reads money fields or unrelated option getters', 
   assert.match(artifact.svg, /My activity/);
   assert.match(artifact.svg, /#123456/);
   assert.doesNotMatch(JSON.stringify(artifact), /amountUSD|pricingStatus|pricedCount|estimated|fxMultiplier|privateId/);
+});
+
+test('incomplete source history labels known money as a lower bound and missing days as unknown', () => {
+  const daily: any = {
+    '2026-06-30': {claude:{tokens:100,amountUSD:10,pricingStatus:'complete',estimated:true,
+      pricedCount:100,unpricedCount:0,sourceComplete:false}},
+    '2026-06-29': {claude:{tokens:0,amountUSD:null,pricingStatus:'empty',estimated:true,
+      pricedCount:0,unpricedCount:0,sourceComplete:false}},
+  };
+  const artifact=buildApiHeatmapArtifact(daily,{...options,provider:'claude'});
+  assert.match(artifact.summary,/≥\$10/);
+  assert.match(artifact.svg,/Indexed subtotal; source history incomplete/);
+  const unknown=artifact.svg.match(/<rect[^>]+><title>2026-06-29[^<]*<\/title><\/rect>/)?.[0];
+  assert.ok(unknown); assert.match(unknown,/#d1d5db/); assert.match(unknown,/Unpriced/);
+  assert.doesNotMatch(unknown,/No data|0\/1/);
+  daily['2026-06-30'].claude.sourceComplete=true;
+  daily['2026-06-29'].claude.sourceComplete=true;
+  assert.notEqual(buildApiHeatmapArtifact(daily,{...options,provider:'claude'}).cacheKey,artifact.cacheKey);
+});
+
+test('an unpriced zero-token observation does not invent one unit of unknown usage', () => {
+  const artifact=buildApiHeatmapArtifact({'2026-06-30':{claude:{tokens:0,amountUSD:null,
+    pricingStatus:'unpriced',estimated:true,pricedCount:0,unpricedCount:0}}},{...options,provider:'claude'});
+  assert.match(artifact.summary,/0\/0/);
+  assert.doesNotMatch(artifact.svg,/0\/1/);
 });
 
 test('supported fixed-offset timezone labels agree with app validation and date-key bucketing', () => {
