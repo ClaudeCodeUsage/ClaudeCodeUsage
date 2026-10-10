@@ -81,8 +81,11 @@ Neuindizierung bleiben still; andere Live-Erfolge benötigen noch eigene Ursprun
 
 Der lokale Nachweisspeicher ist auf 64 KiB begrenzt. Alte Abzeichen haben kein
 bekanntes Datum; neue gespeicherte Aktionen behalten ungelesene Erstaufnahmetage,
-auch bei verpasstem Hinweis. Fenster führen Auszeichnungen zusammen; Löschen
-hinterlässt eine leere Generationssperre gegen veraltete Schreibvorgänge.
+auch bei verpasstem Hinweis. Fenster führen Auszeichnungen zusammen.
+`achievements-v2.json` ist der maßgebliche Speicher; v1 dient nur als schreibgeschützte Migrationseingabe.
+Bereits gespeicherte Auszeichnungen der 21 geänderten Modell-/Team-/Effort-/Regenbogen-Bedingungen bleiben begrenzt archiviert,
+mit unbekannten Daten; altes Gold belegt keine neuen Regeln. Gemeinsame v1-Lease,
+v2-Löschmarkierung und leere v1-Downgradesperre verhindern die Wiederherstellung gelöschter Auszeichnungen; Anbieterlogs bleiben unverändert.
 Hinweise erscheinen nur im sichtbaren Vordergrundpanel, höchstens alle fünf Minuten
 über Fenster und Neustarts hinweg. Nur bestätigte Anzeigen markieren ihre Gruppe
 als gelesen; verpasste bleiben ungelesen. Maus- und Tastaturfokus pausieren das Ausblenden.
@@ -94,20 +97,28 @@ Zuletzt erhalten zeigt höchstens drei neue Serien; die einklappbaren Einträge 
 bis zu dreißig Stufen mit Regellinks. Daten bezeichnen die erste Erfassung, nicht die
 ursprüngliche Erlangung; alte Daten bleiben unbekannt. Beim Ansehen werden Einträge
 nicht als gelesen markiert und nicht zum Teilen ausgewählt.
-In den Details erhaltener Abzeichen lassen sich bis zu drei Vertreter anheften.
-Die Auswahl bleibt nach einem Neustart erhalten und ist keine Freigabe zum Teilen.
+Bis zu sechs Themen lassen sich über Pins auf geschlossenen Karten und eine durchsuchbare Auswahl anheften und ordnen.
+Manuell erscheinen nur gewählte Pins, automatisch höchstens drei Empfehlungen.
+Auswahl und Reihenfolge bleiben nach Neustart erhalten und sind keine Freigabe zum Teilen.
 Ausgeblendete angeheftete Abzeichen können in einer einklappbaren Liste gelöst werden,
 ohne den deaktivierten Anbieter wieder einzuschalten.
 
 Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
 neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.
 
-Der noch nicht veröffentlichte Kandidat 2.4.2 hat 44 Themenkarten mit 124 Freischaltbedingungen: Modell-Token, Ausgabe/Cache,
+Der noch nicht veröffentlichte Kandidat 2.4.2 hat laut Quellkatalog 50 Themenkarten, 144 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
 Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
+Davon betreffen 20 Bedingungen sechs getrennte Claude-/Codex-API-Äquivalent-Themen: bepreiste Gesamtsummen,
+abgeschlossene Wochen ab Montag in der aktuellen Datenzeitzone und eine Claude-Sitzung bzw. ein verifizierter Codex-Aufgabenbaum.
+Feste USD-Referenzpreise mit Versionsangabe verlangen bekannte exakte Modelle und vollständige Komponentenpreise einschließlich Claude-Cache-TTL.
+Unbekannte Modelle bleiben unbepreist; belegte Teilmengen zeigen eine Untergrenze. Die Beträge sind keine Rechnung, Qualitätswertung oder Einkommensangabe.
+Geldhistorie bleibt still; neue Geld-Ursprungshinweise sind noch nicht angebunden. Modell-/Team-/Effort-/Regenbogenregeln verbinden Ausgabe, wiederholte Nutzung und Umfang.
+API-Geld-Heatmap-Generator und Berechnung/Statusleistenbasis für das Wochenkontingent sind vorhanden; Hauptoberfläche und Produktionsanbindung stehen noch aus.
 Jede Serie hat ein eigenes Motiv, ihre Stufen teilen es mit Stufenfarben. Zahlen sind ganzzahlig; Datengrenzen sind aufklappbar.
 Fehlende oder veraltete Nachweise werden statt Nullfortschritt angezeigt und vom nächsten Ziel ausgeschlossen; erworbene Abzeichen bleiben gespeichert.
 Geschlossene Karten zeigen den aktuellen Fortschritt zur nächsten Stufe; Zwischenziele auf langen Token-Leitern sind keine zusätzlichen Abzeichen, Hinweise oder Exportoptionen.
-Meine Abzeichen und Nächste Ziele zeigen jeweils höchstens drei unterschiedliche Themen vor der Sammlung. Ziele brauchen aktuelle positive Nachweise; ungenutzte Modelle werden nicht empfohlen. Die Auswahl bleibt beim Browsen stabil; ein Klick öffnet die vorhandenen Regeln ohne Log-Lesen oder automatische Freigabe.
+Klein / Mittel / Groß verändern Abzeichen und Kartenrahmen, nicht Schriftgröße oder Klickflächen.
+Nächste Ziele zeigt höchstens drei Themen mit aktuellen positiven Nachweisen; unbelegte Ziele und ungenutzte Modelle werden übersprungen. Die Auswahl bleibt beim Browsen stabil; ein Klick öffnet Regeln ohne Log-Lesen oder automatische Freigabe.
 Nach vollständiger aktueller Indexierung zählen konfliktfreie Codex-Abstammungen für Token-/Agentenmeilensteine; Kalendererfolge brauchen weiterhin vollständige Identitäts- und Tagesnachweise.
 Serien und Stufen werden getrennt gezählt. Lokale Filter bleiben nach Neuladen
 erhalten; das nächste Ziel steht auf der Karte, alle Stufenregeln im aufklappbaren Bereich.

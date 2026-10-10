@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ClaudeApiUsageResponse, ContextWindowInfo, UsageData } from './types';
+import { ClaudeApiUsageResponse, ContextWindowInfo, SupportedLanguage, UsageData } from './types';
 import { I18n } from './i18n';
 import {
   CONTEXT_FILL_THRESHOLDS,
@@ -32,6 +32,31 @@ import {
 } from './codexStatus';
 import { CodexUsageScopeView } from './providers/codex/codexUsage';
 import { ProviderLimitSnapshot } from './providers/providerTypes';
+import {
+  adaptClaudeQuotaPace,
+  adaptCodexQuotaPace,
+  QuotaPaceAdapterEntry,
+  QuotaPaceAdapterSnapshot,
+  QUOTA_PACE_MAX_WINDOWS,
+} from './quotaPaceAdapters';
+
+/** Compact local pure copy while i18n.ts belongs to the integration owner. */
+export function weeklyQuotaPaceCopy(language: SupportedLanguage): {
+  title: string; used: string; reference: string; forecast: string; sample: string; hint: string;
+} {
+  const copy: Record<SupportedLanguage, readonly string[]> = {
+    en: ['Weekly quota pace', 'Used', 'Reference progress', 'Estimated at reset ≈', 'Insufficient sample', 'Uniform cycle-average reference; start inferred as reset minus 7 days. Account-wide use includes other devices and members.'],
+    'de-DE': ['Wöchentliches Kontingenttempo', 'Verbraucht', 'Referenzfortschritt', 'Geschätzt beim Zurücksetzen ≈', 'Zu wenig Daten', 'Gleichmäßige Zyklusreferenz; Beginn als Zurücksetzen minus 7 Tage abgeleitet. Kontoweite Nutzung umfasst andere Geräte und Mitglieder.'],
+    'zh-TW': ['週額度使用節奏', '已用', '參考進度', '週期末預計約', '樣本不足', '均勻消耗的週期平均參考；起點推定為重置時間減去7天。帳號總用量包含其他裝置及成員。'],
+    'zh-CN': ['周额度使用节奏', '已用', '参考进度', '周期末预计约', '样本不足', '均匀消耗的周期平均参考；起点推定为重置时间减去7天。账号总用量包含其他设备及成员。'],
+    ja: ['週間クォータの使用ペース', '使用済み', '基準の進捗', 'リセット時の予測 ≈', 'サンプル不足', '均等消費の周期平均基準。開始はリセットの7日前と推定。アカウント全体の使用量には他の端末やメンバーを含みます。'],
+    ko: ['주간 할당량 사용 속도', '사용량', '기준 진행률', '초기화 시 예상 ≈', '표본 부족', '균등 사용의 주기 평균 기준이며 시작은 초기화 7일 전으로 추정합니다. 계정 전체 사용량에는 다른 기기와 구성원이 포함됩니다.'],
+    'pt-BR': ['Ritmo da cota semanal', 'Usado', 'Progresso de referência', 'Estimativa na redefinição ≈', 'Amostra insuficiente', 'Referência uniforme da média do ciclo; início inferido como redefinição menos 7 dias. O uso da conta inclui outros dispositivos e membros.'],
+    id: ['Laju kuota mingguan', 'Terpakai', 'Progres acuan', 'Perkiraan saat reset ≈', 'Sampel belum cukup', 'Acuan rata-rata siklus dengan pemakaian merata; awal diasumsikan 7 hari sebelum reset. Pemakaian akun mencakup perangkat dan anggota lain.'],
+  };
+  const [title, used, reference, forecast, sample, hint] = copy[language];
+  return { title, used, reference, forecast, sample, hint };
+}
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
@@ -49,6 +74,9 @@ export class StatusBarManager {
   // (@wheelbarrel00), which named a single model; the API now scopes these caps
   // itself, so the label follows whatever it reports.
   private showScopedWeekly: boolean = false;
+  private showWeeklyQuotaPace: boolean = false;
+  private lastClaudePace: QuotaPaceAdapterSnapshot | null = null;
+  private previousClaudePace: QuotaPaceAdapterSnapshot | null = null;
   // Quota display preferences.
   private quotaFiveHourOnly: boolean = false; // show only the 5h window
   private showResetInBar: boolean = false;    // append reset countdown to the bar
@@ -67,6 +95,8 @@ export class StatusBarManager {
     scope: CodexUsageScopeView;
     metric: CodexStatusMetric;
     limit: ProviderLimitSnapshot | null;
+    pace: QuotaPaceAdapterSnapshot | null;
+    previousPace: QuotaPaceAdapterSnapshot | null;
   } | null = null;
 
   constructor() {
@@ -106,6 +136,8 @@ export class StatusBarManager {
           this.lastCodex.scope,
           this.lastCodex.metric,
           this.lastCodex.limit,
+          this.lastCodex.pace,
+          this.lastCodex.previousPace,
         );
       } else {
         this.statusBarItem.text = 'CX —';
@@ -125,7 +157,7 @@ export class StatusBarManager {
         this.lastClaudeUsage.monthData,
       );
     }
-    this.updateQuota(this.lastClaudeQuota);
+    this.updateQuota(this.lastClaudeQuota, this.lastClaudePace, this.previousClaudePace);
     this.updateContext(this.lastClaudeContext);
   }
 
@@ -141,7 +173,8 @@ export class StatusBarManager {
     quotaFiveHourOnly: boolean = false,
     showResetInBar: boolean = false,
     resetCountdownFormat: ResetCountdownFormat = 'decimal',
-    quotaFormat: string = ''
+    quotaFormat: string = '',
+    showWeeklyQuotaPace: boolean = false,
   ): void {
     this.showCost = showCost;
     this.showContext = showContext;
@@ -152,6 +185,15 @@ export class StatusBarManager {
     this.showResetInBar = showResetInBar;
     this.resetCountdownFormat = resetCountdownFormat;
     this.quotaFormat = quotaFormat;
+    this.showWeeklyQuotaPace = showWeeklyQuotaPace && usageLimitTracking;
+    if (!this.showWeeklyQuotaPace) {
+      this.lastClaudePace = null;
+      this.previousClaudePace = null;
+      if (this.lastCodex) {
+        this.lastCodex.pace = null;
+        this.lastCodex.previousPace = null;
+      }
+    }
     if (!showContext) {
       this.contextItem.hide();
     }
@@ -165,7 +207,11 @@ export class StatusBarManager {
         this.lastCodex.scope,
         this.lastCodex.metric,
         this.lastCodex.limit,
+        this.lastCodex.pace,
+        this.lastCodex.previousPace,
       );
+    } else if (this.provider === 'claude' && this.lastClaudeQuota) {
+      this.updateQuota(this.lastClaudeQuota, this.lastClaudePace, this.previousClaudePace);
     }
   }
 
@@ -327,8 +373,14 @@ export class StatusBarManager {
    * OAuth usage API. Hidden when the data is unavailable (e.g. not signed in).
    * Public so it can be refreshed on its own while the rest of the UI is idle.
    */
-  updateQuota(usageLimits: ClaudeApiUsageResponse | null): void {
+  updateQuota(
+    usageLimits: ClaudeApiUsageResponse | null,
+    pace: QuotaPaceAdapterSnapshot | null = null,
+    previousPace: QuotaPaceAdapterSnapshot | null = null,
+  ): void {
     this.lastClaudeQuota = usageLimits;
+    this.lastClaudePace = this.showWeeklyQuotaPace && this.usageLimitTracking ? pace : null;
+    this.previousClaudePace = this.lastClaudePace ? previousPace : null;
     if (this.provider === 'codex') {
       return;
     }
@@ -369,18 +421,60 @@ export class StatusBarManager {
     // the official Claude app does — QUOTA_FILL_THRESHOLDS).
     this.quotaItem.backgroundColor = this.fillBackground(fillLevel(worstPct, QUOTA_FILL_THRESHOLDS));
 
-    this.quotaItem.tooltip = this.createQuotaTooltip(live, creditsFromUsage(usageLimits));
+    const tooltip = this.createQuotaTooltip(live, creditsFromUsage(usageLimits));
+    if (this.showWeeklyQuotaPace && this.lastClaudePace) {
+      const raw = normalizeQuotaWindows(usageLimits);
+      const entries = adaptClaudeQuotaPace({ enabled: true, now: Date.now(), snapshot: this.lastClaudePace, previous: this.previousClaudePace });
+      this.appendQuotaPace(tooltip, entries, (entry) => {
+        const window = raw[entry.slot];
+        const evidence = this.lastClaudePace?.windows.find((w) => w.slot === entry.slot);
+        if (!window || !evidence || raw.length > QUOTA_PACE_MAX_WINDOWS || window.kind !== entry.kind ||
+            !this.hasRawClaudePaceNumber(usageLimits, window) ||
+            window.utilization !== evidence.usedPercent || Date.parse(window.resetsAt) !== evidence.resetAt) return null;
+        return this.quotaRowLabel(window);
+      });
+    }
+    this.quotaItem.tooltip = tooltip;
     this.quotaItem.show();
+  }
+
+  /** normalizeQuotaWindows intentionally tolerates invalid numeric fields for
+   * the existing quota display. That fallback has no prediction authority.
+   * Unknown weekly-group kinds also cannot establish a seven-day duration.
+   */
+  private hasRawClaudePaceNumber(usage: ClaudeApiUsageResponse | null, window: QuotaWindow): boolean {
+    if (!usage) return false;
+    const entries = usage.limits;
+    if (Array.isArray(entries) && entries.length > 0) {
+      if (entries.length > QUOTA_PACE_MAX_WINDOWS) return false;
+      const usesEntries = entries.some((entry) => ['session', 'weekly_all', 'weekly_scoped'].includes(entry.kind ?? '') ||
+        entry.group === 'session' || entry.group === 'weekly');
+      if (usesEntries) {
+        const matches = entries.filter((entry) => entry.kind === window.kind &&
+          (window.kind === 'weekly_all' || (entry.scope?.model?.display_name || entry.scope?.surface || undefined) === window.scopeLabel));
+        return matches.length === 1 && typeof matches[0].percent === 'number' &&
+          Number.isFinite(matches[0].percent) && matches[0].percent === window.utilization &&
+          matches[0].resets_at === window.resetsAt;
+      }
+    }
+    const legacy = window.kind === 'weekly_all' ? usage.seven_day :
+      window.scopeLabel === 'Opus' ? usage.seven_day_opus :
+      window.scopeLabel === 'Sonnet' ? usage.seven_day_sonnet : null;
+    return !!legacy && typeof legacy.utilization === 'number' && Number.isFinite(legacy.utilization) &&
+      legacy.utilization === window.utilization && legacy.resets_at === window.resetsAt;
   }
 
   updateCodex(
     scope: CodexUsageScopeView,
     metric: CodexStatusMetric,
     limit: ProviderLimitSnapshot | null,
+    pace: QuotaPaceAdapterSnapshot | null = null,
+    previousPace: QuotaPaceAdapterSnapshot | null = null,
   ): void {
-    this.lastCodex = { scope, metric, limit };
+    const retainedPace = this.showWeeklyQuotaPace && this.usageLimitTracking ? pace : null;
+    this.lastCodex = { scope, metric, limit, pace: retainedPace, previousPace: retainedPace ? previousPace : null };
     if (this.provider === 'codex') {
-      this.renderCodex(scope, metric, limit);
+      this.renderCodex(scope, metric, limit, this.lastCodex.pace, this.lastCodex.previousPace);
     }
   }
 
@@ -399,6 +493,8 @@ export class StatusBarManager {
     scope: CodexUsageScopeView,
     metric: CodexStatusMetric,
     limit: ProviderLimitSnapshot | null,
+    pace: QuotaPaceAdapterSnapshot | null = null,
+    previousPace: QuotaPaceAdapterSnapshot | null = null,
   ): void {
     const now = Date.now();
     const quotaOptions = { quotaFiveHourOnly: this.quotaFiveHourOnly };
@@ -434,7 +530,7 @@ export class StatusBarManager {
       limit
     ) {
       this.quotaItem.text = `$(dashboard) ${formatted.limitText}`;
-      this.quotaItem.tooltip = this.createCodexQuotaTooltip(limit, now);
+      this.quotaItem.tooltip = this.createCodexQuotaTooltip(limit, now, pace, previousPace);
       this.quotaItem.backgroundColor = this.fillBackground(
         fillLevel(codexQuotaWarningPercent(limit, now, quotaOptions), QUOTA_FILL_THRESHOLDS),
       );
@@ -577,7 +673,12 @@ export class StatusBarManager {
    * Render them with the exact table, progress bar, reset-cell, and threshold
    * vocabulary used by Claude so switching providers does not change the
    * interaction model. */
-  private createCodexQuotaTooltip(limit: ProviderLimitSnapshot, now: number): vscode.MarkdownString {
+  private createCodexQuotaTooltip(
+    limit: ProviderLimitSnapshot,
+    now: number,
+    pace: QuotaPaceAdapterSnapshot | null = null,
+    previousPace: QuotaPaceAdapterSnapshot | null = null,
+  ): vscode.MarkdownString {
     const t = I18n.t.popup;
     const copy = I18n.t.providers.codex;
     const live = visibleCodexQuotaWindows(limit, now, {
@@ -618,7 +719,47 @@ export class StatusBarManager {
     for (const note of copy.accountSnapshotLastObserved.split(' · ')) {
       md.appendMarkdown(`  \n*${note}*`);
     }
+    // A known model-specific allowance cannot be promoted by a generic label.
+    // This excludes incompatible series; account trust still comes from DTO
+    // evidence and is never inferred merely from limitId/name or Codex home.
+    const seriesId = (limit.limitId ?? '').trim().toLowerCase();
+    const seriesName = (limit.limitName ?? '').trim().toLowerCase();
+    if (this.showWeeklyQuotaPace && pace && limit.provider === 'codex' &&
+        limit.source === 'local-log' && (limit.confidence === 'last-observed' || limit.confidence === 'exact') &&
+        (seriesId ? seriesId === 'codex' : !seriesName || seriesName === 'codex') &&
+        pace.observedAt === limit.observedAt &&
+        limit.windows.length <= QUOTA_PACE_MAX_WINDOWS &&
+        limit.windows.filter((window) => window.windowMinutes === 10080).length === 1) {
+      const entries = adaptCodexQuotaPace({ enabled: true, now, snapshot: pace, previous: previousPace });
+      this.appendQuotaPace(md, entries, (entry) => {
+        const window = limit.windows[entry.slot];
+        const evidence = pace.windows.find((w) => w.slot === entry.slot);
+        return window && evidence && window.windowMinutes === 10080 &&
+          window.usedPercent === evidence.usedPercent && window.resetsAt === evidence.resetAt
+          ? t.quotaWeekly : null;
+      });
+    }
     return md;
+  }
+
+  private appendQuotaPace(
+    md: vscode.MarkdownString,
+    entries: readonly QuotaPaceAdapterEntry[],
+    labelFor: (entry: QuotaPaceAdapterEntry) => string | null,
+  ): void {
+    const copy = weeklyQuotaPaceCopy(I18n.getCurrentLanguage());
+    let body = '';
+    for (const entry of entries) {
+      const result = entry.result;
+      if (result.status !== 'ready' && result.status !== 'insufficient-sample') continue;
+      const label = labelFor(entry);
+      if (!label) continue;
+      const forecast = result.status === 'ready'
+        ? `${copy.forecast} ${Math.round(result.forecastPercent)}%` : copy.sample;
+      body += `${this.escapeTooltipHtml(label)}: ${copy.used} ${Math.round(result.usedPercent)}% · ` +
+        `${copy.reference} ${Math.round(result.referencePercent)}% · ${forecast}  \n`;
+    }
+    if (body) md.appendMarkdown(`\n\n**${copy.title}**\n\n${body}\n*${copy.hint}*`);
   }
 
   /** Provider labels can originate in local structured observations. Escape

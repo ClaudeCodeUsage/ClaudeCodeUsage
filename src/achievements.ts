@@ -1,9 +1,14 @@
 import type { CodexFileAggregate } from './providers/codex/codexIndex';
+import { API_ACHIEVEMENT_DEFINITIONS, API_ACHIEVEMENT_SERIES, achievementMoneyProgress,
+  type AchievementMoneyFacts } from './achievementMoneyCatalog';
+import type {AchievementMoneyScopes} from './achievementMoneyScopes';
 import type { ProviderTokenCounts } from './providers/providerTypes';
 import type { AchievementActivity } from './achievementActivity';
 import { SAFE_EXPLORATION_FEATURES } from './achievementActivity';
 import { validAchievementBuckets, verifiedCodexAchievementFiles } from './codexAchievementProof';
 import type { AchievementCalendarSignals, AchievementDayEvidence, AchievementTokenEvidence } from './achievementCalendar';
+import { codexCollaborationEvidence, AchievementCollaborationEvidence } from './achievementCollaboration';
+import { RECALIBRATED_ACHIEVEMENT_IDS_V2 } from './achievementRuleVersions';
 
 export type CodexModelFamily = 'astra' | 'sol' | 'luna';
 export type ClaudeModelFamily = 'sonnet' | 'opus' | 'haiku';
@@ -33,9 +38,13 @@ export interface CodexAchievementSignals {
   verifiedRootCount?: number;
   verifiedChildCount?: number;
   multiModelRootCount?: number;
+  /** Versioned joint counters, never inferred from old marginal maxima. */
+  collaboration?: AchievementCollaborationEvidence;
+  money?: AchievementMoneyScopes;
 }
 
 export interface AchievementFacts {
+  money?: AchievementMoneyFacts;
   /** Local recorded volume only; never a billing or productivity measure. */
   claudeTokens: number;
   claudeOutputTokens?: number;
@@ -46,6 +55,7 @@ export interface AchievementFacts {
   activeDays: number;
   claudeFamilies: string[];
   claudeFamilyTokens?: Partial<Record<ClaudeModelFamily, number>>;
+  claudeFamilyOutputTokens?: Partial<Record<ClaudeModelFamily, number>>;
   fable?: FableAchievementSignals;
   weeklyPeakProcessed?: number;
   codexOutputTokens?: number;
@@ -71,6 +81,7 @@ const CLAUDE_OTHER_MODEL_ID = /^(?:[a-z]{2}\.anthropic\.)?claude-(?:3-\d-)?(sonn
 
 export interface FableAchievementSignals {
   processedTokens: number;
+  outputTokens?: number;
   activeDays: number;
   mixedFamilySession: boolean;
   outputSessions: number;
@@ -171,6 +182,8 @@ export function fableAchievementSignals(input: {
   });
   return {
     processedTokens, activeDays,
+    outputTokens: Object.entries(input.allTimeModels).filter(([model]) => claudeAchievementFamily(model) === 'fable')
+      .reduce((sum,[,tokens]) => sum + (positiveOutput(tokens) ? tokens.outputTokens : 0),0),
     mixedFamilySession: input.sessionEvidence?.fableMixedFamilySession ?? mixedFamilySession,
     outputSessions: input.sessionEvidence?.fableOutputSessions ?? outputSessionKeys.size,
     allOutputSessions: input.sessionEvidence?.outputSessions ?? allOutputSessionKeys.size,
@@ -278,24 +291,24 @@ export const ACHIEVEMENT_DEFINITIONS = [
   { id: 'luna-regular', group: 'codex', target: 100_000_000 },
   { id: 'luna-regular-silver', group: 'codex', target: 1_000_000_000 },
   { id: 'luna-regular-gold', group: 'codex', target: 10_000_000_000 },
-  { id: 'agent-standup', group: 'codex', target: 3 },
-  { id: 'tiny-ai-company', group: 'codex', target: 5 },
-  { id: 'agent-team-gold', group: 'codex', target: 10 },
-  { id: 'agent-conductor', group: 'codex', target: 5 },
-  { id: 'agent-conductor-silver', group: 'codex', target: 25 },
-  { id: 'agent-conductor-gold', group: 'codex', target: 100 },
+  { id: 'agent-standup', group: 'codex', target: 5 },
+  { id: 'tiny-ai-company', group: 'codex', target: 20 },
+  { id: 'agent-team-gold', group: 'codex', target: 50 },
+  { id: 'agent-conductor', group: 'codex', target: 10 },
+  { id: 'agent-conductor-silver', group: 'codex', target: 50 },
+  { id: 'agent-conductor-gold', group: 'codex', target: 200 },
   { id: 'root-portfolio-bronze', group: 'codex', target: 25 },
   { id: 'root-portfolio-silver', group: 'codex', target: 250 },
   { id: 'root-portfolio-gold', group: 'codex', target: 2_000 },
-  { id: 'agent-participation-bronze', group: 'codex', target: 10 },
-  { id: 'agent-participation-silver', group: 'codex', target: 100 },
-  { id: 'agent-participation-gold', group: 'codex', target: 1_000 },
-  { id: 'model-relay-roots-bronze', group: 'codex', target: 5 },
-  { id: 'model-relay-roots-silver', group: 'codex', target: 50 },
-  { id: 'model-relay-roots-gold', group: 'codex', target: 500 },
-  { id: 'multi-core-human', group: 'codex', target: 2 },
-  { id: 'same-root-models-silver', group: 'codex', target: 3 },
-  { id: 'same-root-models-gold', group: 'codex', target: 4 },
+  { id: 'agent-participation-bronze', group: 'codex', target: 25 },
+  { id: 'agent-participation-silver', group: 'codex', target: 250 },
+  { id: 'agent-participation-gold', group: 'codex', target: 2_500 },
+  { id: 'model-relay-roots-bronze', group: 'codex', target: 10 },
+  { id: 'model-relay-roots-silver', group: 'codex', target: 100 },
+  { id: 'model-relay-roots-gold', group: 'codex', target: 1_000 },
+  { id: 'multi-core-human', group: 'codex', target: 3 },
+  { id: 'same-root-models-silver', group: 'codex', target: 10 },
+  { id: 'same-root-models-gold', group: 'codex', target: 30 },
   { id: 'effort-explorer', group: 'codex', target: 4 },
   { id: 'effort-breadth-silver', group: 'codex', target: 5 },
   { id: 'effort-spectrum', group: 'codex', target: 6 },
@@ -349,6 +362,7 @@ export const ACHIEVEMENT_DEFINITIONS = [
   { id: 'weekly-average-gold', group: 'combined', target: 5_000_000_000 },
   { id: 'three-family-day', group: 'combined', target: 1 },
   { id: 'dual-provider-day', group: 'combined', target: 1 },
+  ...API_ACHIEVEMENT_DEFINITIONS,
 ] as const;
 
 export type AchievementId = typeof ACHIEVEMENT_DEFINITIONS[number]['id'];
@@ -394,6 +408,7 @@ export const ACHIEVEMENT_SERIES: Record<string, readonly AchievementId[]> = {
   'dual-provider-days': ['dual-provider-days-bronze', 'dual-provider-days-silver', 'dual-provider-days-gold'],
   'active-weeks': ['active-weeks-bronze', 'active-weeks-silver', 'active-weeks-gold'],
   'weekly-average': ['weekly-average-bronze', 'weekly-average-silver', 'weekly-average-gold'],
+  ...API_ACHIEVEMENT_SERIES,
 };
 
 const QUIET_ACHIEVEMENTS = new Set<AchievementId>([
@@ -412,6 +427,7 @@ const PRE_CALIBRATION_LADDERS: Record<string, readonly number[]> = {
 };
 const CALIBRATION_RECHECK_ONLY: readonly AchievementId[] = [
   ...ACHIEVEMENT_SERIES['fable-days'], ...ACHIEVEMENT_SERIES['active-weeks'], 'three-family-day',
+  ...RECALIBRATED_ACHIEVEMENT_IDS_V2,
 ];
 export const CALIBRATED_ACHIEVEMENT_IDS: readonly AchievementId[] = [
   ...Object.keys(PRE_CALIBRATION_LADDERS).flatMap(series => ACHIEVEMENT_SERIES[series]),
@@ -431,6 +447,7 @@ export function migrateCalibratedAchievementGrants(value: unknown): AchievementI
     const provenFloor = ids.reduce((floor, id, index) => existing.has(id)
       ? Math.max(floor, formerTargets[index]) : floor, 0);
     for (const id of ids) {
+      if (RECALIBRATED_ACHIEVEMENT_IDS_V2.includes(id)) continue;
       const target = ACHIEVEMENT_DEFINITIONS.find(rule => rule.id === id)!.target;
       if (provenFloor >= target) retained.add(id);
     }
@@ -578,6 +595,7 @@ export function codexModelSignals(files: readonly CodexFileAggregate[]): CodexAc
     verifiedRootCount: modelsByRoot.size,
     verifiedChildCount: verifiedChildren.size,
     multiModelRootCount: [...modelsByRoot.values()].filter((rootModels) => rootModels.size >= 2).length,
+    collaboration: codexCollaborationEvidence(files),
   };
 }
 
@@ -609,11 +627,14 @@ function safeCount(value: number | undefined): number {
 export function evaluateAchievements(facts: AchievementFacts): AchievementResult[] {
   const combined = safeCount(facts.claudeTokens) + safeCount(facts.codexTokens);
   const diverseFamilies = (['sonnet', 'opus', 'haiku'] as const)
-    .filter((family) => safeCount(facts.claudeFamilyTokens?.[family]) >= 500_000).length +
+    .filter((family) => safeCount(facts.claudeFamilyTokens?.[family]) >= 10_000_000 &&
+      safeCount(facts.claudeFamilyOutputTokens?.[family]) >= 20_000).length +
     (['astra', 'sol', 'luna'] as const)
-      .filter((family) => safeCount(facts.codex.familyProcessedTokens?.[family]) >= 500_000).length +
-    (safeCount(facts.fable?.processedTokens) >= 500_000 ? 1 : 0);
+      .filter((family) => safeCount(facts.codex.collaboration?.rainbowFamilies[family].processed) >= 10_000_000 &&
+        safeCount(facts.codex.collaboration?.rainbowFamilies[family].output) >= 20_000).length +
+    (safeCount(facts.fable?.processedTokens) >= 10_000_000 && safeCount(facts.fable?.outputTokens) >= 20_000 ? 1 : 0);
   const values: Record<AchievementId, number> = {
+    ...achievementMoneyProgress(facts.money),
     'sonnet-main': safeCount(facts.claudeFamilyTokens?.sonnet),
     'sonnet-main-silver': safeCount(facts.claudeFamilyTokens?.sonnet),
     'sonnet-main-gold': safeCount(facts.claudeFamilyTokens?.sonnet),
@@ -668,30 +689,27 @@ export function evaluateAchievements(facts: AchievementFacts): AchievementResult
     'luna-regular': safeCount(facts.codex.familyProcessedTokens?.luna),
     'luna-regular-silver': safeCount(facts.codex.familyProcessedTokens?.luna),
     'luna-regular-gold': safeCount(facts.codex.familyProcessedTokens?.luna),
-    'agent-standup': safeCount(facts.codex.maxVerifiedAgentsPerRoot),
-    'tiny-ai-company': safeCount(facts.codex.maxVerifiedAgentsPerRoot),
-    'agent-team-gold': safeCount(facts.codex.maxVerifiedAgentsPerRoot),
-    'agent-conductor': safeCount(facts.codex.multiAgentRootCount),
-    'agent-conductor-silver': safeCount(facts.codex.multiAgentRootCount),
-    'agent-conductor-gold': safeCount(facts.codex.multiAgentRootCount),
+    'agent-standup': safeCount(facts.codex.collaboration?.teamTaskCounts[0]),
+    'tiny-ai-company': safeCount(facts.codex.collaboration?.teamTaskCounts[1]),
+    'agent-team-gold': safeCount(facts.codex.collaboration?.teamTaskCounts[2]),
+    'agent-conductor': safeCount(facts.codex.collaboration?.orchestratedTasks),
+    'agent-conductor-silver': safeCount(facts.codex.collaboration?.orchestratedTasks),
+    'agent-conductor-gold': safeCount(facts.codex.collaboration?.orchestratedTasks),
     'root-portfolio-bronze': safeCount(facts.codex.verifiedRootCount),
     'root-portfolio-silver': safeCount(facts.codex.verifiedRootCount),
     'root-portfolio-gold': safeCount(facts.codex.verifiedRootCount),
-    'agent-participation-bronze': safeCount(facts.codex.verifiedChildCount),
-    'agent-participation-silver': safeCount(facts.codex.verifiedChildCount),
-    'agent-participation-gold': safeCount(facts.codex.verifiedChildCount),
-    'model-relay-roots-bronze': safeCount(facts.codex.multiModelRootCount),
-    'model-relay-roots-silver': safeCount(facts.codex.multiModelRootCount),
-    'model-relay-roots-gold': safeCount(facts.codex.multiModelRootCount),
-    'multi-core-human': safeCount(facts.codex.maxRealModelsPerRoot),
-    'same-root-models-silver': safeCount(facts.codex.maxRealModelsPerRoot),
-    'same-root-models-gold': safeCount(facts.codex.maxRealModelsPerRoot),
-    'effort-explorer': SPECTRUM_EFFORTS
-      .filter((tier) => safeCount(facts.codex.effortProcessedTokens?.[tier]) >= 10_000_000).length,
-    'effort-breadth-silver': SPECTRUM_EFFORTS
-      .filter((tier) => safeCount(facts.codex.effortProcessedTokens?.[tier]) >= 10_000_000).length,
-    'effort-spectrum': SPECTRUM_EFFORTS
-      .filter((tier) => safeCount(facts.codex.effortProcessedTokens?.[tier]) >= 10_000_000).length,
+    'agent-participation-bronze': safeCount(facts.codex.collaboration?.qualifiedSubagentCount),
+    'agent-participation-silver': safeCount(facts.codex.collaboration?.qualifiedSubagentCount),
+    'agent-participation-gold': safeCount(facts.codex.collaboration?.qualifiedSubagentCount),
+    'model-relay-roots-bronze': safeCount(facts.codex.collaboration?.multiModelTasks),
+    'model-relay-roots-silver': safeCount(facts.codex.collaboration?.multiModelTasks),
+    'model-relay-roots-gold': safeCount(facts.codex.collaboration?.multiModelTasks),
+    'multi-core-human': safeCount(facts.codex.collaboration?.modelTaskCounts[0]),
+    'same-root-models-silver': safeCount(facts.codex.collaboration?.modelTaskCounts[1]),
+    'same-root-models-gold': safeCount(facts.codex.collaboration?.modelTaskCounts[2]),
+    'effort-explorer': safeCount(facts.codex.collaboration?.effortQualifiedTierCounts[0]),
+    'effort-breadth-silver': safeCount(facts.codex.collaboration?.effortQualifiedTierCounts[1]),
+    'effort-spectrum': safeCount(facts.codex.collaboration?.effortQualifiedTierCounts[2]),
     'active-day-streak': safeCount(facts.longestStreak),
     'active-day-streak-silver': safeCount(facts.longestStreak),
     'active-day-streak-gold': safeCount(facts.longestStreak),

@@ -6,6 +6,9 @@ import * as path from 'node:path';
 import { ACHIEVEMENT_DEFINITIONS } from '../achievements';
 import { spawn } from 'node:child_process';
 import { acquireCodexIndexLease } from '../providers/codex/codexIndexLease';
+import { isLegacyAchievementId } from '../achievementRuleVersions';
+import { API_ACHIEVEMENT_DEFINITIONS } from '../achievementMoneyCatalog';
+import { getAchievementMoneyPricebook } from '../achievementMoney';
 
 // Dynamic loading lets the initial red test fail on the missing implementation,
 // rather than preventing the existing project from compiling.
@@ -295,7 +298,9 @@ test('old grants migrate quietly with unknown dates, once and within 64 KiB', as
   await withStore(async file => {
     const api = storeApi();
     const repository = new api.AchievementRecordRepository(file);
-    const first = await repository.initialize(ACHIEVEMENT_DEFINITIONS.map(row => row.id));
+    const legacyIds = ACHIEVEMENT_DEFINITIONS.filter(row => isLegacyAchievementId(row.id)).map(row => row.id);
+    assert.equal(legacyIds.length, 124);
+    const first = await repository.initialize(legacyIds);
     assert.equal(first.records.length, 124);
     assert.ok(first.records.every((row: any) => row.origin === 'existing' && row.recordedDay === null && row.timeZone === null && !row.unread));
     assert.equal(new Set(first.records.map((row: any) => row.seq)).size, 124);
@@ -303,6 +308,27 @@ test('old grants migrate quietly with unknown dates, once and within 64 KiB', as
     assert.equal((await repository.initialize(['unknown-private-canary'])).records.length, 124, 'existing canonical state wins over stale legacy input');
     assert.equal(api.recentAchievementRecords(first).length, 30);
   });
+});
+
+test('frozen V1 initialization, append and codec reject every new money ID without changing bytes', async () => {
+  for (const rule of API_ACHIEVEMENT_DEFINITIONS) {
+    await withStore(async file => {
+      const api = storeApi(), repository = new api.AchievementRecordRepository(file);
+      assert.equal(isLegacyAchievementId(rule.id), false);
+      await assert.rejects(repository.initialize([rule.id]), /invalid/);
+      assert.deepEqual(await readdir(path.dirname(file)), [], 'rejected migration creates no canonical proof');
+      const initial = await repository.initialize([]);
+      const before = await readFile(file, 'utf8');
+      const referencePricebook = getAchievementMoneyPricebook(rule.group === 'codex' ? 'openai' : 'anthropic').version;
+      const draft = { id: rule.id, origin: 'usage', ...recording, referencePricebook };
+      await assert.rejects(repository.append(initial.generation, [draft]), /invalid/);
+      const record = { ...draft, ruleVersion: 1, seq: 1, unread: true };
+      assert.throws(() => api.parseAchievementRecordStore({ ...initial, sequence: 1, records: [record] }), /invalid/);
+      const { referencePricebook: _reference, ...withoutReference } = record;
+      assert.throws(() => api.parseAchievementRecordStore({ ...initial, sequence: 1, records: [withoutReference] }), /invalid/);
+      assert.equal(await readFile(file, 'utf8'), before);
+    });
+  }
 });
 
 test('two independent repositories merge concurrent append without lost or duplicate awards', async () => {

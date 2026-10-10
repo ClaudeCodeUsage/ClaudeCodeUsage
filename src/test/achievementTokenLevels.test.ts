@@ -19,6 +19,18 @@ function facts(files: CodexFileAggregate[]): AchievementFacts {
   return { claudeTokens: 0, codexTokens: 0, activeDays: 0, claudeFamilies: [], codex: codexModelSignals(files) };
 }
 
+const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
+function effortTasks(processed: number, output: number, tasks: number, tiers: number): CodexFileAggregate[] {
+  const share = (total: number, index: number) => Math.floor(total / tasks) + (index < total % tasks ? 1 : 0);
+  return Array.from({ length: tasks }, (_, index) => {
+    const input = share(processed - output, index), out = share(output, index);
+    const row = aggregate(`task-${index}`, input * tiers, out * tiers);
+    row.byEffort = Object.fromEntries(efforts.slice(0, tiers).map(effort => [effort,
+      { inputTotal: input, outputTotal: out }]));
+    return row;
+  });
+}
+
 test('Codex family progress is processed Token volume, not roots or cached/reasoning subsets', () => {
   const result = evaluateAchievements(facts([aggregate('one', 499_000_000, 1_000_000)]))
     .find((row) => row.id === 'astra-regular')!;
@@ -33,17 +45,64 @@ test('Codex family progress is processed Token volume, not roots or cached/reaso
   assert.equal(manyTinyRoots.unlocked, false);
 });
 
-test('Codex effort breadth and model rainbow require substantive Tokens, not root counts', () => {
+test('old input-only effort volume cannot prove joint effort breadth; qualified family volume remains independent', () => {
   const substantial = aggregate('large', 100_000_000, 1);
-  const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
   substantial.byEffort = Object.fromEntries(efforts.map((effort) => [effort,
     { inputTotal: 10_000_000, outputTotal: 0 }]));
   const results = new Map(evaluateAchievements(facts([substantial])).map((row) => [row.id, row]));
-  assert.equal(results.get('effort-spectrum')?.unlocked, true);
-  assert.equal(results.get('model-rainbow-bronze')?.progress, 1);
+  assert.equal(results.get('effort-spectrum')?.unlocked, false);
+  assert.equal(results.get('effort-spectrum')?.progress, 0);
+  assert.equal(results.get('model-rainbow-bronze')?.progress, 0, 'one output token is below the family output floor');
+  const qualifiedFamily = evaluateAchievements(facts([aggregate('family', 9_980_000, 20_000)]))
+    .find(row => row.id === 'model-rainbow-bronze')!;
+  assert.equal(qualifiedFamily.progress, 1);
+  assert.equal(qualifiedFamily.unlocked, false, 'bronze still requires two qualified families');
   const tiny = aggregate('tiny', 6, 0);
   tiny.byEffort = Object.fromEntries(efforts.map((effort) => [effort, { inputTotal: 1, outputTotal: 0 }]));
   assert.equal(evaluateAchievements(facts([tiny])).find((row) => row.id === 'effort-spectrum')?.unlocked, false);
+});
+
+test('effort tiers require their own processed, output and distinct-task floors at every level', () => {
+  for (const [id, processed, output, tasks, tiers] of [
+    ['effort-explorer', 100_000_000, 100_000, 5, 4],
+    ['effort-breadth-silver', 500_000_000, 500_000, 10, 5],
+    ['effort-spectrum', 2_000_000_000, 2_000_000, 30, 6],
+  ] as const) {
+    const read = (rows: CodexFileAggregate[]) => evaluateAchievements(facts(rows)).find(row => row.id === id)!;
+    const exact = read(effortTasks(processed, output, tasks, tiers));
+    assert.equal(exact.target, tiers, id);
+    assert.equal(exact.progress, tiers, id);
+    assert.equal(exact.unlocked, true, id);
+    for (const [label, rows] of [
+      ['processed', effortTasks(processed - 1, output, tasks, tiers)],
+      ['output', effortTasks(processed, output - 1, tasks, tiers)],
+      ['tasks', effortTasks(processed, output, tasks - 1, tiers)],
+      ['breadth', effortTasks(processed, output, tasks, tiers - 1)],
+    ] as const) assert.equal(read(rows).unlocked, false, `${id}: below ${label} floor`);
+
+    const misaligned = effortTasks(processed, output, tasks, tiers);
+    for (const row of misaligned) {
+      const bucket = row.byEffort[efforts[tiers - 1]]!;
+      row.total.inputTotal += bucket.outputTotal;
+      row.total.cachedInput! += bucket.outputTotal;
+      row.total.outputTotal -= bucket.outputTotal;
+      row.total.reasoningOutput! -= bucket.outputTotal;
+      row.byEffort[efforts[tiers - 1]] = { inputTotal: bucket.inputTotal + bucket.outputTotal, outputTotal: 0 };
+    }
+    assert.equal(read(misaligned).progress, tiers - 1, `${id}: peer output cannot qualify an input-only tier`);
+  }
+});
+
+test('Codex rainbow families qualify only at both processed and output boundaries', () => {
+  for (const [input, output, progress] of [
+    [9_980_000, 20_000, 1], [9_979_999, 20_000, 0],
+    [9_980_001, 19_999, 0], [10_000_000, 0, 0],
+  ]) {
+    const result = evaluateAchievements(facts([aggregate('family', input, output)]))
+      .find(row => row.id === 'model-rainbow-bronze')!;
+    assert.equal(result.progress, progress, `${input} input / ${output} output`);
+    assert.equal(result.unlocked, false);
+  }
 });
 
 test('duplicate session identities and invalid bucket totals do not manufacture family Token progress', () => {

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "mode": "built-in image_gen",
+  "generatedOn": "2026-10-10",
+  "transparentBackground": false,
+  "packagedSize": {
+    "width": 256,
+    "height": 256
+  },
+  "packaging": "Selected built-in outputs copied into the project and downscaled with macOS sips; no content edits.",
+  "assets": [
+    {
+      "file": "claude-api-total-v242.png",
+      "prompt": "Use case: stylized-concept. Asset type: one small raster achievement emblem for a VS Code local usage tracker, same visual language as the inspected bundled icons: square off-white canvas, thick near-black rounded-square frame, bold friendly flat pictogram, subtle shadow, generous padding, legible at 56px. Primary request: Claude cumulative API-equivalent usage badge. Depict an orange pixel-like friendly crab robot beside three stacked accounting ledger tiles, each tile contains a simple resource line and a small orange API chip symbol. The ledger accumulation, not coins, signifies accumulated metered API resources. Palette off-white, charcoal outlines, warm coral orange, a small muted teal detail. Centered clean composition with no scene/background clutter. No text, numerals, dollar signs, letters, logos, currency, money bags, trophies or wealth imagery. The image communicates recorded resource accumulation, not financial gain or productivity. Produce exactly one square emblem, not a contact sheet."
+    },
+    {
+      "file": "claude-api-week-v242.png",
+      "prompt": "Use case: stylized-concept. Asset type: one small raster achievement emblem for a VS Code local usage tracker. Primary request: An orange friendly crab robot beside a large simple calendar card with exactly seven small day squares arranged on a single row, a thin recording line underneath, and one small orange API chip. The closed seven-day calendar distinguishes a completed week. Style: off-white square canvas with a thick near-black rounded-square frame, friendly flat pictogram with bold dark outlines, subtle grounding shadow, generous padding and simple shapes legible at 56px. Match the previously generated cumulative Claude API resource emblem, warm coral orange robot, muted teal resource line, charcoal outlines. Centered clean composition. No text, numerals, letters, dollar signs, currency, logos, trophies or wealth imagery. This denotes recorded API resources, not money gained or productivity. Produce exactly one square emblem, never a contact sheet."
+    },
+    {
+      "file": "claude-api-session-v242.png",
+      "prompt": "Use case: stylized-concept. Asset type: one small raster achievement emblem for a VS Code local usage tracker. Primary request: An orange friendly crab robot holding one large single resource ledger tile with a simple bracket-shaped session outline and a small orange API chip. One compact transcript/session is unmistakable, not a stack or calendar. Style: off-white square canvas with a thick near-black rounded-square frame, friendly flat pictogram with bold dark outlines, subtle grounding shadow, generous padding and simple shapes legible at 56px. Match the previously generated cumulative Claude API resource emblem, warm coral orange robot, muted teal resource line, charcoal outlines. Centered clean composition. No text, numerals, letters, dollar signs, currency, logos, trophies or wealth imagery. This denotes recorded API resources, not money gained or productivity. Produce exactly one square emblem, never a contact sheet."
+    },
+    {
+      "file": "codex-api-total-v242.png",
+      "prompt": "Use case: stylized-concept. Asset type: one bundled raster achievement emblem for a VS Code usage tracker. Primary request: a small friendly blue cloud-shaped terminal robot with two short legs, beside three stacked resource ledger tiles with teal lines and blue API chip symbols; accumulated API resource records. Same visual language as generated orange Claude API icons and inspected Codex output icon: off-white square canvas, thick near-black rounded-square border, friendly flat illustrated pictogram with bold dark outlines, subtle shadow, generous padding, simple shape readable at 56px. Blue-violet robot, teal resource lines, near-black strokes. The robot face may show a simple white terminal chevron, not a word or logo. Centered clean composition. No text, letters, numerals, dollar signs, currency, logos, trophies, coin stacks or financial gain imagery. Depicts recorded API resources only. Exactly one square emblem, never a contact sheet."
+    },
+    {
+      "file": "codex-api-week-v242.png",
+      "prompt": "Use case: stylized-concept. Asset type: one bundled raster achievement emblem for a VS Code usage tracker. Primary request: a small friendly blue cloud-shaped terminal robot beside a large simple calendar card with exactly seven day squares in one row, a teal recording line and a small blue API chip; a completed seven-day API resource window. Same visual language as generated orange Claude API icons and inspected Codex output icon: off-white square canvas, thick near-black rounded-square border, friendly flat illustrated pictogram with bold dark outlines, subtle shadow, generous padding, simple shape readable at 56px. Blue-violet robot, teal resource lines, near-black strokes. The robot face may show a simple white terminal chevron, not a word or logo. Centered clean composition. No text, letters, numerals, dollar signs, currency, logos, trophies, coin stacks or financial gain imagery. Depicts recorded API resources only. Exactly one square emblem, never a contact sheet."
+    },
+    {
+      "file": "codex-api-task-v242.png",
+      "prompt": "Use case: stylized-concept. Asset type: one raster Codex single-task API-equivalent usage achievement emblem for a VS Code local tracker. Off-white square canvas, thick near-black rounded-square frame, friendly blue-violet cloud-shaped terminal robot, bold dark outlines, muted teal accents, subtle grounding shadow, generous padding. Match the cumulative and weekly API resource icons generated in this conversation. Primary subject: the small robot holds one large task resource ledger tile, with a simple compact connected task-tree glyph inside the tile: one top square linked to three small lower squares, and one small API chip at the lower corner. Exactly one task tree and one ledger tile, not a stack or calendar. Simple readable silhouette at 56px. No text, letters, numerals, dollar signs, coins, logos, trophies or wealth imagery. This represents metered resources in one verified task, not quality or money earned. Exactly one square emblem, never a contact sheet."
+    }
+  ]
+}

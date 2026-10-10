@@ -6,6 +6,8 @@ const TOKEN_STAGE_SERIES = new Set([
   'weekly-volume', 'weekly-average', 'sonnet-main', 'opus-cannon',
   'haiku-worker', 'fable-volume', 'cache-wizard', 'claude-cache-creation',
   'claude-output', 'codex-output', 'codex-cache-read',
+  'claude-api-total','claude-api-week','claude-api-session',
+  'codex-api-total','codex-api-week','codex-api-task',
 ]);
 const targets = new Map(ACHIEVEMENT_DEFINITIONS.map(rule => [rule.id, rule.target]));
 

@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import type { AchievementId } from './achievements';
+import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievementMoneyCatalog';
+const apiImageFiles = Object.fromEntries(API_ACHIEVEMENT_DEFINITIONS.map(row=>
+  [row.id,row.id.replace(/-(bronze|silver|gold|platinum)$/,'-v242.png')])) as Record<AchievementMoneyId,string>;
 
 /** Only bundled artwork can appear in the gallery or exported SVG. */
 export const ACHIEVEMENT_IMAGE_FILES: Record<AchievementId, string> = {
+  ...apiImageFiles,
   'codex-output-bronze': 'codex-output-v242.png',
   'codex-output-silver': 'codex-output-v242.png',
   'codex-output-gold': 'codex-output-v242.png',

@@ -1,7 +1,28 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import { ACHIEVEMENT_DEFINITIONS } from '../achievements';
+import { achievementRuleVersion } from '../achievementRuleVersions';
+import { isAchievementMoneyId } from '../achievementMoneyCatalog';
+import { getAchievementMoneyPricebook } from '../achievementMoney';
+import { parseAchievementRecordStore, type AchievementRecord } from '../achievementRecordStore';
 
 const overview = require('../achievementOverview') as any;
+
+function currentRecords(): AchievementRecord[] {
+  const records: AchievementRecord[] = ACHIEVEMENT_DEFINITIONS.map((rule, index) => ({
+    id: rule.id, seq: index + 1, origin: 'usage', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai',
+    ruleVersion: achievementRuleVersion(rule.id), unread: true,
+    ...(isAchievementMoneyId(rule.id) ? { referencePricebook:
+      getAchievementMoneyPricebook(rule.group === 'codex' ? 'openai' : 'anthropic').version } : {}),
+  }));
+  // The projection receives valid current proof, including recalibrated rules
+  // and the frozen provider-specific reference identity for money awards.
+  return parseAchievementRecordStore({ schemaVersion: 2, catalogVersion: 2, generation: 1,
+    sequence: records.length, lastNoticeAt: 0, pins: [], records, legacyRecords: [],
+    showcaseMode: 'automatic', pinRevision: 0, legacyBoundary: null,
+    auxiliary: { activity: { schemaVersion: 2, settingKeys: [], features: [] },
+      hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null } }).records;
+}
 
 test('recent records collapse display themes but retain exact milestone identity and unread levels', () => {
   const records = ['active-day-streak', 'streak-machine', 'dual-provider-days-bronze', 'dual-provider-day']
@@ -21,16 +42,15 @@ test('old milestone pin keys select their canonical display theme without duplic
 });
 
 test('unread batches keep six exact levels, omit hidden and quiet awards, and read beyond history cap', () => {
-  const { ACHIEVEMENT_DEFINITIONS } = require('../achievements');
-  const records = ACHIEVEMENT_DEFINITIONS.map((rule: any, index: number) => ({ id: rule.id, seq: index + 1,
-    origin: 'usage', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai', ruleVersion: 1, unread: true }));
+  const records = currentRecords();
   const visible = records.map((item: any) => item.id);
   const before = JSON.stringify(records);
   const batch = overview.selectUnreadAchievementBatch(records, visible);
-  assert.equal(batch.total, 124);
+  assert.equal(batch.total, records.length);
   assert.equal(batch.records.length, 6);
-  assert.deepEqual(batch.records.map((item: any) => item.seq), [124, 123, 122, 121, 120, 119]);
-  assert.equal(batch.sequence, 124);
+  const latest = records.slice().sort((a, b) => b.seq - a.seq).slice(0, 6);
+  assert.deepEqual(batch.records, latest);
+  assert.equal(batch.sequence, latest[0].seq);
   const older = overview.selectUnreadAchievementBatch(records.map((item: any) => ({ ...item, unread: item.seq <= 2 })), visible);
   assert.deepEqual(older.records.map((item: any) => item.id), [records[1].id, records[0].id]);
   const exact = overview.selectUnreadAchievementBatch([
@@ -45,7 +65,8 @@ test('unread batches keep six exact levels, omit hidden and quiet awards, and re
   assert.deepEqual(exact.records.map((item: any) => item.id), ['astra-regular-silver', 'astra-regular']);
   assert.equal(JSON.stringify(records), before);
   batch.records[0].unread = false;
-  assert.equal(records[123].unread, true, 'display owns copies, not the canonical unread bits');
+  assert.equal(records.find(record => record.seq === latest[0].seq)!.unread, true,
+    'display owns copies, not the canonical unread bits');
 });
 
 test('a represented unread batch never widens to later awards during unrelated refresh', () => {
@@ -102,14 +123,13 @@ test('record projection separates real recent actions from quiet history and kee
 });
 
 test('recent records collapse series by last recorded level and bound history without deleting awards', () => {
-  const { ACHIEVEMENT_DEFINITIONS } = require('../achievements');
-  const records = ACHIEVEMENT_DEFINITIONS.map((rule: any, index: number) => ({ id: rule.id, seq: index + 1,
-    origin: 'usage', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai', ruleVersion: 1, unread: true }));
+  const records = currentRecords();
   const before = JSON.stringify(records);
   const projected = overview.projectAchievementRecords(records, records.map((record: any) => record.id));
   assert.equal(projected.recent.length, 3);
   assert.equal(projected.history.length, 30);
-  assert.equal(projected.unreadIds.length, 124);
+  assert.deepEqual(projected.history, records.slice().sort((a, b) => b.seq - a.seq).slice(0, 30));
+  assert.deepEqual(projected.unreadIds, records.map(record => record.id));
   assert.equal(JSON.stringify(records), before);
   const paired = overview.projectAchievementRecords(records.filter((record: any) => /^astra-regular(?:-|$)/.test(record.id)),
     records.map((record: any) => record.id));

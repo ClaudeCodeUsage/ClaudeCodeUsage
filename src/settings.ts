@@ -555,6 +555,16 @@ export const SETTINGS: SettingDef[] = [
     label: 'Show 5h / weekly quota',
   },
   {
+    key: 'showWeeklyQuotaPace',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'statusBar',
+    providers: ['claude', 'codex'],
+    label: 'Weekly quota pace',
+    help: 'Off by default. Compare account-wide weekly use with uniform progress to the quota reset. The start is inferred as reset minus seven days; this cycle-average estimate includes other devices and members. No forecast in the first six hours or after thirty minutes without a fresh observation. Uses existing snapshots and does not enable quota tracking.',
+  },
+  {
     // Opt-in model-scoped weekly caps in the status bar. Was showOpusWeekly
     // (PR #38, @wheelbarrel00) until the API began naming the scope itself.
     key: 'showScopedWeekly',

@@ -6,6 +6,32 @@ import {
 } from './currencyDisplay';
 import { CODEX_COPY_EN, CodexViewCopy } from './codexView';
 import type { AchievementId } from './achievements';
+import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievementMoneyCatalog';
+
+function apiAchievementTitles(locale: SupportedLanguage): Record<AchievementMoneyId,string> {
+  const themes:Record<SupportedLanguage,readonly string[]> = {
+    en:['API-equivalent total','Weekly API equivalent','Session API equivalent','Task API equivalent'],
+    'zh-CN':['API 等价积累','单周 API 等价','单次会话 API 等价','单次任务 API 等价'],
+    'zh-TW':['API 等效累積','單週 API 等效','單次工作階段 API 等效','單次任務 API 等效'],
+    'de-DE':['API-Gegenwert gesamt','API-Gegenwert je Woche','API-Gegenwert je Sitzung','API-Gegenwert je Aufgabe'],
+    ja:['API 等価の累積','週間 API 等価','セッション API 等価','タスク API 等価'],
+    ko:['누적 API 등가','주간 API 등가','세션 API 등가','작업 API 등가'],
+    'pt-BR':['Equivalente API acumulado','Equivalente API semanal','Equivalente API por sessão','Equivalente API por tarefa'],
+    id:['Total ekuivalen API','Ekuivalen API mingguan','Ekuivalen API per sesi','Ekuivalen API per tugas'],
+  };
+  const levels:Record<SupportedLanguage,readonly string[]> = {
+    en:['Ordinary','Silver','Gold','Platinum'], 'zh-CN':['普通','银色','金色','铂金'],
+    'zh-TW':['一般','銀色','金色','鉑金'], 'de-DE':['Basis','Silber','Gold','Platin'],
+    ja:['通常','シルバー','ゴールド','プラチナ'],ko:['일반','실버','골드','플래티넘'],
+    'pt-BR':['Básico','Prata','Ouro','Platina'],id:['Dasar','Perak','Emas','Platina'],
+  };
+  return Object.fromEntries(API_ACHIEVEMENT_DEFINITIONS.map(row=>{
+    const theme=row.scope==='cumulative' ? 0 : row.scope==='completedMondayWeekPeak' ? 1 : row.group==='claude' ? 2 : 3;
+    const parts=row.id.split('-');
+    const rank=['bronze','silver','gold','platinum'].indexOf(parts[parts.length-1]);
+    return [row.id,(row.group==='claude' ? 'Claude' : 'Codex')+' '+themes[locale][theme]+' · '+levels[locale][rank]];
+  })) as Record<AchievementMoneyId,string>;
+}
 
 export interface AchievementCopy {
   tab: string;
@@ -141,7 +167,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     earned: 'Earned', locked: 'In progress', nextTarget: 'Next level', nextStage: 'Next stage',
     myBadges: 'My badges', nextGoals: 'Next goals', galleryTitle: 'Complete collection', viewBadge: 'View badge',
     recentAwards: 'Recently earned', recordHistory: 'Recent records', recordedDay: 'First recorded', historicalAward: 'Historical award · date unknown',
-    pinBadge: 'Pin badge', unpinBadge: 'Unpin badge', pinLimit: 'Pin up to 3 badges.', pinFailed: 'Could not save the pin. Try again.',
+    pinBadge: 'Pin badge', unpinBadge: 'Unpin badge', pinLimit: 'Pin up to 6 badges.', pinFailed: 'Could not save the pin. Try again.',
     hiddenPins: 'Hidden pinned badges',
     unreadAwards: '{count} new awards', unreadGroup: 'This group: {count} awards',
     readGroup: 'Mark this group read', readFailed: 'Could not save. This group is still unread. Try again.',
@@ -173,19 +199,19 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       cacheReadTokens: 'cache-read tokens',
       cacheCreationTokens: 'cache-creation tokens',
       encounter: 'model used',
-      models: 'recorded models in one session',
+      models: 'qualified multi-model tasks',
       roots: 'verified sessions',
-      childSessions: 'verified child sessions',
-      efforts: 'effort tiers with 10M+ processed tokens each',
+      childSessions: 'qualified subagents',
+      efforts: 'qualified effort tiers',
       days: 'active days',
       sessions: 'sessions with Fable output',
       outputSessions: 'sessions with output',
       hours: 'consecutive UTC hours with output (not human work)',
       tokens: 'processed tokens',
-      agents: 'verified child agents in one task',
-      agentRoots: 'sessions with 3+ child agents',
+      agents: 'qualified team tasks',
+      agentRoots: 'qualified team tasks',
       streak: 'consecutive active days',
-      families: 'of 7 recognized families (including supported Fable 5/5.1), each with 500K+ processed tokens',
+      families: 'qualified model families',
       threeFamilyDay: 'one closed day: any 3 of 7 recognized families (including supported Fable 5/5.1), each with 1M+ processed tokens and positive output',
       qualifiedDays: 'closed days, each with 1M+ family processed tokens and positive output',
       sharedDays: 'closed days with 1M+ processed tokens and positive output per provider',
@@ -198,8 +224,9 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       relay: 'sessions with output from Fable and another recognized Claude family',
     },
     titles: {
+      ...apiAchievementTitles('en'),
       'sonnet-main': 'Sonnet mainstay', 'opus-cannon': 'Opus deep dive', 'haiku-worker': 'Haiku workhorse',
-      'agent-standup': 'Agent stand-up', 'tiny-ai-company': 'Small agent team',
+      'agent-standup': 'Agent team · Ordinary', 'tiny-ai-company': 'Agent team · Silver',
       'agent-team-gold': 'Agent team · Gold', 'same-root-models-silver': 'Models in one task · Silver',
       'same-root-models-gold': 'Models in one task · Gold', 'effort-breadth-silver': 'Effort breadth · Silver',
       'model-rainbow-bronze': 'Model rainbow · Ordinary', 'model-rainbow-gold': 'Model rainbow · Gold',
@@ -295,7 +322,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     earned: '已获得', locked: '进行中', nextTarget: '下一等级', nextStage: '下一阶段',
     myBadges: '我的徽章', nextGoals: '下一目标', galleryTitle: '完整图鉴', viewBadge: '查看徽章',
     recentAwards: '最近获得', recordHistory: '近期记录', recordedDay: '首次记录', historicalAward: '历史成就 · 日期未知',
-    pinBadge: '固定徽章', unpinBadge: '取消固定', pinLimit: '最多固定 3 个徽章。', pinFailed: '固定选择未保存，请重试。',
+    pinBadge: '固定徽章', unpinBadge: '取消固定', pinLimit: '最多固定 6 个徽章。', pinFailed: '固定选择未保存，请重试。',
     hiddenPins: '已隐藏的固定徽章',
     unreadAwards: '新增 {count} 项', unreadGroup: '本组 {count} 项',
     readGroup: '标记本组已读', readFailed: '未能保存，本组仍未读。请重试。',
@@ -327,19 +354,19 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       cacheReadTokens: '缓存读取 Token',
       cacheCreationTokens: '缓存写入 Token',
       encounter: '种模型已使用',
-      models: '种同一会话中有用量记录的模型',
+      models: '个合格多模型任务',
       roots: '个可确认会话',
-      childSessions: '个可确认子会话',
-      efforts: '个各有至少 10M 已处理 Token 的档位',
+      childSessions: '个合格子智能体',
+      efforts: '个合格推理档位',
       days: '个活跃日',
       sessions: '个有 Fable 输出的会话',
       outputSessions: '个有输出的会话',
       hours: '个连续 UTC 小时有输出（不代表用户连续工作）',
       tokens: '已处理 Token',
-      agents: '个同一任务中的可确认子智能体',
-      agentRoots: '个带至少 3 名子智能体的会话',
+      agents: '个合格团队任务',
+      agentRoots: '个合格团队任务',
       streak: '个连续活跃日',
-      families: '个家族（共 7 个，含支持的 Fable 5/5.1），各至少 50万已处理 Token',
+      families: '个合格模型家族',
       threeFamilyDay: '同一已结束自然日，7 个可识别家族中任意 3 个（含支持的 Fable 5/5.1）各至少 100万已处理 Token 且有正输出',
       qualifiedDays: '个已结束自然日，每日该家族至少 100万已处理 Token 且有正输出',
       sharedDays: '个已结束自然日，两供应商各至少 100万已处理 Token 且有正输出',
@@ -353,7 +380,8 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     },
     titles: {
       'sonnet-main': 'Sonnet 主力', 'opus-cannon': 'Opus 深度使用', 'haiku-worker': 'Haiku 多面手',
-      'agent-standup': '多智能体协作', 'tiny-ai-company': '智能体小队',
+      ...apiAchievementTitles('zh-CN'),
+      'agent-standup': '智能体团队·普通', 'tiny-ai-company': '智能体团队·银色',
       'agent-team-gold': '智能体团队·金色', 'same-root-models-silver': '同任务模型·银色',
       'same-root-models-gold': '同任务模型·金色', 'effort-breadth-silver': '推理档位·银色',
       'model-rainbow-bronze': '模型彩虹·普通', 'model-rainbow-gold': '模型彩虹·金色',
@@ -448,7 +476,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     earned: '已獲得', locked: '進行中', nextTarget: '下一等級', nextStage: '下一階段',
     myBadges: '我的徽章', nextGoals: '下一目標', galleryTitle: '完整圖鑑', viewBadge: '查看徽章',
     recentAwards: '最近獲得', recordHistory: '近期記錄', recordedDay: '首次記錄', historicalAward: '歷史成就 · 日期未知',
-    pinBadge: '固定徽章', unpinBadge: '取消固定', pinLimit: '最多固定 3 個徽章。', pinFailed: '固定選擇未儲存，請重試。',
+    pinBadge: '固定徽章', unpinBadge: '取消固定', pinLimit: '最多固定 6 個徽章。', pinFailed: '固定選擇未儲存，請重試。',
     hiddenPins: '已隱藏的固定徽章',
     unreadAwards: '新增 {count} 項', unreadGroup: '本組 {count} 項',
     readGroup: '標記本組已讀', readFailed: '未能儲存，本組仍未讀。請重試。',
@@ -480,19 +508,19 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       cacheReadTokens: '快取讀取 Token',
       cacheCreationTokens: '快取寫入 Token',
       encounter: '種模型已使用',
-      models: '種同一工作階段中有用量紀錄的模型',
+      models: '個合格多模型任務',
       roots: '個已確認工作階段',
-      childSessions: '個已確認子工作階段',
-      efforts: '個各有至少 10M 已處理 Token 的檔位',
+      childSessions: '個合格子代理',
+      efforts: '個合格推理檔位',
       days: '個活躍日',
       sessions: '個有 Fable 輸出的工作階段',
       outputSessions: '個有輸出的工作階段',
       hours: '個連續 UTC 小時有輸出（非使用者持續工作）',
       tokens: '已處理 Token',
-      agents: '個同一任務中的已確認子代理',
-      agentRoots: '個帶至少 3 名子代理的工作階段',
+      agents: '個合格團隊任務',
+      agentRoots: '個合格團隊任務',
       streak: '個連續活躍日',
-      families: '個家族（共 7 個，含支援的 Fable 5/5.1），各至少 50萬已處理 Token',
+      families: '個合格模型家族',
       threeFamilyDay: '同一已結束自然日，7 個可識別家族中任意 3 個（含支援的 Fable 5/5.1）各至少 100萬已處理 Token 且有正輸出',
       qualifiedDays: '個已結束自然日，每日該家族至少 100萬已處理 Token 且有正輸出',
       sharedDays: '個已結束自然日，兩供應商各至少 100萬已處理 Token 且有正輸出',
@@ -506,7 +534,8 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     },
     titles: {
       'sonnet-main': 'Sonnet 主力', 'opus-cannon': 'Opus 深度使用', 'haiku-worker': 'Haiku 多面手',
-      'agent-standup': '多代理協作', 'tiny-ai-company': '代理小隊',
+      ...apiAchievementTitles('zh-TW'),
+      'agent-standup': '代理團隊・一般', 'tiny-ai-company': '代理團隊・銀色',
       'agent-team-gold': '代理團隊・金色', 'same-root-models-silver': '同任務模型・銀色',
       'same-root-models-gold': '同任務模型・金色', 'effort-breadth-silver': '推理檔位・銀色',
       'model-rainbow-bronze': '模型彩虹・一般', 'model-rainbow-gold': '模型彩虹・金色',
@@ -601,7 +630,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     earned: 'Erreicht', locked: 'In Arbeit', nextTarget: 'Nächste Stufe', nextStage: 'Nächstes Etappenziel',
     myBadges: 'Meine Abzeichen', nextGoals: 'Nächste Ziele', galleryTitle: 'Vollständige Sammlung', viewBadge: 'Abzeichen ansehen',
     recentAwards: 'Zuletzt erhalten', recordHistory: 'Neueste Einträge', recordedDay: 'Erstmals erfasst', historicalAward: 'Historisches Abzeichen · Datum unbekannt',
-    pinBadge: 'Abzeichen anheften', unpinBadge: 'Abzeichen lösen', pinLimit: 'Bis zu 3 Abzeichen anheften.', pinFailed: 'Anheften nicht gespeichert. Erneut versuchen.',
+    pinBadge: 'Abzeichen anheften', unpinBadge: 'Abzeichen lösen', pinLimit: 'Bis zu 6 Abzeichen anheften.', pinFailed: 'Anheften nicht gespeichert. Erneut versuchen.',
     hiddenPins: 'Ausgeblendete angeheftete Abzeichen',
     unreadAwards: '{count} neue Abzeichen', unreadGroup: 'Diese Gruppe: {count} Abzeichen',
     readGroup: 'Diese Gruppe als gelesen markieren', readFailed: 'Speichern fehlgeschlagen. Diese Gruppe ist noch ungelesen. Erneut versuchen.',
@@ -633,19 +662,19 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       cacheReadTokens: 'Cache-Lese-Token',
       cacheCreationTokens: 'Cache-Schreib-Token',
       encounter: 'Modell genutzt',
-      models: 'aufgezeichnete Modelle in einer Sitzung',
+      models: 'qualifizierte Mehrmodell-Aufgaben',
       roots: 'bestätigte Sitzungen',
-      childSessions: 'bestätigte Untersitzungen',
-      efforts: 'Denkstufen mit je 10M+ verarbeiteten Token',
+      childSessions: 'qualifizierte Unteragenten',
+      efforts: 'qualifizierte Denkstufen',
       days: 'aktive Tage',
       sessions: 'Sitzungen mit Fable-Ausgabe',
       outputSessions: 'Sitzungen mit Ausgabe',
       hours: 'aufeinanderfolgende UTC-Stunden mit Ausgabe (keine menschliche Arbeitszeit)',
       tokens: 'verarbeitete Token',
-      agents: 'bestätigte Unteragenten in einer Aufgabe',
-      agentRoots: 'Sitzungen mit 3+ Unteragenten',
+      agents: 'qualifizierte Team-Aufgaben',
+      agentRoots: 'qualifizierte Team-Aufgaben',
       streak: 'aufeinanderfolgende aktive Tage',
-      families: 'von 7 erkannten Familien (einschließlich unterstützter Fable 5/5.1), je 500K+ verarbeitete Token',
+      families: 'qualifizierte Modellfamilien',
       threeFamilyDay: 'ein abgeschlossener Tag: beliebige 3 von 7 erkannten Familien (einschließlich unterstützter Fable 5/5.1), je 1M+ verarbeitete Token mit positiver Ausgabe',
       qualifiedDays: 'abgeschlossene Tage mit je 1M+ verarbeiteten Familien-Token und positiver Ausgabe',
       sharedDays: 'abgeschlossene Tage mit je 1M+ verarbeiteten Token und positiver Ausgabe pro Anbieter',
@@ -659,7 +688,8 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     },
     titles: {
       'sonnet-main': 'Sonnet als Hauptmodell', 'opus-cannon': 'Opus intensiv', 'haiku-worker': 'Haiku im Einsatz',
-      'agent-standup': 'Agenten-Team', 'tiny-ai-company': 'Kleines Agentenbüro',
+      ...apiAchievementTitles('de-DE'),
+      'agent-standup': 'Agenten-Team · Basis', 'tiny-ai-company': 'Agenten-Team · Silber',
       'agent-team-gold': 'Agenten-Team · Gold', 'same-root-models-silver': 'Modelle je Aufgabe · Silber',
       'same-root-models-gold': 'Modelle je Aufgabe · Gold', 'effort-breadth-silver': 'Denkstufen · Silber',
       'model-rainbow-bronze': 'Modellvielfalt · Basis', 'model-rainbow-gold': 'Modellvielfalt · Gold',
@@ -754,7 +784,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     earned: '獲得済み', locked: '進行中', nextTarget: '次のレベル', nextStage: '次の中間目標',
     myBadges: 'マイバッジ', nextGoals: '次の目標', galleryTitle: 'すべてのバッジ', viewBadge: 'バッジを見る',
     recentAwards: '最近の獲得', recordHistory: '最近の記録', recordedDay: '初回記録日', historicalAward: '過去の実績 · 日付不明',
-    pinBadge: '実績を固定', unpinBadge: '固定を解除', pinLimit: '最大3件の実績を固定できます。', pinFailed: '固定を保存できませんでした。再試行してください。',
+    pinBadge: '実績を固定', unpinBadge: '固定を解除', pinLimit: '最大6件の実績を固定できます。', pinFailed: '固定を保存できませんでした。再試行してください。',
     hiddenPins: '非表示の固定済み実績',
     unreadAwards: '新規 {count} 件', unreadGroup: 'このグループ：{count} 件',
     readGroup: 'このグループを既読にする', readFailed: '保存できませんでした。このグループは未読です。再試行してください。',
@@ -786,19 +816,19 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       cacheReadTokens: 'キャッシュ読み取りトークン',
       cacheCreationTokens: 'キャッシュ書き込みトークン',
       encounter: 'モデルを使用',
-      models: '同一セッションで使用したモデル',
+      models: '件の条件を満たす複数モデルのタスク',
       roots: '確認済みセッション',
-      childSessions: '確認済み子セッション',
-      efforts: '各 1000 万以上の処理トークンがある推論レベル',
+      childSessions: '件の条件を満たす子エージェント',
+      efforts: '段階の条件を満たす推論レベル',
       days: '活動日',
       sessions: 'Fable の出力があるセッション',
       outputSessions: '出力があるセッション',
       hours: '出力がある連続 UTC 時間（人の作業時間ではありません）',
       tokens: '処理トークン',
-      agents: '1 タスク内の確認済み子エージェント',
-      agentRoots: '子エージェント 3 件以上のセッション',
+      agents: '件の条件を満たすチームタスク',
+      agentRoots: '件の条件を満たすチームタスク',
       streak: '連続活動日',
-      families: '認識済み7系統中、各50万以上の処理トークン（対応する Fable 5/5.1 を含む）',
+      families: '系統（条件を満たすモデル系列）',
       threeFamilyDay: '同じ終了済みの日に、認識済み7系統中の任意の3系統（対応する Fable 5/5.1 を含む）が各100万以上の処理トークンと正の出力',
       qualifiedDays: '終了済みの日数：各日で当該系統の処理トークン100万以上と正の出力',
       sharedDays: '終了済みの日数：両プロバイダーそれぞれに処理トークン100万以上と正の出力',
@@ -812,7 +842,8 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     },
     titles: {
       'sonnet-main': 'Sonnet の主力運用', 'opus-cannon': 'Opus の深い活用', 'haiku-worker': 'Haiku の活用',
-      'agent-standup': 'エージェント連携', 'tiny-ai-company': 'エージェント小隊',
+      ...apiAchievementTitles('ja'),
+      'agent-standup': 'エージェント連携 · 通常', 'tiny-ai-company': 'エージェント連携 · シルバー',
       'agent-team-gold': 'エージェント連携 · ゴールド', 'same-root-models-silver': '同一タスクのモデル · シルバー',
       'same-root-models-gold': '同一タスクのモデル · ゴールド', 'effort-breadth-silver': '推論レベル · シルバー',
       'model-rainbow-bronze': 'モデルの多彩な活用 · 通常', 'model-rainbow-gold': 'モデルの多彩な活用 · ゴールド',
@@ -907,7 +938,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     earned: '획득', locked: '진행 중', nextTarget: '다음 단계', nextStage: '다음 중간 목표',
     myBadges: '내 배지', nextGoals: '다음 목표', galleryTitle: '전체 배지', viewBadge: '배지 보기',
     recentAwards: '최근 획득', recordHistory: '최근 기록', recordedDay: '최초 기록일', historicalAward: '과거 업적 · 날짜 미상',
-    pinBadge: '배지 고정', unpinBadge: '고정 해제', pinLimit: '배지는 최대 3개까지 고정할 수 있습니다.', pinFailed: '고정을 저장하지 못했습니다. 다시 시도하세요.',
+    pinBadge: '배지 고정', unpinBadge: '고정 해제', pinLimit: '배지는 최대 6개까지 고정할 수 있습니다.', pinFailed: '고정을 저장하지 못했습니다. 다시 시도하세요.',
     hiddenPins: '숨겨진 고정 배지',
     unreadAwards: '새 업적 {count}개', unreadGroup: '이 그룹: {count}개',
     readGroup: '이 그룹 읽음 처리', readFailed: '저장하지 못했습니다. 이 그룹은 아직 읽지 않은 상태입니다. 다시 시도하세요.',
@@ -939,19 +970,19 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       cacheReadTokens: '캐시 읽기 토큰',
       cacheCreationTokens: '캐시 쓰기 토큰',
       encounter: '개 모델 사용',
-      models: '한 세션에서 사용한 모델',
+      models: '개 조건을 충족한 다중 모델 작업',
       roots: '확인된 세션',
-      childSessions: '개 확인된 하위 세션',
-      efforts: '각각 1천만+ 처리 토큰이 있는 추론 단계',
+      childSessions: '개 조건을 충족한 하위 에이전트',
+      efforts: '개 조건을 충족한 추론 단계',
       days: '개 활동일',
       sessions: '개 Fable 출력 세션',
       outputSessions: '개 출력 세션',
       hours: '출력이 있는 연속 UTC 시간(사람의 근무 시간 아님)',
       tokens: '처리 토큰',
-      agents: '한 작업의 확인된 하위 에이전트',
-      agentRoots: '하위 에이전트 3개 이상인 세션',
+      agents: '개 조건을 충족한 팀 작업',
+      agentRoots: '개 조건을 충족한 팀 작업',
       streak: '연속 활동일',
-      families: '인식된 7개 계열 중 각각 50만+ 처리 토큰 (지원되는 Fable 5/5.1 포함)',
+      families: '개 조건을 충족한 모델 계열',
       threeFamilyDay: '같은 종료된 하루에 인식된 7개 계열 중 임의의 3개 (지원되는 Fable 5/5.1 포함), 각각 100만+ 처리 토큰과 양의 출력',
       qualifiedDays: '종료된 일수: 매일 해당 계열의 100만+ 처리 토큰과 양의 출력',
       sharedDays: '종료된 일수: 두 제공자 각각 100만+ 처리 토큰과 양의 출력',
@@ -965,7 +996,8 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     },
     titles: {
       'sonnet-main': 'Sonnet 주력', 'opus-cannon': 'Opus 집중 활용', 'haiku-worker': 'Haiku 활용',
-      'agent-standup': '에이전트 협업', 'tiny-ai-company': '에이전트 소팀',
+      ...apiAchievementTitles('ko'),
+      'agent-standup': '에이전트 협업 · 일반', 'tiny-ai-company': '에이전트 협업 · 실버',
       'agent-team-gold': '에이전트 협업 · 골드', 'same-root-models-silver': '한 작업의 모델 · 실버',
       'same-root-models-gold': '한 작업의 모델 · 골드', 'effort-breadth-silver': '추론 수준 · 실버',
       'model-rainbow-bronze': '다채로운 모델 · 일반', 'model-rainbow-gold': '다채로운 모델 · 골드',
@@ -1060,7 +1092,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     earned: 'Conquistada', locked: 'Em andamento', nextTarget: 'Próximo nível', nextStage: 'Próxima etapa',
     myBadges: 'Minhas medalhas', nextGoals: 'Próximas metas', galleryTitle: 'Coleção completa', viewBadge: 'Ver medalha',
     recentAwards: 'Conquistas recentes', recordHistory: 'Registros recentes', recordedDay: 'Primeiro registro', historicalAward: 'Conquista histórica · data desconhecida',
-    pinBadge: 'Fixar medalha', unpinBadge: 'Desafixar medalha', pinLimit: 'Fixe até 3 medalhas.', pinFailed: 'Não foi possível salvar. Tente novamente.',
+    pinBadge: 'Fixar medalha', unpinBadge: 'Desafixar medalha', pinLimit: 'Fixe até 6 medalhas.', pinFailed: 'Não foi possível salvar. Tente novamente.',
     hiddenPins: 'Medalhas fixadas ocultas',
     unreadAwards: '{count} novas conquistas', unreadGroup: 'Este grupo: {count} conquistas',
     readGroup: 'Marcar este grupo como lido', readFailed: 'Não foi possível salvar. Este grupo continua não lido. Tente novamente.',
@@ -1092,19 +1124,19 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       cacheReadTokens: 'tokens de leitura de cache',
       cacheCreationTokens: 'tokens de criação de cache',
       encounter: 'modelo usado',
-      models: 'modelos registrados em uma sessão',
+      models: 'tarefas multimodelo qualificadas',
       roots: 'sessões verificadas',
-      childSessions: 'sessões filhas verificadas',
-      efforts: 'níveis com 10 milhões+ de tokens processados cada',
+      childSessions: 'subagentes qualificados',
+      efforts: 'níveis de esforço qualificados',
       days: 'dias ativos',
       sessions: 'sessões com saída Fable',
       outputSessions: 'sessões com saída',
       hours: 'horas UTC consecutivas com saída (não indica trabalho humano)',
       tokens: 'tokens processados',
-      agents: 'subagentes verificados em uma tarefa',
-      agentRoots: 'sessões com 3+ subagentes',
+      agents: 'tarefas de equipe qualificadas',
+      agentRoots: 'tarefas de equipe qualificadas',
       streak: 'dias ativos consecutivos',
-      families: 'de 7 famílias reconhecidas (incluindo Fable 5/5.1 compatíveis), cada uma com 500 mil+ tokens processados',
+      families: 'famílias de modelos qualificadas',
       threeFamilyDay: 'um dia encerrado: quaisquer 3 de 7 famílias reconhecidas (incluindo Fable 5/5.1 compatíveis), cada uma com 1 milhão+ de tokens processados e saída positiva',
       qualifiedDays: 'dias encerrados, cada um com 1 milhão+ de tokens processados da família e saída positiva',
       sharedDays: 'dias encerrados com 1 milhão+ de tokens processados e saída positiva por provedor',
@@ -1118,7 +1150,8 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     },
     titles: {
       'sonnet-main': 'Sonnet principal', 'opus-cannon': 'Opus em profundidade', 'haiku-worker': 'Haiku em ação',
-      'agent-standup': 'Equipe de agentes', 'tiny-ai-company': 'Pequena equipe de agentes',
+      ...apiAchievementTitles('pt-BR'),
+      'agent-standup': 'Equipe de agentes · Básico', 'tiny-ai-company': 'Equipe de agentes · Prata',
       'agent-team-gold': 'Equipe de agentes · Ouro', 'same-root-models-silver': 'Modelos por tarefa · Prata',
       'same-root-models-gold': 'Modelos por tarefa · Ouro', 'effort-breadth-silver': 'Níveis de raciocínio · Prata',
       'model-rainbow-bronze': 'Variedade de modelos · Básico', 'model-rainbow-gold': 'Variedade de modelos · Ouro',
@@ -1213,7 +1246,7 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     earned: 'Diraih', locked: 'Berlangsung', nextTarget: 'Tingkat berikutnya', nextStage: 'Tahap berikutnya',
     myBadges: 'Lencana saya', nextGoals: 'Target berikutnya', galleryTitle: 'Koleksi lengkap', viewBadge: 'Lihat lencana',
     recentAwards: 'Baru diperoleh', recordHistory: 'Catatan terbaru', recordedDay: 'Pertama dicatat', historicalAward: 'Pencapaian lama · tanggal tidak diketahui',
-    pinBadge: 'Sematkan lencana', unpinBadge: 'Lepas sematan', pinLimit: 'Sematkan hingga 3 lencana.', pinFailed: 'Sematan gagal disimpan. Coba lagi.',
+    pinBadge: 'Sematkan lencana', unpinBadge: 'Lepas sematan', pinLimit: 'Sematkan hingga 6 lencana.', pinFailed: 'Sematan gagal disimpan. Coba lagi.',
     hiddenPins: 'Lencana tersemat yang tersembunyi',
     unreadAwards: '{count} pencapaian baru', unreadGroup: 'Grup ini: {count} pencapaian',
     readGroup: 'Tandai grup ini dibaca', readFailed: 'Tidak dapat menyimpan. Grup ini masih belum dibaca. Coba lagi.',
@@ -1245,19 +1278,19 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
       cacheReadTokens: 'token baca cache',
       cacheCreationTokens: 'token pembuatan cache',
       encounter: 'model digunakan',
-      models: 'model tercatat dalam satu sesi',
+      models: 'tugas multimodel yang memenuhi syarat',
       roots: 'sesi terverifikasi',
-      childSessions: 'sesi turunan terverifikasi',
-      efforts: 'tingkat dengan 10 juta+ token diproses masing-masing',
+      childSessions: 'subagen yang memenuhi syarat',
+      efforts: 'tingkat upaya yang memenuhi syarat',
       days: 'hari aktif',
       sessions: 'sesi dengan keluaran Fable',
       outputSessions: 'sesi dengan keluaran',
       hours: 'jam UTC berurutan dengan keluaran (bukan kerja manusia)',
       tokens: 'token diproses',
-      agents: 'subagen terverifikasi dalam satu tugas',
-      agentRoots: 'sesi dengan 3+ subagen',
+      agents: 'tugas tim yang memenuhi syarat',
+      agentRoots: 'tugas tim yang memenuhi syarat',
       streak: 'hari aktif berturut-turut',
-      families: 'dari 7 keluarga dikenali (termasuk Fable 5/5.1 yang didukung), masing-masing dengan 500 ribu+ token diproses',
+      families: 'keluarga model yang memenuhi syarat',
       threeFamilyDay: 'satu hari berakhir: sembarang 3 dari 7 keluarga dikenali (termasuk Fable 5/5.1 yang didukung), masing-masing dengan 1 juta+ token diproses dan keluaran positif',
       qualifiedDays: 'hari berakhir, setiap hari dengan 1 juta+ token keluarga diproses dan keluaran positif',
       sharedDays: 'hari berakhir dengan 1 juta+ token diproses dan keluaran positif per penyedia',
@@ -1271,7 +1304,8 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     },
     titles: {
       'sonnet-main': 'Sonnet andalan', 'opus-cannon': 'Opus mendalam', 'haiku-worker': 'Haiku andalan',
-      'agent-standup': 'Tim agen', 'tiny-ai-company': 'Kelompok agen kecil',
+      ...apiAchievementTitles('id'),
+      'agent-standup': 'Tim agen · Dasar', 'tiny-ai-company': 'Tim agen · Perak',
       'agent-team-gold': 'Tim agen · Emas', 'same-root-models-silver': 'Model dalam satu tugas · Perak',
       'same-root-models-gold': 'Model dalam satu tugas · Emas', 'effort-breadth-silver': 'Tingkat penalaran · Perak',
       'model-rainbow-bronze': 'Ragam model · Dasar', 'model-rainbow-gold': 'Ragam model · Emas',
@@ -1363,6 +1397,98 @@ export function achievementCopyFor(locale: string): AchievementCopy {
   return Object.prototype.hasOwnProperty.call(ACHIEVEMENT_COPY, locale)
     ? ACHIEVEMENT_COPY[locale as SupportedLanguage]
     : ACHIEVEMENT_COPY.en;
+}
+
+export interface AchievementAppearanceCopy {
+  sizeLabel: string;
+  small: string;
+  medium: string;
+  large: string;
+  editShowcase: string;
+  automatic: string;
+  manual: string;
+  selectedCount: string;
+  moveUp: string;
+  moveDown: string;
+  legacyRules: string;
+  legacyPins: string;
+  recalibratedHint: string;
+  oldWriterReload: string;
+  cancelEdit: string;
+}
+
+/** Appearance and migration controls, independent of the main achievement catalog. */
+const ACHIEVEMENT_APPEARANCE_COPY: Record<SupportedLanguage, AchievementAppearanceCopy> = {
+  en: {
+    sizeLabel: 'Gallery size', small: 'Small', medium: 'Medium', large: 'Large',
+    editShowcase: 'Edit showcase', automatic: 'Automatic recommendations', manual: 'Manual selection',
+    selectedCount: 'Selected {count}/6', moveUp: 'Move up', moveDown: 'Move down',
+    legacyRules: 'Previous rule records', legacyPins: 'Previous rule pins',
+    recalibratedHint: 'Rules updated; verification uses current conditions.',
+    oldWriterReload: 'Reload older extension instances to use new records.', cancelEdit: 'Cancel editing',
+  },
+  'zh-CN': {
+    sizeLabel: '图鉴大小', small: '小', medium: '中', large: '大',
+    editShowcase: '编辑展示', automatic: '自动推荐', manual: '手动选择',
+    selectedCount: '已选 {count}/6', moveUp: '上移', moveDown: '下移',
+    legacyRules: '旧规则记录', legacyPins: '旧规则固定项',
+    recalibratedHint: '规则已调整，按新条件核验。',
+    oldWriterReload: '请重载旧版插件后使用新记录。', cancelEdit: '取消编辑',
+  },
+  'zh-TW': {
+    sizeLabel: '圖鑑大小', small: '小', medium: '中', large: '大',
+    editShowcase: '編輯展示', automatic: '自動推薦', manual: '手動選擇',
+    selectedCount: '已選 {count}/6', moveUp: '上移', moveDown: '下移',
+    legacyRules: '舊規則記錄', legacyPins: '舊規則固定項',
+    recalibratedHint: '規則已調整，按新條件核驗。',
+    oldWriterReload: '請重新載入舊版擴充功能後使用新記錄。', cancelEdit: '取消編輯',
+  },
+  'de-DE': {
+    sizeLabel: 'Galeriegröße', small: 'Klein', medium: 'Mittel', large: 'Groß',
+    editShowcase: 'Vitrine bearbeiten', automatic: 'Automatische Empfehlungen', manual: 'Manuelle Auswahl',
+    selectedCount: 'Ausgewählt {count}/6', moveUp: 'Nach oben', moveDown: 'Nach unten',
+    legacyRules: 'Nachweise früherer Regeln', legacyPins: 'Anheftungen früherer Regeln',
+    recalibratedHint: 'Regeln geändert; Prüfung nach aktuellen Bedingungen.',
+    oldWriterReload: 'Ältere Erweiterungsinstanzen für neue Nachweise neu laden.', cancelEdit: 'Bearbeitung abbrechen',
+  },
+  ja: {
+    sizeLabel: '図鑑のサイズ', small: '小', medium: '中', large: '大',
+    editShowcase: '展示を編集', automatic: '自動おすすめ', manual: '手動選択',
+    selectedCount: '選択済み {count}/6', moveUp: '上へ移動', moveDown: '下へ移動',
+    legacyRules: '旧ルールの記録', legacyPins: '旧ルールの固定項目',
+    recalibratedHint: 'ルール更新後の条件で検証します。',
+    oldWriterReload: '新しい記録の使用には旧版の拡張機能を再読み込みしてください。', cancelEdit: '編集をキャンセル',
+  },
+  ko: {
+    sizeLabel: '도감 크기', small: '작게', medium: '보통', large: '크게',
+    editShowcase: '전시 편집', automatic: '자동 추천', manual: '수동 선택',
+    selectedCount: '선택됨 {count}/6', moveUp: '위로 이동', moveDown: '아래로 이동',
+    legacyRules: '이전 규칙 기록', legacyPins: '이전 규칙 고정 항목',
+    recalibratedHint: '규칙이 변경되어 현재 조건으로 검증합니다.',
+    oldWriterReload: '새 기록을 사용하려면 이전 버전 확장을 다시 로드하세요.', cancelEdit: '편집 취소',
+  },
+  'pt-BR': {
+    sizeLabel: 'Tamanho do catálogo', small: 'Pequeno', medium: 'Médio', large: 'Grande',
+    editShowcase: 'Editar vitrine', automatic: 'Recomendações automáticas', manual: 'Seleção manual',
+    selectedCount: 'Selecionados {count}/6', moveUp: 'Mover para cima', moveDown: 'Mover para baixo',
+    legacyRules: 'Registros de regras anteriores', legacyPins: 'Fixações de regras anteriores',
+    recalibratedHint: 'Regras atualizadas; verificação pelas condições atuais.',
+    oldWriterReload: 'Recarregue extensões antigas para usar os novos registros.', cancelEdit: 'Cancelar edição',
+  },
+  id: {
+    sizeLabel: 'Ukuran katalog', small: 'Kecil', medium: 'Sedang', large: 'Besar',
+    editShowcase: 'Edit etalase', automatic: 'Rekomendasi otomatis', manual: 'Pilihan manual',
+    selectedCount: 'Dipilih {count}/6', moveUp: 'Pindah ke atas', moveDown: 'Pindah ke bawah',
+    legacyRules: 'Catatan aturan lama', legacyPins: 'Sematan aturan lama',
+    recalibratedHint: 'Aturan diperbarui; verifikasi memakai syarat terkini.',
+    oldWriterReload: 'Muat ulang ekstensi versi lama untuk memakai catatan baru.', cancelEdit: 'Batalkan edit',
+  },
+};
+
+export function achievementAppearanceCopyFor(locale: string): AchievementAppearanceCopy {
+  return Object.prototype.hasOwnProperty.call(ACHIEVEMENT_APPEARANCE_COPY, locale)
+    ? ACHIEVEMENT_APPEARANCE_COPY[locale as SupportedLanguage]
+    : ACHIEVEMENT_APPEARANCE_COPY.en;
 }
 
 /** Compact recovery and preview copy, shared by both provider pages. */
@@ -5606,6 +5732,7 @@ export function artifactLocale(value: string | undefined): SupportedLanguage {
 const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: string; help: string }>>> = {
   'de-DE': {
     'language': { label: 'Anzeigesprache', help: 'UI-Sprache. "auto" folgt VS Code.' },
+    'showWeeklyQuotaPace': { label: 'Wöchentliches Kontingenttempo', help: 'Standardmäßig aus. Vergleich mit gleichmäßiger Nutzung im geschätzten Wochenfenster; basiert auf vorhandenen Kontobeobachtungen, nicht nur diesem Gerät. Keine zusätzlichen Anfragen.' },
     'decimalPlaces': { label: 'Kosten-Dezimalstellen', help: '' },
     'displayCurrency': { label: 'Anzeigewährung', help: 'Nur Anzeige. Verwendet integrierte Referenzkurse vom 09.09.2026; Kurse sind weder bearbeitbar noch werden sie abgerufen, die Basis bleibt USD.' },
     'tokenDecimalPlaces': { label: 'Token-Dezimalstellen', help: 'Dezimalstellen für kompakte Token-Anzeige (1.2M / 345.6K). Volle Ganzzahlen bleiben unberührt.' },
@@ -5660,6 +5787,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   },
   'zh-TW': {
     'language': { label: '顯示語言', help: 'UI 語言。"auto" 會跟隨 VS Code。' },
+    'showWeeklyQuotaPace': { label: '週額度使用節奏', help: '預設關閉。以既有帳號觀測對照推定週期的均勻使用進度，包含其他裝置或成員；不增加查詢。' },
     'decimalPlaces': { label: '費用小數位數', help: '' },
     'displayCurrency': { label: '費用顯示幣別', help: '僅影響顯示。使用 2026-09-09 內建參考匯率；匯率不可調整且不會連線擷取，底層估算仍維持 USD。' },
     'tokenDecimalPlaces': { label: 'Token 小數位數', help: '緊湊 token 顯示（1.2M / 345.6K）的小數位數。完整整數值不受影響。' },
@@ -5714,6 +5842,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   },
   'zh-CN': {
     'language': { label: '显示语言', help: 'UI 语言。"auto" 会跟随 VS Code。' },
+    'showWeeklyQuotaPace': { label: '周额度使用节奏', help: '默认关闭。以已有账号观测对照推定周期的均匀使用进度，包含其他设备或成员；不增加查询。' },
     'decimalPlaces': { label: '费用小数位数', help: '' },
     'displayCurrency': { label: '费用显示币种', help: '仅影响显示。使用 2026-09-09 内置参考汇率；汇率不可调整且不会联网获取，底层估算仍保持 USD。' },
     'tokenDecimalPlaces': { label: 'Token 小数位数', help: '紧凑 token 显示（1.2M / 345.6K）的小数位数。完整整数值不受影响。' },
@@ -5768,6 +5897,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   },
   'ja': {
     'language': { label: '表示言語', help: 'UI 言語。"auto" は VS Code に従います。' },
+    'showWeeklyQuotaPace': { label: '週間利用枠の使用ペース', help: '既定でオフ。既存のアカウント観測を推定周期の均等利用と比較します。他の端末やメンバーも含み、追加リクエストは行いません。' },
     'decimalPlaces': { label: 'コストの小数点以下桁数', help: '' },
     'displayCurrency': { label: 'コスト表示通貨', help: '表示専用です。2026-09-09 時点の内蔵参考レートを使用します。レートは編集も取得もせず、基礎となる推定値は USD のままです。' },
     'tokenDecimalPlaces': { label: 'トークンの小数点以下桁数', help: 'トークンの短縮表示（1.2M / 345.6K）の小数桁数。完全な整数値には影響しません。' },
@@ -5822,6 +5952,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   },
   'ko': {
     'language': { label: '표시 언어', help: 'UI 언어. "auto"는 VS Code를 따릅니다.' },
+    'showWeeklyQuotaPace': { label: '주간 할당량 사용 속도', help: '기본값 꺼짐. 기존 계정 관측을 추정 주기의 균등 사용과 비교하며 다른 기기나 구성원도 포함합니다. 추가 요청은 없습니다.' },
     'decimalPlaces': { label: '비용 소수점 자리수', help: '' },
     'displayCurrency': { label: '비용 표시 통화', help: '표시에만 사용됩니다. 2026-09-09 기준 내장 환율을 사용하며 수정하거나 가져오지 않습니다. 기본 추정치는 USD로 유지됩니다.' },
     'tokenDecimalPlaces': { label: '토큰 소수점 자리수', help: '간략한 토큰 표시(1.2M / 345.6K)의 소수 자리수. 전체 정수 값에는 영향을 주지 않습니다.' },
@@ -5876,6 +6007,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   },
   'pt-BR': {
     'language': { label: 'Idioma de exibição', help: 'Idioma da interface. "auto" segue o VS Code.' },
+    'showWeeklyQuotaPace': { label: 'Ritmo da franquia semanal', help: 'Desligado por padrão. Compara observações existentes da conta com o consumo uniforme no ciclo inferido, incluindo outros dispositivos ou membros. Sem consultas adicionais.' },
     'decimalPlaces': { label: 'Casas decimais do custo', help: '' },
     'displayCurrency': { label: 'Moeda de exibição do custo', help: 'Somente exibição. Usa taxas de referência integradas de 09/09/2026; elas não são editáveis nem buscadas, e as estimativas continuam em USD.' },
     'tokenDecimalPlaces': { label: 'Casas decimais de tokens', help: 'Casas decimais para a exibição compacta de tokens (1.2M / 345.6K). As contagens inteiras completas não são afetadas.' },
@@ -5931,6 +6063,7 @@ const SETTINGS_I18N: Partial<Record<SupportedLanguage, Record<string, { label: s
   },
   'id': {
     'language': { label: 'Bahasa tampilan', help: 'Bahasa UI. "auto" mengikuti VS Code.' },
+    'showWeeklyQuotaPace': { label: 'Laju penggunaan kuota mingguan', help: 'Nonaktif secara default. Bandingkan pengamatan akun yang ada dengan penggunaan merata pada siklus perkiraan, termasuk perangkat atau anggota lain. Tanpa permintaan tambahan.' },
     'decimalPlaces': { label: 'Angka desimal biaya', help: '' },
     'displayCurrency': { label: 'Mata uang tampilan biaya', help: 'Hanya untuk tampilan. Menggunakan kurs referensi bawaan per 2026-09-09; kurs tidak dapat diedit atau diambil, dan estimasi dasar tetap USD.' },
     'tokenDecimalPlaces': { label: 'Angka desimal token', help: 'Angka desimal untuk tampilan token ringkas (1.2M / 345.6K). Jumlah bilangan bulat penuh tidak terpengaruh.' },

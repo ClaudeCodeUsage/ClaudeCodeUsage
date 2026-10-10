@@ -16,7 +16,7 @@ import {
 import { StatusBarManager } from './statusBar';
 import { UsageWebviewProvider } from './webview';
 import { achievementCopyFor, artifactLocale, ACHIEVEMENT_RECORD_INVENTORY_COPY, I18n } from './i18n';
-import { ACHIEVEMENT_RECORD_FILE, achievementRecordAuxiliaryName, loadAchievementRecords } from './achievementRecordStore';
+import { ACHIEVEMENT_RECORD_FILE, ACHIEVEMENT_LEGACY_RECORD_FILE, AchievementRecordStore, achievementRecordAuxiliaryName, loadAchievementRecords } from './achievementRecordStore';
 import { dayKeyInZone, resolveTimeZone } from './dateKeys';
 import {
   GITHUB_HEATMAP_DESTINATION_KEY,
@@ -104,6 +104,7 @@ import { resolveCodexHome, scanCodexManifest } from './providers/codex/codexMani
 import { codexIndexStoragePath, codexIndexCanonicalName, readOwnedLegacyCodexIndex } from './providers/codex/codexIndexStorage';
 import { buildCodexUsageView, CodexUsageView } from './providers/codex/codexUsage';
 import { codexModelSignals, CodexAchievementSignals } from './achievements';
+import {codexAchievementMoneyScopes} from './achievementMoneyScopes';
 import { codexAchievementDayEvidence, codexAchievementTokenEvidence } from './achievementCalendar';
 import { codexAchievementProofRevision } from './codexAchievementRevision';
 import {
@@ -538,6 +539,7 @@ export class ClaudeCodeUsageExtension {
   private codexView: CodexUsageView | null = null;
   private codexAchievementSignals: CodexAchievementSignals = EMPTY_CODEX_ACHIEVEMENT_SIGNALS;
   private codexAchievementRevision?: string;
+  private codexAchievementMoneyRevision?: string;
   private codexInsights: CodexScopedInsights = emptyCodexScopedInsights();
   private codexAvailable = false;
   private codexHasData = false;
@@ -981,8 +983,11 @@ export class ClaudeCodeUsageExtension {
       throw error;
     }
     return names.filter((name) => {
+      if (family === 'achievement-records') {
+        return name === ACHIEVEMENT_RECORD_FILE || name === ACHIEVEMENT_LEGACY_RECORD_FILE ||
+          achievementRecordAuxiliaryName(name);
+      }
       if (name === canonical) return true;
-      if (family === 'achievement-records') return achievementRecordAuxiliaryName(name);
       if (family === 'codex-index') {
         return codexIndexCanonicalName(name) === canonical;
       }
@@ -1181,7 +1186,14 @@ export class ClaudeCodeUsageExtension {
       this.localFileFamilyInventory(indexPath, 'codex-index'),
       this.localFileFamilyInventory(quotaPath, 'quota-observations'),
       this.localFileFamilyInventory(achievementPath, 'achievement-records'),
-      loadAchievementRecords(achievementPath).catch(() => null),
+      loadAchievementRecords(achievementPath).then(async current => {
+        // v2 is authoritative. Count its archive once, not again through v1.
+        // Before adoption, only the bounded canonical v1 is a migration input.
+        if (current) return current.schemaVersion === 2 ? current : null;
+        const legacy = await loadAchievementRecords(path.join(
+          this.context.globalStorageUri.fsPath, ACHIEVEMENT_LEGACY_RECORD_FILE));
+        return legacy && legacy.schemaVersion !== 1 ? null : legacy;
+      }).catch(() => null),
     ]);
     const achievementCopy = ACHIEVEMENT_RECORD_INVENTORY_COPY[artifactLocale(I18n.getLocale())];
     const stateKeys = this.extensionGlobalStateKeys();
@@ -1364,9 +1376,10 @@ export class ClaudeCodeUsageExtension {
       },
       {
         id: 'P12', category: 'P12 · ' + achievementCopy.category,
-        locationClass: 'VS Code globalStorage', schema: '1 · ≤64 KiB',
+        locationClass: 'VS Code globalStorage', schema: `${achievementRecords?.schemaVersion ?? 2} · ≤64 KiB`,
         approximateBytes: achievementFile.approximateBytes,
-        itemCount: achievementRecords === null ? null : achievementRecords?.records.length ?? 0,
+        itemCount: achievementRecords === null ? null :
+          (achievementRecords?.records.length ?? 0) + (achievementRecords?.legacyRecords?.length ?? 0),
         oldestAt: null, newestAt: null,
         networkInteraction: achievementCopy.network, clearability: achievementCopy.clear,
       },
@@ -1892,14 +1905,29 @@ export class ClaudeCodeUsageExtension {
       throw new Error('local-data-clear:quota-postcondition-failed');
     }
     const achievementPath = path.join(this.context.globalStorageUri.fsPath, ACHIEVEMENT_RECORD_FILE);
-    const record = await loadAchievementRecords(achievementPath);
-    const recordNames = await this.derivedFileFamilyNames(achievementPath, 'achievement-records');
-    if (!record || record.records.length > 0 || record.pins.length > 0 || record.lastNoticeAt !== 0 ||
-        record.auxiliary.activity.features.length > 0 || record.auxiliary.activity.settingKeys.length > 0 ||
-        record.auxiliary.hours.maxStreak !== 0 || record.auxiliary.calendarPeak !== null ||
-        recordNames.some(name => name !== ACHIEVEMENT_RECORD_FILE)) {
-      throw new Error('local-data-clear:achievement-postcondition-failed');
-    }
+    const legacyPath = path.join(this.context.globalStorageUri.fsPath, ACHIEVEMENT_LEGACY_RECORD_FILE);
+    // Read both fences under the same lease used by old and current writers.
+    const lease = await acquireCodexIndexLease(legacyPath, { timeoutMs: 5_000 });
+    try {
+      const [record, legacy, recordNames] = await Promise.all([
+        loadAchievementRecords(achievementPath),
+        loadAchievementRecords(legacyPath),
+        this.derivedFileFamilyNames(achievementPath, 'achievement-records'),
+      ]);
+      const emptyRecord = (store: AchievementRecordStore): boolean =>
+        store.records.length === 0 && store.pins.length === 0 && store.lastNoticeAt === 0 &&
+        store.auxiliary.activity.features.length === 0 && store.auxiliary.activity.settingKeys.length === 0 &&
+        store.auxiliary.hours.maxStreak === 0 && store.auxiliary.calendarPeak === null;
+      if (!record || record.schemaVersion !== 2 || record.generation <= 1 || !emptyRecord(record) ||
+          record.legacyRecords!.length > 0 || !legacy || legacy.schemaVersion !== 1 ||
+          legacy.generation <= 1 || !emptyRecord(legacy) ||
+          !isDeepStrictEqual(record.legacyBoundary, {
+            generation: legacy.generation, sequence: legacy.sequence,
+            signature: createHash('sha256').update(JSON.stringify(legacy)).digest('hex'),
+          }) || recordNames.some(name => name !== ACHIEVEMENT_RECORD_FILE && name !== ACHIEVEMENT_LEGACY_RECORD_FILE)) {
+        throw new Error('local-data-clear:achievement-postcondition-failed');
+      }
+    } finally { await lease.release(); }
   }
 
   private async refreshPricing(): Promise<void> {
@@ -3492,6 +3520,7 @@ export class ClaudeCodeUsageExtension {
     // and optional effort counters can change without changing any chart.
     if (config.enableAchievements === false) {
       this.codexAchievementRevision = undefined;
+      this.codexAchievementMoneyRevision = undefined;
       this.codexAchievementSignals = EMPTY_CODEX_ACHIEVEMENT_SIGNALS;
     } else {
       const indexed = nextView.currentManifestVerified === true && nextView.coverage.complete;
@@ -3508,6 +3537,14 @@ export class ClaudeCodeUsageExtension {
           calendarComplete,
         );
         this.codexAchievementRevision = revision;
+        this.codexAchievementMoneyRevision = undefined;
+      }
+      const moneyDay=dayKeyInZone(new Date(),nextView.periodCoverage.timeZone);
+      const moneyRevision=revision+'|'+moneyDay;
+      if (this.codexAchievementMoneyRevision!==moneyRevision) {
+        this.codexAchievementSignals.money=codexAchievementMoneyScopes({backend:'openai',asOfDay:moneyDay,
+          files:snapshot.files,complete:indexed,dayEvidence:this.codexAchievementSignals.dayEvidence});
+        this.codexAchievementMoneyRevision=moneyRevision;
       }
     }
     this.codexSkipPersistedHydration = false;
@@ -4788,6 +4825,7 @@ export class ClaudeCodeUsageExtension {
   private materializeClaudeDashboard(index: ClaudeUsageIndex, config: ExtensionConfig, now: Date):
     ReturnType<typeof claudeUsageDashboardSnapshot> {
     const next = claudeUsageDashboardSnapshot(index, {
+      achievementMoneyBackend: config.enableAchievements === false ? undefined : config.pricingBackend,
       workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       projectGroupingMode: config.projectGroupingMode,
       contextWindowOverride: config.contextWindowOverride,
@@ -4916,7 +4954,7 @@ export class ClaudeCodeUsageExtension {
         this.tryProviderUiUpdate(() => this.webviewProvider.acceptClaudeAchievementSnapshot?.({
           allTime: records.length ? materialized.allTime : null,
           days: materialized.dailyForAllTime, sessions: materialized.sessions,
-          sessionEvidence: materialized.achievementSessionEvidence, records, timeZone,
+          sessionEvidence: materialized.achievementSessionEvidence, records, timeZone, money: materialized.achievementMoney,
         }, achievementObservation, proof));
       };
 
@@ -4962,6 +5000,7 @@ export class ClaudeCodeUsageExtension {
                 materialized.dailyForAllTime,
                 materialized.achievementSessionEvidence,
                 timeZone,
+                materialized.achievementMoney,
               );
               this.claudeDashboardHydrated = true;
             });
@@ -5114,7 +5153,7 @@ export class ClaudeCodeUsageExtension {
         this.statusBar.updateContext(materialized.context);
         if (updateWebview) {
           this.tryProviderUiUpdate(() => {
-            this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime, materialized.achievementSessionEvidence, loaded.index.timeZone);
+            this.webviewProvider.updateData(sessionData, todayData, rolling30Data, allTimeData, dailyDataForRolling30, dailyDataForAllTime, hourlyDataForToday, undefined, dataDirectory, records, sessionBreakdown, projectBreakdown, contentAnalysis, branchBreakdown, workflowBreakdown, costliestMessages, hourlyDataForRolling30DaysByDay, materialized.projectUsageMatrix, materialized.dailyForAllTime, materialized.achievementSessionEvidence, loaded.index.timeZone, materialized.achievementMoney);
             this.claudeDashboardHydrated = true;
           });
         }

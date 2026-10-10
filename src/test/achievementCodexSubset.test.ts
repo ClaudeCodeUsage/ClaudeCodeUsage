@@ -5,6 +5,11 @@ import { codexModelSignals } from '../achievements';
 import { codexAchievementTokenEvidence } from '../achievementCalendar';
 import { verifiedCodexAchievementFiles } from '../codexAchievementProof';
 import type { CodexFileAggregate } from '../providers/codex/codexIndex';
+import { ACHIEVEMENT_RECORD_FILE, loadAchievementRecords } from '../achievementRecordStore';
+import { mkdtemp, rm } from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { I18n } from '../i18n';
 
 function file(key: string, input = 600_000_000, output = 6_000_000): CodexFileAggregate {
   const tokens = { inputTotal: input, cachedInput: input, outputTotal: output, reasoningOutput: output };
@@ -93,19 +98,25 @@ test('model signals reuse ancestry proof instead of walking every deep parent ch
 });
 
 test('production gallery grants safe Codex milestones despite unrelated identity ambiguity, not calendar claims', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'ccu-subset-canonical-'));
+  const zone = I18n.getTimezone();
   const load = (Module as any)._load;
   (Module as any)._load = function(request: string, parent: unknown, main: boolean) {
     return request === 'vscode' ? { workspace: { workspaceFolders: [] } } : load.call(this, request, parent, main);
   };
   try {
+    I18n.setTimezone('UTC');
     const { UsageWebviewProvider } = require('../webview');
     const state = new Map<string, unknown>();
-    const provider = new UsageWebviewProvider({ globalState: {
+    const provider = new UsageWebviewProvider({ globalStorageUri: { fsPath: directory }, globalState: {
       get: (key: string) => state.get(key), update: async (key: string, value: unknown) => state.set(key, value),
     } }) as any;
     await provider.achievementWrite;
     provider.settings = { get: () => true };
     provider.providerAvailability = { claude: false, codex: true, codexData: true };
+    assert.equal(provider.ensureAchievementRecords(), false);
+    await provider.achievementWrite;
+    assert.equal(provider.achievementRecordState.schemaVersion, 2);
     const notices: any[] = [];
     provider.panel = { visible: true, active: true, webview: { postMessage: async (message: any) => {
       if (message.command === 'achievementUnlockNotice') notices.push(message);
@@ -113,8 +124,11 @@ test('production gallery grants safe Codex milestones despite unrelated identity
     } } };
     provider.webviewClientReady = true;
     provider.setAchievementWindowFocused(true);
-    provider.codexAchievementSignals = codexModelSignals(corpus());
-    provider.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(corpus(), true);
+    // Each extra root contributes output in the same max bucket; the large
+    // safe root alone cannot prove the new five-task effort requirement.
+    const initial = [...corpus(), ...Array.from({ length: 4 }, (_, index) => file(`effort-${index}`, 20_000_000, 20_000))];
+    provider.codexAchievementSignals = codexModelSignals(initial);
+    provider.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(initial, true);
     provider.codexView = {
       currentManifestVerified: true, coverage: { complete: true, identity: { complete: false } },
       allTime: { total: { processed: 2_000_000_000 } }, allTimeDaily: [],
@@ -122,6 +136,9 @@ test('production gallery grants safe Codex milestones despite unrelated identity
       hourlyCoverage: { complete: false, timeZone: 'UTC' }, last30DaysHourlyByDay: {},
       outputHourProof: { complete: false, hours: [] },
     };
+    const baseline = await provider.beginCodexAchievementObservation(() => true);
+    provider.acceptCodexAchievementSnapshot(provider.codexView, provider.codexAchievementSignals, baseline);
+    await provider.achievementWrite;
     const read = () => new Map<string, any>(provider.achievementResults().map((row: any) => [row.id, row]));
     assert.equal(read().get('astra-regular').unlocked, true);
     assert.equal(read().get('astra-regular-silver').unlocked, false);
@@ -131,16 +148,32 @@ test('production gallery grants safe Codex milestones despite unrelated identity
       assert.equal(read().get(id).unlocked, false, id);
     }
     await provider.achievementWrite;
-    assert.ok((state.get('ccu.achievements.grants.v5') as string[]).includes('astra-regular'));
+    const canonicalFile = path.join(directory, ACHIEVEMENT_RECORD_FILE);
+    const saved = (await loadAchievementRecords(canonicalFile))!;
+    assert.equal(saved.schemaVersion, 2);
+    assert.ok(saved.records.some(row => row.id === 'astra-regular'));
+    assert.ok(!(state.get('ccu.achievements.grants.v5') as string[]).includes('astra-regular'),
+      'canonical grants are not promoted back into legacy Memento storage');
     assert.equal(notices.length, 0, 'first observed subset history is quiet');
-    const increased = corpus();
+    const observation = await provider.beginCodexAchievementObservation(() => true);
+    assert.ok(observation.window, 'live producer observation follows the accepted history baseline');
+    const increased = initial.slice();
     increased[0] = file('safe', 6_000_000_000);
     provider.codexAchievementSignals = codexModelSignals(increased);
     provider.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(increased, true);
-    provider.codexView.allTime.total.processed = 8_000_000_000;
+    provider.codexView = { ...provider.codexView, allTime: { total: { processed: 8_000_000_000 } } };
+    provider.acceptCodexAchievementSnapshot(provider.codexView, provider.codexAchievementSignals, observation,
+      { ...observation.window, provider: 'codex', processed: 5_400_000_000, output: 0, cacheRead: 5_400_000_000,
+        families: { astra: 5_400_000_000, sol: 0, luna: 0 } });
     assert.equal(read().get('astra-regular-silver').unlocked, true);
     await provider.achievementWrite;
+    await provider.achievementNoticeWrite;
     assert.equal(notices.length, 1, 'independent model growth is not silenced by unrelated date/identity ambiguity');
+    const silver = (await loadAchievementRecords(canonicalFile))!.records.find(row => row.id === 'astra-regular-silver')!;
+    assert.equal(silver.origin, 'usage');
+    assert.equal(silver.unread, true);
+    assert.match(silver.recordedDay!, /^\d{4}-\d{2}-\d{2}$/);
+    assert.equal(silver.timeZone, 'UTC');
     assert.equal(read().get('weekly-volume-bronze').unlocked, false);
     provider.invalidateAchievementEvidence('codex');
     assert.equal(read().get('astra-regular').progress, 0, 'failed refresh revokes new authority');
@@ -151,5 +184,9 @@ test('production gallery grants safe Codex milestones despite unrelated identity
     provider.codexView.coverage.complete = true;
     provider.codexView.currentManifestVerified = false;
     assert.equal(read().get('astra-regular').progress, 0);
-  } finally { (Module as any)._load = load; }
+  } finally {
+    I18n.setTimezone(zone);
+    (Module as any)._load = load;
+    await rm(directory, { recursive: true, force: true });
+  }
 });

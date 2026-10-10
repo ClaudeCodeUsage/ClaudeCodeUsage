@@ -208,7 +208,11 @@ explicit rebuilds stay quiet; non-Token live awards still need their own origin 
 
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.
-Concurrent windows merge awards; clearing retains an empty fence against stale writes.
+`achievements-v2.json` is the canonical record; v1 is a read-only migration input.
+Records already saved under the 21 changed model/team/effort/rainbow conditions
+move to bounded old-rule history, preserving unknown dates; old Gold is not proof of the recalibrated rules.
+Concurrent windows use the shared v1 lease. Clearing keeps a v2 tombstone and an
+empty v1 downgrade fence, preventing old writes from restoring cleared awards.
 Badge notices appear only in the visible foreground panel, at most once per five
 minutes across windows/restarts. Display confirmation reads only that batch; missed
 notices stay unread. Hovering or keyboard focus pauses dismissal.
@@ -216,8 +220,10 @@ Missed awards appear in a folded New awards summary with at most six exact level
 per group. Only Mark this group read confirms that group after a successful local
 save; browsing, pinning and sharing do not. Other windows' later awards remain unread.
 Recently earned shows at most three new series; Recent records folds up to thirty
-saved levels and links to their rules. Earned badge details can pin up to three
-representatives in My badges; saved pins survive restart and never select sharing.
+saved levels and links to their rules. My badges supports up to six manually pinned
+themes, with pin icons on closed cards and a searchable selection editor with explicit
+ordering. Manual mode shows only chosen pins; automatic mode recommends at most
+three. Pins and order survive restart and never select sharing.
 Pins hidden by a disabled provider can be removed from the folded hidden-pin list
 without re-enabling that provider.
 Dates mean first recorded, not inferred
@@ -226,10 +232,10 @@ attainment; historical dates remain unknown. Browsing does not mark records read
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.
 
-The unreleased 2.4.2 candidate adds an icon-first gallery: **44 display themes and 124 award conditions**,
-with all 46 artwork groups retained. Fourteen-day and first shared-day milestones
-live inside their growing themes; exact awards, old pins and share choices remain intact.
-with ordinary, silver and gold tiers, plus platinum/legendary cumulative milestones.
+The unreleased 2.4.2 candidate adds an icon-first gallery: **50 display themes and 144 award conditions**,
+using 52 artwork groups from the source catalog. Fourteen-day and first shared-day
+milestones live inside their growing themes, with distinct award and sharing choices.
+The gallery has ordinary, silver and gold tiers, plus platinum/legendary cumulative milestones.
 One card shows each series and its compact next target; expand it for every level's
 rule and evidence. Series and unlocked levels are counted separately. Local All /
 Next level / Earned filters survive reload; upgrading a tier keeps its disclosure open.
@@ -240,9 +246,10 @@ Pending or outdated evidence is labelled, not shown as zero progress, and exclud
 from Next level filtering; earned badges remain saved.
 Closed cards show current / next-level progress. Long Token ladders include
 intermediate stages, without extra awards, notices or sharing choices.
-My badges and Next goals each highlight at most three distinct themes before
-the complete collection. Goals require positive, current evidence; unused models
-are not promoted. Selection stays fixed during a visit; opening a badge focuses
+Small / Medium / Large sizes change badges and card frames while preserving text
+size and click areas. Next goals highlights at most three distinct themes before
+the complete collection. Goals require positive, current evidence; unproven goals
+and unused models are not promoted. Selection stays fixed during a visit; opening a badge focuses
 its existing rule without reading logs or selecting it for sharing.
 
 - **Token-led progression:** Claude Sonnet/Opus/Haiku/Fable and Codex Astra/Sol/Luna,
@@ -254,6 +261,19 @@ its existing rule without reading logs or selecting it for sharing.
 - **Small local discoveries:** deliberately changing safe settings, previewing/exporting
   a share card, and saving local advice feedback. Credentials, network consent and
   public GitHub publication are never achievement requirements.
+- **API-equivalent milestones:** 20 conditions in six separate Claude/Codex themes
+  cover cumulative priced subtotals, completed Monday-start weeks in the current
+  data timezone, and one Claude session or one independently verified Codex task tree.
+  These use fixed USD reference prices (`api-reference-2026-10-{backend}-v1`,
+  dated 2026-10-09), exact known models and complete component rates, including
+  Claude's known 5-minute/1-hour cache-write TTL. Codex counts uncached input,
+  cached input and output once. Unknown models stay unpriced; a verified priced
+  subset can prove a lower bound (`≥`), not full coverage. This is neither a bill,
+  quality score nor income. Money history is recognized quietly; live monetary
+  origin notices are not yet wired.
+- **Recalibrated experiences:** model, team, effort and rainbow rules combine
+  output with repeated use and usage scale. Duplicate aliases, input-only activity and
+  unverified task structures cannot substitute for the joint evidence.
 - **On by default, easy to stop:** turn off **Local achievements** in ⚙ Settings
   (`enableAchievements`). On upgrade, with release announcements enabled, one
   non-modal reminder offers **View achievements** and **Turn achievements off**.
@@ -266,6 +286,8 @@ its existing rule without reading logs or selecting it for sharing.
   profile lookup or background upload.
 
 Evaluation reuses verified numeric aggregates; opening cards never reads logs.
+API-equivalent heatmap sharing has generator foundations, and weekly quota pace
+has calculation/status-bar foundations; their main production UI and wiring remain pending.
 After complete current indexing, unrelated Codex identity conflicts no longer block
 milestones supported by independently verified lineages; calendar awards still need
 complete identity and date evidence. Conflicting branches are excluded, not estimated.

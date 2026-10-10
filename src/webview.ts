@@ -2,7 +2,12 @@ import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import type { ClaudeUsageRecord } from './types';
 import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
-import { I18n, achievementCopyFor } from './i18n';
+import { I18n, achievementCopyFor, achievementAppearanceCopyFor } from './i18n';
+import { achievementConditionFor } from './achievementConditions';
+import {API_ACHIEVEMENT_DEFINITIONS,isAchievementMoneyId,type AchievementMoneyFacts} from './achievementMoneyCatalog';
+import type {AchievementMoneyScopes} from './achievementMoneyScopes';
+import {achievementMoneyCopyFor} from './achievementMoneyCopy';
+import { achievementRuleVersion } from './achievementRuleVersions';
 import {
   ACHIEVEMENT_DEFINITIONS,
   ACHIEVEMENT_SERIES,
@@ -1008,6 +1013,7 @@ export interface ClaudeAchievementSnapshot {
   sessionEvidence: ClaudeSessionAchievementEvidence;
   records: ClaudeUsageRecord[];
   timeZone: string;
+  money?: AchievementMoneyScopes;
 }
 
 export class UsageWebviewProvider {
@@ -1048,6 +1054,7 @@ export class UsageWebviewProvider {
     modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 },
   };
   private achievementGrants = new Set<AchievementId>();
+  private achievementLegacyRuleGrants: AchievementId[] = [];
   private pendingAchievementGrants = new Set<AchievementId>();
   private achievementPersistenceEpoch = 0;
   private usageAchievementEvidenceEpoch = 0;
@@ -1147,6 +1154,8 @@ export class UsageWebviewProvider {
   private allRecords: any[] = [];
   private sessionBreakdown: SessionUsage[] = [];
   private achievementSessionEvidence?: ClaudeSessionAchievementEvidence;
+  private claudeAchievementMoney?: AchievementMoneyScopes;
+  private achievementMoneyFacts: AchievementMoneyFacts = {};
   private projectBreakdown: ProjectGroup[] = [];
   private claudeProjectUsageMatrix: ProjectUsageMatrixSnapshot | null = null;
   private contentAnalysis: ContentAnalysis | null = null;
@@ -1320,6 +1329,10 @@ export class UsageWebviewProvider {
     }
     const allowed = new Set<string>(ACHIEVEMENT_DEFINITIONS.map((entry) => entry.id));
     const stored = context.globalState?.get<unknown>('ccu.achievements.grants.v5');
+    const oldSource = Array.isArray(stored) ? stored : context.globalState?.get<unknown>('ccu.achievements.grants.v4')
+      ?? context.globalState?.get<unknown>('ccu.achievements.grants.v3');
+    const legacyRuleRecordInput = Array.isArray(oldSource) ? oldSource.filter((id): id is AchievementId =>
+      typeof id === 'string' && allowed.has(id) && achievementRuleVersion(id) === 2) : [];
     if (Array.isArray(stored)) {
       this.achievementGrants = new Set(stored.filter((id): id is AchievementId =>
         typeof id === 'string' && allowed.has(id),
@@ -1476,6 +1489,11 @@ export class UsageWebviewProvider {
     }
     // Startup may remain idle after a storage failure. Observe both terminal
     // queues without replacing their rejected promises or completing a marker.
+    // Hold changed legacy identities for the canonical archive, but do not
+    // paint their old qualification as a current joint-rule achievement.
+    this.achievementLegacyRuleGrants = [...new Set([...legacyRuleRecordInput,
+      ...[...this.achievementGrants].filter(id => achievementRuleVersion(id) === 2)])];
+    this.achievementGrants = new Set([...this.achievementGrants].filter(id => achievementRuleVersion(id) === 1));
     void this.achievementWrite.catch(() => undefined);
     void this.achievementActivityWrite.catch(() => undefined);
     void this.achievementHourWrite.catch(() => undefined);
@@ -2475,6 +2493,9 @@ export class UsageWebviewProvider {
         case 'setAchievementPinned':
           await this.handleAchievementPinMessage(message as Record<string, unknown>);
           break;
+        case 'editAchievementShowcase':
+          await this.handleAchievementShowcaseMessage(message as Record<string, unknown>);
+          break;
         case 'dashboardDataPatchAck': {
           const pending = this.pendingDashboardLivePatch;
           if (
@@ -3103,6 +3124,7 @@ export class UsageWebviewProvider {
     dailyDataForEveryDay: { date: string; data: UsageData }[] = [],
     achievementSessionEvidence?: ClaudeSessionAchievementEvidence,
     achievementTimeZone?: string,
+    achievementMoney?: AchievementMoneyScopes,
   ): void {
     if (achievementTimeZone && this.achievementCalendarTimeZone &&
         achievementTimeZone !== this.achievementCalendarTimeZone) this.achievementNoticeBaseline.reset();
@@ -3132,6 +3154,7 @@ export class UsageWebviewProvider {
     }
     this.sessionBreakdown = sessionBreakdown;
     this.achievementSessionEvidence = achievementSessionEvidence;
+    this.claudeAchievementMoney = achievementMoney;
     this.achievementCalendarTimeZone = achievementTimeZone;
     this.projectBreakdown = projectBreakdown;
     this.claudeProjectUsageMatrix = projectUsageMatrix;
@@ -4350,13 +4373,14 @@ export class UsageWebviewProvider {
           throw new Error('achievement-record:migration-pending');
         }
       }
-      const saved = await repository.initialize([...this.achievementGrants], canWrite, {
+      const saved = await repository.initialize([...new Set([...this.achievementGrants,...this.achievementLegacyRuleGrants])], canWrite, {
         activity: this.achievementActivity, hours: this.achievementHourEvidence,
         calendarPeak: this.achievementCalendarPeak ?? null,
       });
       if (!canWrite()) return;
       this.achievementRecordState = saved;
       this.achievementGrants = new Set(saved.records.map(row => row.id));
+      this.achievementLegacyRuleGrants = [];
       this.achievementActivity = saved.auxiliary.activity;
       this.achievementHourEvidence = saved.auxiliary.hours;
       this.achievementCalendarPeak = saved.auxiliary.calendarPeak ?? undefined;
@@ -4449,6 +4473,7 @@ export class UsageWebviewProvider {
     const claudeFamilyTokens: Record<'sonnet' | 'opus' | 'haiku', number> = {
       sonnet: 0, opus: 0, haiku: 0,
     };
+    const claudeFamilyOutputTokens = {sonnet:0,opus:0,haiku:0};
     for (const [model, row] of Object.entries(claude?.modelBreakdown ?? {})) {
       const used = row.inputTokens + row.outputTokens +
         row.cacheCreationTokens + row.cacheReadTokens;
@@ -4457,6 +4482,7 @@ export class UsageWebviewProvider {
       if (family && family !== 'fable') {
         claudeFamilies.add(family);
         claudeFamilyTokens[family] += used;
+        if (Number.isSafeInteger(row.outputTokens) && row.outputTokens >= 0) claudeFamilyOutputTokens[family] += row.outputTokens;
       }
     }
     // Discover all identities first. Then independently verified lineages may
@@ -4582,7 +4608,12 @@ export class UsageWebviewProvider {
       plugin: 'ready',
     };
     const notifyDomains = this.achievementNoticeBaseline.accept(this.achievementEvidenceStates);
+    this.achievementMoneyFacts = {
+      claude:claude ? (this.acceptedClaudeAchievement ? this.acceptedClaudeAchievement.money : this.claudeAchievementMoney) : undefined,
+      codex:codexSubsetTrusted ? codexSignals.money : undefined,
+    };
     const results = evaluateAchievements({
+      money:this.achievementMoneyFacts,
       claudeTokens,
       claudeOutputTokens: claude?.totalOutputTokens ?? 0,
       claudeCacheReadTokens: claude?.totalCacheReadTokens ?? 0,
@@ -4596,6 +4627,7 @@ export class UsageWebviewProvider {
       longestStreak: longestActiveDayStreak(active),
       claudeFamilies: [...claudeFamilies],
       claudeFamilyTokens,
+      claudeFamilyOutputTokens,
       fable: { ...fable, activeDays: claudeProof.complete ? fable.activeDays : 0 },
       weeklyPeakProcessed: peakCalendarWeekProcessed(weekRows, weekCoverageComplete),
       outputHourStreak: Math.max(hours.streak, this.achievementHourEvidence.maxStreak),
@@ -4622,6 +4654,16 @@ export class UsageWebviewProvider {
     // calendar/hour migration cannot silence independently verified Tokens.
     if (newlyEarned.length > 0 && this.context.globalState) {
       const ids = newlyEarned.map((result) => result.id);
+      const referencePricebooks = new Map(ids.filter(isAchievementMoneyId).map(id=>[id,
+        this.achievementMoneyFacts[id.startsWith('claude-') ? 'claude' : 'codex']?.pricebookVersion]));
+      const moneyStillEligible = (id: AchievementId): boolean => {
+        if (!isAchievementMoneyId(id)) return true;
+        const proof=this.achievementMoneyFacts[id.startsWith('claude-') ? 'claude' : 'codex'];
+        const rule=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===id)!;
+        const value=rule.scope==='cumulative' ? proof?.cumulative?.microUsd : proof?.[rule.scope];
+        return !!proof && proof.pricebookVersion===referencePricebooks.get(id) && typeof value==='number' &&
+          Number.isSafeInteger(value) && value>=rule.target && ['complete','partial'].includes(proof.coverage[rule.scope].status);
+      };
       // Imported plugin ledgers are history too. Only a committed action that
       // actually crosses a catalog target can enable a plugin notice.
       const noticeIds = newlyEarned.filter(result => result.group === 'plugin'
@@ -4636,8 +4678,8 @@ export class UsageWebviewProvider {
         try {
           if (epoch !== this.achievementPersistenceEpoch ||
               !this.setting<boolean>('enableAchievements', true)) return;
-          const validIds = ids.filter(id => this.isPluginAchievement(id) ||
-            evidenceEpoch === this.usageAchievementEvidenceEpoch);
+          const validIds = ids.filter(id => (this.isPluginAchievement(id) ||
+            evidenceEpoch === this.usageAchievementEvidenceEpoch) && moneyStillEligible(id));
           if (validIds.length === 0) return;
           // Snapshot confirmed awards here, not before an earlier queued save
           // may fail. Failed saves remain eligible on the next normal update.
@@ -4652,10 +4694,11 @@ export class UsageWebviewProvider {
                 // than late historical reconciliation. Keep usage quiet until
                 // producer-origin evidence is wired, instead of inventing a date.
                 return { id, origin: local ? 'activity' as const : 'history' as const,
+                  ...(isAchievementMoneyId(id) ? {referencePricebook:referencePricebooks.get(id)} : {}),
                   recordedDay: local ? recordedDay : null, timeZone: local ? timeZone : null };
               }), () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
                 this.setting<boolean>('enableAchievements', true) &&
-                validIds.every(id => this.isPluginAchievement(id) || evidenceEpoch === this.usageAchievementEvidenceEpoch));
+                validIds.every(id => (this.isPluginAchievement(id) || evidenceEpoch === this.usageAchievementEvidenceEpoch) && moneyStillEligible(id)));
             this.achievementRecordState = append.store;
             this.achievementGrants = new Set(append.store.records.map(row => row.id));
             newlySavedIds = append.added.filter(row => row.unread).map(row => row.id);
@@ -4877,7 +4920,13 @@ export class UsageWebviewProvider {
   private async handleAchievementPinMessage(message: Record<string, unknown>): Promise<void> {
     const repository = this.achievementRecordRepository, state = this.achievementRecordState;
     const { key, selected, generation } = message;
-    if (!repository || !state || typeof key !== 'string' || typeof selected !== 'boolean' || generation !== state.generation) return;
+    if (!repository || !state || message.documentId !== this.dashboardDocumentId ||
+        typeof key !== 'string' || typeof selected !== 'boolean') return;
+    const replyFailure = () => {
+      try { void Promise.resolve(this.panel?.webview.postMessage({command:'achievementPinResult',key,ok:false,reason:'failed',
+        documentId:this.dashboardDocumentId})).catch(() => undefined); } catch { /* Retired panel. */ }
+    };
+    if (generation !== state.generation) { replyFailure(); return; }
     const ids = ACHIEVEMENT_SERIES[key] ?? [key];
     const rule = ACHIEVEMENT_DEFINITIONS.find(row => row.id === ids[0]);
     if (!rule) return;
@@ -4885,14 +4934,15 @@ export class UsageWebviewProvider {
     const sourceAllowed = () => !selected ||
       ((rule.group !== 'claude' && rule.group !== 'codex' || this.providerAvailability[rule.group]) &&
         (!key.startsWith('dual-provider-') || this.providerAvailability.claude && this.providerAvailability.codex));
-    if (!sourceAllowed()) return;
-    if (selected && !state.records.some(row => ids.includes(row.id))) return;
+    if (!sourceAllowed()) { replyFailure(); return; }
+    if (selected && !state.records.some(row => ids.includes(row.id))) { replyFailure(); return; }
     const epoch = this.achievementPersistenceEpoch, panel = this.panel;
     const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
       this.setting<boolean>('enableAchievements', true) && !!panel && this.panel === panel &&
-      panel.visible && this.webviewClientReady && this.achievementWindowFocused && sourceAllowed();
-    if (!canWrite()) return;
-    let reason: 'limit' | 'failed' | undefined;
+      panel.visible && this.webviewClientReady && this.achievementWindowFocused && sourceAllowed() &&
+      this.dashboardDocumentId === message.documentId;
+    if (!canWrite()) { replyFailure(); return; }
+    let reason: 'limit' | 'failed' | 'old-writer' | undefined;
     const operation = this.achievementWrite.catch(() => undefined).then(async () => {
       try {
         const saved = await repository.setPinned(generation as number, key, selected, canWrite);
@@ -4900,7 +4950,8 @@ export class UsageWebviewProvider {
         this.achievementRecordState = saved;
         this.achievementGrants = new Set(saved.records.map(row => row.id));
       } catch (error) {
-        reason = (error as Error)?.message === 'achievement-record:pin-limit' ? 'limit' : 'failed';
+        reason = (error as Error)?.message === 'achievement-record:pin-limit' ? 'limit' :
+          (error as Error)?.message === 'achievement-record:old-writer' ? 'old-writer' : 'failed';
       }
       if (!reason && canWrite()) {
         try { this.updateWebview(); } catch { /* Saved state remains valid; refresh can hydrate it later. */ }
@@ -4908,10 +4959,55 @@ export class UsageWebviewProvider {
     });
     this.achievementWrite = operation;
     await operation;
-    if (reason && canWrite()) {
-      try { await panel!.webview.postMessage({ command: 'achievementPinResult', key, ok: false, reason }); }
+    if (this.panel === panel && message.documentId === this.dashboardDocumentId) {
+      try { await panel!.webview.postMessage({ command: 'achievementPinResult', key, ok: !reason && canWrite(), reason:reason ?? (canWrite() ? undefined : 'failed'),
+        documentId: this.dashboardDocumentId }); }
       catch { /* No successful save was claimed. */ }
     }
+  }
+
+  /** Mode/reorder are revision-bound whole-list intents; single pins merge separately. */
+  private async handleAchievementShowcaseMessage(message: Record<string, unknown>): Promise<void> {
+    const repository = this.achievementRecordRepository, state = this.achievementRecordState;
+    const { action, generation, revision } = message;
+    if (!repository || !state || message.documentId !== this.dashboardDocumentId ||
+        !Number.isSafeInteger(revision) || (revision as number) < 0 ||
+        (action !== 'mode' && action !== 'reorder')) return;
+    const replyFailure = () => {
+      try { void Promise.resolve(this.panel?.webview.postMessage({command:'achievementShowcaseResult',ok:false,reason:'failed',
+        documentId:this.dashboardDocumentId})).catch(() => undefined); } catch { /* Retired panel. */ }
+    };
+    if (generation !== state.generation) { replyFailure(); return; }
+    if (action === 'mode' && message.mode !== 'automatic' && message.mode !== 'manual') return;
+    if (action === 'reorder' && (!Array.isArray(message.keys) || message.keys.length > 6 ||
+        !message.keys.every(key => typeof key === 'string' && achievementGalleryKey(key) !== undefined))) return;
+    const epoch = this.achievementPersistenceEpoch, panel = this.panel;
+    const canWrite = () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+      this.setting<boolean>('enableAchievements', true) && !!panel && this.panel === panel && panel.visible &&
+      this.webviewClientReady && this.achievementWindowFocused && message.documentId === this.dashboardDocumentId;
+    if (!canWrite()) { replyFailure(); return; }
+    let reason: 'failed' | 'old-writer' | undefined;
+    const operation = this.achievementWrite.catch(() => undefined).then(async () => {
+      try {
+        const saved = action === 'mode'
+          ? await repository.setShowcaseMode(generation as number, message.mode as 'automatic' | 'manual', revision as number, canWrite)
+          : await repository.reorderPinned(generation as number, message.keys as string[], revision as number, canWrite);
+        if (!canWrite()) return;
+        this.achievementRecordState = saved;
+        this.achievementGrants = new Set(saved.records.map(row => row.id));
+        this.updateWebview();
+      } catch (error) {
+        reason = (error as Error)?.message === 'achievement-record:old-writer' ? 'old-writer' : 'failed';
+        // A stale reorder must not be retried automatically against a peer's new list.
+        if ((error as Error)?.message === 'achievement-record:pin-stale' && canWrite()) {
+          try { this.achievementRecordState = await repository.initialize([], canWrite); this.updateWebview(); } catch { /* Retry remains explicit. */ }
+        }
+      }
+    });
+    this.achievementWrite = operation;
+    await operation;
+    if (this.panel===panel && message.documentId===this.dashboardDocumentId) try { await panel!.webview.postMessage({ command: 'achievementShowcaseResult', ok: !reason && canWrite(), reason:reason ?? (canWrite() ? undefined : 'failed'),
+      documentId: this.dashboardDocumentId }); } catch { /* No optimistic save. */ }
   }
 
   /** Clear-all waits for any earlier award write before deleting its record. */
@@ -5138,11 +5234,28 @@ export class UsageWebviewProvider {
 
   private renderAchievementData(): string {
     const copy = achievementCopyFor(I18n.getLocale());
+    const appearance = achievementAppearanceCopyFor(I18n.getLocale());
+    const moneyCopy = achievementMoneyCopyFor(I18n.getLocale());
     const compact = (value: number): string => formatAchievementCompact(value, I18n.getLocale());
     const integer = (value: number): string => formatAchievementInteger(value, I18n.getLocale());
+    const moneyValue = (id:AchievementId,value:number):string => {
+      const rule=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===id);
+      const positive=rule && this.achievementMoneyFacts[rule.group]?.coverage[rule.scope].amountPositive;
+      return value<1_000_000 && (value>0 || value===0 && positive===true) ? '<$1' : '$'+integer(Math.floor(value/1_000_000));
+    };
+    const compactValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : compact(value);
+    const integerValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : integer(value);
     const results = this.achievementResults();
     const cumulativeLowerBound = this.codexAchievementVolume().lowerBound;
+    const evidenceFor = (result:AchievementResult):AchievementEvidenceState => {
+      const base=this.achievementEvidenceStates?.[achievementEvidenceDomain(result)] ?? 'ready';
+      if (base==='stale') return base;
+      const rule=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===result.id);
+      const quality=rule ? this.achievementMoneyFacts[rule.group]?.coverage[rule.scope] : undefined;
+      return rule && !['complete','partial','empty'].includes(quality?.status ?? '') ? 'pending' : base;
+    };
     const unitFor = (id: AchievementId): string =>
+      isAchievementMoneyId(id) ? moneyCopy.unit :
       id.startsWith('codex-output-') ? copy.units.outputTokens :
       id.startsWith('codex-cache-read-') ? copy.units.codexCachedTokens :
       /^(astra|sol|luna|sonnet|opus|haiku)-days-/.test(id) ? copy.units.qualifiedDays :
@@ -5210,21 +5323,34 @@ export class UsageWebviewProvider {
       }
       return name;
     };
+    const pinControl = (pin: string, pinned: boolean, id: string, fallback: string, name: string): string => {
+      const label = (pinned ? copy.unpinBadge : copy.pinBadge) + ': ' + name;
+      return '<button id="' + id + '" class="achievement-pin achievement-pin-icon" data-achievement-pin="' + pin +
+        '" data-achievement-generation="' + this.achievementRecordState!.generation + '" aria-pressed="' + pinned +
+        '" aria-label="' + this.escapeHtml(label) + '" title="' + this.escapeHtml(label) +
+        '" aria-describedby="achievementPinStatus" data-refresh-focus-fallback="' + fallback +
+        ' tab-achievements" onclick="requestAchievementPin(this)"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<path d="M8 3h8l-1 6 4 4v2h-6v6l-1 1-1-1v-6H5v-2l4-4z"/></svg></button>';
+    };
     const card = ({ key, milestones, result, nextResult, series, tiers, tierCount, earnedTiers, earnedLevels, nextTierIndex,
       hasNextTier, tier }: typeof presentation[number]): string => {
       const earned = earnedTiers > 0 || isEarned(result) || milestones.some(isEarned);
       const targetUnlocked = nextResult.unlocked || this.achievementGrants.has(nextResult.id);
-      const evidenceState = this.achievementEvidenceStates?.[achievementEvidenceDomain(nextResult)] ?? 'ready';
+      const monetary = API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===nextResult.id);
+      const moneyProof = monetary ? this.achievementMoneyFacts[monetary.group] : undefined;
+      const quality = monetary ? moneyProof?.coverage[monetary.scope] : undefined;
+      const evidenceState = evidenceFor(nextResult);
       const proofReady = evidenceState === 'ready';
-      const proofLabel = evidenceState === 'stale' ? copy.evidenceStale : copy.evidencePending;
+      const proofLabel = evidenceState === 'stale' ? copy.evidenceStale : quality?.status==='unpriced' ? moneyCopy.unpriced : copy.evidencePending;
       const progress = Math.min(nextResult.target, targetUnlocked ? nextResult.target : nextResult.progress);
-      const formatted = compact(progress) + ' / ' + compact(nextResult.target);
-      const exactProgress = integer(progress) + ' / ' + integer(nextResult.target);
+      const formatted = compactValue(nextResult.id,progress) + ' / ' + compactValue(nextResult.id,nextResult.target);
+      const exactProgress = integerValue(nextResult.id,progress) + ' / ' + integerValue(nextResult.id,nextResult.target);
       const cumulativeVolume = ['hundred-million-club',
         'billion-token-club', 'ten-billion-token-club', 'hundred-billion-token-club', 'trillion-token-club']
         .includes(result.id);
       const baseName = themeName(key, result);
-      const bound = proofReady && cumulativeLowerBound && (cumulativeVolume || result.group === 'codex') ? '≥' : '';
+      const bound = proofReady && (monetary ? quality?.status==='partial' || (moneyProof?.coverage.excludedFiles ?? 0)>0 :
+        cumulativeLowerBound && (cumulativeVolume || result.group === 'codex')) ? '≥' : '';
       const levelName = series && earnedTiers > 0
         ? copy.levels[tierOrder.indexOf(tier)] : earned ? copy.milestone : copy.locked;
       const webview = this.panel?.webview;
@@ -5255,11 +5381,7 @@ export class UsageWebviewProvider {
         const pinned = savedPins.includes(pin);
         const ids = ACHIEVEMENT_SERIES[pin];
         const name = copy.titles[(ids ? ids[0] : pin) as AchievementId];
-        return '<button id="achievement-pin-' + pin + '" class="achievement-pin" data-achievement-pin="' + pin +
-          '" data-achievement-generation="' + this.achievementRecordState!.generation + '" aria-pressed="' + pinned +
-          '" aria-describedby="achievementPinStatus" data-refresh-focus-fallback="achievement-summary-' + key +
-          ' tab-achievements" title="' + this.escapeHtml(copy.pinLimit) + '" onclick="requestAchievementPin(this)">' +
-          this.escapeHtml((pinned ? copy.unpinBadge : copy.pinBadge) + (savedPins.length > 1 ? ' · ' + name : '')) + '</button>';
+        return pinControl(pin, pinned, 'achievement-pin-' + pin, 'achievement-summary-' + key, name);
       }).join('');
       const next = series ? hasNextTier : !earned;
       const stage = series && next ? nextAchievementStage(series, nextResult.progress, nextResult.target, proofReady) : undefined;
@@ -5268,12 +5390,17 @@ export class UsageWebviewProvider {
           exactProgress + ' ' + unitFor(result.id)) + '">' + this.escapeHtml(bound + formatted) + '</span>' +
           (stage === undefined ? '' : '<span class="achievement-stage-target" title="' +
             this.escapeHtml(copy.nextStage + ': ' + integer(stage) + ' ' + unitFor(result.id)) + '">' +
-            this.escapeHtml(copy.nextStage + ' · ' + compact(stage)) + '</span>')
+            this.escapeHtml(copy.nextStage + ' · ' + compactValue(nextResult.id,stage)) + '</span>')
         : this.escapeHtml(!proofReady ? proofLabel : next ? copy.milestone : copy.complete);
       const levelRules = (tiers ?? [result]).map((entry, index) =>
         '<li data-achievement-level="' + entry.id + '"><strong>' +
           this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span>' +
-          this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span></li>').join('');
+          this.escapeHtml(compactValue(entry.id,entry.target) + ' ' + unitFor(entry.id)) + '</span>' +
+          (achievementConditionFor(I18n.getLocale(), entry.id) ? '<small>' +
+            this.escapeHtml(achievementConditionFor(I18n.getLocale(), entry.id)!) + '</small>' : '') +
+          (isAchievementMoneyId(entry.id) && this.achievementRecordState?.records.find(row=>row.id===entry.id)?.referencePricebook
+            ? '<small class="achievement-earned-reference">' + this.escapeHtml(moneyCopy.earnedReference + ': ' +
+              this.achievementRecordState.records.find(row=>row.id===entry.id)!.referencePricebook) + '</small>' : '') + '</li>').join('');
       const milestoneRules = milestones.length ? '<h5>' + this.escapeHtml(copy.milestone) +
         '</h5><ul class="achievement-level-rules achievement-milestones">' + milestones.map(entry => {
           const src = webview?.asWebviewUri && this.context.extensionPath
@@ -5294,6 +5421,13 @@ export class UsageWebviewProvider {
             this.escapeHtml(recorded ? copy.stepRecorded : copy.stepUnrecorded) + '</small></li>';
         }).join('') + '</ol>' : '';
       const statistics = this.achievementStatisticsSection(key);
+      const monetaryDetails = monetary ? '<p class="table-hint achievement-money-scope">' +
+        this.escapeHtml(moneyCopy[monetary.scope==='cumulative' ? 'total' : monetary.scope==='completedMondayWeekPeak' ? 'week' : monetary.group==='claude' ? 'session' : 'task']) +
+        '</p><p class="table-hint achievement-money-reference">' + this.escapeHtml(moneyCopy.reference + ': ' +
+          (moneyProof?.pricebookVersion ?? '—') + ' · 2026-10-09') + '</p>' +
+        (quality?.pricingCoverage === undefined ? '' : '<p class="table-hint achievement-money-coverage">' +
+          this.escapeHtml(moneyCopy.coverage.replace('{percent}',integer(Math.floor(quality.pricingCoverage*100)))) + '</p>') +
+        '<p class="table-hint">' + this.escapeHtml(moneyCopy.note) + '</p>' : '';
       const statisticsButton = statistics ? '<button id="achievement-statistics-' + key +
         '" class="btn-secondary btn-small" data-achievement-statistics="' + key +
         '" data-statistics-section="' + statistics + '" onclick="openAchievementStatistics(this)">' +
@@ -5302,6 +5436,7 @@ export class UsageWebviewProvider {
         '"' + seriesAttrs + ' data-achievement-key="' + key + '" data-achievement-earned="' + earned +
         '" data-achievement-next="' + (next && proofReady) + '" data-achievement-proof="' + evidenceState +
         '" data-achievement-id="' + result.id + '">' +
+        (pinButtons ? '<div class="achievement-card-pins">' + pinButtons + '</div>' : '') +
         '<details class="achievement-disclosure" data-persist="achievement:' + key + '"' +
         ' data-persist-aliases="' + allResults.map(entry => 'achievement:' + entry.id).join(' ') + '">' +
         '<summary id="achievement-summary-' + key + '" aria-label="' + this.escapeHtml(baseName + ' · ' + levelName + ' · ' +
@@ -5317,7 +5452,6 @@ export class UsageWebviewProvider {
         (proofReady && next ? '<span class="achievement-progress-track" aria-hidden="true"><span style="width:' +
           Math.min(100, Math.max(0, progress / nextResult.target * 100)) + '%"></span></span>' : '') + '</summary>' +
         '<div class="achievement-card-detail">' + tierMarkers +
-        pinButtons +
         (proofReady ?
         '<label class="achievement-progress-label" for="achievement-progress-' + result.id +
         '" title="' + this.escapeHtml(bound + exactProgress + ' ' + unitFor(result.id)) + '">' +
@@ -5328,7 +5462,7 @@ export class UsageWebviewProvider {
           ' ' + unitFor(result.id)) + '"></progress>' :
           '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p>') +
         '<h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
-        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + statisticsButton + '</div></details></article>';
+        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + monetaryDetails + statisticsButton + '</div></details></article>';
     };
     const groups: Array<'claude' | 'codex' | 'combined' | 'plugin'> =
       ['claude', 'codex', 'combined', 'plugin'];
@@ -5342,10 +5476,15 @@ export class UsageWebviewProvider {
       earned: entry.earnedTiers > 0 || isEarned(entry.result) || entry.milestones.some(isEarned),
       next: entry.series ? entry.hasNextTier : !(entry.result.unlocked || this.achievementGrants.has(entry.result.id)),
       progress: entry.nextResult.progress, target: entry.nextResult.target,
-      proof: this.achievementEvidenceStates?.[achievementEvidenceDomain(entry.nextResult)] ?? 'ready',
+      proof: evidenceFor(entry.nextResult),
     }));
     const pins = this.achievementRecordState?.pins ?? [];
-    const hiddenPins = pins.filter(key => !visibleCards.some(entry => entry.key === achievementGalleryKey(key)));
+    const currentPin = (key: string): boolean => this.achievementRecordState?.records.some(row =>
+      row.id === key || ACHIEVEMENT_SERIES[key]?.includes(row.id)) === true;
+    const legacyPins = pins.filter(key => !currentPin(key) && this.achievementRecordState?.legacyRecords?.some(row =>
+      row.id === key || ACHIEVEMENT_SERIES[key]?.includes(row.id)));
+    const hiddenPins = pins.filter(key => !legacyPins.includes(key) &&
+      !visibleCards.some(entry => entry.key === achievementGalleryKey(key)));
     const hiddenPinSection = hiddenPins.length ? '<details class="achievement-record-history" data-persist="achievement:hidden-pins"><summary id="achievement-hidden-pins-summary">' +
       '<span id="achievement-hidden-pins-label">' + this.escapeHtml(copy.hiddenPins) + ' · ' + integer(hiddenPins.length) + '</span></summary><ul class="achievement-hidden-pins">' +
       hiddenPins.map(key => {
@@ -5356,12 +5495,13 @@ export class UsageWebviewProvider {
           '" aria-pressed="true" aria-describedby="achievementPinStatus" data-refresh-focus-fallback="achievement-hidden-pins-summary tab-achievements" onclick="requestAchievementPin(this)">' +
           this.escapeHtml(copy.unpinBadge) + '</button></li>';
       }).join('') + '</ul></details>' : '';
-    const pinsSignature = JSON.stringify(pins);
+    const mode = this.achievementRecordState?.showcaseMode ?? (pins.length ? 'manual' : 'automatic');
+    const pinsSignature = JSON.stringify([pins, mode, this.achievementRecordState?.pinRevision]);
     if (!this.achievementOverviewSelection || this.achievementOverviewProvider !== this.currentProvider) {
-      this.achievementOverviewSelection = selectAchievementOverview(overviewRows, this.currentProvider, pins);
+      this.achievementOverviewSelection = selectAchievementOverview(overviewRows, this.currentProvider, pins, mode);
       this.achievementOverviewProvider = this.currentProvider;
     } else if (this.achievementOverviewPinsSignature !== pinsSignature) {
-      this.achievementOverviewSelection.badges = selectAchievementOverview(overviewRows, this.currentProvider, pins).badges;
+      this.achievementOverviewSelection.badges = selectAchievementOverview(overviewRows, this.currentProvider, pins, mode).badges;
     }
     this.achievementOverviewPinsSignature = pinsSignature;
     const overview = retainAchievementOverview(this.achievementOverviewSelection, overviewRows);
@@ -5375,13 +5515,21 @@ export class UsageWebviewProvider {
           const rank = entry.series && state.earnedLevel > 0 ? copy.levels[state.earnedLevel - 1] :
             state.earned ? copy.milestone : copy.locked;
           const proofLabel = state.proof === 'stale' ? copy.evidenceStale : copy.evidencePending;
+          const monetary=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===entry.nextResult.id);
+          const moneyProof=monetary ? this.achievementMoneyFacts[monetary.group] : undefined;
+          const moneyLowerBound=monetary && (moneyProof?.coverage[monetary.scope].status==='partial' ||
+            (moneyProof?.coverage.excludedFiles ?? 0)>0);
           const progress = (state.proof === 'ready' ?
-            (cumulativeLowerBound && (entry.series === 'cumulative-volume' || entry.result.group === 'codex') ? '≥' : '') +
-            compact(state.progress) + ' / ' + compact(state.target) : proofLabel);
+            (monetary ? moneyLowerBound ? '≥' : '' : cumulativeLowerBound && (entry.series === 'cumulative-volume' || entry.result.group === 'codex') ? '≥' : '') +
+            compactValue(entry.nextResult.id,state.progress) + ' / ' + compactValue(entry.nextResult.id,state.target) : proofLabel);
           const imagePath = achievementImagePath(entry.result.id);
           const iconSrc = this.panel?.webview?.asWebviewUri && this.context.extensionPath ?
             this.panel.webview.asWebviewUri(vscode.Uri.file(imagePath)).toString() : achievementImageDataUrl(entry.result.id);
-          return '<button class="achievement-overview-badge" data-achievement-open="' + key +
+          const selectedPin = pins.find(pin => achievementGalleryKey(pin) === key);
+          const pinKey = selectedPin ?? (currentPin(key) ? key : entry.milestones.find(row => currentPin(row.id))?.id);
+          return '<div class="achievement-overview-item">' + (kind === 'badges' && pinKey ?
+            pinControl(pinKey, !!selectedPin, 'achievement-overview-pin-' + key, 'achievement-summary-' + key, name) : '') +
+            '<button class="achievement-overview-badge" data-achievement-open="' + key +
             '" data-overview-rank="' + entry.tier + '" onclick="openAchievementDetail(this.dataset.achievementOpen)"' +
             ' aria-label="' + this.escapeHtml(copy.viewBadge + ': ' + name + ' · ' + rank +
               (kind === 'next' ? ' · ' + progress + ' ' + unitFor(entry.result.id) :
@@ -5390,7 +5538,7 @@ export class UsageWebviewProvider {
             this.escapeHtml(name) + '</span><span class="achievement-overview-rank">' + this.escapeHtml(rank) + '</span>' +
             (kind === 'next' ? '<span class="achievement-overview-progress">' + this.escapeHtml(progress) + '</span>' :
               state.proof === 'ready' ? '' : '<span class="achievement-overview-progress">' + this.escapeHtml(proofLabel) + '</span>') +
-            '</button>';
+            '</button></div>';
         }).join('') + '</div></section>';
     };
     const visibleResults = results.filter(visibleResult);
@@ -5426,11 +5574,61 @@ export class UsageWebviewProvider {
     const historySection = records.history.length ? '<details class="achievement-record-history" data-persist="achievement:records"><summary>' +
       this.escapeHtml(copy.recordHistory) + '</summary><ul class="achievement-records-list">' +
       records.history.map(record => '<li>' + recordButton(record) + '</li>').join('') + '</ul></details>' : '';
+    const pinName = (key: string): string => copy.titles[(ACHIEVEMENT_SERIES[key]?.[0] ?? key) as AchievementId];
+    const legacySection = this.achievementRecordState?.legacyRecords?.length ?
+      '<details class="achievement-record-history" data-persist="achievement:legacy"><summary>' +
+      this.escapeHtml(appearance.legacyRules) + ' · ' + integer(this.achievementRecordState.legacyRecords.length) +
+      '</summary><p class="table-hint">' + this.escapeHtml(appearance.recalibratedHint) + '</p><ul class="achievement-records-list">' +
+      this.achievementRecordState.legacyRecords.map(row => '<li><span>' + this.escapeHtml(copy.titles[row.id]) +
+        '</span><small>' + this.escapeHtml(row.recordedDay === null ? copy.historicalAward : copy.recordedDay + ': ' + row.recordedDay) +
+        '</small></li>').join('') + '</ul>' + (legacyPins.length ? '<h4>' + this.escapeHtml(appearance.legacyPins) +
+      '</h4><ul class="achievement-hidden-pins">' + legacyPins.map(key => '<li><span>' + this.escapeHtml(pinName(key)) +
+        '</span>' + pinControl(key, true, 'achievement-legacy-unpin-' + key, 'achievementShowcaseEditor', pinName(key)) + '</li>').join('') +
+      '</ul>' : '') + '</details>' : '';
+    const showcaseEditor = this.achievementRecordState ?
+      '<details id="achievementShowcaseEditor" data-persist="achievement:showcase" data-generation="' +
+      this.achievementRecordState.generation + '" data-revision="' + (this.achievementRecordState.pinRevision ?? 0) +
+      '"><summary id="achievementShowcaseEditorSummary">' + this.escapeHtml(appearance.editShowcase) + '</summary><div class="achievement-actions">' +
+      (['automatic','manual'] as const).map(value => '<button class="btn-secondary btn-small" data-showcase-mode="' + value +
+        '" aria-pressed="' + (mode === value) + '" onclick="requestAchievementShowcaseMode(this)">' +
+        this.escapeHtml(appearance[value]) + '</button>').join('') + '</div><p id="achievementSelectedCount">' +
+      this.escapeHtml(appearance.selectedCount.replace('{count}', integer(pins.length))) + '</p>' +
+      '<ol id="achievementSelectedPins" class="achievement-selected-pins">' + pins.map((key, index) =>
+        '<li data-pin-key="' + key + '"><span>' + this.escapeHtml(pinName(key)) + '</span>' +
+        '<button id="achievement-move-up-' + key + '" class="btn-secondary btn-small" data-pin-move="up" onclick="requestAchievementPinMove(this)"' +
+        ' data-refresh-focus-fallback="achievement-move-down-' + key + ' achievementShowcaseEditorSummary"' +
+        (index === 0 ? ' disabled' : '') + ' aria-label="' + this.escapeHtml(appearance.moveUp + ': ' + pinName(key)) + '">' +
+        this.escapeHtml(appearance.moveUp) + '</button><button id="achievement-move-down-' + key + '" class="btn-secondary btn-small" data-pin-move="down"' +
+        ' data-refresh-focus-fallback="achievement-move-up-' + key + ' achievementShowcaseEditorSummary"' +
+        ' onclick="requestAchievementPinMove(this)"' + (index === pins.length - 1 ? ' disabled' : '') + ' aria-label="' +
+        this.escapeHtml(appearance.moveDown + ': ' + pinName(key)) + '">' + this.escapeHtml(appearance.moveDown) + '</button>' +
+        pinControl(key,true,'achievement-edit-unpin-' + key,'achievementShowcaseEditorSummary',pinName(key)) + '</li>').join('') +
+      '</ol><label for="achievementPinSearch">' + this.escapeHtml(copy.filterLabel) + '</label> ' +
+      '<input id="achievementPinSearch" type="search" oninput="filterAchievementPinChoices(this.value)">' +
+      '<div class="achievement-pin-choices">' + visibleCards.filter(entry => currentPin(entry.key) || entry.milestones.some(row => currentPin(row.id)))
+      .map(entry => {
+        const key = currentPin(entry.key) ? entry.key : entry.milestones.find(row => currentPin(row.id))!.id;
+        const selected = pins.includes(key);
+        const name = themeName(entry.key, entry.result);
+        return '<label data-pin-search="' + this.escapeHtml(name.toLocaleLowerCase()) + '"><input id="achievement-choice-' + key + '" type="checkbox"' +
+          ' data-achievement-pin="' + key + '" data-achievement-generation="' + this.achievementRecordState!.generation +
+          '" aria-pressed="' + selected + '"' + (selected ? ' checked' : '') +
+          ' onchange="requestAchievementPin(this)"><span>' + this.escapeHtml(name) + '</span></label>';
+      }).join('') + '</div></details>' : '';
+    const filterToolbar = '<div class="achievement-filter-toolbar"><label for="achievementFilter">' + this.escapeHtml(copy.filterLabel) +
+      '</label><select id="achievementFilter" onchange="filterAchievements(this.value, true)">' +
+      '<option value="all">' + this.escapeHtml(copy.filterAll) + '</option><option value="next">' +
+      this.escapeHtml(copy.filterNext) + '</option><option value="earned">' + this.escapeHtml(copy.filterEarned) +
+      '</option></select><label for="achievementSize">' + this.escapeHtml(appearance.sizeLabel) +
+      '</label><select id="achievementSize" onchange="setAchievementSize(this.value, true)">' +
+      (['small','medium','large'] as const).map(value => '<option value="' + value + '"' +
+        (value === 'medium' ? ' selected' : '') + '>' + this.escapeHtml(appearance[value]) + '</option>').join('') +
+      '</select><span id="achievementShownCount" role="status"></span></div>';
     const earnedCount = visibleResults.filter(isEarned).length;
     const seriesCount = overviewRows.filter(entry => entry.earned).length;
     const countLabel = (template: string, earned: number, total: number): string =>
       template.replace('{earned}', integer(earned)).replace('{total}', integer(total));
-    return '<section class="achievement-collection" aria-label="' + this.escapeHtml(copy.heading) + '">' +
+    return '<section class="achievement-collection" data-achievement-size="medium" aria-label="' + this.escapeHtml(copy.heading) + '">' +
       '<div class="achievement-intro"><h2>' + this.escapeHtml(copy.heading) + '</h2>' +
       '<details class="achievement-evidence-note" data-persist="achievement:evidence"><summary>' +
       this.escapeHtml(copy.evidenceTitle) + '</summary><p>' +
@@ -5447,13 +5645,9 @@ export class UsageWebviewProvider {
         this.escapeHtml(copy.settingsTitle) + '</button></div></div>' +
       '<p id="achievementPinStatus" class="table-hint" role="status"></p>' +
       '<p id="achievementUnreadStatus" class="table-hint" role="status"></p>' +
-      overviewSection('badges', copy.myBadges) + hiddenPinSection + unreadSection + recentSection + overviewSection('next', copy.nextGoals) + historySection +
+      filterToolbar +
+      showcaseEditor + overviewSection('badges', copy.myBadges) + hiddenPinSection + legacySection + unreadSection + recentSection + overviewSection('next', copy.nextGoals) + historySection +
       '<h3 class="achievement-gallery-heading">' + this.escapeHtml(copy.galleryTitle) + '</h3>' +
-      '<div class="achievement-filter-toolbar"><label for="achievementFilter">' + this.escapeHtml(copy.filterLabel) +
-      '</label><select id="achievementFilter" onchange="filterAchievements(this.value, true)">' +
-      '<option value="all">' + this.escapeHtml(copy.filterAll) + '</option><option value="next">' +
-      this.escapeHtml(copy.filterNext) + '</option><option value="earned">' + this.escapeHtml(copy.filterEarned) +
-      '</option></select><span id="achievementShownCount" role="status"></span></div>' +
       '<p id="achievementFilterEmpty" class="table-hint" hidden>' + this.escapeHtml(copy.filterEmpty) + '</p>' +
       visibleGroups
         .map((group) => '<section class="achievement-group achievement-group-' + group + '"><h3>' +
@@ -5483,6 +5677,7 @@ export class UsageWebviewProvider {
       levels: copy.levels,
       milestone: copy.milestone,
       footer: copy.heading,
+      locale: I18n.getLocale(),
     });
   }
 
@@ -13216,14 +13411,20 @@ export class UsageWebviewProvider {
           grid-template-columns: minmax(0, 1fr);
         }
       }
-      .achievement-collection { display: grid; gap: 30px; }
+      .achievement-collection { --achievement-emblem-size: 80px; --achievement-card-width: 168px;
+        --achievement-showcase-size: 96px; --achievement-card-height: 180px; display: grid; gap: 22px; }
+      .achievement-collection[data-achievement-size="small"] { --achievement-emblem-size: 56px;
+        --achievement-card-width: 136px; --achievement-showcase-size: 72px; --achievement-card-height: 156px; }
+      .achievement-collection[data-achievement-size="large"] { --achievement-emblem-size: 112px;
+        --achievement-card-width: 208px; --achievement-showcase-size: 128px; --achievement-card-height: 212px; }
       .achievement-overview h3, .achievement-gallery-heading { margin: 0 0 12px; }
       .achievement-gallery-heading { margin-bottom: -18px; }
       .achievement-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
       .achievement-overview-badge { background: transparent; color: var(--vscode-foreground); border: 0;
         display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 7px; padding: 12px 8px; min-width: 0; }
-      .achievement-overview-badge img { width: 96px; height: 96px; object-fit: contain; }
-      [data-achievement-overview="badges"] .achievement-overview-badge:first-child img { width: 128px; height: 128px; }
+      .achievement-overview-item { position: relative; min-width: 0; }
+      .achievement-overview-badge { width: 100%; }
+      .achievement-overview-badge img { width: var(--achievement-showcase-size); height: var(--achievement-showcase-size); object-fit: contain; }
       .achievement-overview-name { font-weight: 650; text-wrap: balance; overflow-wrap: anywhere; }
       .achievement-overview-rank { font-size: .9rem; }
       .achievement-overview-progress { color: var(--vscode-descriptionForeground); font-size: .8rem; overflow-wrap: anywhere; }
@@ -13238,6 +13439,23 @@ export class UsageWebviewProvider {
       .achievement-hidden-pins .achievement-pin { flex-shrink: 0; margin: 0; max-width: 50%; }
       .achievement-pin { margin: 8px 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere;
         background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); }
+      .achievement-pin-icon { display: inline-grid; place-items: center; width: 32px; height: 32px;
+        padding: 6px; margin: 0; flex-shrink: 0; border-radius: 4px; }
+      .achievement-pin-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+      .achievement-pin-icon[aria-pressed="true"] svg { fill: currentColor; }
+      .achievement-pin-icon:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+      .achievement-card-pins { position: absolute; top: 4px; right: 4px; z-index: 1; display: flex; flex-wrap: wrap; gap: 3px; }
+      .achievement-overview-item > .achievement-pin { position: absolute; top: 0; right: 0; z-index: 1; }
+      #achievementShowcaseEditor > summary { cursor: pointer; }
+      #achievementShowcaseEditor[open] > summary { margin-bottom: 10px; }
+      .achievement-selected-pins { list-style: none; padding: 0; display: grid; gap: 6px; }
+      .achievement-selected-pins li { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .achievement-selected-pins li > span { flex: 1 1 100px; min-width: 0; overflow-wrap: anywhere; }
+      .achievement-pin-choices { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,180px),1fr)); gap: 8px; }
+      .achievement-pin-choices label { display: flex; align-items: center; gap: 8px; min-height: 32px; overflow-wrap: anywhere; }
+      .achievement-pin-choices label[hidden] { display: none; }
+      #achievementPinSearch { max-width: 100%; box-sizing: border-box; }
+      @media (pointer: coarse) { .achievement-pin-icon { width: 44px; height: 44px; } }
       .achievement-record-badge { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px;
         row-gap: 4px; align-items: center; width: 100%; padding: 8px 0; border: 0; background: transparent;
         color: var(--vscode-foreground); text-align: left; }
@@ -13252,9 +13470,8 @@ export class UsageWebviewProvider {
       @media (max-width: 720px) { .achievement-recent-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
       @media (max-width: 480px) {
         .achievement-overview-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-        .achievement-overview-badge { display: grid; grid-template-columns: 80px minmax(0, 1fr); text-align: left; column-gap: 14px; }
-        .achievement-overview-badge img, [data-achievement-overview="badges"] .achievement-overview-badge:first-child img {
-          width: 80px; height: 80px; grid-row: 1 / span 3; }
+        .achievement-overview-badge { display: grid; grid-template-columns: var(--achievement-showcase-size) minmax(0, 1fr); text-align: left; column-gap: 14px; padding-right: 38px; }
+        .achievement-overview-badge img { grid-row: 1 / span 3; }
         .achievement-overview-name, .achievement-overview-rank, .achievement-overview-progress { grid-column: 2; }
       }
       .achievement-intro { max-width: 74ch; }
@@ -13273,8 +13490,8 @@ export class UsageWebviewProvider {
       .achievement-group-claude { --achievement-accent: var(--vscode-charts-orange); }
       .achievement-group-codex { --achievement-accent: var(--vscode-charts-blue); }
       .achievement-group h3 { margin: 0 0 12px; font-size: 1.05rem; font-weight: 650; }
-      .achievement-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: 10px; align-items: start; }
-      .achievement-card { --achievement-tier-color: var(--achievement-accent); min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 11px; background: var(--vscode-editor-background); overflow: hidden; }
+      .achievement-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--achievement-card-width)), 1fr)); gap: 10px; align-items: start; }
+      .achievement-card { --achievement-tier-color: var(--achievement-accent); position: relative; min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 11px; background: var(--vscode-editor-background); overflow: hidden; }
       .achievement-card.earned { border-color: var(--achievement-accent); }
       .achievement-card[data-achievement-tier="bronze"] { --achievement-tier-color: var(--vscode-charts-orange); }
       .achievement-card[data-achievement-tier="silver"] { --achievement-tier-color: var(--vscode-descriptionForeground); }
@@ -13284,14 +13501,14 @@ export class UsageWebviewProvider {
       .achievement-card[data-achievement-series] { --achievement-tier-label-color: var(--vscode-foreground); }
       .achievement-card[data-achievement-series].earned { border-color: var(--achievement-tier-color); }
       .achievement-card details { min-width: 0; }
-      .achievement-card summary { display: grid; justify-items: center; align-content: start; gap: 4px; min-height: 175px; padding: 14px 10px 12px; cursor: pointer; list-style: none; text-align: center; }
+      .achievement-card summary { display: grid; justify-items: center; align-content: start; gap: 4px; min-height: var(--achievement-card-height); padding: 38px 10px 12px; cursor: pointer; list-style: none; text-align: center; }
       .achievement-card summary::-webkit-details-marker { display: none; }
       .achievement-card summary:hover { background: var(--vscode-list-hoverBackground); }
       .achievement-card summary > * { min-width: 0; max-width: 100%; }
       .achievement-card summary::after { content: '⌄'; color: var(--vscode-descriptionForeground); line-height: 1; }
       .achievement-card details[open] summary::after { content: '⌃'; }
       .achievement-card summary:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -3px; border-radius: 10px; }
-      .achievement-emblem { display: grid; place-items: center; width: 108px; height: 108px; border-radius: 13px; overflow: hidden; }
+      .achievement-emblem { display: grid; place-items: center; width: var(--achievement-emblem-size); height: var(--achievement-emblem-size); border-radius: 13px; overflow: hidden; }
       .achievement-card summary .achievement-emblem { margin-bottom: 4px; }
       .achievement-emblem img { display: block; width: 100%; height: 100%; object-fit: contain; }
       .achievement-card.locked .achievement-emblem img { filter: grayscale(.45); opacity: .75; }
@@ -13348,7 +13565,6 @@ export class UsageWebviewProvider {
       @media (max-width: 480px) {
         .achievement-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
         .achievement-card summary { min-height: 160px; padding: 11px 6px 10px; }
-        .achievement-emblem { width: 92px; height: 92px; }
         .achievement-card h4 { font-size: .82rem; }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -13401,6 +13617,7 @@ function ccuRequestDestinationText(message) {
 }
 const __achievementDismissLabel = ${JSON.stringify(I18n.t.popup.dismiss)};
 const __achievementCopy = ${JSON.stringify((({ titles, ...chrome }) => chrome)(achievementCopyFor(I18n.getLocale())))};
+const __achievementAppearanceCopy = ${JSON.stringify(achievementAppearanceCopyFor(I18n.getLocale()))};
 const __achievementNoticesEnabled = ${this.setting<boolean>('enableAchievements', true) && this.setting<boolean>('showAchievementNotices', true)};
 let __claudeLast30HoursByDay = ${LIVE_PATCH_HOURS_START}${inlineScriptJson(
       claudeHourlyDisplayDto(this.hourlyDataForRolling30DaysByDay),
@@ -13938,7 +14155,31 @@ function filterAchievements(value, save) {
 }
 function restoreAchievementFilter() {
   filterAchievements(ccuReadUiState().achievementFilter, false);
+  setAchievementSize(ccuReadUiState().achievementSize, false);
+  var pinSearch = document.getElementById('achievementPinSearch');
+  if (pinSearch) { pinSearch.value = ccuReadUiState().achievementPinSearch || ''; filterAchievementPinChoices(pinSearch.value, false); }
   restoreAchievementStatisticsReturn();
+}
+function setAchievementSize(value, save) {
+  var size = ['small', 'medium', 'large'].includes(value) ? value : 'medium';
+  var collection = document.querySelector('.achievement-collection');
+  if (!collection) { return; }
+  var anchor = save && Array.from(collection.querySelectorAll('.achievement-card')).find(function(card) {
+    var rect = card.getBoundingClientRect(); return !card.hidden && rect.bottom > 0 && rect.top < innerHeight;
+  });
+  var before = anchor ? anchor.getBoundingClientRect().top : 0;
+  collection.dataset.achievementSize = size;
+  var selector = document.getElementById('achievementSize');
+  if (selector) { selector.value = size; }
+  if (save) { ccuWriteUiState('achievementSize', size); }
+  if (anchor) { window.scrollBy(0, anchor.getBoundingClientRect().top - before); }
+}
+function filterAchievementPinChoices(query, save) {
+  var value = typeof query === 'string' ? query.slice(0, 120) : '';
+  document.querySelectorAll('[data-pin-search]').forEach(function(label) {
+    label.hidden = !label.dataset.pinSearch.includes(value.toLocaleLowerCase());
+  });
+  if (save !== false) { ccuWriteUiState('achievementPinSearch', value); }
 }
 function achievementStatisticsEntry(intent) {
   if (!intent || (intent.provider !== 'claude' && intent.provider !== 'codex') ||
@@ -14001,14 +14242,69 @@ function openAchievementDetail(key) {
   summary.focus({ preventScroll: true });
   card.scrollIntoView({ block: 'center' });
 }
+var __achievementShowcaseBusy = false;
+function setAchievementShowcaseBusy(busy) {
+  __achievementShowcaseBusy = busy;
+  document.querySelectorAll('[data-achievement-pin], [data-showcase-mode], [data-pin-move]').forEach(function(control) {
+    if (busy) {
+      if (control.dataset.pinWasDisabled === undefined) { control.dataset.pinWasDisabled = String(control.disabled); }
+      control.setAttribute('aria-disabled', 'true');
+      // Native disabling blurs the active control, destroying its refresh
+      // anchor/fallback. Keep just that control focusable; the busy gate blocks
+      // every request and checkbox handler restores its confirmed value.
+      control.disabled = control.dataset.pinWasDisabled === 'true' || control !== document.activeElement;
+    }
+    else if (control.dataset.pinWasDisabled !== undefined) {
+      control.disabled = control.dataset.pinWasDisabled === 'true'; delete control.dataset.pinWasDisabled;
+      control.removeAttribute('aria-disabled');
+    }
+  });
+}
+function placeAchievementPinStatus(control) {
+  var status = document.getElementById('achievementPinStatus');
+  var owner = control && control.closest('[data-pin-key], .achievement-card, .achievement-overview-item, .achievement-hidden-pins li, .achievement-pin-choices');
+  if (!owner && control) { owner = control.closest('#achievementShowcaseEditor .achievement-actions'); }
+  if (status && owner) { owner.appendChild(status); }
+  if (status) { status.textContent = ''; }
+}
 function requestAchievementPin(button) {
   if (!button || !button.dataset) { return; }
+  if (button.type === 'checkbox') { button.checked = button.getAttribute('aria-pressed') === 'true'; }
+  if (__achievementShowcaseBusy) { return; }
   var generation = Number(button.dataset.achievementGeneration);
   if (!Number.isSafeInteger(generation) || generation < 1) { return; }
-  var status = document.getElementById('achievementPinStatus');
-  if (status) { status.textContent = ''; }
+  placeAchievementPinStatus(button);
+  setAchievementShowcaseBusy(true);
   vscode.postMessage({ command: 'setAchievementPinned', key: button.dataset.achievementPin,
-    selected: button.getAttribute('aria-pressed') !== 'true', generation: generation });
+    selected: button.getAttribute('aria-pressed') !== 'true', generation: generation, documentId: __ccuDocumentId });
+}
+function requestAchievementShowcase(action, fields) {
+  var editor = document.getElementById('achievementShowcaseEditor');
+  if (!editor || __achievementShowcaseBusy) { return; }
+  var generation = Number(editor.dataset.generation), revision = Number(editor.dataset.revision);
+  if (!Number.isSafeInteger(generation) || generation < 1 || !Number.isSafeInteger(revision) || revision < 0) { return; }
+  setAchievementShowcaseBusy(true);
+  vscode.postMessage(Object.assign({ command: 'editAchievementShowcase', action: action,
+    generation: generation, revision: revision, documentId: __ccuDocumentId }, fields));
+}
+function requestAchievementShowcaseMode(button) {
+  if (button && ['automatic', 'manual'].includes(button.dataset.showcaseMode)) {
+    if (__achievementShowcaseBusy) { return; }
+    placeAchievementPinStatus(button);
+    requestAchievementShowcase('mode', { mode: button.dataset.showcaseMode });
+  }
+}
+function requestAchievementPinMove(button) {
+  var row = button && button.closest('[data-pin-key]');
+  var list = document.getElementById('achievementSelectedPins');
+  if (!row || !list) { return; }
+  var keys = Array.from(list.children).map(function(item) { return item.dataset.pinKey; });
+  var index = keys.indexOf(row.dataset.pinKey), next = index + (button.dataset.pinMove === 'up' ? -1 : 1);
+  if (index < 0 || next < 0 || next >= keys.length) { return; }
+  if (__achievementShowcaseBusy) { return; }
+  placeAchievementPinStatus(button);
+  var swap = keys[index]; keys[index] = keys[next]; keys[next] = swap;
+  requestAchievementShowcase('reorder', { keys: keys });
 }
 
 function requestAchievementSummaryRead(button) {
@@ -15810,13 +16106,22 @@ window.addEventListener('message', async function(event) {
     ccuQueueDashboardDataPatch(message);
     return;
   }
-  if (message.command === 'achievementPinResult' && message.ok === false &&
-      (message.reason === 'limit' || message.reason === 'failed') &&
+  if (message.command === 'achievementPinResult' &&
+      (message.documentId === undefined || message.documentId === __ccuDocumentId) &&
       typeof message.key === 'string' && Array.from(document.querySelectorAll('[data-achievement-pin]')).some(function(button) {
         return button.dataset.achievementPin === message.key;
       })) {
+    setAchievementShowcaseBusy(false);
     var pinStatus = document.getElementById('achievementPinStatus');
-    if (pinStatus) { pinStatus.textContent = message.reason === 'limit' ? __achievementCopy.pinLimit : __achievementCopy.pinFailed; }
+    if (pinStatus) { pinStatus.textContent = message.ok === true ? '' : message.reason === 'limit' ? __achievementCopy.pinLimit :
+      message.reason === 'old-writer' ? __achievementAppearanceCopy.oldWriterReload : __achievementCopy.pinFailed; }
+    return;
+  }
+  if (message.command === 'achievementShowcaseResult' && message.documentId === __ccuDocumentId) {
+    setAchievementShowcaseBusy(false);
+    var status = document.getElementById('achievementPinStatus');
+    if (status) { status.textContent = message.ok === true ? '' : message.reason === 'old-writer' ?
+      __achievementAppearanceCopy.oldWriterReload : __achievementCopy.pinFailed; }
     return;
   }
 

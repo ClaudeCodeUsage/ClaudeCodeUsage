@@ -4,12 +4,53 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { ACHIEVEMENT_COPY } = require('../../out/i18n.js');
 const { renderAchievementShareSvg } = require('../../out/achievementShare.js');
+const { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } = require('../../out/achievements.js');
+const { ACHIEVEMENT_GALLERY } = require('../../out/achievementGallery.js');
+
+function shareSvg(selected, copy) {
+  return renderAchievementShareSvg({ selected, titles: copy.titles, heading: copy.shareTitle,
+    subtitle: copy.intro, groups: copy.groups, levels: copy.levels, milestone: copy.milestone, footer: copy.heading });
+}
+
+// Renderer-only layout coverage supplies canonical IDs in the visible sharing
+// host. These synthetic choices say nothing about personal earned eligibility.
+async function selectRendererIds(page, selected) {
+  expect(new Set(selected).size).toBe(selected.length);
+  expect(selected.length).toBeLessThanOrEqual(9);
+  expect(selected.every(id => ACHIEVEMENT_DEFINITIONS.some(rule => rule.id === id))).toBe(true);
+  const host = page.locator('.achievement-share-presentation');
+  await expect(host).toBeVisible();
+  await host.locator('fieldset').evaluate((fieldset, selected) => {
+    fieldset.querySelectorAll('label, .achievement-share-choice').forEach(element => element.remove());
+    for (const id of selected) {
+      const label = document.createElement('label');
+      label.className = 'sc-check';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'achievement-share-choice';
+      input.value = id;
+      input.addEventListener('change', () => window.previewAchievementShare(input));
+      label.append(input, document.createTextNode(id));
+      fieldset.append(label);
+    }
+  }, selected);
+  for (const id of selected) await host.locator(`.achievement-share-choice[value="${id}"]`).check();
+  await expect.poll(() => page.evaluate(() => window.__ccuPostedMessages
+    .filter(message => message.command === 'previewAchievementShare').at(-1)?.ids)).toEqual(selected);
+}
 
 async function acceptAchievementSvg(page, svg) {
   await page.evaluate(svg => {
     const request = window.__ccuPostedMessages.filter(message =>
       ['previewAchievementShare', 'restoreAchievementShare'].includes(message.command)).at(-1);
     if (!request) throw new Error('fixture needs a matching preview request');
+    const checked = [...document.querySelectorAll('.achievement-share-choice:checked')].map(input => input.value);
+    const badges = [...new DOMParser().parseFromString(svg, 'image/svg+xml')
+      .querySelectorAll('g[data-achievement-share-badge]')].map(badge => badge.getAttribute('data-achievement-share-badge'));
+    if (JSON.stringify(request.ids) !== JSON.stringify(checked) ||
+        JSON.stringify(request.ids) !== JSON.stringify(badges)) {
+      throw new Error('preview selection, host request and SVG badge IDs must match');
+    }
     window.dispatchEvent(new MessageEvent('message', { data: {
       command: 'achievementShareResult', clientId: request.clientId, requestId: request.requestId,
       ids: request.ids, previewId: 'synthetic-preview', svg,
@@ -23,11 +64,26 @@ test('achievements are on by default and remain selected after reload', async ({
   await page.locator('#tab-achievements').click();
   await expect(page.locator('#achievements')).toBeVisible();
   // Tiered series occupy one card, including the five-level cumulative ladder.
-  await expect(page.locator('.achievement-card')).toHaveCount(44);
-  await expect(page.locator('.achievement-card img[data-achievement-icon]')).toHaveCount(44);
-  await expect(page.locator('.achievement-count')).toContainText('/ 124');
+  await expect(page.locator('.achievement-card')).toHaveCount(ACHIEVEMENT_GALLERY.length);
+  await expect(page.locator('.achievement-card img[data-achievement-icon]')).toHaveCount(ACHIEVEMENT_GALLERY.length);
+  await expect(page.locator('.achievement-count')).toContainText(`/ ${ACHIEVEMENT_DEFINITIONS.length}`);
+  expect(await page.locator('.achievement-card').evaluateAll(cards =>
+    cards.map(card => card.getAttribute('data-achievement-series') ?? card.getAttribute('data-achievement-id')).sort()))
+    .toEqual(ACHIEVEMENT_GALLERY.map(entry => entry.key).sort());
   await expect(page.locator('[data-achievement-id="astra-regular"]')).toContainText('Astra regular');
   await expect(page.locator('[data-achievement-series="effort-breadth"]')).toContainText('Effort explorer');
+  await page.locator('#achievements').screenshot({ path: testInfo.outputPath('achievements-dark.png') });
+  await page.reload();
+  await expect(page.locator('#tab-achievements')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#achievements')).toBeVisible();
+});
+
+test('saved tier badges retain readable title contrast in the dark gallery', async ({ page }) => {
+  // Default incomplete usage has no earned tier. Use an existing fixture with
+  // explicit saved records for this visual assertion.
+  await openCodex(page, { theme: 'dark', fixture: 'achievement-six-pins' });
+  await page.locator('#tab-achievements').click();
+  await expect(page.locator('.achievement-card[data-achievement-series].earned').first()).toBeVisible();
   const tierTitleContrast = await page.locator('.achievement-card[data-achievement-series].earned').first()
     .evaluate((card) => {
       const channels = (color) => {
@@ -42,10 +98,6 @@ test('achievements are on by default and remain selected after reload', async ({
       return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
     });
   expect(tierTitleContrast).toBeGreaterThanOrEqual(7);
-  await page.locator('#achievements').screenshot({ path: testInfo.outputPath('achievements-dark.png') });
-  await page.reload();
-  await expect(page.locator('#tab-achievements')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('#achievements')).toBeVisible();
 });
 
 test('gallery leads with artwork and reveals numeric progress on demand', async ({ page }) => {
@@ -57,7 +109,8 @@ test('gallery leads with artwork and reveals numeric progress on demand', async 
   const icon = tile.locator('img[data-achievement-icon]');
   await expect(detail).not.toHaveAttribute('open');
   await expect(tile.locator('.achievement-progress-label')).toBeHidden();
-  expect(await icon.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(96);
+  await expect(page.locator('#achievementSize')).toHaveValue('medium');
+  expect(await icon.evaluate((element) => element.getBoundingClientRect().width)).toBe(80);
   await detail.locator('summary').click();
   await expect(detail).toHaveAttribute('open');
   await expect(tile.locator('.achievement-progress-label')).toBeVisible();
@@ -88,9 +141,10 @@ test('earned badges join the preview-first sharing workspace without automatic e
       message.ids.length === 1 && message.ids[0] === selectedId)).toBe(true);
   // This browser harness records host messages but does not run the extension
   // host; acknowledge its preview response explicitly.
-  await acceptAchievementSvg(page, '<svg data-achievement-icon="true" width="120" height="80"><rect width="120" height="80"/></svg>');
+  await acceptAchievementSvg(page, shareSvg([selectedId], ACHIEVEMENT_COPY.en));
   await expect(page.locator('#achievementSharePreview > svg')).toBeVisible();
-  expect(await page.locator('#achievementSharePreview svg[data-achievement-icon]').count()).toBeGreaterThan(0);
+  await expect(page.locator('#achievementSharePreview g[data-achievement-share-badge]'))
+    .toHaveAttribute('data-achievement-share-badge', selectedId);
   await page.locator('.achievement-share-choice').first().uncheck();
   const firstId = await page.locator('.achievement-share-choice').first().inputValue();
   const posted = await page.evaluate(() => window.__ccuPostedMessages);
@@ -152,7 +206,7 @@ test('share choices visibly enforce the nine-badge card capacity', async ({ page
 test('turning sharing off keeps achievements but removes the share action', async ({ page }) => {
   await openCodex(page, { shareStudio: false });
   await page.locator('#tab-achievements').click();
-  await expect(page.locator('.achievement-card')).toHaveCount(44);
+  await expect(page.locator('.achievement-card')).toHaveCount(ACHIEVEMENT_GALLERY.length);
   await expect(page.getByRole('button', { name: 'Achievement card' })).toHaveCount(0);
 });
 
@@ -269,20 +323,20 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
     test(`${locale} exported achievement levels stay inside the ${theme} narrow preview`, async ({ page }, testInfo) => {
       await openCompare(page, { locale, theme, fixture: 'combined-heatmap', commandTemplate: 'achievements', width: 360 });
       const copy = ACHIEVEMENT_COPY[locale];
-      const cumulative = ['hundred-million-club', 'billion-token-club', 'ten-billion-token-club',
-        'hundred-billion-token-club', 'trillion-token-club'];
+      const cumulative = ACHIEVEMENT_SERIES['cumulative-volume'];
       const longest = Object.keys(copy.titles).filter((id) => !cumulative.includes(id))
         .sort((left, right) => copy.titles[right].length - copy.titles[left].length).slice(0, 4);
       const selected = [...cumulative, ...longest];
       // Actual production SVG, not a placeholder host acknowledgement. Rules
       // determining earned selection are covered by host/unit tests separately.
-      const svg = renderAchievementShareSvg({ selected, titles: copy.titles, heading: copy.shareTitle,
-        subtitle: copy.intro, groups: copy.groups, levels: copy.levels, milestone: copy.milestone, footer: copy.heading });
-      await page.locator('.achievement-share-choice').first().check();
+      const svg = shareSvg(selected, copy);
+      await selectRendererIds(page, selected);
       await acceptAchievementSvg(page, svg);
       const preview = page.locator('#achievementSharePreview > svg');
       await expect(preview).toBeVisible();
       await expect(preview.locator('g[data-achievement-share-badge]')).toHaveCount(9);
+      expect(await preview.locator('g[data-achievement-share-badge]').evaluateAll(badges =>
+        badges.map(badge => badge.getAttribute('data-achievement-share-badge')))).toEqual(selected);
       const overflows = await preview.evaluate((svg) => {
         const bounds = svg.viewBox.baseVal;
         const outside = (box, area) => box.x < area.x - 1 || box.y < area.y - 1 ||
@@ -316,7 +370,7 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       expect(sizes.body, sizes).toBeLessThanOrEqual(sizes.viewport + 1);
       expect(sizes.cards.every((overflow) => overflow <= 1), sizes).toBe(true);
       const icons = page.locator('.achievement-card img[data-achievement-icon]');
-      await expect(icons).toHaveCount(44);
+      await expect(icons).toHaveCount(ACHIEVEMENT_GALLERY.length);
       // Walk the gallery in small batches, preserving production lazy loading.
       // Offscreen PNGs must decode before a full-gallery evidence screenshot;
       // capturing first would show blank emblems that are not a product defect.

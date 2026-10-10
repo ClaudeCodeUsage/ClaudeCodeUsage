@@ -92,11 +92,11 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       await openClaude(page, { locale, width, theme, fixture: 'achievement-token-stages' });
       await page.locator('#tab-achievements').click();
       for (const kind of ['badges', 'next']) {
-        const buttons = page.locator(`[data-achievement-overview="${kind}"] button`);
+        const buttons = page.locator(`[data-achievement-overview="${kind}"] .achievement-overview-badge`);
         expect(await buttons.count()).toBeGreaterThan(0);
         expect(await buttons.count()).toBeLessThanOrEqual(3);
       }
-      const button = page.locator('[data-achievement-overview="next"] button').first();
+      const button = page.locator('[data-achievement-overview="next"] .achievement-overview-badge').first();
       const key = await button.getAttribute('data-achievement-open');
       await page.locator('#achievementFilter').selectOption('earned');
       await button.focus();

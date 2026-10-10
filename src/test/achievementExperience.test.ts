@@ -4,6 +4,10 @@ import Module = require('node:module');
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } from '../achievements';
 import { achievementGalleryKey } from '../achievementGallery';
 import { ACHIEVEMENT_COPY, I18n } from '../i18n';
+import { achievementConditionFor } from '../achievementConditions';
+
+const catalogLevelCount = ACHIEVEMENT_DEFINITIONS.length;
+const catalogSeriesCount = new Set(ACHIEVEMENT_DEFINITIONS.map(row => achievementGalleryKey(row.id))).size;
 
 async function gallery(run: (provider: any) => void): Promise<void> {
   const load = (Module as any)._load;
@@ -25,10 +29,10 @@ async function gallery(run: (provider: any) => void): Promise<void> {
 test('default gallery folds legacy milestones into their themes without dropping any formal rule', async () => {
   await gallery(provider => {
     const html = provider.renderAchievementData();
-    assert.equal((html.match(/data-achievement-key=/g) ?? []).length, 44);
+    assert.equal((html.match(/data-achievement-key=/g) ?? []).length, catalogSeriesCount);
     assert.doesNotMatch(html, /data-achievement-key="(?:streak-machine|dual-provider-day)"/);
     const ids = [...html.matchAll(/data-achievement-level="([^"]+)"/g)].map(match => match[1]);
-    assert.equal(new Set(ids).size, 124);
+    assert.equal(new Set(ids).size, catalogLevelCount);
     assert.deepEqual(ids.sort(), ACHIEVEMENT_DEFINITIONS.map(row => row.id).sort());
     for (const [theme, milestone] of [['active-day-streak', 'streak-machine'], ['dual-provider-days', 'dual-provider-day']]) {
       const card = html.match(new RegExp(`<article[^>]*data-achievement-key="${theme}"[\\s\\S]*?<\\/article>`))![0];
@@ -81,8 +85,8 @@ test('duplicate legacy theme pins remain individually removable within one defau
 test('gallery separates series and levels and excludes disabled providers from both denominators', async () => {
   await gallery(provider => {
     const html = provider.renderAchievementData();
-    assert.match(html, /0 \/ 44 series/);
-    assert.match(html, /0 \/ 124 levels/);
+    assert.ok(html.includes(`0 / ${catalogSeriesCount} series`));
+    assert.ok(html.includes(`0 / ${catalogLevelCount} levels`));
     provider.providerAvailability.claude = false;
     const filtered = provider.renderAchievementData();
     const ids = ACHIEVEMENT_DEFINITIONS.filter(entry => entry.group !== 'claude' && !entry.id.startsWith('dual-provider-'));
@@ -103,7 +107,7 @@ test('production overview puts representative badges and reachable goals before 
     assert.match(html, /data-achievement-overview="next"/);
     assert.ok(html.indexOf('My badges') < html.indexOf('Complete collection'));
     assert.match(html, /data-achievement-open="astra-regular"/);
-    assert.equal((html.match(/data-achievement-level=/g) ?? []).length, 124);
+    assert.equal((html.match(/data-achievement-level=/g) ?? []).length, catalogLevelCount);
     provider.providerAvailability.codex = false;
     assert.doesNotMatch(provider.renderAchievementData(), /data-achievement-open="astra-regular"/);
   });
@@ -143,9 +147,22 @@ test('high-level cards name their earned milestone, not the introductory thresho
 test('all displayed level requirements carry a unit or a qualified condition', async () => {
   await gallery(provider => {
     const html = provider.renderAchievementData();
-    const rules = [...html.matchAll(/data-achievement-level="[^"]+"[\s\S]*?<span>([^<]+)<\/span><\/li>/g)];
-    assert.equal(rules.length, 124);
-    for (const rule of rules) assert.doesNotMatch(rule[1], /^\s*[\d.,]+\s*$/);
+    const rules = [...html.matchAll(/<li[^>]*data-achievement-level="([^"]+)"[^>]*>([\s\S]*?)<\/li>/g)];
+    assert.equal(rules.length, ACHIEVEMENT_DEFINITIONS.length);
+    assert.deepEqual(rules.map(([, id]) => id).sort(), ACHIEVEMENT_DEFINITIONS.map(row => row.id).sort());
+    for (const [, id, body] of rules) {
+      const requirement = body.match(/<span>([^<]+)<\/span>/)?.[1];
+      assert.ok(requirement, `${id}: missing level requirement`);
+      assert.doesNotMatch(requirement, /^\s*[\d.,]+\s*$/, id);
+      const condition = achievementConditionFor('en', id);
+      if (condition) {
+        const detail = body.match(/<small>([^<]+)<\/small>/)?.[1];
+        assert.ok(detail, `${id}: missing joint condition`);
+        assert.doesNotMatch(detail, /^\s*[\d.,]+\s*$/, id);
+        assert.equal(detail, condition.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;'), `${id}: complete joint condition`);
+      }
+    }
   });
 });
 
@@ -189,7 +206,7 @@ test('a long Token ladder exposes current progress and a display-only stage with
     const pending = read().split('</summary>')[0];
     assert.doesNotMatch(pending, /class="achievement-current-progress"|class="achievement-stage-target"/);
     assert.match(pending, /Evidence pending/);
-    assert.equal((provider.renderAchievementData().match(/data-achievement-level=/g) ?? []).length, 124);
+    assert.equal((provider.renderAchievementData().match(/data-achievement-level=/g) ?? []).length, catalogLevelCount);
   });
 });
 
@@ -252,7 +269,7 @@ test('tier upgrades keep disclosure keys and canonical card order stable', async
     const after = provider.renderAchievementData();
     for (const html of [before, after]) assert.match(html, /data-persist="achievement:sol-regular"/);
     const order = (html: string) => [...html.matchAll(/data-achievement-key="([^"]+)"/g)].map(match => match[1]);
-    assert.equal(order(before).length, 44);
+    assert.equal(order(before).length, catalogSeriesCount);
     assert.deepEqual(order(after), order(before));
     assert.match(after, /data-persist-aliases="achievement:sol-regular achievement:sol-regular-silver achievement:sol-regular-gold"/);
   });
@@ -262,7 +279,7 @@ test('one compact next target precedes detailed rules for every level', async ()
   await gallery(provider => {
     const html = provider.renderAchievementData();
     assert.match(html, /class="achievement-next-target"/);
-    assert.equal([...html.matchAll(/data-achievement-level="/g)].length, 124);
+    assert.equal([...html.matchAll(/data-achievement-level="/g)].length, catalogLevelCount);
     assert.match(html, /onclick="openAchievementSettings\(\)"/);
   });
 });

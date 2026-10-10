@@ -78,7 +78,9 @@ e reconstruções manuais ficam silenciosas; outros prêmios ao vivo ainda preci
 
 O registro local é limitado a 64 KiB. Datas antigas continuam desconhecidas;
 novas ações salvas mantêm o estado não lido e o dia do primeiro registro mesmo
-sem aviso. Janelas mesclam conquistas; a limpeza deixa uma barreira de geração vazia contra gravações antigas.
+sem aviso. `achievements-v2.json` é o registro canônico; v1 é entrada de migração somente para leitura.
+Registros já salvos sob as 21 condições alteradas de modelo/equipe/effort/arco-íris ficam num arquivo limitado, com datas desconhecidas preservadas; ouro antigo não comprova as novas regras.
+A trava compartilhada v1, o marcador de limpeza v2 e a barreira v1 vazia para versões anteriores impedem que gravações antigas restaurem prêmios apagados; os logs originais dos provedores não são alterados.
 Avisos aparecem apenas no painel visível em primeiro plano, no máximo a cada cinco
 minutos entre janelas e reinícios. Só o lote com exibição confirmada é marcado como lido;
 avisos perdidos continuam não lidos. Mouse ou foco do teclado pausam o fechamento.
@@ -89,19 +91,26 @@ de outras janelas continuam não lidos.
 Conquistas recentes mostra até três séries novas; os registros recolhíveis mostram
 até trinta níveis com links para as regras. Datas indicam o primeiro registro, não a
 conquista original; datas históricas continuam desconhecidas. Consultar não marca como lido nem seleciona para compartilhar.
-Os detalhes das medalhas conquistadas permitem fixar ou desafixar até três destaques.
-A escolha persiste após reiniciar e não seleciona medalhas para compartilhar.
+Ícones em cartões fechados e um seletor com busca permitem fixar até seis temas e definir sua ordem.
+O modo manual mostra só os escolhidos; o automático recomenda até três.
+Escolha e ordem persistem após reiniciar, sem selecionar medalhas para compartilhar.
 Medalhas fixadas ocultas podem ser desafixadas na lista recolhível sem reativar o provedor.
 
 Registros importados de uso do plugin não geram avisos. Novas ações salvas com sucesso
 podem desbloquear emblemas com o painel fechado, sem abrir nem atualizar painéis ocultos.
 
-O candidato 2.4.2, ainda não lançado, tem 44 temas e 124 condições de desbloqueio: tokens por modelo, saída/cache,
+O catálogo do código do candidato 2.4.2, ainda não lançado, tem 50 temas, 144 condições de desbloqueio e 52 grupos de arte: tokens por modelo, saída/cache,
 atividade, recordes semanais e algumas ações deliberadas no plugin.
+São 20 condições monetárias em seis temas separados de Claude/Codex: subtotal acumulado com preço conhecido, semanas encerradas que começam na segunda-feira e uso individual.
+As semanas usam o fuso atual dos dados; uso individual é uma sessão Claude ou uma árvore de tarefa Codex verificada.
+Preços de referência fixos em USD, com versão, exigem modelos exatos conhecidos e todas as tarifas dos componentes, incluindo TTL do cache Claude.
+Modelos desconhecidos ficam sem preço; parcelas verificadas comprovam um limite inferior, não uma fatura, qualidade ou renda. O histórico monetário é silencioso; avisos de nova origem monetária ainda não estão conectados.
+Modelo/equipe/effort/arco-íris combinam saída, repetição e volume. O gerador do mapa monetário e as bases de cálculo/barra de status do ritmo da cota semanal estão prontos; a interface principal e a integração de produção estão pendentes.
 Cada série tem arte própria, compartilhada entre seus níveis coloridos. Os números são inteiros; limites dos dados ficam na seção expansível.
 Evidências pendentes ou desatualizadas substituem o progresso zero e ficam fora do próximo alvo; emblemas conquistados são preservados.
 Cartões fechados mostram o progresso até o próximo nível; etapas intermediárias nas longas escalas de tokens não geram prêmios, avisos ou opções de compartilhamento extras.
-Minhas medalhas e Próximas metas destacam até três temas distintos cada, antes da coleção. Metas exigem progresso positivo válido; modelos não utilizados não são sugeridos. A ordem fica estável durante a visita; clicar abre as regras existentes sem ler logs nem selecionar para compartilhar.
+Pequeno / Médio / Grande alteram medalhas e molduras, preservando fonte e áreas de clique. Próximas metas destaca até três temas e exclui metas sem comprovação e modelos não utilizados.
+Metas exigem progresso positivo atual; a ordem fica estável durante a visita. Clicar abre as regras sem ler logs nem selecionar para compartilhar.
 Após indexação atual completa, linhagens Codex sem conflito podem comprovar marcos de tokens/agentes; conquistas de calendário ainda exigem identidade e datas verificadas por completo.
 Séries e níveis têm contagens separadas. Filtros locais persistem após recarregar;
 o próximo alvo aparece no cartão e as regras de todos os níveis ficam na seção expansível.

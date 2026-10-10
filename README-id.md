@@ -83,7 +83,9 @@ Impor dan pembangunan ulang manual tetap senyap; penghargaan selain Token masih 
 
 Catatan penghargaan hanya lokal, maksimal 64 KiB. Tanggal lama tetap tidak diketahui;
 tindakan baru yang tersimpan mempertahankan status belum dibaca dan hari pencatatan pertama
-meski notifikasi terlewat. Antarjendela menggabungkan penghargaan; penghapusan menyisakan penanda generasi kosong untuk menolak penulisan lama.
+meski notifikasi terlewat. Catatan utama adalah `achievements-v2.json`; v1 hanya masukan migrasi baca-saja.
+Catatan yang sudah tersimpan dari 21 syarat model/tim/effort/pelangi yang berubah masuk arsip terbatas, dengan tanggal tak diketahui tetap terjaga; emas lama tidak membuktikan aturan baru.
+Lease v1 bersama, penanda penghapusan v2, dan pagar v1 kosong saat memakai versi lama mencegah penulisan lama memulihkan penghargaan yang dihapus; log sumber penyedia tidak diubah.
 Notifikasi hanya tampil di panel yang terlihat di depan, maksimal sekali per lima
 menit antarjendela dan setelah mulai ulang. Hanya kelompok yang dikonfirmasi tampil
 ditandai dibaca; yang terlewat tetap belum dibaca. Hover atau fokus papan ketik menunda penutupan.
@@ -95,19 +97,26 @@ Baru diperoleh menampilkan maksimal tiga seri baru; catatan yang dapat dilipat
 memuat maksimal tiga puluh tingkat dengan tautan aturan. Tanggal adalah pencatatan
 pertama, bukan perkiraan pencapaian asli; tanggal lama tetap tidak diketahui.
 Melihat catatan tidak menandainya sebagai sudah dibaca atau memilihnya untuk dibagikan.
-Detail lencana yang diperoleh dapat menyematkan atau melepas hingga tiga lencana utama.
-Pilihan bertahan setelah mulai ulang dan tidak memilih lencana untuk dibagikan.
+Ikon semat pada kartu tertutup dan pemilih dengan pencarian mendukung hingga enam tema dengan urutan eksplisit.
+Mode manual hanya menampilkan pilihan pengguna; rekomendasi otomatis maksimal tiga.
+Pilihan dan urutan bertahan setelah mulai ulang, tanpa memilih lencana untuk dibagikan.
 Lencana tersemat yang tersembunyi dapat dilepas melalui daftar lipat tanpa mengaktifkan kembali penyedia.
 
 Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
 yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.
 
-Kandidat 2.4.2 yang belum dirilis berfokus pada ikon: 44 tema dan 124 syarat pembukaan, meliputi token model,
+Katalog sumber kandidat 2.4.2 yang belum dirilis memuat 50 tema, 144 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
 output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
+Ada 20 syarat nilai uang dalam enam tema terpisah Claude/Codex: subtotal kumulatif yang memiliki harga, minggu kalender yang telah berakhir dan dimulai pada Senin, serta penggunaan tunggal.
+Minggu mengikuti zona waktu data saat ini; penggunaan tunggal berarti satu sesi Claude atau satu pohon tugas Codex yang terverifikasi.
+Harga referensi USD tetap dengan versi memerlukan model yang dikenal secara tepat dan tarif komponen lengkap, termasuk TTL cache Claude.
+Model tak dikenal tetap tanpa harga; bagian terverifikasi membuktikan batas bawah, bukan tagihan, kualitas, atau pendapatan. Riwayat nilai uang tetap senyap; notifikasi asal nilai uang baru belum terhubung.
+Model/tim/effort/pelangi memakai syarat gabungan output, pengalaman berulang, dan volume. Generator heatmap nilai uang serta dasar perhitungan/bilah status laju kuota mingguan tersedia; UI utama dan integrasi produksi masih tertunda.
 Setiap seri memiliki gambar berbeda, dipakai bersama oleh tingkatnya dengan warna tingkat. Angka hanya bilangan bulat; batas data dapat dibuka.
 Bukti belum lengkap atau kedaluwarsa ditandai, bukan dianggap progres nol, dan dikecualikan dari target berikutnya; lencana yang diperoleh tetap tersimpan.
 Kartu tertutup menampilkan progres menuju tingkat berikutnya; tahap perantara pada tangga token panjang bukan lencana, pemberitahuan, atau pilihan berbagi tambahan.
-Lencana saya dan Target berikutnya masing-masing menampilkan hingga tiga tema berbeda sebelum koleksi. Target memerlukan progres positif dengan bukti terkini; model yang belum dipakai tidak disarankan. Urutan tetap selama kunjungan; klik membuka aturan tanpa membaca log atau otomatis memilih untuk berbagi.
+Kecil / Sedang / Besar mengubah lencana dan bingkai kartu, menjaga ukuran huruf dan area klik. Target berikutnya maksimal tiga tema, melewati target yang belum terbukti dan model yang belum dipakai.
+Target memerlukan progres positif dengan bukti terkini; urutan tetap selama kunjungan. Klik membuka aturan tanpa membaca log atau otomatis memilih untuk berbagi.
 Setelah indeks terkini lengkap, silsilah Codex tanpa konflik dapat membuktikan tonggak token/agen; pencapaian kalender tetap memerlukan verifikasi identitas dan tanggal lengkap.
 Seri dan tingkat dihitung terpisah. Filter lokal bertahan setelah muat ulang;
 target berikutnya tampil di kartu, semua aturan tingkat ada di bagian yang dapat dibuka.

@@ -1,7 +1,7 @@
 import type { TokenUsage } from './pricing';
 import type { ProviderTokenCounts, UsageProvider } from './providers/providerTypes';
 
-export type AchievementMoneyBackend = 'anthropic' | 'aws-bedrock-in-region';
+export type AchievementMoneyBackend = 'anthropic' | 'aws-bedrock-in-region' | 'openai';
 export type AchievementDecimalRate = string;
 export interface AchievementMoneyRates {
   /** Decimal USD per million tokens, numerically equal to microUSD per token.
@@ -127,6 +127,7 @@ function book(backend: AchievementMoneyBackend, prices: Readonly<Record<string, 
   });
 }
 const books = Object.freeze({
+  openai: book('openai', Object.freeze({})),
   anthropic: book('anthropic', anthropic),
   'aws-bedrock-in-region': book('aws-bedrock-in-region', bedrock),
 });

@@ -6,7 +6,9 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { ACHIEVEMENT_DEFINITIONS } from '../achievements';
+import { ACHIEVEMENT_DEFINITIONS, codexModelSignals } from '../achievements';
+import { ACHIEVEMENT_RECORD_FILE } from '../achievementRecordStore';
+import type { CodexFileAggregate } from '../providers/codex/codexIndex';
 import { ACHIEVEMENT_COPY, I18n } from '../i18n';
 import { resolveTimeZone } from '../dateKeys';
 
@@ -48,6 +50,212 @@ async function withAchievementStorage(run: (directory: string) => Promise<void>)
   const directory = await mkdtemp(path.join(os.tmpdir(), 'ccu-award-provider-'));
   try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
 }
+
+const showcaseThemes = ['local-share-export', 'local-advice-feedback', 'settings-explorer',
+  'safe-feature-explorer', 'cumulative-volume', 'claude-output', 'sonnet-main'];
+const showcaseAwards = ['local-share-export', 'local-advice-feedback', 'settings-explorer-bronze',
+  'safe-feature-explorer', 'hundred-million-club', 'claude-output-bronze', 'sonnet-main'];
+
+async function preparePinnedShowcase(provider: any, count = 3): Promise<void> {
+  await prepareAchievementNoticeProvider(provider);
+  provider.achievementResults(); await settleAchievementWrites(provider);
+  const added = await provider.achievementRecordRepository.append(provider.achievementRecordState.generation,
+    showcaseAwards.map(id => ({ id, origin: 'history', recordedDay: null, timeZone: null })));
+  provider.achievementRecordState = added.store;
+  provider.achievementGrants = new Set(added.store.records.map((row: any) => row.id));
+  for (const key of showcaseThemes.slice(0, count)) {
+    await provider.handleAchievementPinMessage({ key, selected: true, generation: added.store.generation,
+      documentId: provider.dashboardDocumentId });
+  }
+  assert.deepEqual(provider.achievementRecordState.pins, showcaseThemes.slice(0, count));
+}
+
+function showcaseRequest(provider: any, action: 'reorder' | 'automatic' | 'manual'): Record<string, unknown> {
+  return { documentId: provider.dashboardDocumentId, generation: provider.achievementRecordState.generation,
+    revision: provider.achievementRecordState.pinRevision,
+    ...(action === 'reorder' ? { action, keys: [...provider.achievementRecordState.pins].reverse() }
+      : { action: 'mode', mode: action }) };
+}
+
+test('host showcase reorder and automatic/manual transitions persist revision-bound preferences only', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await preparePinnedShowcase(provider, 6);
+      const repository = provider.achievementRecordRepository;
+      const initial = structuredClone(provider.achievementRecordState);
+      for (const action of ['reorder', 'automatic', 'manual'] as const) {
+        const before = structuredClone(provider.achievementRecordState);
+        await provider.handleAchievementShowcaseMessage(showcaseRequest(provider, action));
+        const saved = JSON.parse(await readFile(repository.file, 'utf8'));
+        assert.deepEqual(provider.achievementRecordState, saved);
+        assert.equal(saved.pinRevision, before.pinRevision + 1);
+        assert.equal(saved.showcaseMode, action === 'reorder' ? 'manual' : action);
+        assert.deepEqual(saved.pins, action === 'reorder' ? [...before.pins].reverse() : before.pins);
+        assert.deepEqual(saved.records, initial.records);
+        assert.deepEqual(saved.auxiliary, initial.auxiliary);
+        assert.equal(saved.sequence, initial.sequence);
+        assert.equal(provider.achievementShareSelection, undefined);
+      }
+    }, undefined, directory);
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      assert.deepEqual(provider.achievementRecordState.pins, showcaseThemes.slice(0, 6).reverse());
+      assert.equal(provider.achievementRecordState.showcaseMode, 'manual');
+    }, undefined, directory);
+  });
+});
+
+test('host showcase rejects stale document/generation/revision and rechecks queued document and OFF', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await preparePinnedShowcase(provider);
+      const repository = provider.achievementRecordRepository;
+      const bytes = await readFile(repository.file, 'utf8');
+      for (const action of ['reorder', 'automatic', 'manual'] as const) {
+        for (const stale of ['missing-document', 'document', 'generation', 'revision'] as const) {
+          const request = showcaseRequest(provider, action);
+          if (stale === 'missing-document') delete request.documentId;
+          if (stale === 'document') request.documentId = 'retired-document';
+          if (stale === 'generation') request.generation = provider.achievementRecordState.generation + 1;
+          if (stale === 'revision') request.revision = provider.achievementRecordState.pinRevision - 1;
+          await provider.handleAchievementShowcaseMessage(request);
+          assert.equal(await readFile(repository.file, 'utf8'), bytes, `${action}/${stale}`);
+        }
+        for (const retirement of ['document', 'off', 'clear'] as const) {
+          const gate = deferredAchievementSave();
+          provider.achievementWrite = gate.promise;
+          const request = showcaseRequest(provider, action);
+          const originalDocument = provider.dashboardDocumentId;
+          const pending = provider.handleAchievementShowcaseMessage(request);
+          if (retirement === 'document') provider.dashboardDocumentId = 'replacement-document';
+          if (retirement === 'off') provider.settings = { get: (key: string) => key !== 'enableAchievements' };
+          if (retirement === 'clear') provider.achievementPersistenceEpoch++;
+          gate.resolve(); await pending;
+          assert.equal(await readFile(repository.file, 'utf8'), bytes, `${action}/queued-${retirement}`);
+          provider.dashboardDocumentId = originalDocument;
+          provider.settings = { get: () => true };
+        }
+      }
+      assert.equal(provider.achievementShareSelection, undefined);
+    }, undefined, directory);
+  });
+});
+
+test('host replies to a valid-document stale showcase generation so client busy can retire', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await preparePinnedShowcase(provider);
+      const bytes = await readFile(provider.achievementRecordRepository.file, 'utf8');
+      const replies: any[] = [];
+      provider.panel.webview.postMessage = async (reply: unknown) => { replies.push(reply); return true; };
+      const request = showcaseRequest(provider, 'reorder');
+      request.generation = provider.achievementRecordState.generation + 1;
+      await provider.handleAchievementShowcaseMessage(request);
+      assert.equal(await readFile(provider.achievementRecordRepository.file, 'utf8'), bytes);
+      assert.deepEqual(replies, [{command:'achievementShowcaseResult',ok:false,reason:'failed',
+        documentId:provider.dashboardDocumentId}]);
+    }, undefined, directory);
+  });
+});
+
+test('host stale peer six-pin reorder/mode and failed saves preserve the fresh list and failed state', async () => {
+  await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await preparePinnedShowcase(provider, 5);
+      const repository = provider.achievementRecordRepository;
+      const staleReorder = showcaseRequest(provider, 'reorder');
+      const staleMode = showcaseRequest(provider, 'automatic');
+      const { AchievementRecordRepository } = require('../achievementRecordStore');
+      const peer = new AchievementRecordRepository(repository.file);
+      const peerState = await peer.setPinned(provider.achievementRecordState.generation, showcaseThemes[5], true);
+      const bytes = await readFile(repository.file, 'utf8');
+      const replies: any[] = [];
+      provider.panel.webview.postMessage = async (reply: unknown) => { replies.push(reply); return true; };
+      const staleMemory = JSON.stringify(provider.achievementRecordState);
+      await provider.handleAchievementPinMessage({ key: showcaseThemes[6], selected: true,
+        generation: provider.achievementRecordState.generation, documentId: provider.dashboardDocumentId });
+      assert.equal(await readFile(repository.file, 'utf8'), bytes, 'a stale five-pin host cannot overwrite the peer six-pin list');
+      assert.equal(JSON.stringify(provider.achievementRecordState), staleMemory, 'failed single-pin save preserves confirmed memory');
+      assert.equal(replies[replies.length - 1].ok, false);
+      assert.equal(replies[replies.length - 1].reason, 'limit');
+      for (const request of [staleReorder, staleMode]) {
+        await provider.handleAchievementShowcaseMessage(request);
+        assert.equal(await readFile(repository.file, 'utf8'), bytes);
+        assert.deepEqual(provider.achievementRecordState.pins, peerState.pins);
+        assert.equal(provider.achievementRecordState.pinRevision, peerState.pinRevision);
+        assert.equal(replies[replies.length - 1].ok, false);
+        assert.equal(replies[replies.length - 1].reason, 'failed');
+      }
+      const memory = JSON.stringify(provider.achievementRecordState);
+      repository.setShowcaseMode = repository.reorderPinned = async () => { throw new Error('/private/failed-path'); };
+      for (const action of ['reorder', 'automatic', 'manual'] as const) {
+        await provider.handleAchievementShowcaseMessage(showcaseRequest(provider, action));
+        assert.equal(await readFile(repository.file, 'utf8'), bytes);
+        assert.equal(JSON.stringify(provider.achievementRecordState), memory);
+        assert.equal(replies[replies.length - 1].ok, false);
+      }
+      assert.equal(JSON.stringify(replies).includes('/private/failed-path'), false);
+      assert.equal(provider.achievementShareSelection, undefined);
+    }, undefined, directory);
+  });
+});
+
+test('host pin rechecks queued document and peer generation without successful replies or optimistic state', async () => {
+  for (const retirement of ['document', 'generation'] as const) await withAchievementStorage(async directory => {
+    await withProvider(achievementPersistenceState(), async provider => {
+      await preparePinnedShowcase(provider);
+      const repository = provider.achievementRecordRepository;
+      const memory = JSON.stringify(provider.achievementRecordState);
+      const replies: any[] = [];
+      provider.panel.webview.postMessage = async (reply: unknown) => { replies.push(reply); return true; };
+      const gate = deferredAchievementSave();
+      provider.achievementWrite = gate.promise;
+      const pending = provider.handleAchievementPinMessage({ key: showcaseThemes[3], selected: true,
+        generation: provider.achievementRecordState.generation, documentId: provider.dashboardDocumentId });
+      if (retirement === 'document') provider.dashboardDocumentId = 'replacement-document';
+      else {
+        const { AchievementRecordRepository } = require('../achievementRecordStore');
+        await new AchievementRecordRepository(repository.file).clear();
+      }
+      const expectedBytes = await readFile(repository.file, 'utf8');
+      gate.resolve(); await pending;
+      assert.equal(await readFile(repository.file, 'utf8'), expectedBytes);
+      assert.equal(JSON.stringify(provider.achievementRecordState), memory);
+      assert.ok(!replies.some(reply => reply.command === 'achievementPinResult' && reply.ok === true));
+      if (retirement === 'generation') {
+        assert.equal(replies.length, 1);
+        assert.equal(replies[0].ok, false, 'same-document failed reply releases the client busy state');
+      }
+      assert.equal(provider.achievementShareSelection, undefined);
+    }, undefined, directory);
+  });
+});
+
+test('host pin cannot acquire a recalibrated award from archived v1 proof or forged display grants', async () => {
+  await withAchievementStorage(async directory => {
+    const { AchievementRecordRepository } = require('../achievementRecordStore');
+    const oldWriter = new AchievementRecordRepository(path.join(directory, 'achievements-v1.json'));
+    await oldWriter.initialize(['agent-team-gold']);
+    await withProvider(achievementPersistenceState(), async provider => {
+      await prepareAchievementNoticeProvider(provider);
+      provider.providerAvailability.codex = true;
+      provider.achievementResults(); await settleAchievementWrites(provider);
+      const repository = provider.achievementRecordRepository;
+      assert.ok(provider.achievementRecordState.legacyRecords.some((row: any) => row.id === 'agent-team-gold'));
+      assert.ok(!provider.achievementRecordState.records.some((row: any) => row.id === 'agent-team-gold'));
+      const bytes = await readFile(repository.file, 'utf8');
+      let writes = 0;
+      repository.setPinned = async () => { writes++; throw new Error('must not acquire'); };
+      provider.achievementGrants.add('agent-team-gold');
+      await provider.handleAchievementPinMessage({ key: 'agent-team', selected: true,
+        generation: provider.achievementRecordState.generation, documentId: provider.dashboardDocumentId });
+      assert.equal(writes, 0);
+      assert.equal(await readFile(repository.file, 'utf8'), bytes);
+      assert.deepEqual(provider.achievementRecordState.pins, []);
+    }, undefined, directory);
+  });
+});
 
 test('statistics links require an existing same-provider view and matching model family', async () => {
   await withProvider(new Map(), async provider => {
@@ -334,7 +542,8 @@ test('manual pin saves only an earned showcase preference and survives a new pro
         [{ id: 'local-share-export', origin: 'activity', recordedDay: '2026-10-08', timeZone: 'Asia/Shanghai' }]);
       provider.achievementRecordState = added.store;
       provider.achievementGrants = new Set(added.store.records.map((row: any) => row.id));
-      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation,
+        documentId: provider.dashboardDocumentId });
       const saved = JSON.parse(await readFile(repository.file, 'utf8'));
       assert.deepEqual(saved.pins, ['local-share-export']);
       assert.deepEqual(saved.records, added.store.records);
@@ -348,7 +557,8 @@ test('manual pin saves only an earned showcase preference and survives a new pro
       assert.match(html, /id="achievement-pin-local-share-export"[^>]*aria-pressed="true"/);
       const badges = html.match(/data-achievement-overview="badges"[\s\S]*?<\/section>/)?.[0] ?? '';
       assert.match(badges, /data-achievement-open="local-share-export"/);
-      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: false, generation: provider.achievementRecordState.generation });
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: false, generation: provider.achievementRecordState.generation,
+        documentId: provider.dashboardDocumentId });
       assert.deepEqual(JSON.parse(await readFile(provider.achievementRecordRepository.file, 'utf8')).pins, []);
     }, undefined, directory);
   });
@@ -367,11 +577,13 @@ test('disabled provider pins remain removable without awards, reads or losing pe
       for (const key of ['astra-regular', 'sol-regular', 'luna-regular']) saved = await repository.setPinned(saved.generation, key, true);
       provider.achievementRecordState = saved;
       provider.achievementGrants = new Set(saved.records.map((row: any) => row.id));
-      await provider.handleAchievementPinMessage({ key: 'astra-regular', selected: false, generation: saved.generation });
+      await provider.handleAchievementPinMessage({ key: 'astra-regular', selected: false, generation: saved.generation,
+        documentId: provider.dashboardDocumentId });
       const released = JSON.parse(await readFile(repository.file, 'utf8'));
       assert.deepEqual(released.pins, ['sol-regular', 'luna-regular']);
       assert.deepEqual(released.records, saved.records);
-      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: saved.generation });
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: saved.generation,
+        documentId: provider.dashboardDocumentId });
       const replaced = JSON.parse(await readFile(repository.file, 'utf8'));
       assert.deepEqual(replaced.pins, ['sol-regular', 'luna-regular', 'local-share-export']);
       assert.deepEqual(replaced.records, saved.records);
@@ -414,7 +626,7 @@ test('hidden pin management is folded, bounded and localized without re-enabling
   }); } finally { I18n.setLanguage(language); }
 });
 
-test('pin messages reject missing generation, nonboolean intent, unearned or hidden badges and OFF without writes', async () => {
+test('pin messages reject missing document/generation, nonboolean intent, unearned or hidden badges and OFF without writes', async () => {
   await withAchievementStorage(async directory => {
     await withProvider(achievementPersistenceState(), async provider => {
       await prepareAchievementNoticeProvider(provider);
@@ -424,41 +636,56 @@ test('pin messages reject missing generation, nonboolean intent, unearned or hid
         ({ id, origin: 'history', recordedDay: null, timeZone: null })));
       provider.achievementRecordState = added.store;
       const bytes = await readFile(repository.file, 'utf8');
+      const originalSetPinned = repository.setPinned.bind(repository);
+      let writes = 0;
+      repository.setPinned = async (...args: unknown[]) => { writes++; return originalSetPinned(...args); };
+      const replies: any[] = [];
+      provider.panel.webview.postMessage = async (reply: unknown) => { replies.push(reply); return true; };
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      assert.equal(writes, 0, 'missing document cannot reach storage');
+      assert.equal(replies.length, 0, 'strict missing document has no response');
       for (const message of [
         { key: 'local-share-export', selected: true },
         { key: 'local-share-export', selected: 'true', generation: added.store.generation },
         { key: 'local-share-export', selected: true, generation: added.store.generation + 1 },
         { key: 'settings-explorer', selected: true, generation: added.store.generation },
         { key: 'astra-regular', selected: true, generation: added.store.generation },
-      ]) await provider.handleAchievementPinMessage(message);
+      ]) await provider.handleAchievementPinMessage({ ...message, documentId: provider.dashboardDocumentId });
       provider.settings = { get: (key: string) => key !== 'enableAchievements' };
-      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation,
+        documentId: provider.dashboardDocumentId });
       assert.equal(await readFile(repository.file, 'utf8'), bytes);
+      assert.equal(writes, 0);
+      assert.ok(!replies.some(reply => reply.command === 'achievementPinResult' && reply.ok === true));
     }, undefined, directory);
   });
 });
 
-test('fourth pin and failed save never optimistically alter pins, awards or share selection', async () => {
+test('seventh pin and failed save never optimistically alter six pins, awards or share selection', async () => {
   await withAchievementStorage(async directory => {
     await withProvider(achievementPersistenceState(), async provider => {
       await prepareAchievementNoticeProvider(provider);
       provider.achievementResults(); await settleAchievementWrites(provider);
       const repository = provider.achievementRecordRepository;
       const added = await repository.append(provider.achievementRecordState.generation,
-        ['local-share-export', 'local-advice-feedback', 'settings-explorer-bronze', 'safe-feature-explorer'].map(id =>
+        showcaseAwards.map(id =>
           ({ id, origin: 'history', recordedDay: null, timeZone: null })));
       provider.achievementRecordState = added.store;
       const messages: any[] = [];
       provider.panel.webview.postMessage = async (message: any) => { messages.push(message); return true; };
-      for (const key of ['local-share-export', 'local-advice-feedback', 'settings-explorer'])
-        await provider.handleAchievementPinMessage({ key, selected: true, generation: added.store.generation });
+      for (const key of showcaseThemes.slice(0, 6))
+        await provider.handleAchievementPinMessage({ key, selected: true, generation: added.store.generation,
+          documentId: provider.dashboardDocumentId });
+      assert.deepEqual(provider.achievementRecordState.pins, showcaseThemes.slice(0, 6));
       const bytes = await readFile(repository.file, 'utf8');
-      await provider.handleAchievementPinMessage({ key: 'safe-feature-explorer', selected: true, generation: added.store.generation });
+      await provider.handleAchievementPinMessage({ key: showcaseThemes[6], selected: true, generation: added.store.generation,
+        documentId: provider.dashboardDocumentId });
       assert.equal(await readFile(repository.file, 'utf8'), bytes);
       assert.equal(messages[messages.length - 1].reason, 'limit');
       const memory = JSON.stringify(provider.achievementRecordState);
       repository.setPinned = async () => { throw new Error('private path must not leave host'); };
-      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: false, generation: added.store.generation });
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: false, generation: added.store.generation,
+        documentId: provider.dashboardDocumentId });
       assert.equal(JSON.stringify(provider.achievementRecordState), memory);
       assert.equal(messages[messages.length - 1].reason, 'failed');
       assert.equal(JSON.stringify(messages).includes('private path'), false);
@@ -479,10 +706,12 @@ test('a failed pin render never misreports a successful durable preference save'
       const messages: any[] = [];
       provider.panel.webview.postMessage = async (message: any) => { messages.push(message); return true; };
       provider.updateWebview = () => { throw new Error('render failed, not save'); };
-      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      await provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation,
+        documentId: provider.dashboardDocumentId });
       assert.deepEqual(JSON.parse(await readFile(repository.file, 'utf8')).pins, ['local-share-export']);
       assert.deepEqual(provider.achievementRecordState.pins, ['local-share-export']);
-      assert.deepEqual(messages, []);
+      assert.deepEqual(messages, [{ command: 'achievementPinResult', key: 'local-share-export', ok: true,
+        reason: undefined, documentId: provider.dashboardDocumentId }]);
     }, undefined, directory);
   });
 });
@@ -499,10 +728,14 @@ test('disabling a provider retires queued pin acquisition but not explicit cance
       provider.achievementRecordState = added.store;
       const pending = deferredAchievementSave();
       provider.achievementWrite = pending.promise;
-      const pin = provider.handleAchievementPinMessage({ key: 'astra-regular', selected: true, generation: added.store.generation });
+      const replies: any[] = [];
+      provider.panel.webview.postMessage = async (reply: unknown) => { replies.push(reply); return true; };
+      const pin = provider.handleAchievementPinMessage({ key: 'astra-regular', selected: true, generation: added.store.generation,
+        documentId: provider.dashboardDocumentId });
       provider.providerAvailability.codex = false;
       pending.resolve(); await pin;
       assert.deepEqual(JSON.parse(await readFile(repository.file, 'utf8')).pins, []);
+      assert.ok(!replies.some(reply => reply.command === 'achievementPinResult' && reply.ok === true));
     }, undefined, directory);
   });
 });
@@ -518,7 +751,10 @@ test('OFF or clear retires a queued pin before it can save into old state', asyn
       provider.achievementRecordState = added.store;
       const pending = deferredAchievementSave();
       provider.achievementWrite = pending.promise;
-      const pin = provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation });
+      const replies: any[] = [];
+      provider.panel.webview.postMessage = async (reply: unknown) => { replies.push(reply); return true; };
+      const pin = provider.handleAchievementPinMessage({ key: 'local-share-export', selected: true, generation: added.store.generation,
+        documentId: provider.dashboardDocumentId });
       let clear;
       if (action === 'off') provider.settings = { get: (key: string) => key !== 'enableAchievements' };
       else clear = provider.clearAchievementGrants();
@@ -526,6 +762,7 @@ test('OFF or clear retires a queued pin before it can save into old state', asyn
       const saved = JSON.parse(await readFile(repository.file, 'utf8'));
       assert.deepEqual(saved.pins, []);
       assert.deepEqual(saved.records, action === 'clear' ? [] : added.store.records);
+      assert.ok(!replies.some(reply => reply.command === 'achievementPinResult' && reply.ok === true));
     }, undefined, directory);
   });
 });
@@ -579,7 +816,7 @@ test('production storage writes a quiet canonical award and never writes a legac
       provider.achievementResults();
       await settleAchievementWrites(provider);
       await settleAchievementWrites(provider);
-      const saved = JSON.parse(await readFile(path.join(directory, 'achievements-v1.json'), 'utf8'));
+      const saved = JSON.parse(await readFile(path.join(directory, ACHIEVEMENT_RECORD_FILE), 'utf8'));
       const row = saved.records.find((item: any) => item.id === 'hundred-million-club');
       assert.equal(row.origin, 'history');
       assert.equal(row.recordedDay, null);
@@ -631,7 +868,7 @@ test('a real saved plugin action retains its unread record even when notice deli
       provider.recordAchievementFeature('localShareExport');
       await settleAchievementWrites(provider);
       await settleAchievementWrites(provider);
-      const saved = JSON.parse(await readFile(path.join(directory, 'achievements-v1.json'), 'utf8'));
+      const saved = JSON.parse(await readFile(path.join(directory, ACHIEVEMENT_RECORD_FILE), 'utf8'));
       const row = saved.records.find((item: any) => item.id === 'local-share-export');
       assert.equal(row.origin, 'activity');
       assert.match(row.recordedDay, /^\d{4}-\d{2}-\d{2}$/);
@@ -664,7 +901,7 @@ test('peer clear fences deliberate action writes before an old host can repopula
 test('canonical tombstone beats a stale legacy seed and a previously adopted host cannot restore awards', async () => {
   await withAchievementStorage(async directory => {
     const { AchievementRecordRepository } = require('../achievementRecordStore');
-    const repository = new AchievementRecordRepository(path.join(directory, 'achievements-v1.json'));
+    const repository = new AchievementRecordRepository(path.join(directory, ACHIEVEMENT_RECORD_FILE));
     const seed = achievementPersistenceState();
     seed.set('ccu.achievements.grants.v5', ['hundred-million-club']);
     await repository.clear();
@@ -688,7 +925,7 @@ test('canonical tombstone beats a stale legacy seed and a previously adopted hos
 
 test('adopting a clear fence discards stale auxiliary proof, and the first new action does not import it again', async () => {
   await withAchievementStorage(async directory => {
-    const repository = new (require('../achievementRecordStore').AchievementRecordRepository)(path.join(directory, 'achievements-v1.json'));
+    const repository = new (require('../achievementRecordStore').AchievementRecordRepository)(path.join(directory, ACHIEVEMENT_RECORD_FILE));
     await repository.clear();
     const state = achievementPersistenceState();
     state.set('ccu.achievements.activity.v2', { schemaVersion: 2, settingKeys: ['compactNumbers', 'decimalPlaces', 'showCost'], features: ['localShareExport'] });
@@ -801,7 +1038,7 @@ test('background Code retains saved action records without presenting notices', 
       provider.recordAchievementFeature('localShareExport');
       await settleAchievementWrites(provider);
       await settleAchievementWrites(provider);
-      const saved = JSON.parse(await readFile(path.join(directory, 'achievements-v1.json'), 'utf8'));
+      const saved = JSON.parse(await readFile(path.join(directory, ACHIEVEMENT_RECORD_FILE), 'utf8'));
       assert.equal(notices.length, 0);
       assert.equal(saved.lastNoticeAt, 0);
       assert.equal(saved.records.find((row: any) => row.id === 'local-share-export').unread, true);
@@ -1944,15 +2181,23 @@ test('new Codex structure tiers wait for complete, identity-safe indexing', asyn
   await withProvider(new Map(), async (provider) => {
     provider.settings = { get: () => true };
     provider.providerAvailability = { claude: false, codex: true, codexData: true };
-    provider.codexAchievementSignals = {
-      modelCount: 4, efforts: [], familyRootCounts: { astra: 5, sol: 5, luna: 5 },
-      maxVerifiedAgentsPerRoot: 10, maxRealModelsPerRoot: 4,
-      effortRootCounts: { low: 3, medium: 3, high: 3, xhigh: 3, max: 3, ultra: 3 },
+    const file = (key: string, parent?: string): CodexFileAggregate => {
+      const tokens = { inputTotal: 0, outputTotal: 20_000 };
+      return { total: { ...tokens }, byModel: { 'gpt-6.1-sol': { ...tokens } }, byEffort: {}, byDay: {},
+        session: { sessionKey: key, role: parent ? 'subagent' : 'root', ...(parent ? { parentSessionKey: parent } : {}) },
+        structural: { patchCalls: 0, toolCalls: 0, postPatchToolCalls: 0, compactCount: 0, taskCompleteCount: 0 } };
     };
+    const tasks = Array.from({ length: 50 }, (_, task) => [file(`task-${task}`),
+      ...Array.from({ length: 8 }, (_, member) => file(`member-${task}-${member}`, `task-${task}`))]).flat();
+    provider.codexAchievementSignals = codexModelSignals(tasks);
+    // This case requires global identity/completeness proof; a separately
+    // verified subset has its own independent award eligibility tests.
+    provider.codexAchievementSignals.verifiedSubset = false;
+    assert.deepEqual(provider.codexAchievementSignals.collaboration.teamTaskCounts, [50, 50, 50]);
     provider.codexView = {
       currentManifestVerified: true,
       coverage: { complete: true, identity: { complete: false } },
-      allTime: { total: { processed: 100 } },
+      allTime: { total: { processed: 9_000_000, output: 9_000_000 } },
       periodCoverage: { allTime: { complete: true } },
       allTimeDaily: [],
       outputHourProof: { complete: false, hours: [], provenFiles: 0, totalFiles: 1 },
@@ -1962,6 +2207,9 @@ test('new Codex structure tiers wait for complete, identity-safe indexing', asyn
     const results = () => new Map(provider.achievementResults().map((row: any) => [row.id, row]));
     assert.equal((results().get('agent-team-gold') as any)?.unlocked, false);
     provider.codexView.coverage.identity.complete = true;
+    provider.codexView.coverage.complete = false;
+    assert.equal((results().get('agent-team-gold') as any)?.unlocked, false);
+    provider.codexView.coverage.complete = true;
     assert.equal((results().get('agent-team-gold') as any)?.unlocked, true);
   });
 });
@@ -2101,7 +2349,8 @@ test('Token-rule migration rechecks former root-count grants, preserving unrelat
     ['ccu.achievements.calibrationAudit.v1', true],
   ]);
   await withProvider(state, async (provider) => {
-    assert.deepEqual([...provider.achievementGrants].sort(), ['agent-standup', 'hundred-million-club', 'sonnet-main']);
+    assert.deepEqual([...provider.achievementGrants].sort(), ['hundred-million-club', 'sonnet-main']);
+    assert.ok(provider.achievementLegacyRuleGrants.includes('agent-standup'), 'changed old proof is retained for the archive');
     await settleAchievementWrites(provider);
     assert.deepEqual(state.get('ccu.achievements.grants.v5'), ['agent-standup', 'hundred-million-club', 'sonnet-main']);
     assert.equal(state.get('ccu.achievements.tokenAudit.v1'), true);
@@ -2143,9 +2392,12 @@ test('bucket-proof migration rechecks only structural Codex grants and saves bef
   await withProvider(state, async (provider) => {
     await settleAchievementWrites(provider);
     assert.deepEqual([...provider.achievementGrants].sort(), [
+      'astra-regular-gold', 'hundred-million-club', 'sonnet-main',
+    ]);
+    assert.ok(provider.achievementLegacyRuleGrants.includes('effort-spectrum'), 'changed effort proof cannot authorize the current rule');
+    assert.deepEqual(state.get('ccu.achievements.grants.v5'), [
       'astra-regular-gold', 'effort-spectrum', 'hundred-million-club', 'sonnet-main',
     ]);
-    assert.deepEqual(state.get('ccu.achievements.grants.v5'), [...provider.achievementGrants].sort());
     assert.equal(state.get('ccu.achievements.bucketAudit.v1'), true);
     assert.deepEqual(writes, ['ccu.achievements.grants.v5', 'ccu.achievements.bucketAudit.v1']);
     await provider.clearAchievementGrants();

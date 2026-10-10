@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import Module = require('node:module');
 
 import { createEmptyQuotaObservationStore } from '../quotaObservationStore';
+import { ACHIEVEMENT_RECORD_FILE, ACHIEVEMENT_LEGACY_RECORD_FILE, loadAchievementRecords } from '../achievementRecordStore';
 
 type ExtensionModule = typeof import('../extension');
 
@@ -407,7 +408,7 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
       await globalState.update('ccu.achievements.activity.v2', undefined);
       await globalState.update('ccu.achievements.hours.v2', undefined);
       await new (require('../achievementRecordStore').AchievementRecordRepository)(
-        path.join(root, 'achievements-v1.json')).clear();
+        path.join(root, ACHIEVEMENT_RECORD_FILE)).clear();
     },
     clearSharingRuntimeState: () => undefined,
   };
@@ -433,6 +434,13 @@ test('clear-all uses the exact allowlist and preserves unrelated state', async (
 
   assert.equal(result.ok, true);
   assert.equal(result.clientAction, 'clear-all-client-state');
+  const current = await loadAchievementRecords(path.join(root, ACHIEVEMENT_RECORD_FILE));
+  const legacy = await loadAchievementRecords(path.join(root, ACHIEVEMENT_LEGACY_RECORD_FILE));
+  assert.equal(current?.schemaVersion, 2);
+  assert.deepEqual(current?.records, []);
+  assert.deepEqual(current?.legacyRecords, []);
+  assert.equal(legacy?.schemaVersion, 1);
+  assert.deepEqual(legacy?.records, []);
   assert.deepEqual(await extension.codexDerivedIndexPaths(), []);
   for (const name of preserved) assert.equal(await readFile(path.join(root, name), 'utf8'), 'fixture');
   assert.equal(codexClearCalls, 1);
@@ -473,7 +481,7 @@ test('clear-all postcondition requires the bounded empty achievement tombstone, 
   extension.context = { globalStorageUri: { fsPath: root }, globalState: memoryGlobalState({}) };
   await writeFile(path.join(root, 'quota-observations-v2.json'), JSON.stringify(createEmptyQuotaObservationStore()));
   await assert.rejects(extension.verifyClearAllPostcondition(), /achievement/);
-  const repository = new (require('../achievementRecordStore').AchievementRecordRepository)(path.join(root, 'achievements-v1.json'));
+  const repository = new (require('../achievementRecordStore').AchievementRecordRepository)(path.join(root, ACHIEVEMENT_RECORD_FILE));
   await repository.initialize(['hundred-million-club']);
   await assert.rejects(extension.verifyClearAllPostcondition(), /achievement/);
   await repository.clear();

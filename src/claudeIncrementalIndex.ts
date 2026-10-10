@@ -33,6 +33,9 @@ import { claudeAchievementFamily, claudeSessionAchievementEvidence, ClaudeSessio
 import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
 import { ownRecordValue, setRecordValue } from './ownRecord';
 import { addClaudeReferenceUsage } from './claudeReferenceUsage';
+import {claudeAchievementMoneyProjection,inheritClaudeAchievementMoneyProjection} from './claudeAchievementMoneyProjection';
+import type {AchievementMoneyBackend} from './achievementMoney';
+import type {AchievementMoneyScopes} from './achievementMoneyScopes';
 import {
   buildProjectUsageMatrixSnapshot,
   ProjectUsageMatrixSnapshot,
@@ -319,6 +322,7 @@ export interface ClaudeUsageDashboardSnapshot extends ClaudeUsageAggregateSnapsh
   sessions: SessionUsage[];
   /** Counts from all materialized rows; no uncapped IDs or paths leave the host. */
   achievementSessionEvidence: ClaudeSessionAchievementEvidence;
+  achievementMoney?: AchievementMoneyScopes;
   projects: ProjectGroup[];
   branches: BranchUsage[];
   workflows: WorkflowUsage[];
@@ -2513,6 +2517,7 @@ export function claudeUsageDashboardSnapshot(
     projectGroupingMode?: 'git' | 'folder' | 'flat';
     contextWindowOverride?: number;
     adviceWindowDays?: number;
+    achievementMoneyBackend?: AchievementMoneyBackend;
     now?: Date;
   } = {},
 ): ClaudeUsageDashboardSnapshot {
@@ -2598,6 +2603,8 @@ export function claudeUsageDashboardSnapshot(
     workspaceToday,
     sessions,
     achievementSessionEvidence,
+    ...(options.achievementMoneyBackend ? {achievementMoney:claudeAchievementMoneyProjection(
+      index,options.achievementMoneyBackend,now,true)} : {}),
     projects: buildProjectGroups(index, options.projectGroupingMode ?? 'git'),
     branches: [...index.branchRows.values()]
       .sort((left, right) => right.data.totalCost - left.data.totalCost)
@@ -3295,6 +3302,7 @@ export async function updateClaudeUsageIndex(
     `incremental loader: bodies=${bodyReads}, bytes=${bytesRead}, ` +
     `lines=${linesParsed}, aggregate-mutations=${aggregateMutations}`,
   );
+  if (aggregateMutations===0 && !timeZoneChanged) inheritClaudeAchievementMoneyProjection(previous,next);
   return {
     index: next,
     records: recordsOf(next),

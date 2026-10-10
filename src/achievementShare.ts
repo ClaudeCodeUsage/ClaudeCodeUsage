@@ -2,6 +2,8 @@ import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES, AchievementId, Achievement
 import { renderAchievementIcon } from './achievementIcons';
 import type { AchievementCopy } from './i18n';
 import { randomUUID } from 'node:crypto';
+import {isAchievementMoneyId} from './achievementMoneyCatalog';
+import {achievementConditionFor} from './achievementConditions';
 
 /** One accepted local artifact, not an export history. Capture before any save dialog. */
 export class AchievementSharePreview {
@@ -92,6 +94,7 @@ export function renderAchievementShareSvg(input: {
   levels: AchievementCopy['levels'];
   milestone: string;
   footer: string;
+  locale?: string;
 }): string {
   const rows = input.selected.slice(0, 9);
   const height = Math.max(330, 190 + Math.ceil(rows.length / 3) * 140);
@@ -108,12 +111,16 @@ export function renderAchievementShareSvg(input: {
     const color = level === undefined ? accent :
       ['#e7b899', '#d6dce5', '#efce76', '#8dcaf0', '#cfadff'][level];
     const levelLabel = level === undefined ? input.milestone : input.levels[level];
-    return `<g data-achievement-share-badge="${id}"><title>${escapeXml(title)}</title>` +
+    const target=ACHIEVEMENT_DEFINITIONS.find(row=>row.id===id)!.target;
+    const threshold=isAchievementMoneyId(id) ? '≥$'+new Intl.NumberFormat(input.locale ?? 'en').format(target/1_000_000)+' USD' : '';
+    const condition=achievementConditionFor(input.locale ?? 'en',id);
+    const publicTitle=[title,levelLabel,threshold,condition].filter(Boolean).join(' · ');
+    return `<g data-achievement-share-badge="${id}"><title>${escapeXml(publicTitle)}</title>` +
       `<rect x="${x}" y="${y}" width="280" height="120" rx="14" fill="#202430" stroke="${color}" stroke-width="2"/>` +
       renderAchievementIcon(id, accent, { x: x + 11, y: y + 24, size: 64 }) +
       `<text x="${x + 86}" y="${y + 26}" font-size="16" font-weight="600" fill="${color}">${titleLines}</text>` +
       `<text x="${x + 86}" y="${y + 86}" font-size="12" fill="#b9bfcc">${escapeXml(input.groups[group])}</text>` +
-      `<text x="${x + 86}" y="${y + 105}" font-size="12" fill="${color}">${escapeXml(levelLabel)}</text></g>`;
+      `<text x="${x + 86}" y="${y + 105}" font-size="12" fill="${color}">${escapeXml(levelLabel+(threshold ? ' · '+threshold : ''))}</text></g>`;
   }).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 ${height}" role="img" aria-label="${escapeXml(input.heading)}">` +
     `<rect width="1000" height="${height}" rx="24" fill="#151923"/>` +

@@ -160,6 +160,14 @@ test('source exclusions and clear-all allowlists cannot target provider logs or 
   assert.equal(allowlistedState.has('claudeCodeUsage.codex.dataDirectory'), false);
 });
 
+test('achievement clear targets describe current v2, legacy v1 and both retained fences', () => {
+  const targets = LOCAL_DATA_ACTION_TARGETS['clear-all-derived-data'].join('\n');
+  assert.match(targets, /achievements-v2\.json/);
+  assert.match(targets, /achievements-v1\.json/);
+  assert.match(targets, /legacy.*records|archived.*records/i);
+  assert.match(targets, /downgrade fence/i);
+});
+
 test('approximateJsonBytes reports UTF-8 JSON bytes and fails closed', () => {
   const value = { label: '额度', count: 3, enabled: true };
   const serialized = JSON.stringify(value);

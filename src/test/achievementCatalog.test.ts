@@ -4,7 +4,14 @@ import { resolve } from 'node:path';
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } from '../achievements';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl } from '../achievementIcons';
 import { createHash } from 'node:crypto';
-import { achievementGalleryKey } from '../achievementGallery';
+import { ACHIEVEMENT_GALLERY, achievementGalleryKey } from '../achievementGallery';
+import { API_ACHIEVEMENT_DEFINITIONS, API_ACHIEVEMENT_SERIES, isAchievementMoneyId } from '../achievementMoneyCatalog';
+import { achievementConditionFor } from '../achievementConditions';
+import { formatAchievementCompact, formatAchievementInteger } from '../achievementFormat';
+import { achievementCopyFor } from '../i18n';
+
+const artworkGroupCount = Object.keys(ACHIEVEMENT_SERIES).length +
+  ACHIEVEMENT_DEFINITIONS.filter(rule => !Object.values(ACHIEVEMENT_SERIES).some(ids => ids.includes(rule.id))).length;
 
 const { achievementCatalog, renderCatalogGroup, renderCatalogMarkdown } = require(resolve(
   __dirname, '../../tests/ui/support/achievement-catalog.cjs',
@@ -19,7 +26,8 @@ test('mobile review catalog covers every live rule exactly once without placehol
     Object.keys(ACHIEVEMENT_SERIES).length);
   assert.ok(catalog.every((card: any) => card.title && card.metric && card.note));
   for (const card of catalog) assert.equal(card.displayKey, achievementGalleryKey(card.key));
-  assert.equal(new Set(catalog.map((card: any) => card.displayKey)).size, 44);
+  assert.equal(new Set(catalog.map((card: any) => card.displayKey)).size, ACHIEVEMENT_GALLERY.length);
+  assert.equal(catalog.length, artworkGroupCount);
 });
 
 test('different achievement series have distinct artwork; every tier within a series shares its emblem', () => {
@@ -31,10 +39,11 @@ test('different achievement series have distinct artwork; every tier within a se
     assert.equal(hashes.has(hash), false, `duplicated artwork: ${card.key}`);
     hashes.add(hash);
   }
-  assert.equal(hashes.size, 46);
+  assert.equal(hashes.size, artworkGroupCount);
 });
 
 test('review targets and all tier icons come directly from the production catalog', () => {
+  const definitionsBefore = JSON.stringify(ACHIEVEMENT_DEFINITIONS);
   for (const locale of ['zh-CN', 'en']) {
     for (const card of achievementCatalog(locale)) {
       for (const level of card.levels) {
@@ -44,6 +53,80 @@ test('review targets and all tier icons come directly from the production catalo
         assert.equal(level.image, achievementImageDataUrl(definition.id));
       }
     }
+  }
+  assert.equal(JSON.stringify(ACHIEVEMENT_DEFINITIONS), definitionsBefore);
+});
+
+test('review catalog includes exactly twenty monetary conditions in six provider-specific themes', () => {
+  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 20);
+  assert.equal(Object.keys(API_ACHIEVEMENT_SERIES).length, 6);
+  for (const locale of ['zh-CN', 'en']) {
+    const catalog = achievementCatalog(locale);
+    const monetary = catalog.filter((card: any) => card.levels.some((level: any) => isAchievementMoneyId(level.id)));
+    assert.equal(monetary.length, 6);
+    assert.deepEqual(monetary.flatMap((card: any) => card.levels.map((level: any) => level.id)),
+      API_ACHIEVEMENT_DEFINITIONS.map(rule => rule.id));
+    for (const provider of ['claude', 'codex']) {
+      const cards = monetary.filter((card: any) => card.group === provider);
+      assert.deepEqual(cards.map((card: any) => card.levels.length), [4, 3, 3]);
+      assert.equal(cards.reduce((sum: number, card: any) => sum + card.levels.length, 0), 10);
+    }
+    for (const card of monetary) {
+      assert.match(card.metric, /USD/);
+      assert.match(card.note, locale === 'en' ? /Frozen reference pricebook/ : /冻结参考价目表/);
+      assert.match(card.note, locale === 'en' ? /not a bill or a task-quality score/ : /不是账单或任务质量评分/);
+      assert.match(card.note, locale === 'en' ? /unknown-price usage is excluded/ : /未知价格用量不计入金额/);
+      assert.match(card.note, /≥/);
+      assert.match(card.note, /microUSD/);
+    }
+    const fourTier = catalog.filter((card: any) => card.levels.length === 4);
+    assert.deepEqual(fourTier.map((card: any) => card.key), ['claude-api-total', 'codex-api-total']);
+    for (const card of fourTier) {
+      assert.deepEqual(card.levels.map((level: any) => level.tier), ['ordinary', 'silver', 'gold', 'platinum']);
+      assert.deepEqual(card.levels.map((level: any) => level.label), achievementCopyFor(locale).levels.slice(0, 4));
+    }
+    const markdown = renderCatalogMarkdown(catalog, locale);
+    assert.match(markdown, locale === 'en' ? /2 four-tier series/ : /2 个四级系列/);
+    assert.match(markdown, new RegExp(`${ACHIEVEMENT_DEFINITIONS.length} ${locale === 'en' ? 'award conditions' : '个解锁条件'}`));
+    assert.match(markdown, new RegExp(`${ACHIEVEMENT_GALLERY.length} ${locale === 'en' ? 'default theme cards' : '张主题卡'}`));
+  }
+});
+
+test('monetary review displays floored USD while retaining exact production microUSD targets', () => {
+  for (const locale of ['zh-CN', 'en']) {
+    const catalog = achievementCatalog(locale).filter((card: any) => isAchievementMoneyId(card.levels[0].id));
+    for (const card of catalog) {
+      const html = renderCatalogGroup([card], card.group, locale);
+      const markdown = renderCatalogMarkdown([card], locale);
+      for (const level of card.levels) {
+        const displayed = '$' + formatAchievementInteger(Math.floor(level.target / 1_000_000), locale);
+        assert.ok(html.includes(`<strong>${displayed}</strong>`));
+        assert.ok(markdown.includes(displayed));
+        assert.ok(!html.includes(`<strong>${formatAchievementCompact(level.target)}</strong>`));
+      }
+    }
+    const sample = { ...catalog[0], levels: [{ ...catalog[0].levels[0], target: 100_999_999 }] };
+    assert.match(renderCatalogGroup([sample], sample.group, locale), /<strong>\$100<\/strong>/);
+    assert.equal(sample.levels[0].target, 100_999_999);
+  }
+});
+
+test('joint qualifications use production per-level copy alongside formal repetition or breadth targets', () => {
+  for (const locale of ['zh-CN', 'en']) {
+    const catalog = achievementCatalog(locale);
+    const qualifiedIds = ACHIEVEMENT_DEFINITIONS.filter(rule => achievementConditionFor(locale, rule.id)).map(rule => rule.id);
+    const reviewedIds: string[] = [];
+    for (const card of catalog) {
+      for (const level of card.levels) {
+        const condition = achievementConditionFor(locale, level.id);
+        assert.equal(level.condition, condition);
+        if (!condition) continue;
+        reviewedIds.push(level.id);
+        assert.ok(card.note.includes(`${level.label}: ≥${formatAchievementCompact(level.target)} ${card.metric}; ${condition}`), level.id);
+        assert.ok(renderCatalogMarkdown([card], locale).includes(condition), level.id);
+      }
+    }
+    assert.deepEqual(reviewedIds, qualifiedIds);
   }
 });
 
@@ -63,5 +146,7 @@ test('mobile review Markdown identifies the achievement candidate rather than th
     const markdown = renderCatalogMarkdown(achievementCatalog(locale), locale);
     assert.match(markdown, /^# v2\.4\.2 /);
     assert.doesNotMatch(markdown, /v2\.4\.1/);
+    assert.doesNotMatch(markdown, /已获得|personally earned/);
+    assert.match(markdown, locale === 'en' ? /not personal award history/ : /不是个人获奖记录/);
   }
 });

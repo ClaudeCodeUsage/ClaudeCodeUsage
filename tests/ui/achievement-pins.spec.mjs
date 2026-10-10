@@ -1,9 +1,14 @@
 import { test, expect, openCodex, openClaude } from './support/app.mjs';
 
+const unpinLabels = {
+  en: 'Unpin badge', 'de-DE': 'Abzeichen lösen', 'zh-TW': '取消固定', 'zh-CN': '取消固定',
+  ja: '固定を解除', ko: '고정 해제', 'pt-BR': 'Desafixar medalha', id: 'Lepas sematan',
+};
+
 for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
   test(`${locale} hidden pins can be removed with disabled Codex and no implicit side effects`, async ({ page }, testInfo) => {
     for (const theme of ['light', 'dark']) {
-      await openClaude(page, { fixture: 'achievement-hidden-pins', claudeOnly: true, locale, theme, width: 320 });
+      await openClaude(page, { fixture: 'achievement-hidden-pins', claudeOnly: true, locale, theme, width: 320, height: 360 });
       // Theme iterations start fresh; reload preservation is asserted separately below.
       await page.evaluate(() => localStorage.removeItem('__ccu-vscode-state'));
       await page.reload();
@@ -17,7 +22,8 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       await page.evaluate(() => { window.__ccuPostedMessages = []; });
       await button.focus(); await button.press('Enter');
       expect(await page.evaluate(() => window.__ccuPostedMessages)).toEqual([
-        { command: 'setAchievementPinned', key: 'astra-regular', selected: false, generation: 1 },
+        { command: 'setAchievementPinned', key: 'astra-regular', selected: false, generation: 1,
+          documentId: expect.stringMatching(/^[0-9a-f]{48}$/) },
       ]);
       await expect(button).toHaveAttribute('aria-pressed', 'true');
       await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
@@ -36,6 +42,7 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       // preserve an anchor's old position because browsers clamp negative scrolling.
       await manager.locator('summary').evaluate(element => element.scrollIntoView({ block: 'center' }));
       await page.clock.runFor(200);
+      expect(await page.evaluate(() => scrollY)).toBeGreaterThan(40);
       const summaryTop = await manager.locator('summary').evaluate(element => element.getBoundingClientRect().top);
       await page.evaluate(nextHtml => {
         const next = new DOMParser().parseFromString(nextHtml, 'text/html').getElementById('provider-panel');
@@ -85,19 +92,25 @@ test('removing the final hidden pin returns keyboard focus to achievements witho
 test('pin button sends a generation-bound preference only and failures stay inline', async ({ page }) => {
   await openCodex(page, { fixture: 'achievement-records', width: 360 });
   await page.locator('#tab-achievements').click();
-  await page.locator('[data-achievement-key="local-share-export"] summary').click();
+  const card = page.locator('.achievement-card[data-achievement-key="local-share-export"]');
   const button = page.locator('#achievement-pin-local-share-export');
+  await expect(card.locator('details')).not.toHaveAttribute('open');
+  await expect(button).toBeVisible();
+  await expect(card.locator(':scope > .achievement-card-pins > button')).toHaveCount(1);
+  await expect(button).toHaveAttribute('aria-label', `Pin badge: ${await card.locator('h4').textContent()}`);
   await expect(button).toHaveAttribute('aria-pressed', 'false');
   await page.evaluate(() => { window.__ccuPostedMessages = []; });
   await button.focus(); await button.press('Enter');
   expect(await page.evaluate(() => window.__ccuPostedMessages)).toEqual([
-    { command: 'setAchievementPinned', key: 'local-share-export', selected: true, generation: 1 },
+    { command: 'setAchievementPinned', key: 'local-share-export', selected: true, generation: 1,
+      documentId: expect.stringMatching(/^[0-9a-f]{48}$/) },
   ]);
+  await expect(card.locator('details')).not.toHaveAttribute('open');
   await expect(button).toHaveAttribute('aria-pressed', 'false');
   await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
     command: 'achievementPinResult', key: 'local-share-export', ok: false, reason: 'limit',
   } })));
-  await expect(page.locator('#achievementPinStatus')).toHaveText('Pin up to 3 badges.');
+  await expect(page.locator('#achievementPinStatus')).toHaveText('Pin up to 6 badges.');
   await expect(button).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
@@ -129,7 +142,12 @@ test('a host-confirmed pin patch keeps focus, disclosure, anchor and share state
   await expect(button).toHaveAttribute('aria-pressed', 'true');
   await expect(button).toBeFocused();
   await expect(page.locator('[data-achievement-key="local-share-export"] details')).toHaveAttribute('open');
-  await expect(page.locator('[data-achievement-overview="badges"] button').first()).toHaveAttribute('data-achievement-open', 'local-share-export');
+  const showcaseBadge = page.locator('[data-achievement-overview="badges"] .achievement-overview-badge').first();
+  await expect(showcaseBadge).toHaveAttribute('data-achievement-open', 'local-share-export');
+  const showcasePin = showcaseBadge.locator('..').locator('[data-achievement-pin="local-share-export"]');
+  await expect(showcasePin).toBeVisible();
+  await expect(showcasePin).toHaveAttribute('aria-pressed', 'true');
+  await expect(showcasePin).toHaveAttribute('aria-label', `Unpin badge: ${await showcaseBadge.locator('.achievement-overview-name').textContent()}`);
   await page.clock.runFor(200);
   const after = await page.evaluate(() => ({ top: document.getElementById('achievement-pin-local-share-export').getBoundingClientRect().top,
     sameDocument: document.documentElement === window.__pinDocument, share: localStorage.getItem('ccu.sharing.achievementBadges'),
@@ -144,7 +162,8 @@ test('a host-confirmed pin patch keeps focus, disclosure, anchor and share state
   await expect(page.locator('[data-achievement-key="local-share-export"] details')).toHaveAttribute('open');
   await button.click();
   expect(await page.evaluate(() => window.__ccuPostedMessages.filter(message => message.command === 'setAchievementPinned'))).toEqual([
-    { command: 'setAchievementPinned', key: 'local-share-export', selected: false, generation: 1 },
+    { command: 'setAchievementPinned', key: 'local-share-export', selected: false, generation: 1,
+      documentId: expect.stringMatching(/^[0-9a-f]{48}$/) },
   ]);
 });
 
@@ -153,9 +172,16 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
     for (const theme of ['light', 'dark']) {
       await openCodex(page, { fixture: 'achievement-pins', locale, theme, width: 320 });
       await page.locator('#tab-achievements').click();
-      const detail = page.locator('[data-achievement-key="local-share-export"] details');
-      if (!await detail.evaluate(element => element.open)) await detail.locator('summary').click();
+      const card = page.locator('.achievement-card[data-achievement-key="local-share-export"]');
+      const detail = card.locator('details');
+      if (await detail.evaluate(element => element.open)) await detail.locator('summary').click();
       const button = page.locator('#achievement-pin-local-share-export');
+      await expect(detail).not.toHaveAttribute('open');
+      await expect(button).toBeVisible();
+      await expect(card.locator(':scope > .achievement-card-pins > button')).toHaveCount(1);
+      await expect(button).toHaveAttribute('aria-label', `${unpinLabels[locale]}: ${await card.locator('h4').textContent()}`);
+      await detail.locator('summary').click();
+      await expect(detail).toHaveAttribute('open');
       await expect(button).toHaveAttribute('aria-pressed', 'true');
       await button.focus();
       await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
@@ -163,6 +189,7 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       } })));
       await expect(page.locator('#achievementPinStatus')).not.toBeEmpty();
       await expect(page.locator('#achievementPinStatus')).not.toContainText('/private/raw/path');
+      await expect(button).toBeFocused();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`pins-${locale}-${theme}.png`) });
     }

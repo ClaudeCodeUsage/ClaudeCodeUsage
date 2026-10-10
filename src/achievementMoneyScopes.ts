@@ -28,6 +28,8 @@ export interface MoneyScopeCoverage {
   readonly totalTokens?: number;
   readonly pricedTokens?: number;
   readonly unpricedTokens?: number;
+  /** Preserve real positive amounts even when integer microUSD floors to 0. */
+  readonly amountPositive?: boolean;
 }
 export interface AchievementMoneyScopes {
   readonly provider: UsageProvider;
@@ -174,7 +176,8 @@ export function codexMoneyEvidenceFromModels(models: CodexMoneyModels, backend: 
 }
 function coverage(e: MoneyEvidence): MoneyScopeCoverage {
   return Object.freeze({ status: e.status, pricingCoverage: e.pricingCoverage,
-    totalTokens: e.totalTokens, pricedTokens: e.pricedTokens, unpricedTokens: e.unpricedTokens });
+    totalTokens: e.totalTokens, pricedTokens: e.pricedTokens, unpricedTokens: e.unpricedTokens,
+    amountPositive: e.exactMicroUsdUnits!=='0' });
 }
 function base(provider: UsageProvider, book?: AchievementMoneyPricebook): AchievementMoneyScopes {
   return { provider, backend: book?.backend, pricebookVersion: book?.version, coverage: {

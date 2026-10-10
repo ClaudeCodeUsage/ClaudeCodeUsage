@@ -64,6 +64,9 @@ export function projectAchievementRecords(records: readonly AchievementRecord[],
 
 /** Similar counters share one showcase slot, not one award identity. */
 export function achievementOverviewTopic(key: string): string {
+  if (key==='cumulative-volume' || /^(claude|codex)-api-total$/.test(key)) return 'resource-volume';
+  if (/^(claude|codex)-api-week$/.test(key)) return 'weeks';
+  if (/^(claude|codex)-api-(session|task)$/.test(key)) return 'resource-volume';
   if (/^(astra|sol|luna|sonnet|opus|haiku|fable)-(regular|main|cannon|worker|volume|days|sessions)$/.test(key) || key === 'fable-relay') return 'models';
   if (key.startsWith('weekly-')) return 'weeks';
   if (/^(active-|streak-machine|dual-provider-)/.test(key)) return 'activity';
@@ -98,18 +101,18 @@ function diversify(rows: AchievementOverviewCandidate[], pinned: string[] = []):
 /** Only already-collapsed, enabled-provider rows enter this display-only selector. */
 export function selectAchievementOverview(
   rows: readonly AchievementOverviewCandidate[], preferred: 'claude' | 'codex' | 'compare',
-  pins: readonly string[] = [],
+  pins: readonly string[] = [], mode?: 'automatic' | 'manual',
 ): AchievementOverviewSelection {
   const earned = new Set(rows.filter(row => valid(row) && row.earned).map(row => row.key));
   const pinned = [...new Set(pins.map(achievementGalleryKey)
-    .filter((key): key is string => key !== undefined && earned.has(key)))].slice(0, 3);
+    .filter((key): key is string => key !== undefined && earned.has(key)))].slice(0, mode === 'manual' ? 6 : 3);
   const tie = (a: AchievementOverviewCandidate, b: AchievementOverviewCandidate): number =>
     Number(b.group === preferred) - Number(a.group === preferred) || order.indexOf(a.key) - order.indexOf(b.key);
   const fraction = (row: AchievementOverviewCandidate): number => row.progress /
     (nextAchievementStage(row.key, row.progress, row.target, true) ?? row.target);
   return {
-    badges: diversify(rows.filter(row => valid(row) && row.earned)
-      .sort((a, b) => b.earnedLevel - a.earnedLevel || tie(a, b)), pinned),
+    badges: mode === 'manual' ? pinned : diversify(rows.filter(row => valid(row) && row.earned)
+      .sort((a, b) => b.earnedLevel - a.earnedLevel || tie(a, b)), mode === 'automatic' ? [] : pinned),
     next: diversify(rows.filter(reachable).sort((a, b) => fraction(b) - fraction(a) || tie(a, b))),
   };
 }
@@ -120,7 +123,7 @@ export function retainAchievementOverview(
 ): AchievementOverviewSelection {
   const byKey = new Map(rows.filter(valid).map(row => [row.key, row]));
   return {
-    badges: selection.badges.filter(key => byKey.get(key)?.earned).slice(0, 3),
+    badges: selection.badges.filter(key => byKey.get(key)?.earned).slice(0, 6),
     next: selection.next.filter(key => { const row = byKey.get(key); return !!row && reachable(row); }).slice(0, 3),
   };
 }

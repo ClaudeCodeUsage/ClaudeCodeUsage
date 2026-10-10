@@ -88,7 +88,11 @@ explicit rebuilds stay quiet; non-Token live awards still need their own origin 
 
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.
-Concurrent windows merge awards; clearing retains an empty fence against stale writes.
+`achievements-v2.json` is canonical; v1 is a read-only migration input. Records already
+saved under the 21 changed model/team/effort/rainbow conditions move to bounded old-rule history with
+unknown dates preserved; old Gold cannot prove the recalibrated rules. Windows
+share the v1 lease; clearing retains a v2 tombstone and an empty v1 downgrade
+fence so old writes cannot restore cleared awards. Provider source logs stay untouched.
 Badge notices appear only in the visible foreground panel, at most once per five
 minutes across windows/restarts. Display confirmation reads only that batch; missed
 notices stay unread. Hovering or keyboard focus pauses dismissal.
@@ -96,8 +100,10 @@ Missed awards appear in a folded New awards summary with at most six exact level
 per group. Only Mark this group read confirms that group after a successful local
 save; browsing, pinning and sharing do not. Other windows' later awards remain unread.
 Recently earned shows at most three new series; Recent records folds up to thirty
-saved levels and links to their rules. Earned badge details can pin up to three
-representatives in My badges; saved pins survive restart and never select sharing.
+saved levels and links to their rules. My badges supports up to six manually pinned
+themes through closed-card pin icons and a searchable editor with explicit ordering.
+Manual mode shows only chosen pins; automatic mode recommends at most three.
+Pins and order survive restart and never select sharing.
 Pins hidden by a disabled provider can be removed from the folded hidden-pin list
 without re-enabling that provider.
 Dates mean first recorded, not inferred
@@ -106,7 +112,7 @@ attainment; historical dates remain unknown. Browsing does not mark records read
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.
 
-The unreleased 2.4.2 candidate's icon-first gallery groups **44 themes and 124 award conditions** into ordinary,
+The unreleased 2.4.2 candidate's icon-first gallery groups **50 themes and 144 award conditions** into ordinary,
 silver and gold tiers, with platinum/legendary cumulative milestones. Expand a card
 for every level's rule; the next target is visible on the card. Series and unlocked
 levels are counted separately. Local All / Next level / Earned filters survive reload,
@@ -115,21 +121,37 @@ Astra/Sol/Luna progression is primarily token-based; effort, agents, active days
 cache/output, and a few deliberate plugin actions add variety.
 Each series has distinct artwork, with one emblem shared by its colored tiers.
 Achievement numbers use integers; detailed conditions and data caveats stay expandable.
-All 46 artwork groups remain. Fourteen-day and first shared-day milestones sit
-inside their growing themes; old awards, pins and exact share choices are preserved.
+The source catalog supplies 52 artwork groups. Fourteen-day and first shared-day
+milestones sit inside their growing themes, with distinct award and sharing choices.
 Pending or outdated evidence is labelled, not shown as zero progress, and excluded
 from Next level filtering; earned badges remain saved.
 Closed cards show current / next-level progress. Long Token ladders include
 intermediate stages, without extra awards, notices or sharing choices.
-My badges and Next goals each highlight at most three distinct themes before
-the complete collection. Goals require positive, current evidence; unused models
-are not promoted. Selection stays fixed during a visit; opening a badge focuses
+Small / Medium / Large sizes change badge and card frames, preserving text size
+and click areas. Next goals highlights at most three distinct themes before
+the complete collection. Goals require positive, current evidence; unproven goals
+and unused models are not promoted. Selection stays fixed during a visit; opening a badge focuses
 its existing rule without reading logs or selecting it for sharing.
 
 Cumulative processed tokens use one series: **100M → 1B → 10B → 100B → 1T**.
 Calendar-week peaks use **500M / 2B / 10B**; the highest average across four
 completed weeks uses **500M / 2B / 5B**. Weeks start Monday in the configured
 timezone. Unfinished weeks and incomplete coverage cannot certify a four-week average.
+
+API-equivalent milestones add 20 conditions across six separate Claude/Codex
+themes: cumulative priced subtotals, completed Monday-start weeks in the current
+data timezone, and one Claude session or one verified Codex task tree. Fixed USD
+reference prices (`api-reference-2026-10-{backend}-v1`, dated 2026-10-09) require
+exact known models and complete component rates, including Claude's known
+5-minute/1-hour cache-write TTL. Codex counts uncached input, cached input and
+output once. Unknown models remain unpriced; verified priced subsets can prove
+a lower bound (`≥`), not full coverage. These amounts are neither bills, quality
+scores nor income. Money history stays quiet; live monetary origin notices are
+not yet wired. Model/team/effort/rainbow rules now combine output, repeated use
+and usage scale, excluding duplicate aliases, input-only activity and unverified structures.
+
+API-equivalent heatmap sharing has generator foundations; weekly quota pace has
+calculation/status-bar foundations. Their main production UI and wiring remain pending.
 
 The gallery is **on by default**. Disable **Local achievements** in ⚙ Settings
 (`enableAchievements`). With release announcements enabled, an upgrade shows one

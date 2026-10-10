@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } from '../achievements';
+import { API_ACHIEVEMENT_DEFINITIONS, API_ACHIEVEMENT_SERIES, isAchievementMoneyId } from '../achievementMoneyCatalog';
 
 const stages = require('../achievementStages') as any;
 
@@ -16,9 +17,46 @@ test('approved Token ladders gain display-only integer stages without changing f
     const formal = new Set(ACHIEVEMENT_SERIES[series].map(id => ACHIEVEMENT_DEFINITIONS.find(rule => rule.id === id)!.target));
     assert.ok(expected.every(value => !formal.has(value)));
   }
-  assert.equal(ACHIEVEMENT_DEFINITIONS.length, 124);
+  assert.equal(ACHIEVEMENT_DEFINITIONS.length,
+    ACHIEVEMENT_DEFINITIONS.filter(rule => !isAchievementMoneyId(rule.id)).length + API_ACHIEVEMENT_DEFINITIONS.length);
   assert.deepEqual(stages.achievementStages('effort-breadth'), [], 'no tiny counter filler');
   assert.deepEqual(stages.achievementStages('settings-explorer'), [], 'do not encourage settings farming');
+});
+
+test('six monetary series expose only integer 2×/5× stages strictly between formal awards', () => {
+  const before = JSON.stringify({ definitions: ACHIEVEMENT_DEFINITIONS, series: ACHIEVEMENT_SERIES });
+  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 20);
+  assert.equal(Object.keys(API_ACHIEVEMENT_SERIES).length, 6);
+  const expectedByScope = {
+    cumulative: [200, 500, 2_000, 5_000, 20_000, 50_000],
+    completedMondayWeekPeak: [200, 1_000, 2_000],
+    maxSessionTask: [20, 50, 200, 500],
+  };
+  for (const [series, ids] of Object.entries(API_ACHIEVEMENT_SERIES)) {
+    const formal = ids.map(id => API_ACHIEVEMENT_DEFINITIONS.find(rule => rule.id === id)!);
+    const expected = expectedByScope[formal[0].scope].map(usd => usd * 1_000_000);
+    assert.deepEqual(stages.achievementStages(series), expected, series);
+    for (const value of expected) {
+      assert.ok(Number.isSafeInteger(value));
+      assert.ok(formal.some((rule, index) => index > 0 && value > formal[index - 1].target && value < rule.target), series);
+      assert.ok(formal.every(rule => rule.target !== value), 'a stage is never a formal award');
+    }
+    assert.equal(stages.nextAchievementStage(series, 0, formal[0].target, true), undefined, 'no stages before first award');
+    for (let index = 1; index < formal.length; index++) {
+      const lower = formal[index - 1].target, upper = formal[index].target;
+      const gap = expected.filter(value => value > lower && value < upper);
+      assert.equal(stages.nextAchievementStage(series, lower, upper, true), gap[0], series);
+      assert.equal(stages.nextAchievementStage(series, lower, upper, false), undefined, 'no stage without reliable evidence');
+      assert.equal(stages.nextAchievementStage(series, upper, upper, true), undefined);
+      for (const [stageIndex, value] of gap.entries()) {
+        assert.equal(stages.nextAchievementStage(series, value - 1, upper, true), value);
+        assert.equal(stages.nextAchievementStage(series, value, upper, true), gap[stageIndex + 1]);
+      }
+    }
+    assert.equal(stages.nextAchievementStage(series, formal[0].target, formal[1].target - 1, true), undefined, 'formal target must match exactly');
+  }
+  assert.equal(JSON.stringify({ definitions: ACHIEVEMENT_DEFINITIONS, series: ACHIEVEMENT_SERIES }), before,
+    'display stages never create IDs, awards or alter formal targets');
 });
 
 test('next stage crosses exact integer boundaries and never supplies proof or award authority', () => {

@@ -17,8 +17,10 @@ import {
   type AchievementId,
 } from '../achievements';
 import { achievementCalendarSignals } from '../achievementCalendar';
+import { codexCollaborationEvidence } from '../achievementCollaboration';
 import type { CodexFileAggregate } from '../providers/codex/codexIndex';
 import { emptyAchievementActivity, recordAchievementFeature, recordAchievementSettingChange } from '../achievementActivity';
+import { API_ACHIEVEMENT_SERIES } from '../achievementMoneyCatalog';
 
 const used = { inputTotal: 10, cachedInput: 3, outputTotal: 2 };
 const empty = { inputTotal: 0, cachedInput: 0, outputTotal: 0 };
@@ -70,7 +72,7 @@ test('Claude output-session and cache-write series have rising, separately evide
   assert.equal(evaluateAchievements(facts).find((row) => row.id === 'claude-cache-creation-gold')?.unlocked, true);
 });
 
-test('agent, model-relay, effort and family series retain existing grants as tiers', () => {
+test('collaboration series retain their IDs but legacy maxima and marginal buckets cannot grant new tiers', () => {
   assert.deepEqual(ACHIEVEMENT_SERIES['agent-team'], ['agent-standup', 'tiny-ai-company', 'agent-team-gold']);
   assert.deepEqual(ACHIEVEMENT_SERIES['same-root-models'], ['multi-core-human', 'same-root-models-silver', 'same-root-models-gold']);
   assert.deepEqual(ACHIEVEMENT_SERIES['effort-breadth'], ['effort-explorer', 'effort-breadth-silver', 'effort-spectrum']);
@@ -88,15 +90,16 @@ test('agent, model-relay, effort and family series retain existing grants as tie
   };
   const results = new Map(evaluateAchievements(facts).map((row) => [row.id, row]));
   for (const id of ['agent-team-gold', 'same-root-models-gold', 'effort-spectrum'] as const) {
-    assert.equal(results.get(id)?.unlocked, true, id);
+    assert.equal(results.get(id)?.progress, 0, `${id}: legacy evidence is not a joint counter`);
+    assert.equal(results.get(id)?.unlocked, false, id);
   }
-  assert.equal(results.get('model-rainbow-gold')?.progress, 6);
+  assert.equal(results.get('model-rainbow-gold')?.progress, 0);
   assert.equal(results.get('model-rainbow-gold')?.unlocked, false);
   facts.fable = { processedTokens: 500_000, activeDays: 0, mixedFamilySession: false,
     outputSessions: 0, allOutputSessions: 0 };
   const rainbow = evaluateAchievements(facts).find((row) => row.id === 'model-rainbow-gold');
-  assert.equal(rainbow?.progress, 7);
-  assert.equal(rainbow?.unlocked, true);
+  assert.equal(rainbow?.progress, 0, 'an old 500K Fable bucket has neither the new volume nor output proof');
+  assert.equal(rainbow?.unlocked, false);
 });
 
 test('ambiguous or incomplete Codex day totals cannot grant activity streaks', () => {
@@ -113,7 +116,8 @@ test('every tiered family has unique known IDs, one evidence group, and rising t
   const definitions = new Map(ACHIEVEMENT_DEFINITIONS.map((entry) => [entry.id, entry]));
   const seen = new Set<string>();
   for (const [series, ids] of Object.entries(ACHIEVEMENT_SERIES)) {
-    assert.equal(ids.length, series === 'cumulative-volume' ? 5 : 3, series);
+    assert.equal(ids.length, series === 'cumulative-volume' ? 5 :
+      series === 'claude-api-total' || series === 'codex-api-total' ? 4 : 3, series);
     const tiers = ids.map((id) => {
       assert.equal(seen.has(id), false, `${id} appears in two series`);
       seen.add(id);
@@ -124,7 +128,10 @@ test('every tiered family has unique known IDs, one evidence group, and rising t
     assert.equal(new Set(tiers.map((tier) => tier.group)).size, 1, series);
     assert.ok(tiers.every((tier, index) => index === 0 || tiers[index - 1].target < tier.target), series);
   }
-  assert.equal(Object.keys(ACHIEVEMENT_SERIES).length, 38);
+  assert.equal(Object.keys(API_ACHIEVEMENT_SERIES).length, 6);
+  assert.equal(Object.keys(ACHIEVEMENT_SERIES).filter(key => !Object.hasOwnProperty.call(API_ACHIEVEMENT_SERIES, key)).length, 38);
+  assert.deepEqual(Object.entries(ACHIEVEMENT_SERIES).filter(([, ids]) => ids.length === 4).map(([key]) => key).sort(),
+    ['claude-api-total', 'codex-api-total']);
 });
 
 test('expanded model days, output, cache, weekly mean and single milestones have real rules', () => {
@@ -133,7 +140,7 @@ test('expanded model days, output, cache, weekly mean and single milestones have
     codex: { modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 } },
   };
   const available = new Map<string, number>(ACHIEVEMENT_DEFINITIONS.map(row => [row.id, row.target]));
-  assert.equal(available.size, 124);
+  assert.equal(available.size, ACHIEVEMENT_DEFINITIONS.length);
   assert.equal(available.get('weekly-average-silver'), 2_000_000_000);
   assert.equal(available.get('astra-days-gold'), 120);
   const initial = new Map<string, { unlocked: boolean }>(evaluateAchievements(facts).map(row => [row.id, row]));
@@ -155,6 +162,27 @@ function file(
     session: { sessionKey, role, ...(parentSessionKey ? { parentSessionKey } : {}) },
     structural: {} as CodexFileAggregate['structural'],
   };
+}
+
+/** Synthetic canonical file: the model and effort buckets agree with its total. */
+function alignedFile(sessionKey: string, model: string, processed: number, output: number, effort?: string): CodexFileAggregate {
+  assert.ok(Number.isSafeInteger(processed) && Number.isSafeInteger(output) && output >= 0 && processed >= output);
+  const total = { inputTotal: processed - output, outputTotal: output };
+  return {
+    ...file(sessionKey, 'root', model), total,
+    byModel: { [model]: { ...total } },
+    byEffort: effort === undefined ? {} : { [effort]: { ...total } },
+  };
+}
+
+/** Exact per-effort totals spread over distinct roots, every root with output. */
+function effortTaskFiles(effort: string, processed: number, output: number, roots: number): CodexFileAggregate[] {
+  assert.ok(roots > 0 && output >= roots);
+  return Array.from({ length: roots }, (_, index) => alignedFile(
+    `${effort}-task-${index}`, 'gpt-6-astra',
+    index === 0 ? processed - roots + 1 : 1,
+    index === 0 ? output - roots + 1 : 1, effort,
+  ));
 }
 
 test('Codex model families count verified roots once, not children or orphan forks', () => {
@@ -369,22 +397,30 @@ test('night and long-hour portraits never produce proactive unlock prompts', () 
   ]), ['output-hours-bronze', 'fable-relay']);
 });
 
-test('all six effort tiers need 10M processed Tokens each', () => {
+test('all six effort tiers need their own 2B processed, 2M output and 30 output-bearing tasks', () => {
+  const qualified = ['low', 'medium', 'high', 'xhigh', 'max'].flatMap(effort =>
+    effortTaskFiles(effort, 2_000_000_000, 2_000_000, 30));
+  const unknown = effortTaskFiles('unknown', 2_000_000_000, 2_000_000, 30);
   const base: AchievementFacts = {
     claudeTokens: 0, codexTokens: 0, activeDays: 0, claudeFamilies: [],
-    codex: {
-      modelCount: 0,
-      efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'unknown'],
-      effortRootCounts: { low: 3, medium: 3, high: 3, xhigh: 3, max: 3, ultra: 2 },
-      effortProcessedTokens: { low: 10_000_000, medium: 10_000_000, high: 10_000_000, xhigh: 10_000_000, max: 10_000_000, ultra: 9_999_999 },
-      familyRootCounts: { astra: 0, sol: 0, luna: 0 },
-    },
+    codex: { modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 } },
   };
-  const results = new Map(evaluateAchievements(base).map((result) => [result.id, result]));
-  assert.equal(results.get('effort-spectrum')?.unlocked, false);
-  assert.equal(results.get('effort-spectrum')?.progress, 5);
-  base.codex.effortProcessedTokens!.ultra = 10_000_000;
-  assert.equal(new Map(evaluateAchievements(base).map((result) => [result.id, result])).get('effort-spectrum')?.unlocked, true);
+  const evaluateUltra = (processed: number, output: number, roots: number) => {
+    base.codex.collaboration = codexCollaborationEvidence([
+      ...qualified, ...unknown, ...effortTaskFiles('ultra', processed, output, roots),
+    ]);
+    return evaluateAchievements(base).find(result => result.id === 'effort-spectrum')!;
+  };
+  for (const [processed, output, roots] of [
+    [1_999_999_999, 2_000_000, 30], [2_000_000_000, 1_999_999, 30], [2_000_000_000, 2_000_000, 29],
+  ]) {
+    const result = evaluateUltra(processed, output, roots);
+    assert.equal(result.progress, 5, 'unknown effort cannot fill the sixth tier; other tiers cannot lend evidence to ultra');
+    assert.equal(result.unlocked, false, 'all three ultra conditions are necessary');
+  }
+  const exact = evaluateUltra(2_000_000_000, 2_000_000, 30);
+  assert.equal(exact.progress, 6);
+  assert.equal(exact.unlocked, true);
 });
 
 test('streak means consecutive calendar dates, not cumulative days', () => {
@@ -393,7 +429,7 @@ test('streak means consecutive calendar dates, not cumulative days', () => {
   assert.equal(longestActiveDayStreak(['2026-09-01', '2026-09-01', 'invalid']), 1);
 });
 
-test('agent badge counts unique verified child sessions under the same root', () => {
+test('legacy breadth counts unique verified descendants but tiny output cannot qualify a team or model task', () => {
   const files = [
     file('root-1', 'root', 'gpt-6-astra'),
     file('child-1', 'subagent', 'gpt-6-sol', 'root-1'),
@@ -401,17 +437,23 @@ test('agent badge counts unique verified child sessions under the same root', ()
     file('child-3', 'subagent', 'gpt-6-sol', 'child-1'),
     file('orphan', 'subagent', 'gpt-6-sol', 'missing'),
   ];
-  assert.equal(codexModelSignals(files).maxVerifiedAgentsPerRoot, 3);
-  assert.equal(codexModelSignals(files).maxRealModelsPerRoot, 2);
+  const signals = codexModelSignals(files);
+  assert.equal(signals.maxVerifiedAgentsPerRoot, 3);
+  assert.equal(signals.maxRealModelsPerRoot, 2);
+  assert.deepEqual(signals.collaboration?.teamTaskCounts, [0, 0, 0]);
+  assert.deepEqual(signals.collaboration?.modelTaskCounts, [0, 0, 0]);
+  assert.equal(signals.collaboration?.qualifiedSubagentCount, 0);
 });
 
-test('one qualifying agent task is not an agent-conductor habit', () => {
+test('one legacy multi-agent root with tiny child output is not a qualified orchestration task', () => {
   const files = [file('root', 'root', 'gpt-6-astra')];
   for (let index = 0; index < 3; index++) files.push(file(`child-${index}`, 'subagent', 'gpt-6-sol', 'root'));
-  assert.equal(codexModelSignals(files).multiAgentRootCount, 1);
+  const signals = codexModelSignals(files);
+  assert.equal(signals.multiAgentRootCount, 1);
+  assert.equal(signals.collaboration?.orchestratedTasks, 0);
 });
 
-test('verified root portfolio and repeated agent orchestration have distant tiers', () => {
+test('verified root portfolio keeps its count semantics while legacy orchestration counts cannot grant joint tiers', () => {
   const files = [file('root-1', 'root', 'gpt-6-astra'), file('root-2', 'root', 'gpt-6-sol')];
   for (let index = 0; index < 3; index++) files.push(file(`child-${index}`, 'subagent', 'gpt-6-sol', 'root-1'));
   files.push(file('orphan', 'subagent', 'gpt-6-sol', 'missing'));
@@ -426,15 +468,17 @@ test('verified root portfolio and repeated agent orchestration have distant tier
   assert.equal(get('root-portfolio-bronze')?.unlocked, false);
   assert.equal(get('agent-conductor')?.unlocked, false);
   facts.codex.verifiedRootCount = 250;
-  facts.codex.multiAgentRootCount = 25;
+  facts.codex.multiAgentRootCount = currentTarget('agent-conductor-gold');
   assert.equal(get('root-portfolio-bronze')?.unlocked, true);
   assert.equal(get('root-portfolio-silver')?.unlocked, true);
   assert.equal(get('root-portfolio-gold')?.unlocked, false);
-  assert.equal(get('agent-conductor-silver')?.unlocked, true);
+  assert.equal(get('agent-conductor')?.progress, 0, 'tiny child output does not establish a qualified team');
+  assert.equal(get('agent-conductor')?.unlocked, false);
+  assert.equal(get('agent-conductor-silver')?.unlocked, false, 'large legacy counts do not replace joint task proof');
   assert.equal(get('agent-conductor-gold')?.unlocked, false);
 });
 
-test('agent participation and multi-model root breadth count only verified lineage', () => {
+test('verified lineage counts without qualifying output cannot grant participation or multi-model tasks', () => {
   const files = [
     file('root-a', 'root', 'gpt-6-astra'),
     file('child-a', 'subagent', 'gpt-6-sol', 'root-a'),
@@ -452,10 +496,14 @@ test('agent participation and multi-model root breadth count only verified linea
   const get = (id: string) => new Map(evaluateAchievements(facts).map((row) => [row.id, row])).get(id as never);
   assert.equal(get('agent-participation-bronze')?.unlocked, false);
   assert.equal(get('model-relay-roots-bronze')?.unlocked, false);
-  facts.codex.verifiedChildCount = 100;
-  facts.codex.multiModelRootCount = 50;
-  assert.equal(get('agent-participation-silver')?.unlocked, true);
-  assert.equal(get('model-relay-roots-silver')?.unlocked, true);
+  facts.codex.verifiedChildCount = currentTarget('agent-participation-gold');
+  facts.codex.multiModelRootCount = currentTarget('model-relay-roots-gold');
+  assert.equal(get('agent-participation-bronze')?.progress, 0);
+  assert.equal(get('model-relay-roots-bronze')?.progress, 0);
+  assert.equal(get('agent-participation-bronze')?.unlocked, false);
+  assert.equal(get('model-relay-roots-bronze')?.unlocked, false);
+  assert.equal(get('agent-participation-silver')?.unlocked, false, 'legacy child count does not prove 5K output per child');
+  assert.equal(get('model-relay-roots-silver')?.unlocked, false, 'legacy model count does not prove 10K output per model');
   assert.equal(get('agent-participation-gold')?.unlocked, false);
   assert.equal(get('model-relay-roots-gold')?.unlocked, false);
 });
@@ -485,7 +533,9 @@ test('Claude output and combined distinct-day accumulation have long goals', () 
   assert.equal(get('active-days-gold')?.unlocked, true);
 });
 
-test('cache and intermediate effort milestones use actual Token volume', () => {
+test('cache uses actual Token volume and ordinary effort needs each tier volume, output and task breadth', () => {
+  const qualified = ['low', 'medium', 'high'].flatMap(effort =>
+    effortTaskFiles(effort, 100_000_000, 100_000, 5));
   const facts: AchievementFacts = {
     claudeTokens: 200_000_000, claudeCacheReadTokens: currentTarget('cache-wizard') - 1,
     codexTokens: 100_000_000, activeDays: 7, claudeFamilies: [],
@@ -495,47 +545,97 @@ test('cache and intermediate effort milestones use actual Token volume', () => {
       effortProcessedTokens: { low: 10_000_000, medium: 10_000_000, high: 10_000_000, xhigh: 9_999_999 },
       familyRootCounts: { astra: 0, sol: 0, luna: 0 }, maxRealModelsPerRoot: 2,
       multiAgentRootCount: 1,
+      collaboration: codexCollaborationEvidence([
+        ...qualified, ...effortTaskFiles('xhigh', 99_999_999, 100_000, 5),
+      ]),
     },
   };
   let results = new Map(evaluateAchievements(facts).map((result) => [result.id, result]));
   assert.equal(results.get('cache-wizard')?.unlocked, false);
+  assert.equal(results.get('effort-explorer')?.progress, 3);
   assert.equal(results.get('effort-explorer')?.unlocked, false);
-  assert.equal(results.get('multi-core-human')?.unlocked, true);
+  assert.equal(results.get('multi-core-human')?.unlocked, false, 'old max-model count does not prove repeated model-qualified tasks');
   assert.equal(results.get('agent-conductor')?.unlocked, false);
   assert.equal(results.get('hundred-million-club')?.unlocked, true);
   facts.claudeCacheReadTokens = currentTarget('cache-wizard');
-  facts.codex.effortProcessedTokens!.xhigh = 10_000_000;
+  for (const [processed, output, roots] of [[100_000_000, 99_999, 5], [100_000_000, 100_000, 4]]) {
+    facts.codex.collaboration = codexCollaborationEvidence([
+      ...qualified, ...effortTaskFiles('xhigh', processed, output, roots),
+    ]);
+    const below = evaluateAchievements(facts).find(result => result.id === 'effort-explorer')!;
+    assert.equal(below.progress, 3);
+    assert.equal(below.unlocked, false, 'processed volume alone cannot replace output or distinct output roots');
+  }
+  facts.codex.collaboration = codexCollaborationEvidence([
+    ...qualified, ...effortTaskFiles('xhigh', 100_000_000, 100_000, 5),
+  ]);
   results = new Map(evaluateAchievements(facts).map((result) => [result.id, result]));
   assert.equal(results.get('cache-wizard')?.unlocked, true);
+  assert.equal(results.get('effort-explorer')?.progress, 4);
   assert.equal(results.get('effort-explorer')?.unlocked, true);
+  assert.equal(results.get('effort-breadth-silver')?.unlocked, false);
+  assert.equal(results.get('effort-spectrum')?.unlocked, false);
 });
 
-test('model rainbow excludes families seen only once', () => {
+test('model rainbow requires each recognized family to have 10M processed and 20K output', () => {
+  const qualified = [
+    alignedFile('astra-root', 'gpt-6-astra', 10_000_000, 20_000),
+    alignedFile('sol-root', 'gpt-6-sol', 10_000_000, 20_000),
+  ];
   const facts: AchievementFacts = {
-    claudeTokens: 2_000_000, codexTokens: 1_000_000, activeDays: 2,
+    claudeTokens: 20_000_001, codexTokens: 20_000_001, activeDays: 2,
     claudeFamilies: ['sonnet', 'opus', 'haiku'],
-    claudeFamilyTokens: { sonnet: 500_000, opus: 500_000, haiku: 1 },
+    claudeFamilyTokens: { sonnet: 10_000_000, opus: 10_000_000, haiku: 1 },
+    claudeFamilyOutputTokens: { sonnet: 20_000, opus: 20_000, haiku: 1 },
     codex: {
       modelCount: 3, efforts: [],
       familyRootCounts: { astra: 5, sol: 5, luna: 1 },
-      familyProcessedTokens: { astra: 500_000, sol: 500_000, luna: 1 },
+      // Legacy marginals stay fixed: only the reducer's aligned joint proof
+      // changes when luna crosses its processed/output conjunction below.
+      familyProcessedTokens: { astra: 10_000_000, sol: 10_000_000, luna: 1 },
+      collaboration: codexCollaborationEvidence([...qualified, alignedFile('luna-root', 'gpt-6-luna', 1, 1)]),
     },
   };
   const result = evaluateAchievements(facts).find((entry) => entry.id === 'model-rainbow');
   assert.equal(result?.progress, 4);
   assert.equal(result?.unlocked, false);
-  facts.codex.familyProcessedTokens!.luna = 500_000;
+  for (const [processed, output] of [[9_999_999, 20_000], [10_000_000, 19_999]]) {
+    facts.codex.collaboration = codexCollaborationEvidence([
+      ...qualified, alignedFile('luna-root', 'gpt-6-luna', processed, output),
+    ]);
+    const below = evaluateAchievements(facts).find(entry => entry.id === 'model-rainbow')!;
+    assert.equal(below.progress, 4);
+    assert.equal(below.unlocked, false, 'other families cannot supply missing luna processed or output tokens');
+  }
+  facts.codex.collaboration = codexCollaborationEvidence([
+    ...qualified, alignedFile('luna-root', 'gpt-6-luna', 10_000_000, 20_000),
+  ]);
+  assert.equal(evaluateAchievements(facts).find(entry => entry.id === 'model-rainbow')?.progress, 5);
   assert.equal(evaluateAchievements(facts).find((entry) => entry.id === 'model-rainbow')?.unlocked, true);
-  facts.claudeFamilyTokens!.haiku = 500_000;
+  for (const [processed, output] of [[9_999_999, 20_000], [10_000_000, 19_999]]) {
+    facts.claudeFamilyTokens!.haiku = processed;
+    facts.claudeFamilyOutputTokens!.haiku = output;
+    assert.equal(evaluateAchievements(facts).find(entry => entry.id === 'model-rainbow-gold')?.progress, 5);
+    assert.equal(evaluateAchievements(facts).find(entry => entry.id === 'model-rainbow-gold')?.unlocked, false);
+  }
+  facts.claudeFamilyTokens!.haiku = 10_000_000;
+  facts.claudeFamilyOutputTokens!.haiku = 20_000;
+  assert.equal(evaluateAchievements(facts).find(entry => entry.id === 'model-rainbow-gold')?.progress, 6);
   assert.equal(evaluateAchievements(facts).find((entry) => entry.id === 'model-rainbow-gold')?.unlocked, false,
     'six qualified families leave the seventh family ahead');
   facts.claudeFamilies.push('fable');
   assert.equal(evaluateAchievements(facts).find((entry) => entry.id === 'model-rainbow-gold')?.unlocked, false,
     'a family name without numeric proof cannot complete the rainbow');
-  facts.fable = { processedTokens: 499_999, activeDays: 0, mixedFamilySession: false,
+  facts.fable = { processedTokens: 9_999_999, outputTokens: 20_000, activeDays: 0, mixedFamilySession: false,
     outputSessions: 0, allOutputSessions: 0 };
   assert.equal(evaluateAchievements(facts).find((entry) => entry.id === 'model-rainbow-gold')?.unlocked, false);
   facts.fable.processedTokens++;
+  facts.fable.outputTokens = 19_999;
+  assert.equal(evaluateAchievements(facts).find(entry => entry.id === 'model-rainbow-gold')?.progress, 6);
+  assert.equal(evaluateAchievements(facts).find(entry => entry.id === 'model-rainbow-gold')?.unlocked, false,
+    'Fable processed threshold alone is insufficient');
+  facts.fable.outputTokens++;
+  assert.equal(evaluateAchievements(facts).find(entry => entry.id === 'model-rainbow-gold')?.progress, 7);
   assert.equal(evaluateAchievements(facts).find((entry) => entry.id === 'model-rainbow-gold')?.unlocked, true);
 });
 
@@ -564,6 +664,7 @@ test('Fable evidence requires exact model IDs, output for days, and two real fam
   });
   assert.deepEqual(signals, {
     processedTokens: 20_000_200,
+    outputTokens: 200,
     activeDays: 1,
     mixedFamilySession: true,
     outputSessions: 3,

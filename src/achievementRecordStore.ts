@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, rename, unlink, readdir } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -8,11 +8,17 @@ import { AchievementActivity, emptyAchievementActivity, parseAchievementActivity
 import { CalendarPeakEvidence, parseCalendarPeakEvidence, updateCalendarPeakEvidence } from './achievementCalendar';
 import { HourEvidence, parseHourEvidence } from './achievementHours';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
+import { achievementRuleVersion, isLegacyAchievementId } from './achievementRuleVersions';
+import { isAchievementMoneyId } from './achievementMoneyCatalog';
+import { getAchievementMoneyPricebook } from './achievementMoney';
 
-export const ACHIEVEMENT_RECORD_FILE = 'achievements-v1.json';
+// The joint-rule evaluator and canonical migration switch together.
+export const ACHIEVEMENT_RECORD_FILE = 'achievements-v2.json';
+export const ACHIEVEMENT_V2_RECORD_FILE = 'achievements-v2.json';
+export const ACHIEVEMENT_LEGACY_RECORD_FILE = 'achievements-v1.json';
 export const ACHIEVEMENT_RECORD_BYTE_LIMIT = 65_536;
 export function achievementRecordAuxiliaryName(name: string): boolean {
-  return /^\.achievements-v1\.json\.[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.tmp$/.test(name);
+  return /^\.achievements-v[12]\.json\.[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.tmp$/.test(name);
 }
 export type AchievementRecordOrigin = 'existing' | 'history' | 'usage' | 'activity';
 export interface AchievementRecordDraft {
@@ -21,20 +27,29 @@ export interface AchievementRecordDraft {
   /** First recording day, never inferred as the original achievement date. */
   recordedDay: string | null;
   timeZone: string | null;
+  /** Public frozen reference identity only; no personal amount or config. */
+  referencePricebook?: string;
 }
 export interface AchievementRecord extends AchievementRecordDraft {
-  ruleVersion: 1;
+  ruleVersion: 1 | 2;
   seq: number;
   unread: boolean;
 }
 export interface AchievementRecordStore {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generation: number;
   sequence: number;
   lastNoticeAt: number;
   pins: string[];
   records: AchievementRecord[];
   auxiliary: AchievementAuxiliaryProof;
+  /** Present only in v2. Old qualifications do not confer current grant rights. */
+  catalogVersion?: 2;
+  legacyRecords?: AchievementRecord[];
+  showcaseMode?: 'automatic' | 'manual';
+  pinRevision?: number;
+  /** Bounded derived-store revision, not an account or usage-source identity. */
+  legacyBoundary?: { generation: number; sequence: number; signature: string } | null;
 }
 /** Existing bounded proof only; no per-action history or setting values. */
 export interface AchievementAuxiliaryProof {
@@ -67,15 +82,25 @@ function validZone(value: unknown): boolean {
   try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; }
 }
 function draft(value: unknown): AchievementRecordDraft {
-  const row = object(value, ['id', 'origin', 'recordedDay', 'timeZone']);
+  const monetary = !!value && typeof value === 'object' && typeof (value as {id?:unknown}).id === 'string' &&
+    isAchievementMoneyId((value as {id:string}).id);
+  const row = object(value, ['id', 'origin', 'recordedDay', 'timeZone', ...(monetary ? ['referencePricebook'] : [])]);
+  if (monetary && !(String(row.id).startsWith('codex-') ? [getAchievementMoneyPricebook('openai').version] :
+      [getAchievementMoneyPricebook('anthropic').version,getAchievementMoneyPricebook('aws-bedrock-in-region').version])
+      .includes(row.referencePricebook as string)) return invalid();
   if (typeof row.id !== 'string' || !ids.has(row.id) || typeof row.origin !== 'string' || !origins.has(row.origin)) return invalid();
   const historical = row.origin === 'history' || row.origin === 'existing';
   if (historical ? row.recordedDay !== null || row.timeZone !== null
     : !validDay(row.recordedDay) || !validZone(row.timeZone)) return invalid();
   return row as unknown as AchievementRecordDraft;
 }
-function pins(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length > 3 || new Set(value).size !== value.length || value.some(key => !keys.has(key))) return invalid();
+function legacyPinKey(key:string):boolean {
+  return isLegacyAchievementId(key) || (Object.prototype.hasOwnProperty.call(ACHIEVEMENT_SERIES,key) &&
+    ACHIEVEMENT_SERIES[key].every(isLegacyAchievementId));
+}
+function pins(value: unknown, limit = 3, legacy = false): string[] {
+  if (!Array.isArray(value) || value.length > limit || new Set(value).size !== value.length ||
+      value.some(key => !keys.has(key) || legacy && !legacyPinKey(key))) return invalid();
   return value.slice();
 }
 function recordIds(value: unknown): AchievementId[] {
@@ -112,31 +137,64 @@ function appendRecords(store: AchievementRecordStore, drafts: readonly Achieveme
   const added: AchievementRecord[] = [];
   const existing = new Set(store.records.map(row => row.id));
   for (const row of drafts) {
+    if (store.schemaVersion === 1 && !isLegacyAchievementId(row.id)) return invalid();
     if (existing.has(row.id)) continue;
     if (store.sequence === Number.MAX_SAFE_INTEGER) return invalid();
-    const record: AchievementRecord = { ...row, ruleVersion: 1, seq: ++store.sequence,
+    const record: AchievementRecord = { ...row, ruleVersion: store.schemaVersion === 2 ? achievementRuleVersion(row.id) : 1, seq: ++store.sequence,
       unread: row.origin === 'usage' || row.origin === 'activity' };
     existing.add(row.id); store.records.push(record); added.push(record);
   }
   return added;
 }
 export function parseAchievementRecordStore(value: unknown): AchievementRecordStore {
-  const store = object(value, ['schemaVersion', 'generation', 'sequence', 'lastNoticeAt', 'pins', 'records', 'auxiliary']);
-  if (store.schemaVersion !== 1 || !integer(store.generation) || store.generation < 1 ||
+  if (!value || typeof value !== 'object') return invalid();
+  const version = (value as {schemaVersion?: unknown}).schemaVersion;
+  if (version !== 1 && version !== 2) return invalid();
+  const store = object(value, ['schemaVersion', 'generation', 'sequence', 'lastNoticeAt', 'pins', 'records', 'auxiliary',
+    ...(version === 2 ? ['catalogVersion', 'legacyRecords', 'showcaseMode', 'pinRevision', 'legacyBoundary'] : [])]);
+  if (!integer(store.generation) || store.generation < 1 ||
       !integer(store.sequence) || !integer(store.lastNoticeAt) || !Array.isArray(store.records) || store.records.length > ids.size) return invalid();
-  const seen = new Set<string>();
-  let previous = 0;
-  const records = store.records.map(value => {
-    const row = object(value, ['id', 'origin', 'recordedDay', 'timeZone', 'ruleVersion', 'seq', 'unread']);
-    const base = draft({ id: row.id, origin: row.origin, recordedDay: row.recordedDay, timeZone: row.timeZone });
-    if (row.ruleVersion !== 1 || !integer(row.seq) || row.seq <= previous || row.seq > (store.sequence as number) ||
+  function rows(values: unknown, archived = false): AchievementRecord[] {
+    if (!Array.isArray(values) || values.length > (archived ? 48 : version === 1 ? 124 : ids.size)) return invalid();
+    const seen = new Set<string>();
+    let previous = 0;
+    return values.map(value => {
+    const monetary = version === 2 && !archived && !!value && typeof value === 'object' &&
+      isAchievementMoneyId((value as {id:string}).id);
+    const row = object(value, ['id', 'origin', 'recordedDay', 'timeZone', 'ruleVersion', 'seq', 'unread',
+      ...(monetary ? ['referencePricebook'] : [])]);
+    const base = draft({ id: row.id, origin: row.origin, recordedDay: row.recordedDay, timeZone: row.timeZone,
+      ...(monetary ? {referencePricebook:row.referencePricebook} : {}) });
+    const expectedVersion = archived || version === 1 ? 1 : achievementRuleVersion(base.id);
+    if ((version === 1 || archived) && !isLegacyAchievementId(base.id)) return invalid();
+    if (archived && (achievementRuleVersion(base.id) !== 2 || row.unread !== false)) return invalid();
+    if (row.ruleVersion !== expectedVersion || !integer(row.seq) || row.seq <= previous || row.seq > (store.sequence as number) ||
         seen.has(base.id) || typeof row.unread !== 'boolean' ||
         ((base.origin === 'history' || base.origin === 'existing') && row.unread)) return invalid();
     seen.add(base.id); previous = row.seq;
-    return { ...base, ruleVersion: 1 as const, seq: row.seq, unread: row.unread };
-  });
-  const result: AchievementRecordStore = { schemaVersion: 1, generation: store.generation, sequence: store.sequence,
-    lastNoticeAt: store.lastNoticeAt, pins: pins(store.pins), records, auxiliary: auxiliary(store.auxiliary) };
+    return { ...base, ruleVersion: expectedVersion, seq: row.seq, unread: row.unread };
+    });
+  }
+  const result: AchievementRecordStore = { schemaVersion: version, generation: store.generation, sequence: store.sequence,
+    lastNoticeAt: store.lastNoticeAt, pins: pins(store.pins, version === 2 ? 6 : 3, version===1), records: rows(store.records), auxiliary: auxiliary(store.auxiliary) };
+  if (version === 2) {
+    if (store.catalogVersion !== 2 || !['automatic','manual'].includes(store.showcaseMode as string) || !integer(store.pinRevision)) return invalid();
+    let boundary: AchievementRecordStore['legacyBoundary'] = null;
+    if (store.legacyBoundary !== null) {
+      const parsed = object(store.legacyBoundary, ['generation','sequence','signature']);
+      if (!integer(parsed.generation) || parsed.generation < 1 || !integer(parsed.sequence) ||
+          typeof parsed.signature !== 'string' || !/^[a-f0-9]{64}$/.test(parsed.signature)) return invalid();
+      boundary = {generation:parsed.generation,sequence:parsed.sequence,signature:parsed.signature};
+    }
+    Object.assign(result, {catalogVersion:2, legacyRecords:rows(store.legacyRecords,true),
+      showcaseMode:store.showcaseMode,pinRevision:store.pinRevision,legacyBoundary:boundary});
+    const receipts = new Set(result.records.map(row => row.seq));
+    const currentById = new Map(result.records.map(row => [row.id,row]));
+    for (const row of result.legacyRecords!) {
+      if (receipts.has(row.seq) || (currentById.get(row.id)?.seq ?? Infinity) <= row.seq) return invalid();
+      receipts.add(row.seq);
+    }
+  }
   if (Buffer.byteLength(JSON.stringify(result)) > ACHIEVEMENT_RECORD_BYTE_LIMIT) return invalid();
   return result;
 }
@@ -145,6 +203,25 @@ export function recentAchievementRecords(store: AchievementRecordStore): Achieve
 }
 function empty(generation = 1, sequence = 0): AchievementRecordStore {
   return { schemaVersion: 1, generation, sequence, lastNoticeAt: 0, pins: [], records: [], auxiliary: emptyAuxiliary() };
+}
+function v2Empty(generation = 1, sequence = 0, legacyBoundary: AchievementRecordStore['legacyBoundary'] = null): AchievementRecordStore {
+  return {...empty(generation,sequence),schemaVersion:2,catalogVersion:2,legacyRecords:[],
+    showcaseMode:'automatic',pinRevision:0,legacyBoundary};
+}
+function boundaryFor(store: AchievementRecordStore): NonNullable<AchievementRecordStore['legacyBoundary']> {
+  return {generation:store.generation,sequence:store.sequence,
+    signature:createHash('sha256').update(JSON.stringify(store)).digest('hex')};
+}
+function migrateV1(store: AchievementRecordStore): AchievementRecordStore {
+  if (store.schemaVersion !== 1 || store.generation === Number.MAX_SAFE_INTEGER) return invalid();
+  const result = v2Empty(store.generation + 1,store.sequence,boundaryFor(store));
+  result.lastNoticeAt = store.lastNoticeAt;
+  result.auxiliary = auxiliary(store.auxiliary);
+  result.records = store.records.filter(row => achievementRuleVersion(row.id) === 1).map(row => ({...row}));
+  result.legacyRecords = store.records.filter(row => achievementRuleVersion(row.id) === 2).map(row => ({...row,unread:false}));
+  result.pins = store.pins.slice();
+  result.showcaseMode = result.pins.length ? 'manual' : 'automatic';
+  return result;
 }
 function errno(error: unknown, code: string): boolean { return (error as NodeJS.ErrnoException)?.code === code; }
 /** Pin an open regular file and read at most 64 KiB + one overflow byte. */
@@ -191,32 +268,100 @@ async function save(file: string, store: AchievementRecordStore, guard: WriteGua
 }
 /** Per-operation filesystem lease, not an in-memory queue: hosts merge the latest bytes. */
 export class AchievementRecordRepository {
-  constructor(readonly file: string) {}
+  private readonly v2: boolean;
+  private readonly legacyFile: string;
+  private adopted = false;
+  constructor(readonly file: string) {
+    this.v2 = path.basename(file) === ACHIEVEMENT_V2_RECORD_FILE;
+    this.legacyFile = path.join(path.dirname(file), ACHIEVEMENT_LEGACY_RECORD_FILE);
+  }
   private async transaction<T>(guard: WriteGuard, run: () => Promise<T>): Promise<T> {
     check(guard);
-    const lease = await acquireCodexIndexLease(this.file, { timeoutMs: 5_000, shouldCancel: () => !guard() });
+    // v1 writers already use this anchor. One shared lease avoids cross-version
+    // races without ever copying v2 fields into a v1-readable file.
+    const lease = await acquireCodexIndexLease(this.v2 ? this.legacyFile : this.file, { timeoutMs: 5_000, shouldCancel: () => !guard() });
     try { check(guard); return await run(); } finally { await lease.release(); }
+  }
+  private async owned(): Promise<AchievementRecordStore | undefined> {
+    const saved = await loadAchievementRecords(this.file);
+    if (saved && saved.schemaVersion !== (this.v2 ? 2 : 1)) return invalid();
+    return saved;
+  }
+  private async legacy(): Promise<AchievementRecordStore | undefined> {
+    const saved = await loadAchievementRecords(this.legacyFile);
+    if (saved && saved.schemaVersion !== 1) return invalid();
+    return saved;
+  }
+  private async synchronizeLegacy(store: AchievementRecordStore, guard: WriteGuard, adopt: boolean): Promise<AchievementRecordStore> {
+    if (!this.v2) return store;
+    let legacy = await this.legacy();
+    const previous = store.legacyBoundary;
+    // Resume an explicit clear after the v2 tombstone committed but flushing
+    // the old-version fence failed. Never re-import pre-clear qualification.
+    if (previous && (!legacy || legacy.generation < previous.generation) &&
+        boundaryFor(empty(previous.generation,previous.sequence)).signature === previous.signature) {
+      legacy = empty(previous.generation,previous.sequence);
+      await save(this.legacyFile,legacy,guard);
+    }
+    if (legacy && legacy.generation > (previous?.generation ?? 1)) {
+      if (store.generation === Number.MAX_SAFE_INTEGER) return invalid();
+      const cleared = v2Empty(store.generation + 1,store.sequence,boundaryFor(legacy));
+      await save(this.file,cleared,guard);
+      return cleared;
+    }
+    const next = legacy ? boundaryFor(legacy) : null;
+    if (!isDeepStrictEqual(previous,next)) {
+      if (!adopt) throw new Error('achievement-record:old-writer');
+      // A freshly reloaded host may adopt the revision, not its grants/proof.
+      // Existing v2 stays authoritative even after a downgrade has written v1.
+      store.legacyBoundary = next;
+      await save(this.file,store,guard);
+    }
+    return store;
   }
   async initialize(legacy: readonly AchievementId[], guard: WriteGuard = () => true,
     legacyAuxiliary: AchievementAuxiliaryProof = emptyAuxiliary()): Promise<AchievementRecordStore> {
     return this.transaction(guard, async () => {
-      const saved = await loadAchievementRecords(this.file);
-      if (saved) return saved;
-      const store = empty();
+      const saved = await this.owned();
+      if (saved) {
+        const synchronized = await this.synchronizeLegacy(saved,guard,!this.adopted);
+        this.adopted = true;
+        return synchronized;
+      }
+      const prior = this.v2 ? await this.legacy() : undefined;
+      if (prior) {
+        const migrated = migrateV1(prior);
+        await save(this.file,migrated,guard);
+        this.adopted = true;
+        return migrated;
+      }
+      const store = this.v2 ? v2Empty() : empty();
       store.auxiliary = auxiliary(legacyAuxiliary);
       for (const id of [...new Set(legacy)].sort()) {
         if (!ids.has(id)) return invalid();
-        store.records.push({ id, origin: 'existing', recordedDay: null, timeZone: null, ruleVersion: 1, seq: ++store.sequence, unread: false });
+        if (!isLegacyAchievementId(id)) {
+          if (this.v2 && isAchievementMoneyId(id)) continue;
+          return invalid();
+        }
+        const row: AchievementRecord = { id, origin: 'existing', recordedDay: null, timeZone: null, ruleVersion: 1, seq: ++store.sequence, unread: false };
+        if (this.v2 && achievementRuleVersion(id) === 2) store.legacyRecords!.push(row);
+        else store.records.push(row);
       }
-      await save(this.file, store, guard); return store;
+      await save(this.file, store, guard); this.adopted = true; return store;
     });
   }
   private async mutate<T>(generation: number, guard: WriteGuard, run: (store: AchievementRecordStore) => T): Promise<{ store: AchievementRecordStore; value: T }> {
     return this.transaction(guard, async () => {
-      const store = await loadAchievementRecords(this.file);
+      const loaded = await this.owned();
+      const store = loaded ? await this.synchronizeLegacy(loaded,guard,false) : undefined;
       if (!store || store.generation !== generation) throw new Error('achievement-record:generation');
       const before = JSON.stringify(store);
+      const pinBefore = JSON.stringify([store.pins,store.showcaseMode]);
       const value = run(store);
+      if (this.v2 && pinBefore !== JSON.stringify([store.pins,store.showcaseMode])) {
+        if (store.pinRevision === Number.MAX_SAFE_INTEGER) return invalid();
+        store.pinRevision! += 1;
+      }
       if (JSON.stringify(store) !== before) await save(this.file, store, guard);
       return { store, value };
     });
@@ -330,33 +475,69 @@ export class AchievementRecordRepository {
       for (const record of store.records) if (record.seq <= sequence && selection.has(record.id)) record.unread = false;
     })).store;
   }
-  async pin(generation: number, values: readonly string[], guard: WriteGuard = () => true): Promise<AchievementRecordStore> {
-    const selection = pins(values);
-    return (await this.mutate(generation, guard, store => { store.pins = selection; })).store;
+  async pin(generation: number, values: readonly string[], guard: WriteGuard = () => true,
+    expectedRevision?: number): Promise<AchievementRecordStore> {
+    if (this.v2 && !integer(expectedRevision)) return invalid();
+    const selection = pins(values,this.v2 ? 6 : 3,!this.v2);
+    return (await this.mutate(generation, guard, store => {
+      if (this.v2 && expectedRevision !== store.pinRevision) throw new Error('achievement-record:pin-stale');
+      if (this.v2 && selection.some(key => !store.pins.includes(key) &&
+          !store.records.some(row => row.id === key || ACHIEVEMENT_SERIES[key]?.includes(row.id)))) return invalid();
+      store.pins = selection;
+      if (this.v2) store.showcaseMode = 'manual';
+    })).store;
   }
   /** Apply one deliberate pin intent against fresh peer state, not a stale whole list. */
   async setPinned(generation: number, key: string, selected: boolean,
     guard: WriteGuard = () => true): Promise<AchievementRecordStore> {
-    if (typeof key !== 'string' || !keys.has(key) || typeof selected !== 'boolean') return invalid();
+    if (typeof key !== 'string' || !keys.has(key) || !this.v2 && !legacyPinKey(key) || typeof selected !== 'boolean') return invalid();
     return (await this.mutate(generation, guard, store => {
       if (!selected) { store.pins = store.pins.filter(value => value !== key); return; }
       if (!store.records.some(row => row.id === key || ACHIEVEMENT_SERIES[key]?.includes(row.id))) return invalid();
-      if (store.pins.includes(key)) return;
-      if (store.pins.length === 3) throw new Error('achievement-record:pin-limit');
+      if (store.pins.includes(key)) {
+        if (this.v2) store.showcaseMode = 'manual';
+        return;
+      }
+      if (store.pins.length === (this.v2 ? 6 : 3)) throw new Error('achievement-record:pin-limit');
       store.pins.push(key);
+      if (this.v2) store.showcaseMode = 'manual';
+    })).store;
+  }
+  async reorderPinned(generation: number, values: readonly string[], revision: number,
+    guard: WriteGuard = () => true): Promise<AchievementRecordStore> {
+    if (!this.v2 || !integer(revision)) return invalid();
+    const selection = pins(values,6);
+    return (await this.mutate(generation,guard,store => {
+      if (revision !== store.pinRevision) throw new Error('achievement-record:pin-stale');
+      if (selection.length !== store.pins.length || selection.some(key => !store.pins.includes(key))) return invalid();
+      store.pins = selection;
+    })).store;
+  }
+  async setShowcaseMode(generation: number, mode: 'automatic' | 'manual', revision: number,
+    guard: WriteGuard = () => true): Promise<AchievementRecordStore> {
+    if (!this.v2 || !['automatic','manual'].includes(mode) || !integer(revision)) return invalid();
+    return (await this.mutate(generation,guard,store => {
+      if (revision !== store.pinRevision) throw new Error('achievement-record:pin-stale');
+      store.showcaseMode = mode;
     })).store;
   }
   async clear(resetRelatedState?: () => Promise<void>): Promise<AchievementRecordStore> {
     return this.transaction(() => true, async () => {
-      const current = await loadAchievementRecords(this.file);
+      const current = await this.owned();
       if (current?.generation === Number.MAX_SAFE_INTEGER) return invalid();
+      const legacy = this.v2 ? await this.legacy() : undefined;
+      const legacyGeneration = Math.max(legacy?.generation ?? 1,current?.legacyBoundary?.generation ?? 1);
+      if (this.v2 && legacyGeneration === Number.MAX_SAFE_INTEGER) return invalid();
       await resetRelatedState?.();
-      const store = empty((current?.generation ?? 1) + 1, current?.sequence ?? 0);
+      const oldFence = this.v2 ? empty(legacyGeneration + 1,legacy?.sequence ?? current?.legacyBoundary?.sequence ?? 0) : undefined;
+      const store = this.v2 ? v2Empty((current?.generation ?? 1) + 1,current?.sequence ?? 0,boundaryFor(oldFence!))
+        : empty((current?.generation ?? 1) + 1, current?.sequence ?? 0);
       await save(this.file, store, () => true);
+      if (oldFence) await save(this.legacyFile,oldFence,() => true);
       // Only this exact writer's interrupted-file names. Never follow links,
       // remove leases, quarantine unknown files or traverse source directories.
       for (const name of await readdir(path.dirname(this.file))) {
-        if (!achievementRecordAuxiliaryName(name)) continue;
+        if (!achievementRecordAuxiliaryName(name) || (!this.v2 && !name.startsWith('.achievements-v1.json.'))) continue;
         const auxiliary = path.join(path.dirname(this.file), name);
         const info = await lstat(auxiliary);
         if (info.isFile() && !info.isSymbolicLink()) await unlink(auxiliary);
