@@ -1,4 +1,8 @@
 import { test, expect, openCodex, openCompare } from './support/app.mjs';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { ACHIEVEMENT_GALLERY } = require('../../out/achievementGallery.js');
+const { ACHIEVEMENT_DEFINITIONS } = require('../../out/achievements.js');
 
 for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
   test(`${locale} milestones share one theme card and retain icons, exact rules and reload state`, async ({ page }, testInfo) => {
@@ -7,8 +11,8 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       await page.evaluate(() => localStorage.removeItem('__ccu-vscode-state'));
       await page.reload();
       await page.locator('#tab-achievements').click();
-      await expect(page.locator('.achievement-card')).toHaveCount(44);
-      await expect(page.locator('.achievement-card [data-achievement-level]')).toHaveCount(124);
+      await expect(page.locator('.achievement-card')).toHaveCount(ACHIEVEMENT_GALLERY.length);
+      await expect(page.locator('.achievement-card [data-achievement-level]')).toHaveCount(ACHIEVEMENT_DEFINITIONS.length);
       const card = page.locator('[data-achievement-key="active-day-streak"]');
       await expect(card).toHaveAttribute('data-achievement-earned', 'true');
       await expect(card.locator('.achievement-tier-pip.complete')).toHaveCount(0);
@@ -69,10 +73,13 @@ test('two legacy theme pins stay individually removable and a confirmed removal 
   await expect(page.locator('[data-achievement-overview="badges"] [data-achievement-open="active-day-streak"]')).toHaveCount(1);
   await expect(page.locator('[data-persist="achievement:hidden-pins"]')).toHaveCount(0);
   const button = card.locator('[data-achievement-pin="streak-machine"]');
+  const documentId = await page.evaluate(() => window.__ccuPostedMessages.findLast(
+    message => message.command === 'localDataClientReady').documentId);
+  expect(documentId).toMatch(/^[0-9a-f]{48}$/);
   await page.evaluate(() => { window.__ccuPostedMessages = []; });
   await button.focus(); await button.press('Enter');
   expect(await page.evaluate(() => window.__ccuPostedMessages)).toEqual([
-    { command: 'setAchievementPinned', key: 'streak-machine', selected: false, generation: 1 },
+    { command: 'setAchievementPinned', key: 'streak-machine', selected: false, generation: 1, documentId },
   ]);
   await expect(button).toHaveAttribute('aria-pressed', 'true');
   await page.clock.runFor(200);

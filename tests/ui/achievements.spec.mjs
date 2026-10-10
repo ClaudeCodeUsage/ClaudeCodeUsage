@@ -179,8 +179,54 @@ test('Codex-only users can reach the achievement presentation without Claude dat
   await page.getByRole('button', { name: 'Achievement card' }).click();
   await expect(page.locator('#all')).toBeVisible();
   await expect(page.locator('#sharingTemplate')).toHaveValue('achievements');
+  const before = await page.evaluate(() => ({
+    request: window.__ccuPostedMessages.findLast(message => message.command === 'sharingTemplateChanged'),
+    documentId: window.__ccuPostedMessages.findLast(message => message.command === 'localDataClientReady').documentId,
+    commands: window.__ccuPostedMessages.map(message => message.command),
+  }));
+  expect(before.request).toEqual({ command: 'sharingTemplateChanged', template: 'achievements' });
+  expect(before.documentId).toMatch(/^[0-9a-f]{48}$/);
+  // fakeHost response only, not real Extension Host/server integration. The
+  // legacy commandTemplate route requires Claude records, so mirror only the
+  // validated dashboard enum handler's state before calling the real renderer.
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  const { renderHarness } = require('./support/render-harness.cjs');
+  const { UsageWebviewProvider } = require('../../out/webview.js');
+  const render = UsageWebviewProvider.prototype.getWebviewContent;
+  let html;
+  try {
+    UsageWebviewProvider.prototype.getWebviewContent = function () {
+      if (this.currentProvider !== 'codex' || this.providerAvailability.claude)
+        throw new Error('fakeHost response must remain Codex-only');
+      this.sharingTemplate = before.request.template;
+      this.currentTab = 'all';
+      return render.call(this);
+    };
+    html = await renderHarness({ provider: 'codex', codexOnly: true });
+  } finally {
+    UsageWebviewProvider.prototype.getWebviewContent = render;
+  }
+  const url = new URL(page.url());
+  expect(url.searchParams.get('codexOnly')).toBe('true');
+  url.searchParams.set('fakeHostTemplate', before.request.template);
+  await page.route(url.href, route => route.fulfill({ status: 200, contentType: 'text/html', body: html }));
+  const response = await page.goto(url.href, { waitUntil: 'load' });
+  expect(response.status()).toBe(200);
+  const after = await page.evaluate(() => ({
+    documentId: window.__ccuPostedMessages.findLast(message => message.command === 'localDataClientReady').documentId,
+    commands: window.__ccuPostedMessages.map(message => message.command),
+  }));
+  expect(after.documentId).toMatch(/^[0-9a-f]{48}$/);
+  expect(after.documentId).not.toBe(before.documentId);
+  await expect(page.locator('#provider-tab-codex')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#all')).toBeVisible();
+  await expect(page.locator('#sharingTemplate')).toHaveValue(before.request.template);
   await expect(page.locator('.achievement-share-presentation')).toBeVisible();
   await expect(page.locator('option[value="claudeShareCard"]')).toHaveAttribute('disabled', '');
+  await expect(page.locator('option[value="claudeHeatmap"]')).toHaveAttribute('disabled', '');
+  expect([...before.commands, ...after.commands].filter(command =>
+    /^(previewAchievementShare|exportAchievementShare|buildShareCard|exportShareCard|previewCombinedHeatmap|exportCombinedHeatmap|publishHeatmap)$/.test(command))).toEqual([]);
 });
 
 test('share choices visibly enforce the nine-badge card capacity', async ({ page }) => {

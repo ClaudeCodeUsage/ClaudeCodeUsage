@@ -85,16 +85,35 @@ test('live patches preserve unfocused share drafts, pending previews and edit li
   await openClaude(page, { fixture: 'combined-heatmap', claudeOnly: true });
   await page.locator('#tab-all').click();
   await page.locator('#sharingTemplate').selectOption('claudeShareCard');
+  const requestedTemplate = await page.evaluate(() => window.__ccuPostedMessages.findLast(
+    message => message.command === 'sharingTemplateChanged'));
+  expect(requestedTemplate).toEqual({ command: 'sharingTemplateChanged', template: 'claudeShareCard' });
+  const previousDocumentId = await page.evaluate(() => window.__ccuPostedMessages.findLast(
+    message => message.command === 'localDataClientReady').documentId);
+  // fakeHost supplies the actual production render requested above. Selecting
+  // a lazy presentation alone cannot fabricate its host-owned controls.
+  await openClaude(page, { fixture: 'combined-heatmap', claudeOnly: true, commandTemplate: requestedTemplate.template });
+  const documentId = await page.evaluate(() => window.__ccuPostedMessages.findLast(
+    message => message.command === 'localDataClientReady').documentId);
+  expect(documentId).toMatch(/^[0-9a-f]{48}$/);
+  expect(documentId).not.toBe(previousDocumentId);
+  await expect(page.locator('#sharingTemplate')).toHaveValue(requestedTemplate.template);
+  await expect(page.locator('#scRange')).toBeVisible();
   const response = await page.context().request.get(page.url());
+  expect(response.ok()).toBe(true);
   const source = await response.text();
   async function patch(revision) {
-    await page.evaluate(({ source, revision }) => {
+    await page.evaluate(({ source, revision, documentId }) => {
+      const current = window.__ccuPostedMessages.findLast(message => message.command === 'localDataClientReady');
+      if (current.documentId !== documentId) throw new Error('fakeHost patch belongs to a retired document');
       const panel = new DOMParser().parseFromString(source, 'text/html').getElementById('provider-panel');
+      if (panel.querySelector('#sharingTemplate').value !== 'claudeShareCard' || !panel.querySelector('#scRange'))
+        throw new Error('fakeHost response does not match the selected production Share Card config');
       window.dispatchEvent(new MessageEvent('message', { data: {
-        command: 'dashboardDataPatch', provider: 'claude', tab: 'all', revision,
+        command: 'dashboardDataPatch', provider: 'claude', tab: 'all', revision, documentId,
         html: panel.innerHTML, claudeLast30HoursByDay: {},
       } }));
-    }, { source, revision });
+    }, { source, revision, documentId });
     await expect.poll(() => page.evaluate((revision) => window.__ccuPostedMessages.some((m) =>
       m.command === 'dashboardDataPatchAck' && m.revision === revision && m.ok), revision)).toBe(true);
   }
