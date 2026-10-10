@@ -107,7 +107,9 @@ Each minute the runner switches the whole achievement feature ON/OFF, appends
 one bounded synthetic record to each of two exact regular fixture files, waits
 for actual Claude/Codex fs.watch refresh diagnostics and exact usage changes,
 then performs twenty known-zero manual warm refreshes. Actual panels open and
-await their disposal events. Simulated focus invokes the existing production
+await their disposal events. Watched append checks finish before panel creation;
+the panel remains open during the warm refreshes. Native window events remain
+observed and unsuppressed. Simulated focus invokes the existing production
 focus handler to exercise suspension/rearming without foregrounding Code.
 It is not proof of native OS-focus behavior or notice delivery/ACK.
 
@@ -137,7 +139,8 @@ conclusion. Sampled host heap without forced GC is not a retained-heap leak test
 新增诊断也不能倒推此前未完成运行的根因。
 每分钟开关整个成就功能，向两个精确的自有常规合成文件各追加一条有界记录，等待真实文件监听
 诊断与精确用量更新，再执行20次有明确零正文计数的手动暖刷新，并等待真实面板
-销毁事件。模拟焦点只调用既有生产处理器、检验暂停/重新安装，不切到前台，也不
+销毁事件。追加监听检查先于面板创建；暖刷新期间仍有真实面板，不屏蔽原生窗口事件。
+模拟焦点只调用既有生产处理器、检验暂停/重新安装，不切到前台，也不
 当作OS焦点或通知投递/ACK验收。每5秒保存固定匿名数字，限制宿主内存、所属
 定时器/监听/worker协调器/回填/网络和面板/提示缓存；报告不含原始消息、日志、
 路径、设置值或heap dump。每轮最多增加两条合成记录，不使用真实日志；未知不

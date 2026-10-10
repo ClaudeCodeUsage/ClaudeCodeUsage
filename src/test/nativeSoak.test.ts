@@ -11,6 +11,18 @@ const memory = { rss: 300 * 1024 ** 2, heapUsed: 30 * 1024 ** 2,
   external: 5 * 1024 ** 2, arrayBuffers: 1024 };
 const owned = { activeCount: 3, byKind: { timer: 1, watcher: 2, worker: 0, network: 0, backfill: 0 } };
 
+test('native driver checks watched append before focus-changing panel creation', async () => {
+  const source = await fs.readFile(path.resolve(__dirname, '../../tests/native/soak.cjs'), 'utf8');
+  const cycle = source.slice(source.indexOf('while (performance.now() - soakStarted < options.durationMs'));
+  const append = cycle.indexOf('await appendSyntheticActivity(');
+  const verified = cycle.indexOf('assert.equal(instance.codexView.allTime.total.processed, processedBefore + 1100)');
+  const panel = cycle.indexOf("view.show('achievements')");
+  const warm = cycle.indexOf("markStage('warm-refresh')");
+  assert.ok(append >= 0 && verified > append);
+  assert.ok(panel > verified, 'do not provoke a native focus transition while awaiting watched source evidence');
+  assert.ok(warm > panel, 'actual panel remains open during the twenty manual warm refreshes');
+});
+
 test('native soak options are explicit, finite and never turn a short preflight into a long-soak pass', () => {
   assert.deepEqual(helper().validateSoakOptions({ durationMs: 1800000 }), { durationMs: 1800000 });
   for (const value of [null, {}, { durationMs: -1 }, { durationMs: NaN }, { durationMs: 3600001 },

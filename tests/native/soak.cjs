@@ -334,8 +334,6 @@ async function run(plan, rawOptions) {
       counters.settingsToggles++;
       if (enabled) counters.onCycles++; else counters.offCycles++;
       await focus(true);
-      view.show('achievements');
-      assert.ok(view.panel);
       const recordsBefore = instance.cache.records.length;
       const processedBefore = instance.codexView.allTime.total.processed;
       const claudeWatchBefore = counters.claudeWatchRefreshes, codexWatchBefore = counters.codexWatchRefreshes;
@@ -347,6 +345,11 @@ async function run(plan, rawOptions) {
       await bounded(settle(instance), 65000);
       assert.equal(instance.cache.records.length, recordsBefore + 1);
       assert.equal(instance.codexView.allTime.total.processed, processedBefore + 1100);
+      // Panel creation can cause real window-state transitions. Complete the
+      // critical watched append first; retain an actual open panel for warm
+      // refreshes and disposal, without suppressing any native event.
+      view.show('achievements');
+      assert.ok(view.panel);
       await markStage('warm-refresh');
       warmMode = enabled ? 'on' : 'off';
       for (let i = 0; i < 20; i++) {
