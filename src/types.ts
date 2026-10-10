@@ -66,6 +66,15 @@ export interface ClaudeUsageRecord {
   _plugin?: string;
 }
 
+/** Native, TTL-complete usage subset; independent of model price coverage. */
+export interface ClaudeReferenceUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreation5mTokens: number;
+  cacheCreation1hTokens: number;
+}
+
 export interface UsageData {
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -87,6 +96,9 @@ export interface UsageData {
     cacheReadTokens: number;
     cost: number;
     count: number;
+    /** Sum of admitted records only. Missing/unknown TTL stays in primary totals.
+     * Pricing and exact-model coverage are the reference pricebook's concern. */
+    referenceUsage?: ClaudeReferenceUsage;
   }>;
 }
 

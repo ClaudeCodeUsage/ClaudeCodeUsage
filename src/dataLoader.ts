@@ -5,6 +5,7 @@ import * as path from 'path';
 // Removed tinyglobby dependency - using native fs instead
 // Removed zod dependency - using native validation instead
 import { calculateCostBreakdown, getModelRatesPerMillion } from './pricing';
+import { addClaudeReferenceUsage, claudeReferenceUsage, hasKnownClaudeCacheCreationShape } from './claudeReferenceUsage';
 import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
 import {
   dayKeyInZone,
@@ -127,6 +128,10 @@ export function compactUsageRecord(data: ClaudeUsageRecord): ClaudeUsageRecord {
       ? { cache_read_input_tokens: sourceUsage.cache_read_input_tokens } : {}),
     ...(sourceUsage.cache_creation !== undefined ? {
       cache_creation: {
+        // Keep only a bounded numeric rejection marker, not unknown fields or
+        // their bodies. Pricing still sees exactly the original known counts.
+        ...(!hasKnownClaudeCacheCreationShape(sourceUsage.cache_creation)
+          ? { _unsupportedTTLShape: 1 } : {}),
         ...(sourceUsage.cache_creation?.ephemeral_1h_input_tokens !== undefined
           ? { ephemeral_1h_input_tokens: sourceUsage.cache_creation.ephemeral_1h_input_tokens } : {}),
         ...(sourceUsage.cache_creation?.ephemeral_5m_input_tokens !== undefined
@@ -1381,6 +1386,10 @@ export class ClaudeDataLoader {
       modelData.cacheReadTokens += usage.cache_read_input_tokens || 0;
       modelData.cost += calculatedCost;
       modelData.count++;
+      const reference = claudeReferenceUsage(usage);
+      if (reference) {
+        modelData.referenceUsage = addClaudeReferenceUsage(modelData.referenceUsage, reference);
+      }
     }
 
     return data;

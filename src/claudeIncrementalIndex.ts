@@ -32,6 +32,7 @@ import { I18n } from './i18n';
 import { claudeAchievementFamily, claudeSessionAchievementEvidence, ClaudeSessionAchievementEvidence } from './achievements';
 import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
 import { ownRecordValue, setRecordValue } from './ownRecord';
+import { addClaudeReferenceUsage } from './claudeReferenceUsage';
 import {
   buildProjectUsageMatrixSnapshot,
   ProjectUsageMatrixSnapshot,
@@ -1691,7 +1692,10 @@ function cloneUsageData(value: UsageData): UsageData {
     ...value,
     costBreakdown: { ...value.costBreakdown },
     modelBreakdown: Object.fromEntries(
-      Object.entries(value.modelBreakdown).map(([key, model]) => [key, { ...model }]),
+      Object.entries(value.modelBreakdown).map(([key, model]) => [key, {
+        ...model,
+        ...(model.referenceUsage ? { referenceUsage: { ...model.referenceUsage } } : {}),
+      }]),
     ),
   };
 }
@@ -1735,6 +1739,11 @@ function addUsageData(target: UsageData, source: UsageData, sign: 1 | -1): void 
     current.cacheReadTokens += sign * part.cacheReadTokens;
     current.cost += sign * part.cost;
     current.count += sign * part.count;
+    if (part.referenceUsage) {
+      const reference = addClaudeReferenceUsage(current.referenceUsage, part.referenceUsage, sign);
+      if (reference) current.referenceUsage = reference;
+      else delete current.referenceUsage;
+    }
     if (current.count === 0 && current.inputTokens === 0 && current.outputTokens === 0 &&
       current.cacheCreationTokens === 0 && current.cacheReadTokens === 0) {
       delete target.modelBreakdown[model];
