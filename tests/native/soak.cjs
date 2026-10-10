@@ -58,8 +58,25 @@ function assertRecurringReady(configuration, resources) {
   if (configuration.codexFileWatchSeconds !== 10) fail('setup-codex-watch-setting');
   if (resources.byKind.watcher !== 2) fail('setup-watchers');
 }
+function createReadbackStability() {
+  const requiredStableMs = 500;
+  let previous = -1, since = null, samples = 0, mismatches = 0, convergenceMs = null;
+  return Object.freeze({
+    observe(elapsedMs, expected) {
+      if (!finiteCount(elapsedMs) || elapsedMs < previous || typeof expected !== 'boolean') fail('invalid-sample');
+      if (samples >= 256) fail('sample-budget');
+      previous = elapsedMs; samples++;
+      if (!expected) { since = null; convergenceMs = null; mismatches++; return false; }
+      if (since === null) since = elapsedMs;
+      if (elapsedMs - since < requiredStableMs) return false;
+      convergenceMs = elapsedMs;
+      return true;
+    },
+    snapshot() { return { requiredStableMs, samples, mismatches, convergenceMs }; },
+  });
+}
 const setupReadbackPhases = new Set(['after-cold-settle', 'after-claude-set', 'after-codex-set',
-  'after-handler', 'after-settle', 'after-focus', 'on-failure']);
+  'after-readback-convergence', 'after-handler', 'after-settle', 'after-focus', 'on-failure']);
 const setupReadbackBound = 32;
 function projectSetupReadback(phase, mementoClaude, mementoCodex, settingsClaude, settingsCodex,
   configurationClaude, configurationCodex, counts) {
@@ -186,7 +203,7 @@ async function run(plan, rawOptions) {
   const counters = { cycles: 0, onCycles: 0, offCycles: 0, panelDisposals: 0, settingsToggles: 0,
     syntheticFocusTransitions: 0, nativeWindowTransitions: 0,
     appendBytes: 0, claudeWatchRefreshes: 0, codexWatchRefreshes: 0 };
-  let api, append, warmMode, timer, focusObserver, setupReadbackProbe, failureStage, failureReason,
+  let api, append, warmMode, timer, focusObserver, setupReadbackProbe, setupStability, failureStage, failureReason,
     failureFocus = null, stage = 'activation', stopCompleted = false;
   let soakStarted, completedSoakMs = 0, watchdogFailure = null;
   const elapsed = () => Math.floor(performance.now() - started);
@@ -210,22 +227,24 @@ async function run(plan, rawOptions) {
     await fs.writeFile(path.join(plan.root, 'native-soak-progress.json'),
       JSON.stringify({ elapsedMs: elapsed(), stage, counters }) + '\n');
   };
-  const waitUntil = async (predicate, milliseconds) => {
+  const waitUntil = async (predicate, milliseconds, pollMs = 100) => {
     const deadline = performance.now() + milliseconds;
     while (!predicate()) {
       if (watchdogFailure) fail(watchdogFailure);
       if (performance.now() >= deadline) fail('wait-timeout');
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, pollMs));
     }
   };
-  const focus = async focused => {
+  const focus = async (focused, setupDeadline) => {
     api.instance.handleWindowFocusChange(focused);
     counters.syntheticFocusTransitions++;
     await bounded(settle(api.instance), 65000);
     if (focused) {
       // Wait for the real handler's async setup, never call setup a second
       // time while the same watcher is already attached.
-      await waitUntil(() => api.instance.resourceOwnership.snapshotForTests().byKind.watcher === 2, 5000);
+      const remaining = setupDeadline === undefined ? 5000 : setupDeadline - performance.now();
+      if (remaining <= 0) fail('wait-timeout');
+      await waitUntil(() => api.instance.resourceOwnership.snapshotForTests().byKind.watcher === 2, remaining);
       await bounded(settle(api.instance), 65000);
     }
   };
@@ -269,15 +288,30 @@ async function run(plan, rawOptions) {
       append.call(instance.outputChannel, line);
     };
     await markStage('recurring-setup');
+    // SDK notifications can temporarily regress public readbacks after an
+    // awaited write. Observe convergence, never overwrite/retry settings. This
+    // consumes the existing five-second readiness budget, not a new deadline.
+    const setupDeadline = performance.now() + 5000;
     await instance.settings.set('fileWatchSeconds', '1');
     setupReadback('after-claude-set');
     await instance.settings.set('codex.fileWatchSeconds', '10');
     setupReadback('after-codex-set');
+    const stabilityStarted = performance.now();
+    setupStability = createReadbackStability();
+    await waitUntil(() => {
+      const state = api.context.globalState, config = instance.getConfiguration();
+      const expected = state.get('ccu.setting.fileWatchSeconds') === '1' &&
+        state.get('ccu.setting.codex.fileWatchSeconds') === '10' &&
+        instance.settings.get('fileWatchSeconds') === '1' && instance.settings.get('codex.fileWatchSeconds') === '10' &&
+        config.fileWatchSeconds === 1 && config.codexFileWatchSeconds === 10;
+      return setupStability.observe(Math.floor(performance.now() - stabilityStarted), expected);
+    }, Math.max(0, setupDeadline - performance.now()), 25);
+    setupReadback('after-readback-convergence');
     instance.onSettingsChangedFromPanel('fileWatchSeconds');
     setupReadback('after-handler');
     await bounded(settle(instance), 65000);
     setupReadback('after-settle');
-    await focus(true);
+    await focus(true, setupDeadline);
     setupReadback('after-focus');
     assertRecurringReady(instance.getConfiguration(), instance.resourceOwnership.snapshotForTests());
     sample();
@@ -372,6 +406,7 @@ async function run(plan, rawOptions) {
       sourceHead: manifest.sourceHead, vscodeVersion: vscode.version, platform: process.platform,
       outcome: failureStage ? 'fail' : 'pass', failureStage: failureStage ?? null,
       failureReason: failureReason ?? null, failureFocus, assertions, counters, samples, setupReadbacks,
+      setupReadbackStability: setupStability?.snapshot() ?? null,
       warmIo: { on: warm.on.snapshot(), off: warm.off.snapshot() }, stopCompleted,
       elapsedMs: elapsed(), completedSoakMs, requestedSoakMs: options.durationMs,
       longSoakDurationPassed: !failureStage && longSoakDurationPassed(completedSoakMs),
@@ -384,4 +419,4 @@ async function run(plan, rawOptions) {
 }
 module.exports = { run, validateSoakOptions, longSoakDurationPassed, sampleOwnedResources,
   assertResourceBudget, appendBoundedSample, appendSyntheticActivity, bounded, failureFocusObservation,
-  assertRecurringReady, diagnosticFailureReason, projectSetupReadback, createSetupReadbackProbe };
+  assertRecurringReady, diagnosticFailureReason, projectSetupReadback, createSetupReadbackProbe, createReadbackStability };

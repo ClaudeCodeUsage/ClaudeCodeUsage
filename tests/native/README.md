@@ -83,6 +83,13 @@ prepareNativeDiagnostic({ repository, sourceHead, mode: 'soak', durationMs: 1800
 stages a separate opt-in runner. Use a short duration first to verify setup.
 A short preflight always reports longSoakDurationPassed=false; setup/exit alone
 is never a 30-minute pass. The monotonic clock is not scaled.
+After the two single watcher-setting writes, setup samples only public expected
+readbacks every 25 ms until they match for 500 ms. This consumes the existing
+five-second readiness deadline; it never rewrites settings or retries a case.
+The original settings/configuration/watcher assertions still run afterward,
+and any later mismatch fails. Only equality/type fields and bounded convergence
+counts enter the report. This test-only SDK initialization barrier does not prove
+normal-profile persistence or replace installed/F5 acceptance; earlier failures remain failures.
 An anonymous stage marker is written before each asynchronous phase. A normal
 host exit with no final native-soak-result.json remains incomplete; its last
 marker does not identify a product crash or satisfy any resource-duration gate.
@@ -116,6 +123,10 @@ conclusion. Sampled host heap without forced GC is not a retained-heap leak test
 
 中文审阅：使用 mode: 'soak' 明确启用持续诊断，先短程自检；短测必然标为未通过
 30分钟时长门，不能以准备或进程退出冒充验收，不加速单调时钟。
+监听设置各只写一次；随后每25毫秒只读公开预期值，匹配满500毫秒才继续。
+稳定检查占用原有五秒就绪期限，不反复覆盖设置或重试用例；之后仍执行原来的
+设置／配置／监听严格断言，晚到不匹配仍失败。报告只含相等／类型及有界计数。
+这只是测试初始化屏障，不证明日常配置持久化或已安装包／F5；此前失败不改记为通过。
 各异步阶段开始前记录有界匿名标记；即使宿主正常退出，没有最终结果文件也仍是
 未完成，不能凭最后阶段标记认定产品崩溃或算持续运行门通过。
 失败时仅补充逻辑／原生焦点布尔值及已知监听数量，未知记null；计数真实窗口

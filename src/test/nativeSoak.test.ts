@@ -94,6 +94,31 @@ test('native soak recurring-readiness failures identify the exact fixed assertio
   }
 });
 
+test('native setup requires a stable public readback interval, not one successful sample', () => {
+  const probe = helper().createReadbackStability();
+  assert.equal(probe.observe(0, true), false);
+  assert.equal(probe.observe(499, true), false);
+  assert.equal(probe.observe(500, true), true);
+  assert.deepEqual(probe.snapshot(), { requiredStableMs: 500, samples: 3, mismatches: 0, convergenceMs: 500 });
+});
+test('native setup transient regression restarts read-only stability without another write', () => {
+  const probe = helper().createReadbackStability();
+  for (const [at, expected, complete] of [[0,true,false],[200,false,false],[400,true,false],[899,true,false],[900,true,true]])
+    assert.equal(probe.observe(at, expected), complete);
+  assert.deepEqual(probe.snapshot(), { requiredStableMs: 500, samples: 5, mismatches: 1, convergenceMs: 900 });
+});
+test('native setup readback timing and sample budgets fail closed without coercion', () => {
+  for (const at of [-1, NaN, Infinity, '0', undefined])
+    assert.throws(() => helper().createReadbackStability().observe(at, true));
+  for (const expected of [0, 1, 'true', undefined, {}])
+    assert.throws(() => helper().createReadbackStability().observe(0, expected));
+  const backwards = helper().createReadbackStability();backwards.observe(1, true);
+  assert.throws(() => backwards.observe(0, true));
+  const capped = helper().createReadbackStability();
+  for (let i=0;i<256;i++) capped.observe(i, false);
+  assert.throws(() => capped.observe(256, false));
+});
+
 test('native soak setup readback projects only fixed phases, equality booleans, types and bounded counters', () => {
   const counts = { claude: { started: 1, completed: 1 }, codex: { started: 1, completed: 0 },
     other: { started: 32, completed: 32 }, private: 'never retain' };
@@ -181,8 +206,6 @@ test('native soak records setup and final failure readbacks before restoring upd
     update: async function(key: string, value: unknown) {
       assert.equal(this, state);
       values.set(key, value);
-      // Synthetic divergence only: this test does not attribute a native cause.
-      if (key === 'ccu.setting.codex.fileWatchSeconds') values.set('ccu.setting.fileWatchSeconds', '2');
     } };
   const original = state.update;
   const context = { extensionMode: 3, extensionPath: plan.directories.developmentExtension, globalState: state };
@@ -205,7 +228,12 @@ test('native soak records setup and final failure readbacks before restoring upd
       codexFileWatchSeconds: Number(state.get('ccu.setting.codex.fileWatchSeconds')) }),
     refreshData: async () => undefined,
     onSettingsChangedFromPanel: () => { handlerCalled = true; },
-    handleWindowFocusChange: (focused: boolean) => { instance.windowActivity.focused = focused; },
+    handleWindowFocusChange: (focused: boolean) => {
+      instance.windowActivity.focused = focused;
+      // Synthetic divergence AFTER convergence: the unchanged assertion must
+      // still reject it, not rewrite a setting or silently retry the case.
+      if (focused) values.set('ccu.setting.fileWatchSeconds', '2');
+    },
   };
   const api = { plan, context, instance, isolation: { testModeVerified: true, actualStatePathsVerified: true,
     syntheticHomesVerified: true, ownSafetySeedCompleted: true },
@@ -222,15 +250,21 @@ test('native soak records setup and final failure readbacks before restoring upd
     const text = await fs.readFile(path.join(plan.root, 'native-soak-result.json'), 'utf8');
     const report = JSON.parse(text), rows = report.setupReadbacks;
     assert.deepEqual(rows.map((row: any) => row.phase), ['after-cold-settle', 'after-claude-set',
-      'after-codex-set', 'after-handler', 'after-settle', 'after-focus', 'on-failure']);
-    assert.equal(rows[6].memento.claude.expectedEqual, false);
-    assert.equal(rows[6].configuration.codex.expectedEqual, true);
+      'after-codex-set', 'after-readback-convergence', 'after-handler', 'after-settle', 'after-focus', 'on-failure']);
+    assert.equal(rows[7].memento.claude.expectedEqual, false);
+    assert.equal(rows[7].configuration.codex.expectedEqual, true);
     assert.equal(rows[0].memento.claude.expectedEqual, false);
     assert.equal(rows[1].memento.claude.expectedEqual, true);
-    assert.equal(rows[2].memento.claude.expectedEqual, false);
-    assert.equal(rows[5].configuration.codex.expectedEqual, true);
-    assert.deepEqual(rows[5].updates, { claude: { started: 1, completed: 1 },
+    assert.equal(rows[2].memento.claude.expectedEqual, true);
+    assert.equal(rows[3].memento.claude.expectedEqual, true);
+    assert.equal(rows[6].memento.claude.expectedEqual, false);
+    assert.equal(rows[6].configuration.codex.expectedEqual, true);
+    assert.deepEqual(rows[6].updates, { claude: { started: 1, completed: 1 },
       codex: { started: 1, completed: 1 }, other: { started: 0, completed: 0 } });
+    assert.equal(report.setupReadbackStability.requiredStableMs, 500);
+    assert.ok(report.setupReadbackStability.samples >= 6);
+    assert.equal(report.setupReadbackStability.mismatches, 0);
+    assert.ok(report.setupReadbackStability.convergenceMs >= 500);
     assert.equal(report.failureReason, 'setup-claude-watch-setting');
     assert.equal(report.stopCompleted, true);
     assert.equal(report.counters.cycles, 0);
