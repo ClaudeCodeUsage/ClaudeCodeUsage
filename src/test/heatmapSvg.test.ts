@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import * as assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -7,6 +8,22 @@ import { DayUsage } from '../heatmap';
 import { renderCombinedHeatmapSvg } from '../combinedHeatmapSvg';
 
 const day = (tokens: number): DayUsage => ({ tokens, cost: tokens / 1000, sessions: 1 });
+
+test('legacy default SVG stays byte-identical when no cell style hook is supplied', () => {
+  const svg = renderHeatmapSvg({ '2026-06-20': { tokens: 1000, cost: 9, sessions: 1 } }, { endDateISO: '2026-06-30' });
+  assert.equal(createHash('sha256').update(svg).digest('hex'), '45529f9b46b0ef6bd9b805ed813c0672561c231eb9fdfc77d1e1b2b83a4492dd');
+});
+
+test('optional cell styles are bounded colors and known stroke enums', () => {
+  const svg = renderHeatmapSvg({}, {
+    startDateISO: '2026-06-29', endDateISO: '2026-06-30', tooltip: date => date,
+    cellStyle: (date: string) => date === '2026-06-29'
+      ? { fill: '#d1d5db', stroke: '#6b7280', dashed: true }
+      : { fill: 'url(javascript:bad)', stroke: '\" onload=\"bad', dashed: false },
+  });
+  assert.match(svg, /fill="#d1d5db" stroke="#6b7280" stroke-dasharray="2 2"/);
+  assert.doesNotMatch(svg, /javascript|onload|url\(/);
+});
 
 function fillForDate(svg: string, dateISO: string): string | undefined {
   const match = svg.match(new RegExp(

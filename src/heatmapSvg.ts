@@ -40,6 +40,8 @@ export interface HeatmapSvgOptions {
   ariaLabel?: string;
   locale?: string;
   tooltip?: (dateISO: string, usage: DayUsage, value: number, metric: HeatMetric) => string;
+  /** Optional missing/partial-data styling; absent preserves legacy SVG bytes. */
+  cellStyle?: (dateISO: string) => { fill?: string; stroke?: string; dashed?: boolean } | undefined;
 }
 
 function lowerBound(sorted: readonly number[], value: number): number {
@@ -303,8 +305,14 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
         : metric === 'cost'
           ? `$${compactNum(c.value, locale)} ${copy.on} ${when}`
           : `${compactNum(c.value, locale)} ${noun} ${copy.on} ${when}`;
+    const style = opts.cellStyle?.(c.dateISO);
+    const fill = safeSvgColor(style?.fill, scale[c.bucket]);
+    const stroke = style?.stroke === undefined
+      ? ''
+      : ` stroke="${safeSvgColor(style.stroke, 'transparent')}"`;
+    const dash = style?.dashed === true ? ' stroke-dasharray="2 2"' : '';
     parts.push(
-      `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" ry="2" fill="${scale[c.bucket]}"><title>${esc(tip)}</title></rect>`
+      `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2" ry="2" fill="${fill}"${stroke}${dash}><title>${esc(tip)}</title></rect>`
     );
   }
 
