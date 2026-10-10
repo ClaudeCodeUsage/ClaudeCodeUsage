@@ -14601,6 +14601,7 @@ function openAchievementShare() {
     showProvider('compare', 'all');
   } else {
     showTab('all');
+    selectSharingTemplate('achievements', true);
   }
 }
 function restoreAchievementShareSelection() {

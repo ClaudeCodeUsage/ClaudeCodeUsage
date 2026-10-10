@@ -176,6 +176,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Fixed — 2.4.2 local candidate
 
+- **Sharing and subtotal edge cases** — the Codex-only gallery share action
+  selects the requested achievement card, not the heatmap fallback. Restoring a
+  default title no longer suppresses provider/amount preview regeneration.
+  Positive partial subtotals below one dollar use `<$1`, without the invalid `≥<` prefix.
 - **Usage-origin integration** — verified Claude/Codex Token append proof now reaches
   atomic awards independently of dashboard delivery, as described above. Per-level
   checks cannot turn unrelated live tokens into dated historical awards; analysis
