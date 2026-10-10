@@ -26,9 +26,9 @@ const MODEL_COUNTS = [2, 3, 4] as const;
 const MODEL_OUTPUT = [10_000, 20_000, 50_000] as const;
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
 type Effort = typeof EFFORTS[number];
-const EFFORT_PROCESSED = [100_000_000, 500_000_000, 2_000_000_000] as const;
-const EFFORT_OUTPUT = [100_000, 500_000, 2_000_000] as const;
-const EFFORT_ROOTS = [5, 10, 30] as const;
+export const EFFORT_PROCESSED = [100_000_000, 500_000_000, 2_000_000_000] as const;
+export const EFFORT_OUTPUT = [100_000, 500_000, 2_000_000] as const;
+export const EFFORT_ROOTS = [5, 10, 30] as const;
 const triple = (): CollaborationTierCounts => [0, 0, 0];
 // All selected operands are safe nonnegative integers. Saturation preserves a
 // safe lower bound beyond representable totals, never a rounded-up token claim.

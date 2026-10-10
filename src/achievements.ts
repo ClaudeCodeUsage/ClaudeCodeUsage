@@ -2,6 +2,7 @@ import type { CodexFileAggregate } from './providers/codex/codexIndex';
 import { API_ACHIEVEMENT_DEFINITIONS, API_ACHIEVEMENT_SERIES, achievementMoneyProgress,
   type AchievementMoneyFacts } from './achievementMoneyCatalog';
 import type {AchievementMoneyScopes} from './achievementMoneyScopes';
+import type {AchievementEffortStatistics} from './achievementEffortStatistics';
 import type { ProviderTokenCounts } from './providers/providerTypes';
 import type { AchievementActivity } from './achievementActivity';
 import { SAFE_EXPLORATION_FEATURES } from './achievementActivity';
@@ -41,6 +42,8 @@ export interface CodexAchievementSignals {
   /** Versioned joint counters, never inferred from old marginal maxima. */
   collaboration?: AchievementCollaborationEvidence;
   money?: AchievementMoneyScopes;
+  /** Current complete-census statistics; informational, never another rule. */
+  effortStatistics?: AchievementEffortStatistics;
 }
 
 export interface AchievementFacts {
