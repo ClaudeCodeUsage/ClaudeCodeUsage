@@ -50,7 +50,8 @@ interface Task {
  * Member output is the sum of explicitly normalized OpenAI model buckets in
  * that member. Task model output pools only that model within that root tree.
  * Effort uses its own marginal bucket: there is no model×effort cross-tab to
- * infer. Only output-bearing effort buckets prove processed/output/root breadth.
+ * infer. Pool each root×effort first; only its own positive output admits that
+ * task's processed/output volume and one distinct root to that tier's proof.
  * APR contributes to no evidence; its sound ancestry may connect descendants.
  */
 export function codexCollaborationEvidence(files: readonly CodexFileAggregate[]): AchievementCollaborationEvidence {
@@ -86,6 +87,7 @@ export function codexCollaborationEvidence(files: readonly CodexFileAggregate[])
   const effortEvidence = new Map<Effort, { processed: number; output: number; roots: Set<string> }>(
     EFFORTS.map(effort => [effort, { processed: 0, output: 0, roots: new Set<string>() }]),
   );
+  const taskEfforts = new Map<string, Map<Effort, { processed: number; output: number }>>();
   for (const file of verified) {
     if (file.session.role === 'approval-reviewer') continue;
     const root = taskRoot(file.session.sessionKey);
@@ -115,12 +117,23 @@ export function codexCollaborationEvidence(files: readonly CodexFileAggregate[])
     // Validate the entire effort vector independently; malformed effort cannot
     // discard independently valid team/model/family evidence.
     if (!validAchievementBuckets(file.byEffort, file.total)) continue;
+    let ownEfforts = taskEfforts.get(root);
+    if (!ownEfforts) taskEfforts.set(root, ownEfforts = new Map());
     for (const effort of EFFORTS) {
       const tokens = file.byEffort[effort];
-      if (!tokens || tokens.outputTotal === 0) continue;
-      const bucket = effortEvidence.get(effort)!;
+      if (!tokens) continue;
+      let bucket = ownEfforts.get(effort);
+      if (!bucket) ownEfforts.set(effort, bucket = { processed: 0, output: 0 });
       bucket.processed = add(bucket.processed, tokens.inputTotal + tokens.outputTotal);
       bucket.output = add(bucket.output, tokens.outputTotal);
+    }
+  }
+  for (const [root, ownEfforts] of taskEfforts) {
+    for (const [effort, own] of ownEfforts) {
+      if (own.output === 0) continue;
+      const bucket = effortEvidence.get(effort)!;
+      bucket.processed = add(bucket.processed, own.processed);
+      bucket.output = add(bucket.output, own.output);
       bucket.roots.add(root);
     }
   }

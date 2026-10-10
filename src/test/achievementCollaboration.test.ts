@@ -182,6 +182,34 @@ test('effort buckets cannot borrow global output or another effort output/task c
   assert.deepEqual(codexCollaborationEvidence(rows).effortQualifiedTierCounts, [0, 0, 0]);
 });
 
+test('effort proof pools the same root and tier before excluding input-only tasks', () => {
+  const effortRow = (key: string, input: number, output: number, parent?: string, tier = 'low') => {
+    const row = file(key, { 'gpt-6-astra': tokens(input, output) }, parent);
+    row.byEffort = { [tier]: tokens(input, output) };
+    return row;
+  };
+  const otherRoots = Array.from({ length: 4 }, (_, i) => effortRow(`other-${i}`, 0, 1));
+  const combined = [effortRow('root', 99_900_000, 99_996), ...otherRoots];
+  const split = [effortRow('root', 99_900_000, 0),
+    effortRow('child', 0, 99_996, 'root'), ...otherRoots];
+  assert.deepEqual(codexCollaborationEvidence(combined).effortQualifiedTierCounts, [1, 0, 0]);
+  assert.deepEqual(codexCollaborationEvidence(split).effortQualifiedTierCounts, [1, 0, 0]);
+  assert.deepEqual(codexCollaborationEvidence(split.reverse()).effortQualifiedTierCounts, [1, 0, 0]);
+  // Neither an unrelated root nor a different tier may lend its input volume.
+  assert.deepEqual(codexCollaborationEvidence([
+    effortRow('silent', 99_900_000, 0), effortRow('root', 0, 99_996), ...otherRoots,
+  ]).effortQualifiedTierCounts, [0, 0, 0]);
+  assert.deepEqual(codexCollaborationEvidence([
+    effortRow('root', 99_900_000, 0, undefined, 'high'),
+    effortRow('child', 0, 99_996, 'root'), ...otherRoots,
+  ]).effortQualifiedTierCounts, [0, 0, 0]);
+  const apr = effortRow('apr', 99_900_000, 0, 'root');
+  apr.session.role = 'approval-reviewer';
+  assert.deepEqual(codexCollaborationEvidence([
+    effortRow('root', 0, 99_996), apr, ...otherRoots,
+  ]).effortQualifiedTierCounts, [0, 0, 0]);
+});
+
 test('effort DTO counts qualified tiers independently of the main 4/5/6 award targets', () => {
   for (const tierCount of [1, 3, 4, 5, 6]) {
     const rows = effortTasks('root', 30, 2_000_000_000, 2_000_000);
