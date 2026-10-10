@@ -9,7 +9,7 @@ import { CalendarPeakEvidence, parseCalendarPeakEvidence, updateCalendarPeakEvid
 import { HourEvidence, parseHourEvidence } from './achievementHours';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import { achievementRuleVersion, isLegacyAchievementId } from './achievementRuleVersions';
-import { isAchievementMoneyId } from './achievementMoneyCatalog';
+import { isAchievementMoneyId, type AchievementMoneyId } from './achievementMoneyCatalog';
 import { getAchievementMoneyPricebook } from './achievementMoney';
 
 // The joint-rule evaluator and canonical migration switch together.
@@ -29,6 +29,12 @@ export interface AchievementRecordDraft {
   timeZone: string | null;
   /** Public frozen reference identity only; no personal amount or config. */
   referencePricebook?: string;
+}
+export interface AchievementUsageRecording {
+  recordedDay: string;
+  timeZone: string;
+  /** Required exactly for selected money IDs; public frozen versions only. */
+  referencePricebooks?: Partial<Record<AchievementMoneyId, string>>;
 }
 export interface AchievementRecord extends AchievementRecordDraft {
   ruleVersion: 1 | 2;
@@ -427,21 +433,27 @@ export class AchievementRecordRepository {
    * accepted BEFORE observing that growth. Only later peer history can be repaired;
    * established history/existing/activity/usage records are never redated. */
   async recordUsage(generation: number, baselineSequence: number, values: readonly AchievementId[],
-    recording: { recordedDay: string; timeZone: string }, guard: WriteGuard = () => true): Promise<{
+    recording: AchievementUsageRecording, guard: WriteGuard = () => true): Promise<{
       store: AchievementRecordStore; added: AchievementRecord[];
     }> {
     if (!integer(baselineSequence)) return invalid();
     const selection = recordIds(values);
     if (selection.some(id => ACHIEVEMENT_DEFINITIONS.find(row => row.id === id)?.group === 'plugin')) return invalid();
-    const stamp = object(recording, ['recordedDay', 'timeZone']);
+    const monetaryIds = selection.filter(isAchievementMoneyId);
+    const stamp = object(recording, ['recordedDay', 'timeZone', ...(monetaryIds.length ? ['referencePricebooks'] : [])]);
     if (!validDay(stamp.recordedDay) || !validZone(stamp.timeZone)) return invalid();
+    const books = monetaryIds.length ? object(stamp.referencePricebooks, monetaryIds) : undefined;
+    if (books && Reflect.ownKeys(books).length !== monetaryIds.length) return invalid();
     const drafts = selection.map(id => draft({ id, origin: 'usage',
-      recordedDay: stamp.recordedDay, timeZone: stamp.timeZone }));
+      recordedDay: stamp.recordedDay, timeZone: stamp.timeZone,
+      ...(isAchievementMoneyId(id) ? { referencePricebook: books![id] } : {}) }));
     const result = await this.mutate(generation, guard, store => {
       if (baselineSequence > store.sequence) return invalid();
-      const repair = new Set(selection);
+      // Drafts snapshot the validated books before waiting on the shared lease.
+      const repair = new Map(drafts.map(row => [row.id, row]));
       store.records = store.records.filter(row => !(repair.has(row.id) &&
-        row.origin === 'history' && row.seq > baselineSequence));
+        row.origin === 'history' && row.seq > baselineSequence &&
+        (!isAchievementMoneyId(row.id) || row.referencePricebook === repair.get(row.id)!.referencePricebook)));
       // Reissued sequence also fences ACKs issued for the preempting history.
       return appendRecords(store, drafts);
     });
