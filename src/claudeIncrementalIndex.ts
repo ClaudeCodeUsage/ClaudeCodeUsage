@@ -2849,9 +2849,9 @@ export async function updateClaudeUsageIndex(
     // ownership restoration pass below, and two post-parse probes guard the
     // rest — a moved first event changes the canonical order, and a newly
     // claimed UUID owned by a later file changes first-owner dedup; either one
-    // falls back to the full rebuild. Measured on a 650-file history, a rewind
-    // or truncation touching one transcript used to re-read all 1.4 GB,
-    // 20–40 s, and such rewrites happen many times a day.
+    // falls back to the full rebuild. Measured on a 976-file, 1.58 GB
+    // history: one truncation cost 19.3 s of CPU and 976 body re-reads, and
+    // such rewrites happen many times a day; now it is 0.8 s and one read.
     const unsafeSourceMutation = deletions.length > 0 || moves.length > 0;
     forcedFullAnalysisRebuild = cutoffMovedBackward || unsafeSourceMutation ||
       canonicalOrderChanged;
@@ -3014,6 +3014,9 @@ export async function updateClaudeUsageIndex(
     );
     if ((fastAppendAnalysis || windowRebasedAppends || sourceRebasedRebuilds) &&
       previousAnalysisRuntime && parsedPlans.length > 0) {
+      // Seeding with the order shift short-circuits the loop on purpose: the
+      // fallback it selects is the same full rebuild a later-owner collision
+      // would pick, so no distinct outcome is masked, only the scan.
       let laterOwnerCollision = orderShiftedRebuild;
       for (const appended of parsedPlans) {
         if (laterOwnerCollision) break;

@@ -2737,8 +2737,10 @@ test('a rewrite that moves the first event falls back to a full ordered rebuild'
       windowDays: 30,
     });
 
-    // 1 bounded read is the evidence, then the fallback re-reads both files.
-    assert.equal(warm.diagnostics.bodyReads, 3, 'the order shift forces a full rebuild');
+    // The fallback escalated every surviving file to a rebuild plan. (The
+    // bodyReads total is 1 bounded probe + 2 fallback reads, but pin the
+    // escalation itself, not the probe's implementation detail.)
+    assert.equal(warm.diagnostics.changed.rebuild, 2, 'the order shift forces a full rebuild');
     const full = await ClaudeDataLoader.loadUsageRecords(root, {
       analyzeContent: true,
       windowDays: 30,
@@ -2773,8 +2775,7 @@ test('a rewrite claiming a uuid owned by a later file falls back to a full rebui
       windowDays: 30,
     });
 
-    // 1 bounded read is the evidence, then the fallback re-reads both files.
-    assert.equal(warm.diagnostics.bodyReads, 3, 'the ownership conflict forces a full rebuild');
+    assert.equal(warm.diagnostics.changed.rebuild, 2, 'the ownership conflict forces a full rebuild');
     const full = await ClaudeDataLoader.loadUsageRecords(root, {
       analyzeContent: true,
       windowDays: 30,

@@ -42,7 +42,8 @@
 - `src/claudeIncrementalIndex.ts`：生产环境使用的 Claude 内存 per-file 用量索引、
   append-tail 解析、精确全局去重与已物化的 dashboard aggregate。未变化暖刷新不得
   回退为全语料 body 重读或全 records 重新聚合；已有正确性优先的内容分析重放是
-  独立路径，不得成为每个 watcher event 的默认处理。
+  独立路径，不得成为每个 watcher event 的默认处理。变更文件刷新唯一允许的例外是：
+  当变更文件的归属顺序无法从保留的 per-file 贡献中证明安全时，由探针守卫的一次性重试。
 - `src/providers/providerTypes.ts` 与 provider adapter：provider-neutral token、
   coverage、confidence 与 limit contract；不得抹平 provider 语义。
 - `src/providers/codex/`：允许目录发现、schema guard、精确单次请求解析及

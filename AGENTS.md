@@ -55,6 +55,9 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
   dashboard aggregates. Unchanged warm refreshes must not fall back to a
   full-corpus body read or full-record aggregation; documented correctness-first
   content-analysis replay is a separate path, not the default for each watcher event.
+  The single permitted exception on a changed-file refresh is a probe-guarded
+  retry when a changed file's ownership order cannot be proven safe from the
+  retained contributions.
 - `src/providers/providerTypes.ts` and provider adapters: provider-neutral token,
   coverage, confidence, and limit contracts. Do not erase provider semantics.
 - `src/providers/codex/`: allowed-root discovery, schema guards, exact-request
