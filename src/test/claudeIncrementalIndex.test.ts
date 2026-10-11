@@ -2675,7 +2675,10 @@ test('a deleted transcript is dropped without re-reading the remaining history',
       windowDays: 30,
     });
 
-    assert.equal(warm.diagnostics.changed.delete, 1);
+    // rebuild === 0 also pins the #123 contract this path leans on: a plain
+    // delete produces no metadata retags and no canonical-order change, so
+    // nothing escalates to replaceWithFullAnalysisPlans.
+    assert.deepEqual(warm.diagnostics.changed, { append: 0, rebuild: 0, move: 0, delete: 1 });
     assert.equal(warm.diagnostics.bodyReads, 0, 'the surviving file is not re-read');
     const full = await ClaudeDataLoader.loadUsageRecords(root, {
       analyzeContent: true,

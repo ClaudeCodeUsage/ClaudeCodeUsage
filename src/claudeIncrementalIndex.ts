@@ -2889,8 +2889,8 @@ export async function updateClaudeUsageIndex(
     // re-read there, and only that twin), and the analysis leaves the append
     // fast path — deletions.length === 0 is part of its condition — to be
     // rebuilt in memory from the retained per-file contributions. Measured on
-    // a 650-file history, deleting one transcript used to re-read the whole
-    // 1.4 GB corpus, 75–110 s; now it re-reads only twins sharing its UUIDs,
+    // a 976-file, 1.58 GB history: one delete cost 30.0 s of CPU and 975 body
+    // re-reads; now it is 1.0 s and re-reads only twins sharing its UUIDs,
     // usually nothing.
     const unsafeSourceMutation = moves.length > 0 ||
       (sourcePlans.length > 0 && !safeTailAppend);

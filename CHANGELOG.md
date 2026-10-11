@@ -511,8 +511,8 @@ are deferred to the next version; neither is implemented in 2.5.0.
   the file's stored contribution, hands UUIDs it owned to the existing
   ownership-restoration pass (only a surviving twin that also carries them is
   re-read), and rebuilds the materialized analysis in memory. Measured on a
-  650-file, 1.4 GB corpus: 75–110 s of re-reading becomes zero body reads for
-  an ordinary delete.
+  976-file, 1.58 GB corpus: 30 s of re-reading becomes one second and zero
+  body reads for an ordinary delete.
 - **Source-scoped Codex caches** — different Codex homes, profile salts and
   data timezones sharing VS Code global storage no longer replace one another's
   incremental index. Proven legacy checkpoints are adopted without rereading
