@@ -14,8 +14,10 @@ reconciliation. Features that sharpen attribution, privacy, or the advice
 experience are the best fit.
 
 Usage ingestion reads only each provider's local metadata and usage logs.
-Usage ingestion is read-only, and Codex data is never mutated. Codex does not estimate
-dollar cost. Its usage JSONL is streamed and temporarily parsed for allowlisted
+Usage ingestion is read-only, and Codex data is never mutated.
+Codex provides clearly labelled API-equivalent cost estimates for exactly known
+models, never a bill or subscription charge; unknown models remain unpriced.
+Its usage JSONL is streamed and temporarily parsed for allowlisted
 metadata; conversation fields are not inspected or used for analysis and are never
 retained. Codex limits are last-observed values from local logs, not real-time billing
 data.
@@ -35,6 +37,16 @@ npm run watch            # recompile on change
 - Press **F5** in VS Code to launch the Extension Development Host and test
   your changes manually.
 - Package a `.vsix` with `npx -y @vscode/vsce@3.9.1 package`.
+  This is the pinned contributor recipe, not a claim about the latest stable
+  VSCE. For a candidate, record the actual verified packaging tool/version and
+  freeze its source and package hashes; do not silently upgrade dependencies.
+
+Before host smoke or installation, isolate all writable user-data, extensions,
+shared/agent state, global/workspace storage, provider homes, caches and lock
+paths. See [the guarded native-test instructions](tests/native/README.md).
+A separate window or worktree is insufficient. Compare selected normal-state
+metadata/hashes before and after; unexplained changes stay unknown. Do not use
+a default-profile `code --install-extension` or modify the daily installation.
 
 ## Pull requests
 
@@ -58,6 +70,18 @@ Tests run in three layers:
 3. **VS Code host smoke.** Press **F5** or install a packaged VSIX. Verify real
    VS Code host activation, real local metadata, and theme smoke behavior. This
    layer does not replace the first two layers.
+
+Browser checks use the production renderer and synthetic fixtures, not an actual
+native installed window. Theme-variable guards are required but cannot prove
+resource URIs, native fonts, screen readers or real zoom. Record those gates
+separately; preparing a launch configuration or succeeding at CLI installation
+does not execute F5 or accept the installed UI.
+
+中文审阅：Codex 对已知精确型号提供明确标注的 API 等价估值，不是账单或订阅扣费，
+未知型号仍未定价。原生／安装测试须隔离全部可写状态，单独窗口或工作树不足以证明隔离；
+不替换日常 Code，无法归因的日常状态变化保留未知。浏览器生产渲染夹具与主题变量守卫
+不代替原生字体、资源 URI、真实缩放、读屏、实际 F5 或已安装界面验收。贡献者的 VSCE
+固定版本示例不是“最新稳定版”声明；候选记录实际工具版本、冻结源码和包 hash。
 
 CI uses separate gates, with packaging after both test jobs pass on every PR
 (`.github/workflows/test.yml`). Canonical Linux screenshots may only be updated

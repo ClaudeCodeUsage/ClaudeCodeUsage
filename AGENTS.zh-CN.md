@@ -14,9 +14,25 @@
   Claude 与 Codex 仪表盘必须复用同一组 provider-aware render function 和同一份 CSS contract。
 - 优先保证 token 归因准确，不追求账单级精度。精确总量、明确标注的估算、
   某一时点的配额观测必须保持为不同概念。
-- 扩展保持 local-first、轻量和 read-mostly。绝不修改 Claude 或 Codex 对话 JSONL；
+- 扩展保持 local-first、轻量和 read-mostly。用量读取和派生数据清除绝不改写或删除
+  供应商对话 JSONL。既有“会话操作”只有在另行启用并精确确认后，才能将单个 Claude
+  日志移入系统回收站；这不授权 agent 删除日志。Codex 源日志始终只读。
   credential 处理属于安全敏感范围，只保留已经审阅的既有行为。
-- v2.3.0 不新增 runtime dependency。
+- 当前候选未经维护者明确批准，不新增 runtime dependency。
+
+## 维护者决策与智能体执行
+
+- 维护者裁决用户价值、功能范围、默认行为、披露和发布承诺；智能体在已授权范围内
+  负责实现、反例、回归测试、性能测量和证据整合。普通实现细节不需要反复升级为产品决策。
+- 新功能先明确用户问题、可观察结果、默认／关闭／重置行为和隐私／资源约束。
+  优先完成最小而完整的改动；代码量、徽章数量和绿测总数不等于用户收益。
+- 按任务读取文档：模块／数据流变化读 `ARCHITECTURE.md`；保留／导出字段和清除
+  读 `LOCAL-DATA.md` 及其版本化基线；测试／打包／发布读 `CONTRIBUTING.md`。
+  小文案修改无需重读全部历史方案。当前工作树路径、授权和验收状态放在当前交接，
+  不写入这份长期政策。
+- 区分源码接入、合成测试、原生行为和用户接受。缺失不是零；夹具通过不证明上游
+  日志永远满足相同假设。复用相关独立意见，只为实质未解问题做有范围的新判断，
+  不在每次普通修补或交付时重审。
 
 ## 架构边界
 
@@ -24,8 +40,9 @@
 - `src/dataLoader.ts`：Claude JSONL 解析 primitive、校验、归因与内容分析 reducer，
   用于保持既有精确语义兼容。
 - `src/claudeIncrementalIndex.ts`：生产环境使用的 Claude 内存 per-file 用量索引、
-  append-tail 解析、精确全局去重与已物化的 dashboard aggregate。运行中刷新不得
-  回退为全语料 body 重读或全 records 重新聚合。
+  append-tail 解析、精确全局去重与已物化的 dashboard aggregate。未变化暖刷新不得
+  回退为全语料 body 重读或全 records 重新聚合；已有正确性优先的内容分析重放是
+  独立路径，不得成为每个 watcher event 的默认处理。
 - `src/providers/providerTypes.ts` 与 provider adapter：provider-neutral token、
   coverage、confidence 与 limit contract；不得抹平 provider 语义。
 - `src/providers/codex/`：允许目录发现、schema guard、精确单次请求解析及
@@ -35,8 +52,9 @@
   provider contract，不负责 HTML、client code 或样式。
 - `src/settings.ts`：`SETTINGS` catalog 与 `SettingsStore`；不要散落直接配置读取。
 - `src/statusBar.ts`：状态栏 token、成本、配额和 context 展示。
-- `src/webview.ts`：Claude/Codex 唯一一套 provider-aware dashboard HTML 与客户端行为；
-  Compare 绝不跨 provider 求和成本或配额。
+- `src/webview.ts`：Claude/Codex 唯一一套 provider-aware dashboard HTML 与客户端行为，
+  以及既有宿主收据／提示所有权。新增纯计算和资格规则进入领域模块，不另建 renderer
+  或重复扫描器；Compare 绝不跨 provider 求和成本或配额。
 - `src/i18n.ts`：八个 UI locale 的全部用户可见文案。
 - `src/types.ts`：共享 contract。
 - 改变模块职责或数据流前先读 `ARCHITECTURE.md`；若该变化需要维护者审阅，
@@ -83,10 +101,10 @@
   与 single-flight。一次性的未完成回填可以使用自适应、受限的本地 worker pool 与
   更粗粒度的 durable checkpoint；收敛后必须回到低功耗增量路径。
 - Claude 运行中刷新使用 `claudeIncrementalIndex.ts` 的内存 per-file 索引。
-  Unchanged refresh 的 JSONL body read 必须为 0；append/truncate/replace/move/delete
-  只处理受影响文件和 aggregate group，同时保持既有 response-identity 去重与
-  content-analysis 语义。新的 Extension Host 仍可执行一次冷内存建索引；这与每次
-  watcher event 都重读全语料是两回事。
+  Unchanged refresh 的 JSONL body read 必须为 0；普通已验证单文件 append 只读 tail
+  并更新受影响组。内容分析开启时，不安全截断／替换／删除、来源顺序或 UUID first-owner
+  变化可能为保持精确语义触发更广的有序重放；该成本单独报告，不得变成每个 watcher
+  event 的无条件全语料处理。新的 Extension Host 仍可执行一次冷内存建索引。
 - Codex 优化建议只使用结构化数字信号，不读取或持久化 prompt/response/command body
   或 tool arguments。
 
@@ -108,6 +126,12 @@ npx @vscode/vsce package
 - 用户可见变更需要更新 `CHANGELOG.md` 和对应文档。
 - UI 变更还要用 F5 Extension Development Host smoke test；候选版本在条件允许时
   需要在 macOS 和 Linux 安装 VSIX 做 smoke test。
+- F5、安装或第二个 Code 实例使用夹具之前，识别并隔离全部可写 profile、extensions／
+  shared／agent store、global／workspaceStorage、provider home、派生缓存和锁路径。
+  单独窗口或工作树不等于隔离。按 `tests/native/README.md` 核对实际存储路径，前后
+  比较选定日常状态元数据／hash；无法归因的变化保留未知，不声称无干扰。
+  不替换日常安装，不把默认 profile 的直接安装当作测试捷径。
+- 纯文档修订核对相关事实、链接和文档／政策测试，不产生新的运行期、原生、性能或发布通过结论。
 
 ### UI 渲染环境保真度
 
@@ -115,11 +139,13 @@ npx @vscode/vsce package
 被引用的 `--vscode-*` 变量必须在测试 harness 中有真实取值，且有守卫测试强制
 这一点。在此之前产生的视觉快照一律不作为验收依据。
 变量的取值必须来自 VS Code 内置主题的注册值，不得混用其他配色体系。
+这是必要的渲染保真守卫，不证明原生资源 URI、字体、读屏、真实缩放或已安装包行为。
 
 ### 交互状态验收
 
-webview 刷新为整页替换。任何新增的用户可交互状态（展开/折叠、排序、筛选、
-选中），必须接入现有持久化机制，并附带一条“操作 → reload → 状态仍在”的测试。
+webview 更新可能整页替换，也可能使用供应商面板 live patch。任何新增的用户可交互
+状态（展开／折叠、排序、筛选、选中）必须接入现有持久化机制，并附带
+“操作 → 更新 → reload → 状态仍在”的测试，保持相关焦点与滚动锚点。
 只验证首次渲染的静态断言不构成验收。
 
 ## 本地化与审阅文档
@@ -182,5 +208,5 @@ Co-authored-by: OpenAI Codex <215057067+openai-codex[bot]@users.noreply.github.c
 ## Codex 工具适配
 
 浏览器操作使用当前可用的 Codex browser／computer-use 工具；原文中的 Claude MCP
-工具名称只描述操作意图，不能直接调用。提问按当前模式使用可用工具；Git 操作仍须
-获得当次明确授权。
+工具名称只描述操作意图，不能直接调用。提问按当前模式使用可用工具；已授权范围内的
+本地小提交可保存进度，推送、PR、合并、tag 和发布仍须维护者明确授权。

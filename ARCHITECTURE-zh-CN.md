@@ -3,8 +3,10 @@
 > 本文简要说明扩展的 provider 边界、数据流与用量语义。模块职责或
 > provider 行为变化时必须同步更新。英文版见
 > [`ARCHITECTURE.md`](ARCHITECTURE.md)。
-> 持久数据清单、保留、迁移、清除和网络边界的规范来源是双语
-> [`v2.3.1 本地数据契约`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.zh-CN.md)。
+> 双语 [`v2.3.1 本地数据契约`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.zh-CN.md)
+> 是字段级历史基线；[`LOCAL-DATA.zh-CN.md`](LOCAL-DATA.zh-CN.md) 是当前 v2.4／2.4.2
+> 数据清单与后续字段、保留、迁移、清除、导出的版本化补充。其明确的后续章节只覆盖
+> 对应事项；未变化的基线隐私规则继续适用。
 
 ## 产品边界
 
@@ -75,13 +77,18 @@ Codex effort 统计及仅累计范围的金额新活动收据已完成接入。
 | `codexView.ts` / `codexViewComponents.ts` | Codex 本地化文案与默认 provider contract；不负责 HTML renderer、client script 或 CSS。 |
 | `settings.ts` | 权威 `SETTINGS` catalog 和 `SettingsStore`；普通值进入 configuration/globalState，BYOK 凭证只进入 SecretStorage，且绝不进入 Webview snapshot。不得散落直接读取。 |
 | `statusBar.ts` / `codexStatus.ts` | Provider-specific 状态展示和通用 Claude 配额格式化；周节奏提示复用共享 I18n 文案，不改变简短文字及自定义格式。 |
-| `webview.ts` | Claude/Codex 唯一一套 provider-aware dashboard shell、共享 render function、共享 client 行为、provider tab、Compare 展示与统一分享工作台。 |
+| `webview.ts` | Claude/Codex 唯一一套 provider-aware dashboard shell、共享 render function／client 行为、provider tab、Compare 与分享；当前也拥有宿主成就观测／收据／提示状态，不是纯展示模块。 |
 | `dashboardRefreshClient.ts` | 共享实时补丁的滚动锚点／焦点恢复，拒绝禁用控件并回退到稳定摘要；不执行供应商 I/O。 |
 | `i18n.ts` | 八个 UI locale 的全部用户可见文案。 |
 | `types.ts` | 共享 extension 和 Claude contract。 |
 
 `quotaFormat.ts`、`dateKeys.ts`、`shareCard.ts`、`heatmap.ts`、`conversationLog.ts`、
 `miniMarkdown.ts` 等既有纯模块保持当前职责与测试。
+
+新增计算、分组与资格规则进入既有纯领域模块；`extension.ts` 协调宿主生命周期／I/O，
+`webview.ts` 整合已接收结果、既有收据与展示。不为小功能另建数据生产者、renderer 或
+全语料扫描器。这些边界指导新增代码，不代表混合的旧方法已经拆出，也不要求顺带
+进行无关的大规模重构。
 
 ## Provider 数据流
 
@@ -433,8 +440,9 @@ v1 文件在明确清除之外只作只读迁移输入；已保存的 21 个改�
 在重新加载前安全停止回写。本地操作、小时及日历写入均核对已接收代次。
 未知、未来、过大或符号链接输入保留不动，不回退到旧获奖镜像；关闭成就不初始化
 新文件。真实已保存的本地操作保留未读记录，不因隐藏或投递失败丢失。可证明的
-Codex Token 跨级也保存未读与首次记录日；其他用量奖章静默补认且日期未知：
-只有证据域增长，尚不能证明来自新增活动。封套也管理原有
+Claude／Codex Token 跨级和同一冻结参考价下的累计 API 等价跨级，也通过独立收据
+保存未读与首次记录日。单次／任务、日历／结构等奖章若没有各自可验证的新活动来源，
+仍静默补认且日期未知；只有证据域增长或价格变化不能证明来自新增活动。封套也管理原有
 有界行为／小时／日历证据：29 个安全设置键与四个枚举取并集，小时最大值上限 48，
 日历峰值只在相同测量语境内合并。旧 Memento 辅助字段只作迁移输入，不作运行期
 镜像；恢复始终接收权威证据，包括清除后的空证明。引导期间用最多 33 个不同键
@@ -690,8 +698,10 @@ dashboard 不再因此一直标为「仍在索引」。
 
 Claude polling 始终遵守 `refreshInterval`，file watcher 使用配置的 quiet debounce。
 生产 Claude 路径维护内存 per-file 索引：unchanged refresh 的 JSONL body read 为 0，
-append 只读已验证 tail，truncate/replace/move/delete 只重建受影响文件和 aggregate group。
-内容分析 contribution 与既有跨文件 response-identity 规则通过同一原子路径更新。内容分析维护
+普通已验证单文件 append 从 tail 和受影响 aggregate group 开始。内容分析开启时，
+不安全 truncate/replace/move/delete、来源顺序或 UUID 所有权变化可能按下文触发更广的
+有序重放，不能保证只读变化文件。内容分析 contribution 与既有跨文件 response-identity
+规则通过同一原子路径更新。内容分析维护
 process-local 的已物化 accumulator，其 cutoff 与 `ClaudeDataLoader` 一样按毫秒连续滚动，而不是
 用本地午夜近似。两个 loader 共用精确截止点 helper；完整 loader 只采样一次截止点，同时用于内容
 分析与校准，避免解析期间时钟前移导致两者的窗口不一致。每个文件记录“已纳入 contribution 的最早

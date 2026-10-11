@@ -4,10 +4,14 @@ Claude Code Usage is local-first. It reads provider-owned usage logs, stores
 only bounded derived state needed for fast refresh and reset-aware estimates,
 and never treats API-equivalent cost as a bill.
 
-This page is the user-facing inventory for the v2.4 development line, including
-the unreleased 2.4.2 local-achievements candidate. The
-v2.3.1 normative field-level contract is in
+This page is the current inventory and versioned data-contract supplement for
+the v2.4 development line, including the unreleased 2.4.2 candidate. The
+historical v2.3.1 field-level baseline is in
 [`docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md).
+The later sharing, quota-pace and achievement sections here govern their added
+runtime/persistent fields and exact clearing rules, including the canonical v2
+envelope and twelve sharing keys. They do not relax unchanged baseline source-log,
+credential, account-separation or explicit-network-consent restrictions.
 
 ## What the extension reads and retains
 

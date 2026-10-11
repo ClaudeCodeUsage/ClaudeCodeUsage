@@ -4,9 +4,12 @@
 > semantics. Update it whenever module ownership or provider behavior changes.
 > A faithful Simplified-Chinese companion lives in
 > [`ARCHITECTURE-zh-CN.md`](ARCHITECTURE-zh-CN.md).
-> The normative persistent-data inventory, retention, migration, clearing, and
-> network boundaries live in the bilingual
-> [`v2.3.1 local data contract`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md).
+> The bilingual
+> [`v2.3.1 local data contract`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md)
+> is the historical field-level baseline. [`LOCAL-DATA.md`](LOCAL-DATA.md) is
+> the current v2.4/2.4.2 inventory and versioned supplement for later fields,
+> retention, migration, clearing and exports. Its explicitly later sections
+> supersede only those subjects; unchanged baseline privacy rules still apply.
 
 ## Product boundary
 
@@ -90,7 +93,7 @@ only the separate publish action can perform that network operation.
 | `codexView.ts` / `codexViewComponents.ts` | Codex localized-copy and default-provider contracts; no HTML renderer, client script, or CSS ownership. |
 | `settings.ts` | Canonical `SETTINGS` catalog and `SettingsStore`; ordinary values use configuration/globalState, while BYOK credentials use SecretStorage and never enter Webview snapshots. Do not scatter direct reads. |
 | `statusBar.ts` / `codexStatus.ts` | Provider-specific status presentation and generic Claude quota formatting; weekly-pace tooltip additions reuse shared I18n copy without changing bar text/custom formats. |
-| `webview.ts` | Single provider-aware Claude/Codex dashboard shell, shared render functions, shared client behavior, provider tabs, Compare presentation, and the unified sharing workspace. |
+| `webview.ts` | Single provider-aware Claude/Codex dashboard shell, shared render functions/client behavior, provider tabs, Compare and sharing. It also currently owns in-host achievement observation/receipt/notice state; it is not a presentation-only module. |
 | `dashboardRefreshClient.ts` | Shared live-patch anchor/focus restoration, including disabled-control rejection and stable summary fallbacks; no provider I/O. |
 | `i18n.ts` | All user-facing copy for all eight UI locales. |
 | `types.ts` | Shared extension and Claude contracts. |
@@ -98,6 +101,13 @@ only the separate publish action can perform that network operation.
 Existing pure modules such as `quotaFormat.ts`, `dateKeys.ts`, `shareCard.ts`,
 `heatmap.ts`, `conversationLog.ts`, and `miniMarkdown.ts` keep their current
 ownership and tests.
+
+New calculations, grouping and eligibility rules belong in the existing pure
+domain modules. `extension.ts` coordinates host lifecycle/I/O; `webview.ts`
+integrates accepted results, existing receipts and presentation. Do not add a
+second producer, renderer or corpus scan to implement a small feature. These
+boundaries guide additions; they do not imply that mixed legacy methods have
+already been extracted or require an unrelated large refactor.
 
 ## Provider data flow
 
@@ -595,9 +605,11 @@ closed until reload. Action/hour/calendar writes check their adopted generation.
 Unknown, future, oversized or symlink inputs remain untouched and do not fall
 back to a legacy grant mirror. Disabled achievements do not initialize the file.
 Actual saved local actions retain unread records even when hidden or delivery
-fails. Proven Codex Token crossings also save unread first-record days; other
-usage awards reconcile quietly with unknown dates. Ready-domain growth alone
-does not establish producer-origin evidence. The envelope also owns
+fails. Proven Claude/Codex Token crossings and same-frozen-book cumulative
+API-equivalent crossings also save unread first-record days through independent
+receipts. Session/task and calendar/structure awards without their own verified
+new-activity origin still reconcile quietly with unknown dates. Ready-domain
+growth or price-only changes do not establish producer-origin evidence. The envelope also owns
 the existing bounded activity/hour/calendar proof: activity unions the 29 safe
 keys/four enums, hours retain a maximum ≤48, and calendar maxima merge only within
 the same measurement context. Legacy auxiliary Memento entries are migration
@@ -1038,10 +1050,12 @@ body, or tool-argument content.
 
 Claude polling always honors `refreshInterval`; its file watcher uses the
 configured quiet debounce. The production Claude path maintains an in-memory
-per-file index: unchanged refreshes read zero JSONL bodies, appends read only a
-verified tail, and truncate/replace/move/delete changes rebuild only affected
-files and aggregate groups. Content-analysis contributions and the established
-cross-file response-identity rules are updated through the same atomic path.
+per-file index: unchanged refreshes read zero JSONL bodies, and an ordinary
+verified single-file append starts with its tail and affected aggregate groups.
+With content analysis enabled, unsafe truncate/replace/move/delete and source-order
+or UUID ownership changes may require a wider ordered replay as described below;
+they are not guaranteed to read only the changed file. Content-analysis contributions
+and the established cross-file response-identity rules use the same atomic path.
 Content analysis keeps a process-local materialized accumulator. Its cutoff is
 the same continuously rolling millisecond cutoff used by `ClaudeDataLoader`, not
 a local-midnight approximation. Both loaders use the shared exact-cutoff helper;

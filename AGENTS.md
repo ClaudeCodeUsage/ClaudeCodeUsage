@@ -15,10 +15,34 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
   the same provider-aware render functions and the same CSS contract.
 - Prefer token-attribution accuracy over billing precision. Keep exact totals,
   labelled estimates, and point-in-time quota observations as separate concepts.
-- Keep the extension local-first, lightweight, and read-mostly. Never modify
-  Claude or Codex conversation JSONL files. Treat credential handling as security-sensitive
-  and preserve the existing reviewed behavior.
-- Add no new runtime dependencies in v2.3.0.
+- Keep the extension local-first, lightweight, and read-mostly. Usage ingestion
+  and derived-data clearing never rewrite or delete provider conversation JSONL.
+  The existing, separately opt-in Session Actions feature may move exactly one
+  confirmed Claude log to the OS trash; this is not authority for an agent to
+  delete logs. Codex source logs remain read-only. Treat credential handling as
+  security-sensitive and preserve the existing reviewed behavior.
+- Add no new runtime dependencies for the current candidate without explicit
+  maintainer approval.
+
+## Maintainer decisions and agent execution
+
+- The maintainer owns user value, feature scope, defaults, disclosure and release
+  promises. Agents own implementation, counterexamples, regression tests,
+  performance measurements and evidence integration within the authorized scope.
+  Routine implementation choices do not require a new product decision.
+- For a feature, identify the user question, observable result, default/off/reset
+  behavior and privacy/resource constraints. Prefer the smallest coherent change;
+  code size, badge counts and green-test totals are not measures of user benefit.
+- Read documentation by task: `ARCHITECTURE.md` for module/data-flow changes,
+  `LOCAL-DATA.md` and its versioned baseline for retained/exported fields and
+  clearing, and `CONTRIBUTING.md` for test/package/release workflows. Small copy
+  edits do not require replaying every historical plan. Task-local worktree paths,
+  permissions and acceptance status belong in the current handoff, not this policy.
+- Distinguish source integration, synthetic tests, native behavior and user
+  acceptance. Missing data is not zero; passing fixtures do not establish that
+  upstream logs always satisfy the same assumptions. Reuse relevant independent
+  findings; seek a new bounded assessment for a substantive unresolved question,
+  not for every routine fix or delivery.
 
 ## Architecture boundaries
 
@@ -28,8 +52,9 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
   and content-analysis reducers retained for exact compatibility.
 - `src/claudeIncrementalIndex.ts`: the production in-memory per-file Claude
   usage index, append-tail parser, exact global deduplication, and materialized
-  dashboard aggregates. Runtime refreshes must not fall back to a full-corpus
-  body read or full-record aggregation.
+  dashboard aggregates. Unchanged warm refreshes must not fall back to a
+  full-corpus body read or full-record aggregation; documented correctness-first
+  content-analysis replay is a separate path, not the default for each watcher event.
 - `src/providers/providerTypes.ts` and provider adapters: provider-neutral token,
   coverage, confidence, and limit contracts. Do not erase provider semantics.
 - `src/providers/codex/`: allowed-root discovery, schema guards, exact-request
@@ -41,7 +66,9 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
   direct configuration reads.
 - `src/statusBar.ts`: status-bar token/cost/quota/context presentation.
 - `src/webview.ts`: the single provider-aware Claude/Codex dashboard HTML and
-  client behavior. Compare never sums cost or quota across providers.
+  client behavior, plus existing host-side receipt/notice ownership. New pure
+  calculations and eligibility rules belong in domain modules, not another
+  renderer or duplicated scan. Compare never sums cost or quota across providers.
 - `src/i18n.ts`: all user-facing copy for all eight UI locales.
 - `src/types.ts`: shared contracts.
 - Read `ARCHITECTURE.md` before changing module ownership or the data flow. If
@@ -102,11 +129,12 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
   returns to the low-power incremental path.
 - Claude runtime refreshes use the in-memory per-file index in
   `claudeIncrementalIndex.ts`. An unchanged refresh reads zero JSONL bodies;
-  append/truncate/replace/move/delete work is limited to affected files and
-  affected aggregate groups while preserving the established response-identity
-  and content-analysis semantics. A new Extension Host may still perform one
-  cold in-memory build; this is distinct from rereading the corpus after every
-  watcher event.
+  an ordinary verified single-file append reads its tail and updates affected
+  groups. With content analysis enabled, unsafe truncation/replacement/deletion,
+  changed source order or UUID first-owner changes can require an ordered wider
+  replay to preserve exact semantics. Report that cost separately; never turn it
+  into unconditional full-corpus work on each watcher event. A new Extension Host
+  may still perform one cold in-memory build.
 - Codex optimization advice uses structural numeric signals only. Never inspect
   or persist prompt/response/command bodies or tool arguments.
 
@@ -128,6 +156,15 @@ npx @vscode/vsce package
 - User-facing changes require a `CHANGELOG.md` entry and matching documentation.
 - UI changes also require an F5 Extension Development Host smoke test; release
   candidates require an installed-VSIX smoke test on macOS and Linux when available.
+- Before F5, installation or a second Code instance uses fixtures, identify and
+  isolate every writable profile, extension/shared/agent store, global/workspace
+  storage, provider home, derived cache and lock path. A window or worktree alone
+  is not isolation. Follow `tests/native/README.md`, verify actual storage paths
+  and compare selected normal-state metadata/hashes before and after. Unexplained
+  differences remain unknown, not proof of non-disruption. Never replace the
+  daily installation or run a plain default-profile install as a test shortcut.
+- Documentation-only edits verify affected facts, links and document/policy
+  tests. They do not establish new runtime, native, performance or release passes.
 
 ### UI rendering-environment fidelity
 
@@ -138,13 +175,16 @@ that invariant. Visual snapshots produced before this is true are not acceptance
 evidence.
 Variable values must come from the registered values of VS Code's built-in themes;
 do not mix in another color system.
+This is a necessary rendering-fidelity guard, not native acceptance for resource
+URIs, fonts, screen readers, actual zoom or installed-package behavior.
 
 ### Interaction-state acceptance
 
-Webview refresh is a full-page replacement. Every new user-interactive state
-(expand/collapse, sorting, filtering, or selection) must use the existing
-persistence mechanism and include an operation → reload → state-remains test.
-A static assertion of the first render is not acceptance evidence.
+Webview updates may use a full-page replacement or a provider-panel live patch.
+Every new user-interactive state (expand/collapse, sorting, filtering, or
+selection) must use the existing persistence mechanism and include an operation
+→ update → reload → state-remains test, preserving relevant focus and scroll
+anchors. A static assertion of the first render is not acceptance evidence.
 
 ## Localization and review documents
 
@@ -215,4 +255,4 @@ Co-authored-by: OpenAI Codex <215057067+openai-codex[bot]@users.noreply.github.c
   privileged maintainer-only mention workflow.
 
 ## Codex 工具適配
-瀏覽器操作使用當前 Codex browser／computer-use 工具；原文的 Claude MCP 工具名稱只描述操作意圖，不能直接呼叫。提問依目前模式使用可用工具；Git 操作仍需當次明確授權。
+瀏覽器操作使用當前 Codex browser／computer-use 工具；原文的 Claude MCP 工具名稱只描述操作意圖，不能直接呼叫。提問依目前模式使用可用工具；已授權範圍內的本地小提交可保存進度，推送、PR、合併、tag 與發布仍須維護者明確授權。

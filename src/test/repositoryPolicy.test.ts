@@ -934,6 +934,42 @@ test('CLAUDE is a compatibility entry point, not a conflicting policy source', (
   assert.doesNotMatch(claude, /activity-aware: ~15 s|never writes to `~\/\.claude\/`/);
 });
 
+test('current documentation separates task authority, rendering acceptance and replay exceptions', () => {
+  const english = repoFile('AGENTS.md'), chinese = repoFile('AGENTS.zh-CN.md');
+  for (const [document, patterns] of [
+    [english, [/maintainer owns user value/i, /Agents own implementation/i,
+      /Read documentation by task/i, /ordinary verified single-file append/i,
+      /UUID first-owner changes[\s\S]*ordered wider[\s\S]*replay/i,
+      /window or worktree alone[\s\S]*not isolation/i,
+      /necessary rendering-fidelity guard, not native acceptance/i,
+      /full-page replacement or a provider-panel live patch/i]],
+    [chinese, [/维护者裁决用户价值/, /负责实现、反例/, /按任务读取文档/,
+      /普通已验证单文件 append/, /UUID first-owner[\s\S]*有序重放/,
+      /单独窗口或工作树不等于隔离/, /必要的渲染保真守卫，不证明原生/,
+      /整页替换[\s\S]*live patch/]],
+  ] as const) for (const pattern of patterns) assert.match(document, pattern);
+});
+
+test('current data inventory supplements the historical baseline and dates only proven live awards', () => {
+  for (const suffix of ['', '.zh-CN']) {
+    const inventory = repoFile(`LOCAL-DATA${suffix}.md`);
+    assert.ok(inventory.includes('achievements-v2.json'));
+    assert.ok(inventory.includes('ccu.combinedHeatmap.'));
+    for (const suffix of ['provider', 'metric', 'showAmounts']) {
+      assert.ok(inventory.includes('`' + suffix + '`'));
+    }
+  }
+  const english = repoFile('ARCHITECTURE.md'), chinese = repoFile('ARCHITECTURE-zh-CN.md');
+  assert.match(english, /historical field-level baseline[\s\S]*LOCAL-DATA\.md/);
+  assert.match(chinese, /字段级历史基线[\s\S]*LOCAL-DATA\.zh-CN\.md/);
+  assert.match(english, /Proven Claude\/Codex Token crossings[\s\S]*cumulative[\s\S]*independent\s+receipts/);
+  assert.match(chinese, /Claude／Codex Token 跨级[\s\S]*累计 API 等价跨级[\s\S]*独立收据/);
+  for (const file of ['docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md',
+    'docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.zh-CN.md']) {
+    assert.ok(repoFile(file).includes('../../../LOCAL-DATA'));
+  }
+});
+
 test('line endings and tracked file modes are repository-safe', () => {
   const attributes = repoFile('.gitattributes');
   assert.match(attributes, /^\* text=auto eol=lf$/m);
@@ -1967,7 +2003,9 @@ test('CONTRIBUTING documents provider-aware privacy and three testing layers', (
   assert.match(guide, /Claude session actions are separately gated and disabled by default\./);
   assert.match(guide, /they can resume or delete a selected session\./);
   assert.match(guide, /Deleting the selected session moves its log to the OS trash\./);
-  assert.match(guide, /Codex does not estimate\s+dollar cost/i);
+  assert.match(guide, /Codex provides clearly labelled API-equivalent cost estimates/i);
+  assert.match(guide, /never a bill or subscription charge/i);
+  assert.doesNotMatch(guide, /Codex does not estimate\s+dollar cost/i);
   assert.match(
     guide,
     /usage JSONL is streamed and temporarily parsed for allowlisted\s+metadata/i,

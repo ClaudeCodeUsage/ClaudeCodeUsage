@@ -3,6 +3,9 @@
 Compatibility entry point for Claude Code. `AGENTS.md` is the canonical repository policy;
 read and follow it before changing this repository. The
 faithful maintainer review copy is `AGENTS.zh-CN.md`.
+Use its task-scoped documentation routes rather than loading every historical
+plan. Verify the actual checkout/branch and current local handoff before a
+version-specific task; a source manifest version is not proof of publication.
 
 Claude-specific compatibility notes:
 
@@ -13,6 +16,8 @@ Claude-specific compatibility notes:
   two roles.
 - Claude conversation JSONL is read-only. OAuth credential refresh is a
   separate, existing security-sensitive behavior; do not broaden it casually.
+  The existing opt-in, exactly confirmed single-log move to OS trash is separate
+  from read-only usage ingestion and derived-data clearing, not an agent permission.
 - Claude runtime usage refreshes go through `claudeIncrementalIndex.ts`; do not
   restore the old full-corpus read and full-record aggregation path after each
   watcher event.
@@ -20,3 +25,5 @@ Claude-specific compatibility notes:
   `refreshInterval`; do not restore a hidden active polling override.
 - Do not create a second policy source here. Update `AGENTS.md` and its Chinese
   review copy when repository rules change.
+- F5 and installed-VSIX smoke tests use fully isolated writable state. A separate
+  window is insufficient; follow `tests/native/README.md` without replacing daily Code.
