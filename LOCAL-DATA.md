@@ -49,10 +49,35 @@ If it is expired, the existing refresh token is sent to
 back to that profile's credential file or macOS Keychain item. This is separate
 from optional BYOK AI advice, which never uses Claude subscription credentials.
 
-Different anonymous account fingerprints are not merged. If local Codex logs
-cannot establish one coherent account/window, the dashboard shows only used
-API-equivalent value and explains why it cannot claim an account-level unused
-allowance.
+Different anonymous account fingerprints are not merged into an account-level
+fact. Current-cycle total/unused API-equivalent estimates nevertheless retain
+the existing low-confidence local-history calculation when account attribution
+is uncertain; they are not verified account balances or remaining subscription
+allowances. For Codex this can compare eligible usage from one local home/window,
+potentially spanning several sign-ins, with the latest applicable quota-observation
+cluster. It does not identify or divide the result among accounts.
+
+Each valid sample estimates total equivalent as the local priced used value
+through that sample divided by its observed used fraction. Several samples use
+an evidence-weighted median; coverage, attribution and boundary uncertainty lower
+confidence. The displayed full estimate is no smaller than the currently known
+used equivalent, and unused is the difference when the candidate remains valid.
+For example, local API-equivalent use of USD 74 at an observed 74% gives an
+estimated total of USD 100 and an unused equivalent of USD 26 when current use
+still equals 74. This does not mean USD 26 of account credit is available.
+If cumulative known local use exceeds the aggregate candidate, unused is withheld
+rather than shown as a fabricated zero; the comparison does not use only the
+newly added amount. Missing positive usage or valid observations leaves used value
+only. Completed Codex display windows receiving multiple distinct quota series
+also remain usage-only, but a single unattributed series may retain low-confidence
+total/unused estimates after completion.
+
+The 2026-10-11 maintainer decision keeps this current-period estimate unchanged.
+Accurate per-account calculation is deferred until multi-account compatibility
+can establish account/window ownership. This is separate from the elapsed-time
+forecast controlled by `showWeeklyQuotaPace`; its trusted-account/window admission
+rules are not relaxed. No extra request, credential lookup or identity store is
+introduced by this documentation clarification.
 
 Display-currency conversion is presentation-only. Pricing, aggregation,
 persistence, sorting, and comparisons remain USD-denominated. The extension

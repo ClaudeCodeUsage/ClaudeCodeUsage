@@ -1242,9 +1242,40 @@ use all eligible local files in the same home because file keys are not account
 identities. A reset that drifts from the seven-day grid is mapped by observation
 time to the corresponding display bucket; source uncertainty, reset drift, and
 daily slices crossing a boundary lower confidence and are rendered as an
-approximation. A genuinely different quota series remains usage-only. Current
-unused value is withheld, while historical unused value is shown only alongside
-a full estimate. Each usage row still contributes to exactly one bucket.
+approximation. Each usage row still contributes to exactly one bucket.
+
+For each eligible in-window observation, the candidate uses the already-priced
+local usage through that observation, not all usage through the current time:
+
+```text
+candidateFullEquivalent = pricedUsedEquivalentThroughObservedAt / usedFraction
+```
+
+Only positive local amounts and `0 < usedFraction <= 1` produce a candidate.
+Multiple candidates use an evidence-weighted median, considering pricing coverage,
+observation confidence/account attribution, boundary flags and observation timing.
+The current window may show a low-confidence local estimate even when account
+attribution is uncertain: eligible Codex usage from the same local home/window is
+compared with the latest applicable quota-observation cluster, not allocated to
+individual accounts. Current overlapping/competing series force low confidence.
+Only completed Codex display windows with multiple distinct mapped `seriesKey`
+values withhold total/unused inference; a single unattributed or account-ambiguous
+series can still retain a low-confidence estimate after completion.
+
+With a valid aggregate candidate, displayed full equivalent is at least the
+current priced used equivalent; unused equivalent is their non-negative difference.
+If cumulative known used value exceeds the aggregate candidate, retain used value
+as a low-confidence lower bound and withhold unused value rather than fabricate
+zero. This compares the cumulative amount, not just post-observation additions,
+against the weighted-median candidate, not one sample. With no valid candidate,
+show used value only. Full/unused values are
+API-equivalent estimates, not money paid, an official account balance or a promise
+of remaining subscription usage. This is not the elapsed-time prediction in
+`showWeeklyQuotaPace`, whose trusted-account/window rules are unchanged.
+
+The maintainer's 2026-10-11 decision preserves this existing current-cycle
+estimation behavior. Accurate per-account attribution belongs to future
+multi-account compatibility; it is not implemented or promised by this candidate.
 
 v2.3.0 does not infer a $20, $100, or $200 subscription tier. Local Codex logs
 do not expose a reliable account-and-plan identity, so a future comparison must

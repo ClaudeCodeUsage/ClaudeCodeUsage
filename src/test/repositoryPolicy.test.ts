@@ -970,6 +970,30 @@ test('current data inventory supplements the historical baseline and dates only 
   }
 });
 
+test('weekly value documentation explains current-window estimates without promising account balances', () => {
+  const english = repoFile('ARCHITECTURE.md'), chinese = repoFile('ARCHITECTURE-zh-CN.md');
+  for (const document of [english, chinese]) {
+    assert.ok(document.includes('candidateFullEquivalent = pricedUsedEquivalentThroughObservedAt / usedFraction'));
+  }
+  assert.match(english, /current window[\s\S]*low-confidence local estimate/i);
+  assert.match(english, /weighted median/i);
+  assert.match(chinese, /当前周期[\s\S]*低可信本地估算/);
+  assert.match(chinese, /加权中位数/);
+  assert.match(english, /multiple distinct mapped `seriesKey`/);
+  assert.match(english, /single unattributed[\s\S]*after completion/);
+  assert.match(chinese, /多个不同 `seriesKey`[\s\S]*已结束 Codex/);
+  assert.match(chinese, /单一未归属[\s\S]*结束后仍可保留/);
+  assert.match(english, /cumulative known used value exceeds the aggregate candidate/i);
+  assert.match(chinese, /累计已知已用等价值[\s\S]*汇总候选/);
+  assert.doesNotMatch(english, /Current\s+unused value is withheld/i);
+  assert.doesNotMatch(chinese, /当前周期不显示未用值/);
+  assert.match(repoFile('LOCAL-DATA.md'), /74[\s\S]*100[\s\S]*26/);
+  assert.match(repoFile('LOCAL-DATA.zh-CN.md'), /74[\s\S]*100[\s\S]*26/);
+  for (const file of ['LOCAL-DATA.md', 'LOCAL-DATA.zh-CN.md']) {
+    assert.ok(repoFile(file).includes('showWeeklyQuotaPace'));
+  }
+});
+
 test('line endings and tracked file modes are repository-safe', () => {
   const attributes = repoFile('.gitattributes');
   assert.match(attributes, /^\* text=auto eol=lf$/m);
