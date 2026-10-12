@@ -74,9 +74,12 @@ test('manifest scanning stats files concurrently and keeps discovery order', asy
     },
   });
   assert.ok(maxInFlight > 1, 'stats overlap instead of running one by one');
+  // The wall-clock bound is secondary evidence only: half the sequential sum
+  // still proves fan-out, with a wide margin over the ~150 ms a fanned-out
+  // run needs, so a loaded CI host cannot flake it.
   assert.ok(
-    performance.now() - started < 20 * 50,
-    'twenty 50 ms stats finish well under the sequential second',
+    performance.now() - started < (names.length * 50) / 2,
+    'twenty 50 ms stats finish at least twice as fast as the sequential sum',
   );
   assert.deepEqual(
     [...manifest.entries.keys()],
