@@ -46,6 +46,25 @@ test('reliable Claude calendar remains a visible lower bound when Codex dates ar
     assert.match(historicalCard,/≥600M \/ 10B/,'a saved target is not current lower-bound evidence');
     assert.doesNotMatch(historicalCard,/≥10B/);
     host.achievementGrants.delete('weekly-volume-gold');
+    const days=Array.from({length:750},(_,i)=>({date:new Date(Date.UTC(2024,0,1+i)).toISOString().slice(0,10),data}));
+    host.dailyDataForEveryDay=days;
+    const multiplied={...data,totalInputTokens:data.totalInputTokens*750,totalOutputTokens:750,
+      modelBreakdown:{'claude-sonnet-5':{...model,inputTokens:model.inputTokens*750,outputTokens:750}}};
+    host.allTimeData=multiplied;
+    const longResults=new Map<string,any>(host.achievementResults().map((row:any)=>[row.id,row]));
+    assert.equal(longResults.get('active-days-platinum').unlocked,true,'Codex date gaps do not block a verified Claude long-term day rank');
+    assert.equal(longResults.get('active-days-legendary').unlocked,false);
+    const partialLong=host.renderAchievementData().match(/<article[^>]*data-achievement-key="active-days"[\s\S]*?<\/article>/)![0];
+    assert.match(partialLong,/≥750 \/ 1,?500/);
+    host.codexView.coverage.identity.complete=true;
+    host.codexView.periodCoverage.allTime.complete=true;
+    host.codexAchievementSignals={...host.codexAchievementSignals,dayEvidence:{complete:true,timeZone:'UTC',days:[]}};
+    const exactLong=host.renderAchievementData().match(/<article[^>]*data-achievement-key="active-days"[\s\S]*?<\/article>/)![0];
+    assert.doesNotMatch(exactLong,/≥750/,'complete-empty Codex proof upgrades the bound to an exact count');
+    host.dailyDataForEveryDay=Array.from({length:7},(_,i)=>({date:`2026-09-0${i+1}`,data}));
+    host.allTimeData=data;
+    host.codexView.coverage.identity.complete=false;
+    host.codexView.periodCoverage.allTime.complete=false;
     host.revokedAchievementEvidence.add('codex');
     assert.match(host.renderAchievementData(),/≥600M/,'a stale independent provider cannot retire verified Claude dates');
     host.revokedAchievementEvidence.delete('codex');

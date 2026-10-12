@@ -105,8 +105,11 @@ Lencana tersemat yang tersembunyi dapat dilepas melalui daftar lipat tanpa menga
 Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
 yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.
 
-Katalog sumber kandidat 2.4.2 yang belum dirilis memuat 50 tema, 144 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
+Katalog sumber kandidat 2.4.2 yang belum dirilis memuat 50 tema, 174 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
 output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
+
+Lima belas seri Claude/aktivitas menambah Platina dan Legendaris, tanpa mengubah tiga target awal, bukti, atau gambar. Hari aktif, output, dan sesi mendukung kemajuan dalam tiga hari kerja terpusat per pekan, tanpa Codex atau belanja tambahan. Tingkat hari berturut-turut tidak ditambah.
+
 Ada 20 syarat nilai uang dalam enam tema terpisah Claude/Codex: subtotal kumulatif yang memiliki harga, minggu kalender yang telah berakhir dan dimulai pada Senin, serta penggunaan tunggal.
 Minggu mengikuti zona waktu data saat ini; penggunaan tunggal berarti satu sesi Claude atau satu pohon tugas Codex yang terverifikasi.
 Harga referensi USD tetap dengan versi memerlukan model yang dikenal secara tepat dan tarif komponen lengkap, termasuk TTL cache Claude.

@@ -759,6 +759,26 @@ exports.renderHarness = async function renderHarness({
       // patch can preserve a deliberate choice independently of showcase pins.
       provider.sharingTemplate = 'achievements';
     }
+    if (fixture.startsWith('achievement-long-term-')) {
+      const {ACHIEVEMENT_DEFINITIONS,ACHIEVEMENT_SERIES}=require('../../../out/achievements.js');
+      const {parseAchievementRecordStore}=require('../../../out/achievementRecordStore.js');
+      const rank=['gold','platinum','legendary'].indexOf(fixture.replace('achievement-long-term-',''))+2;
+      const ids=ACHIEVEMENT_SERIES['sonnet-main'].slice(0,rank+1);
+      const progress=ACHIEVEMENT_DEFINITIONS.find(row=>row.id===ids.at(-1)).target;
+      provider.providerAvailability={claude:true,codex:false,codexData:false};
+      // Deliberately synthetic renderer facts; domain boundary tests separately
+      // exercise the real evaluator and native-receipt qualification.
+      provider.achievementResults=()=>ACHIEVEMENT_DEFINITIONS.map(row=>({...row,
+        progress:ACHIEVEMENT_SERIES['sonnet-main'].includes(row.id)?progress:0,
+        unlocked:ACHIEVEMENT_SERIES['sonnet-main'].includes(row.id)&&progress>=row.target}));
+      provider.achievementRecordState=parseAchievementRecordStore({schemaVersion:2,catalogVersion:2,generation:1,
+        sequence:ids.length,lastNoticeAt:0,pinRevision:0,showcaseMode:'manual',legacyBoundary:null,
+        legacyRecords:[],pins:['sonnet-main'],records:ids.map((id,i)=>({id,seq:i+1,ruleVersion:1,
+          origin:'history',unread:false,recordedDay:null,timeZone:null})),
+        auxiliary:{activity:{schemaVersion:2,settingKeys:[],features:[]},hours:{schemaVersion:3,maxStreak:0},calendarPeak:null}});
+      provider.achievementGrants=new Set(ids);
+      provider.sharingTemplate='achievements';
+    }
     if (fixture === 'achievement-records' || fixture === 'achievement-records-read' || fixture === 'achievement-history-only' || fixture === 'achievement-pins' || fixture.startsWith('achievement-hidden-pins')) {
       // Validated synthetic local records, not claimed personal achievement dates.
       const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');

@@ -357,7 +357,7 @@ credentials or make a network call to refresh it.
 
 ### Local achievements (2.4.2 candidate)
 
-The gallery has 50 display themes and 144 award conditions. `enableAchievements` defaults
+The gallery has 50 display themes and 174 award conditions. `enableAchievements` defaults
 on, but an existing opt-out wins; a once-only non-modal upgrade announcement offers
 view/disable actions without opening the gallery automatically. Historical grants
 establish a quiet baseline. Subsequent eligible in-panel notices have no sound or
@@ -440,6 +440,19 @@ Overview buttons open the existing persisted series disclosure; they do not
 read logs, issue refresh requests or persist a second aggregate index. Pins and
 record projections and the foreground missed-notice summary use the bounded
 canonical envelope below without creating a second award store.
+
+`achievementLongTerm.ts` appends 30 fixed ranks to 15 existing sustained Claude/
+activity series. Their first three IDs, thresholds and evidence remain unchanged;
+new IDs reuse their explicit base rule's counter/art and locale-native name/rank.
+No consecutive-day tiers or scanners are added. Family days now share the activity
+topic, so one automatic slot need not suppress an independently earned model-volume
+badge. Historical IDs and v1 series-pin vocabulary stay frozen, independent of live
+series membership. Additive IDs cannot be imported as v1 proof; current v2 accepts
+old144 envelopes and up to174 current records under the unchanged64 KiB cap. An
+old binary may reject unfamiliar IDs but must not overwrite the canonical envelope.
+Higher output/cache tiers use the same causal native-tail checks; session/calendar
+reconciliation remains quiet with unknown dates. Explicit share choices never
+auto-upgrade to a higher rank.
 
 The overview uses bounded horizontal cards rather than stretching a few icons
 across the desktop. In-card pins remain separate buttons; next-target bars are
@@ -610,7 +623,7 @@ This adds neither storage fields nor timestamps and is not cross-host coordinati
 
 `achievementRecordStore.ts` now owns the canonical `achievements-v2.json` award
 envelope in extension global storage, separately from those runtime latches.
-It validates at most 144 current unique rule IDs, monotonic sequence/generation, reason
+It validates at most 174 current unique rule IDs, monotonic sequence/generation, reason
 enums and optional first-record day/zone within 64 KiB. Audited old grants seed
 only a missing canonical file. The v1 file is read-only migration input outside
 explicit clearing. Versioned migration archives saved awards from the 21 changed

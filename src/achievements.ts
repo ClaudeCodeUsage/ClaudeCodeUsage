@@ -9,7 +9,8 @@ import { SAFE_EXPLORATION_FEATURES } from './achievementActivity';
 import { validAchievementBuckets, verifiedCodexAchievementFiles } from './codexAchievementProof';
 import type { AchievementCalendarSignals, AchievementDayEvidence, AchievementTokenEvidence } from './achievementCalendar';
 import { codexCollaborationEvidence, AchievementCollaborationEvidence } from './achievementCollaboration';
-import { RECALIBRATED_ACHIEVEMENT_IDS_V2 } from './achievementRuleVersions';
+import { RECALIBRATED_ACHIEVEMENT_IDS_V2, isLegacyAchievementId } from './achievementRuleVersions';
+import { LONG_TERM_ACHIEVEMENT_DEFINITIONS, type LongTermAchievementId } from './achievementLongTerm';
 
 export type CodexModelFamily = 'astra' | 'sol' | 'luna';
 export type ClaudeModelFamily = 'sonnet' | 'opus' | 'haiku';
@@ -365,6 +366,7 @@ export const ACHIEVEMENT_DEFINITIONS = [
   { id: 'weekly-average-gold', group: 'combined', target: 5_000_000_000 },
   { id: 'three-family-day', group: 'combined', target: 1 },
   { id: 'dual-provider-day', group: 'combined', target: 1 },
+  ...LONG_TERM_ACHIEVEMENT_DEFINITIONS,
   ...API_ACHIEVEMENT_DEFINITIONS,
 ] as const;
 
@@ -413,6 +415,9 @@ export const ACHIEVEMENT_SERIES: Record<string, readonly AchievementId[]> = {
   'weekly-average': ['weekly-average-bronze', 'weekly-average-silver', 'weekly-average-gold'],
   ...API_ACHIEVEMENT_SERIES,
 };
+for (const rule of LONG_TERM_ACHIEVEMENT_DEFINITIONS) {
+  ACHIEVEMENT_SERIES[rule.series] = [...ACHIEVEMENT_SERIES[rule.series], rule.id];
+}
 
 const QUIET_ACHIEVEMENTS = new Set<AchievementId>([
   'night-output-peak', 'output-hours-silver', 'output-hours-gold',
@@ -429,11 +434,11 @@ const PRE_CALIBRATION_LADDERS: Record<string, readonly number[]> = {
   'model-rainbow': [2, 5, 6],
 };
 const CALIBRATION_RECHECK_ONLY: readonly AchievementId[] = [
-  ...ACHIEVEMENT_SERIES['fable-days'], ...ACHIEVEMENT_SERIES['active-weeks'], 'three-family-day',
+  ...ACHIEVEMENT_SERIES['fable-days'].slice(0,3), ...ACHIEVEMENT_SERIES['active-weeks'].slice(0,3), 'three-family-day',
   ...RECALIBRATED_ACHIEVEMENT_IDS_V2,
 ];
 export const CALIBRATED_ACHIEVEMENT_IDS: readonly AchievementId[] = [
-  ...Object.keys(PRE_CALIBRATION_LADDERS).flatMap(series => ACHIEVEMENT_SERIES[series]),
+  ...Object.entries(PRE_CALIBRATION_LADDERS).flatMap(([series, former]) => ACHIEVEMENT_SERIES[series].slice(0,former.length)),
   ...CALIBRATION_RECHECK_ONLY,
 ];
 
@@ -442,11 +447,11 @@ export function migrateCalibratedAchievementGrants(value: unknown): AchievementI
   if (!Array.isArray(value)) return [];
   const allowed = new Set<string>(ACHIEVEMENT_DEFINITIONS.map(rule => rule.id));
   const existing = new Set<AchievementId>(value.filter((id): id is AchievementId =>
-    typeof id === 'string' && allowed.has(id)));
+    typeof id === 'string' && allowed.has(id) && isLegacyAchievementId(id)));
   const changed = new Set(CALIBRATED_ACHIEVEMENT_IDS);
   const retained = new Set([...existing].filter(id => !changed.has(id)));
   for (const [series, formerTargets] of Object.entries(PRE_CALIBRATION_LADDERS)) {
-    const ids = ACHIEVEMENT_SERIES[series];
+    const ids = ACHIEVEMENT_SERIES[series].slice(0,formerTargets.length);
     const provenFloor = ids.reduce((floor, id, index) => existing.has(id)
       ? Math.max(floor, formerTargets[index]) : floor, 0);
     for (const id of ids) {
@@ -636,7 +641,7 @@ export function evaluateAchievements(facts: AchievementFacts): AchievementResult
       .filter((family) => safeCount(facts.codex.collaboration?.rainbowFamilies[family].processed) >= 10_000_000 &&
         safeCount(facts.codex.collaboration?.rainbowFamilies[family].output) >= 20_000).length +
     (safeCount(facts.fable?.processedTokens) >= 10_000_000 && safeCount(facts.fable?.outputTokens) >= 20_000 ? 1 : 0);
-  const values: Record<AchievementId, number> = {
+  const values: Record<Exclude<AchievementId,LongTermAchievementId>, number> = {
     ...achievementMoneyProgress(facts.money),
     'sonnet-main': safeCount(facts.claudeFamilyTokens?.sonnet),
     'sonnet-main-silver': safeCount(facts.claudeFamilyTokens?.sonnet),
@@ -764,9 +769,9 @@ export function evaluateAchievements(facts: AchievementFacts): AchievementResult
     'three-family-day': facts.calendar?.threeFamilyDay ? 1 : 0,
     'dual-provider-day': facts.calendar?.dualProviderDay ? 1 : 0,
   };
-  return ACHIEVEMENT_DEFINITIONS.map(({ id, group, target }) => {
-    const progress = safeCount(values[id]);
-    return { id, group, target, progress, unlocked: progress >= target };
+  return ACHIEVEMENT_DEFINITIONS.map(rule => {
+    const progress = safeCount(values['baseId' in rule ? rule.baseId : rule.id]);
+    return { id:rule.id, group:rule.group, target:rule.target, progress, unlocked: progress >= rule.target };
   });
 }
 

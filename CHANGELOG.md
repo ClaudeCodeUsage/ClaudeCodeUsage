@@ -8,6 +8,15 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Added — 2.4.2 local candidate
 
+- **Claude-heavy long-term ranks** — fifteen existing Claude/sustained-activity
+  series gain thirty Platinum/Legendary conditions, preserving the original three
+  targets and artwork. Output, sessions and nonconsecutive activity support solo
+  Claude and concentrated weekly patterns without buying models or using Codex.
+  No consecutive-day tiers are added. Locale-native titles, current progress,
+  explicit sharing and quiet historical reconciliation retain their contracts.
+  Frozen v1 IDs/pin keys and v2 canonical records stay compatible; up to174 current
+  records remain bounded by64 KiB. Old labels cannot authorize new high ranks.
+
 - **Provider/metric heatmap sharing** — Claude / Codex / Both × Tokens /
   API-equivalent amount, defaulting to Tokens with explicit amount disclosure.
   Current daily Claude estimates and Codex exact-model-priced subsets remain
@@ -175,6 +184,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   focuses the existing opt-out without changing it; sharing offers a return path.
 
 ### Fixed — 2.4.2 local candidate
+
+- **Historical rank versus current progress** — retained awards preserve their
+  earned rank but never replace a current verified subtotal with the old target.
+  After log retention, an earned Legendary badge can therefore show a smaller
+  current amount truthfully without deleting its historical qualification.
 
 - **Calendar proof recovery and partial progress** — legacy Codex date indexes
   without current lineage proof enter bounded, resumable revalidation when

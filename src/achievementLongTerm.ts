@@ -1,0 +1,36 @@
+/** Additive long-term ranks. Existing IDs/qualifications/first three targets stay
+ * unchanged. The base rule supplies the same verified counter, label and art;
+ * this catalog is not a new scanner, score or productivity classification. */
+export const LONG_TERM_ACHIEVEMENT_DEFINITIONS = [
+  {id:'sonnet-main-platinum',series:'sonnet-main',baseId:'sonnet-main-gold',group:'claude',target:20_000_000_000},
+  {id:'sonnet-main-legendary',series:'sonnet-main',baseId:'sonnet-main-gold',group:'claude',target:50_000_000_000},
+  {id:'opus-cannon-platinum',series:'opus-cannon',baseId:'opus-cannon-gold',group:'claude',target:20_000_000_000},
+  {id:'opus-cannon-legendary',series:'opus-cannon',baseId:'opus-cannon-gold',group:'claude',target:50_000_000_000},
+  {id:'haiku-worker-platinum',series:'haiku-worker',baseId:'haiku-worker-gold',group:'claude',target:2_000_000_000},
+  {id:'haiku-worker-legendary',series:'haiku-worker',baseId:'haiku-worker-gold',group:'claude',target:5_000_000_000},
+  {id:'fable-volume-platinum',series:'fable-volume',baseId:'fable-volume-gold',group:'claude',target:10_000_000_000},
+  {id:'fable-volume-legendary',series:'fable-volume',baseId:'fable-volume-gold',group:'claude',target:25_000_000_000},
+  {id:'cache-wizard-platinum',series:'cache-wizard',baseId:'cache-wizard-gold',group:'claude',target:20_000_000_000},
+  {id:'cache-wizard-legendary',series:'cache-wizard',baseId:'cache-wizard-gold',group:'claude',target:50_000_000_000},
+  {id:'claude-output-platinum',series:'claude-output',baseId:'claude-output-gold',group:'claude',target:500_000_000},
+  {id:'claude-output-legendary',series:'claude-output',baseId:'claude-output-gold',group:'claude',target:1_000_000_000},
+  {id:'claude-cache-creation-platinum',series:'claude-cache-creation',baseId:'claude-cache-creation-gold',group:'claude',target:2_000_000_000},
+  {id:'claude-cache-creation-legendary',series:'claude-cache-creation',baseId:'claude-cache-creation-gold',group:'claude',target:5_000_000_000},
+  {id:'claude-output-sessions-platinum',series:'claude-output-sessions',baseId:'claude-output-sessions-gold',group:'claude',target:2_500},
+  {id:'claude-output-sessions-legendary',series:'claude-output-sessions',baseId:'claude-output-sessions-gold',group:'claude',target:5_000},
+  {id:'fable-sessions-platinum',series:'fable-sessions',baseId:'fable-sessions-gold',group:'claude',target:2_500},
+  {id:'fable-sessions-legendary',series:'fable-sessions',baseId:'fable-sessions-gold',group:'claude',target:5_000},
+  {id:'sonnet-days-platinum',series:'sonnet-days',baseId:'sonnet-days-gold',group:'claude',target:520},
+  {id:'sonnet-days-legendary',series:'sonnet-days',baseId:'sonnet-days-gold',group:'claude',target:1_000},
+  {id:'opus-days-platinum',series:'opus-days',baseId:'opus-days-gold',group:'claude',target:520},
+  {id:'opus-days-legendary',series:'opus-days',baseId:'opus-days-gold',group:'claude',target:1_000},
+  {id:'haiku-days-platinum',series:'haiku-days',baseId:'haiku-days-gold',group:'claude',target:520},
+  {id:'haiku-days-legendary',series:'haiku-days',baseId:'haiku-days-gold',group:'claude',target:1_000},
+  {id:'fable-days-platinum',series:'fable-days',baseId:'fable-days-gold',group:'claude',target:520},
+  {id:'fable-days-legendary',series:'fable-days',baseId:'fable-days-gold',group:'claude',target:1_000},
+  {id:'active-days-platinum',series:'active-days',baseId:'active-days-gold',group:'combined',target:750},
+  {id:'active-days-legendary',series:'active-days',baseId:'active-days-gold',group:'combined',target:1_500},
+  {id:'active-weeks-platinum',series:'active-weeks',baseId:'active-weeks-gold',group:'combined',target:52},
+  {id:'active-weeks-legendary',series:'active-weeks',baseId:'active-weeks-gold',group:'combined',target:104},
+] as const;
+export type LongTermAchievementId = typeof LONG_TERM_ACHIEVEMENT_DEFINITIONS[number]['id'];

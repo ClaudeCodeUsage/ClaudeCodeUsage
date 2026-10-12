@@ -106,8 +106,11 @@ ohne den deaktivierten Anbieter wieder einzuschalten.
 Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
 neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.
 
-Der noch nicht veröffentlichte Kandidat 2.4.2 hat laut Quellkatalog 50 Themenkarten, 144 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
+Der noch nicht veröffentlichte Kandidat 2.4.2 hat laut Quellkatalog 50 Themenkarten, 174 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
 Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
+
+15 Claude-/Aktivitätsserien erhalten Platin und Legendär; die ersten drei Schwellen und Nachweise bleiben unverändert, die Motive werden weiterverwendet. Aktivitätstage, Ausgabe und Sitzungen ermöglichen Fortschritt bei drei konzentrierten Tagen pro Woche, ohne Codex oder höhere Ausgaben. Serien aufeinanderfolgender Tage werden nicht erweitert.
+
 Davon betreffen 20 Bedingungen sechs getrennte Claude-/Codex-API-Äquivalent-Themen: bepreiste Gesamtsummen,
 abgeschlossene Wochen ab Montag in der aktuellen Datenzeitzone und eine Claude-Sitzung bzw. ein verifizierter Codex-Aufgabenbaum.
 Feste USD-Referenzpreise mit Versionsangabe verlangen bekannte exakte Modelle und vollständige Komponentenpreise einschließlich Claude-Cache-TTL.

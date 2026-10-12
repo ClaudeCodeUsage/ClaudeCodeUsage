@@ -6,6 +6,7 @@ import { achievementConditionFor } from '../achievementConditions';
 import type { AchievementId } from '../achievements';
 import { API_ACHIEVEMENT_DEFINITIONS, API_ACHIEVEMENT_SERIES } from '../achievementMoneyCatalog';
 import { isLegacyAchievementId } from '../achievementRuleVersions';
+import { LONG_TERM_ACHIEVEMENT_DEFINITIONS } from '../achievementLongTerm';
 
 // Semantic markers rather than whole-string snapshots: concise translations may
 // change, but the qualification and evidence boundaries must remain visible.
@@ -107,7 +108,8 @@ test('copy covers exactly eight public locales and the current rule and artwork 
   const moneyIds = API_ACHIEVEMENT_DEFINITIONS.map(row => row.id);
   assert.equal(legacyIds.length, 124, 'the V1 allowlist stays frozen');
   assert.equal(moneyIds.length, 20);
-  assert.deepEqual(ACHIEVEMENT_DEFINITIONS.map(row => row.id).sort(), [...legacyIds, ...moneyIds].sort());
+  assert.deepEqual(ACHIEVEMENT_DEFINITIONS.map(row => row.id).sort(),
+    [...legacyIds, ...moneyIds, ...LONG_TERM_ACHIEVEMENT_DEFINITIONS.map(row=>row.id)].sort());
   const seriesFor = new Map(Object.entries(ACHIEVEMENT_SERIES).flatMap(([key, ids]) => ids.map(id => [id, key] as const)));
   const artworkKeys = new Set(ACHIEVEMENT_DEFINITIONS.map(row => seriesFor.get(row.id) ?? row.id));
   const legacyArtworkKeys = new Set(legacyIds.map(id => seriesFor.get(id) ?? id));

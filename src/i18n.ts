@@ -8,6 +8,7 @@ import { CODEX_COPY_EN, CodexViewCopy } from './codexView';
 import type { AchievementId } from './achievements';
 import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievementMoneyCatalog';
 import { API_HEATMAP_COPY } from './apiHeatmapCopy';
+import { LONG_TERM_ACHIEVEMENT_DEFINITIONS, type LongTermAchievementId } from './achievementLongTerm';
 
 function apiAchievementTitles(locale: SupportedLanguage): Record<AchievementMoneyId,string> {
   const themes:Record<SupportedLanguage,readonly string[]> = {
@@ -157,7 +158,10 @@ export const ACHIEVEMENT_RECORD_INVENTORY_COPY: Record<SupportedLanguage, { cate
 };
 
 /** Local-only achievement copy. Every card has a title in each UI locale. */
-export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
+type BaseAchievementCopy = Omit<AchievementCopy,'titles'> & {
+  titles: Record<Exclude<AchievementId,LongTermAchievementId>,string>;
+};
+const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
   en: {
     tab: 'Achievements', heading: 'Local achievements',
     intro: 'Milestones from indexed local usage. They describe activity, not skill or productivity.',
@@ -1393,6 +1397,21 @@ export const ACHIEVEMENT_COPY: Record<SupportedLanguage, AchievementCopy> = {
     },
   },
 };
+
+// New ranks reuse each locale's own established series name and rank labels.
+// Materialize once, not once per card/render; no English fallback for new IDs.
+export const ACHIEVEMENT_COPY: Record<SupportedLanguage,AchievementCopy> = Object.fromEntries(
+  Object.entries(BASE_ACHIEVEMENT_COPY).map(([locale,base]) => [locale,{...base,titles:{...base.titles,
+    ...Object.fromEntries(LONG_TERM_ACHIEVEMENT_DEFINITIONS.map(rule => {
+      let title=base.titles[rule.baseId];
+      for(const level of base.levels) if(title.endsWith(level)) {
+        const prefix=title.slice(0,-level.length);
+        if(/[\s·・]$/u.test(prefix)) {title=prefix.replace(/[\s·・]+$/u,'');break;}
+      }
+      return [rule.id,title+' · '+base.levels[rule.id.endsWith('-platinum')?3:4]];
+    })),
+  }}]),
+) as Record<SupportedLanguage,AchievementCopy>;
 
 export function achievementCopyFor(locale: string): AchievementCopy {
   return Object.prototype.hasOwnProperty.call(ACHIEVEMENT_COPY, locale)

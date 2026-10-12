@@ -80,7 +80,8 @@ export function achievementOverviewTopic(key: string): string {
   if (key==='cumulative-volume' || /^(claude|codex)-api-total$/.test(key)) return 'resource-volume';
   if (/^(claude|codex)-api-week$/.test(key)) return 'weeks';
   if (/^(claude|codex)-api-(session|task)$/.test(key)) return 'resource-volume';
-  if (/^(astra|sol|luna|sonnet|opus|haiku|fable)-(regular|main|cannon|worker|volume|days|sessions)$/.test(key) || key === 'fable-relay') return 'models';
+  if (/^(astra|sol|luna|sonnet|opus|haiku|fable)-days$/.test(key)) return 'activity';
+  if (/^(astra|sol|luna|sonnet|opus|haiku|fable)-(regular|main|cannon|worker|volume|sessions)$/.test(key) || key === 'fable-relay') return 'models';
   if (key.startsWith('weekly-')) return 'weeks';
   if (/^(active-|streak-machine|dual-provider-)/.test(key)) return 'activity';
   if (/^(settings-|safe-feature-|local-)/.test(key)) return 'plugin';

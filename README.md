@@ -233,10 +233,11 @@ attainment; historical dates remain unknown. Browsing does not mark records read
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.
 
-The unreleased 2.4.2 candidate adds an icon-first gallery: **50 display themes and 144 award conditions**,
+The unreleased 2.4.2 candidate adds an icon-first gallery: **50 display themes and 174 award conditions**,
 using 52 artwork groups from the source catalog. Fourteen-day and first shared-day
 milestones live inside their growing themes, with distinct award and sharing choices.
 The gallery has ordinary, silver and gold tiers, plus platinum/legendary cumulative milestones.
+Fifteen sustained Claude/activity series add Platinum and Legendary ranks without changing their first three targets. These use existing verified counters and artwork; concentrated three-day weeks can grow through activity days, output and sessions without requiring Codex or higher spending. Consecutive-day tiers are not extended.
 One card shows each series and its compact next target; expand it for every level's
 rule and evidence. Series and unlocked levels are counted separately. Local All /
 Next level / Earned filters survive reload; upgrading a tier keeps its disclosure open.

@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { LONG_TERM_ACHIEVEMENT_DEFINITIONS } from '../achievementLongTerm';
 import * as assert from 'node:assert/strict';
 
 import {
@@ -45,10 +46,10 @@ test('Claude session proof deduplicates IDs and requires evidenced output for Fa
 });
 
 test('Claude output-session and cache-write series have rising, separately evidenced tiers', () => {
-  assert.deepEqual(ACHIEVEMENT_SERIES['claude-output-sessions'], [
+  assert.deepEqual(ACHIEVEMENT_SERIES['claude-output-sessions'].slice(0,3), [
     'claude-output-sessions-bronze', 'claude-output-sessions-silver', 'claude-output-sessions-gold',
   ]);
-  assert.deepEqual(ACHIEVEMENT_SERIES['claude-cache-creation'], [
+  assert.deepEqual(ACHIEVEMENT_SERIES['claude-cache-creation'].slice(0,3), [
     'claude-cache-creation-bronze', 'claude-cache-creation-silver', 'claude-cache-creation-gold',
   ]);
   const facts: AchievementFacts = {
@@ -116,7 +117,7 @@ test('every tiered family has unique known IDs, one evidence group, and rising t
   const definitions = new Map(ACHIEVEMENT_DEFINITIONS.map((entry) => [entry.id, entry]));
   const seen = new Set<string>();
   for (const [series, ids] of Object.entries(ACHIEVEMENT_SERIES)) {
-    assert.equal(ids.length, series === 'cumulative-volume' ? 5 :
+    assert.equal(ids.length, series === 'cumulative-volume' || LONG_TERM_ACHIEVEMENT_DEFINITIONS.some(row=>row.series===series) ? 5 :
       series === 'claude-api-total' || series === 'codex-api-total' ? 4 : 3, series);
     const tiers = ids.map((id) => {
       assert.equal(seen.has(id), false, `${id} appears in two series`);
@@ -297,7 +298,7 @@ test('model and cache series keep their IDs and require each calibrated Token bo
   ];
   for (const [prefix, setTokens] of series) {
     const ids = ACHIEVEMENT_SERIES[prefix];
-    assert.deepEqual(ids, [prefix, `${prefix}-silver`, `${prefix}-gold`]);
+    assert.deepEqual(ids.slice(0,3), [prefix, `${prefix}-silver`, `${prefix}-gold`]);
     for (const [index, id] of ids.entries()) {
       const target = currentTarget(id);
       setTokens(target - 1);

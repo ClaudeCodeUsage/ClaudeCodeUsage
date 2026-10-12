@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import type { AchievementId } from './achievements';
 import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievementMoneyCatalog';
+import { LONG_TERM_ACHIEVEMENT_DEFINITIONS, type LongTermAchievementId } from './achievementLongTerm';
 const apiImageFiles = Object.fromEntries(API_ACHIEVEMENT_DEFINITIONS.map(row=>
   [row.id,row.id.replace(/-(bronze|silver|gold|platinum)$/,'-v242-v2.png')])) as Record<AchievementMoneyId,string>;
 
 /** Only bundled artwork can appear in the gallery or exported SVG. */
-export const ACHIEVEMENT_IMAGE_FILES: Record<AchievementId, string> = {
+const BASE_ACHIEVEMENT_IMAGE_FILES: Record<Exclude<AchievementId,LongTermAchievementId>, string> = {
   ...apiImageFiles,
   'codex-output-bronze': 'codex-output-v242.png',
   'codex-output-silver': 'codex-output-v242.png',
@@ -135,6 +136,10 @@ export const ACHIEVEMENT_IMAGE_FILES: Record<AchievementId, string> = {
 };
 
 // Tiers share an emblem: retain one byte string per file, not per award ID.
+export const ACHIEVEMENT_IMAGE_FILES: Record<AchievementId,string> = {
+  ...BASE_ACHIEVEMENT_IMAGE_FILES,
+  ...Object.fromEntries(LONG_TERM_ACHIEVEMENT_DEFINITIONS.map(rule=>[rule.id,BASE_ACHIEVEMENT_IMAGE_FILES[rule.baseId]])),
+} as Record<AchievementId,string>;
 const encoded = new Map<string, string>();
 
 export function achievementImagePath(id: AchievementId): string {

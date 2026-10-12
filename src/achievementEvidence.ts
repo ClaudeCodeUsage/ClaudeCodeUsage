@@ -61,8 +61,8 @@ export function claudeTailAchievementCrossings(
       : rule.id.startsWith('haiku-worker') ? delta.families.haiku
       : rule.id.startsWith('fable-volume-') ? delta.families.fable
       : rule.id.startsWith('cache-wizard') ? delta.cacheRead
-      : /^claude-cache-creation-(bronze|silver|gold)$/.test(rule.id) ? delta.cacheCreation
-      : /^claude-output-(bronze|silver|gold)$/.test(rule.id) ? delta.output
+      : /^claude-cache-creation-(bronze|silver|gold|platinum|legendary)$/.test(rule.id) ? delta.cacheCreation
+      : /^claude-output-(bronze|silver|gold|platinum|legendary)$/.test(rule.id) ? delta.output
       : ['hundred-million-club', 'billion-token-club', 'ten-billion-token-club',
         'hundred-billion-token-club', 'trillion-token-club'].includes(rule.id) ? delta.processed : 0;
     if (addition <= 0 || addition > next.progress || !Number.isSafeInteger(old.progress + addition)) continue;

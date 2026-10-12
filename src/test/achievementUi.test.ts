@@ -2556,7 +2556,7 @@ test('installed webview uses local extension asset URIs instead of inlining ever
   });
 });
 
-test('three milestone tiers share one icon-led card and keep the next target visible', async () => {
+test('five Fable tiers share one icon-led card and keep the next target visible', async () => {
   await withProvider(new Map(), async (provider) => {
     provider.settings = { get: () => true };
     provider.providerAvailability = { claude: true, codex: true, codexData: true };
@@ -2565,7 +2565,7 @@ test('three milestone tiers share one icon-led card and keep the next target vis
     assert.equal((html.match(/data-achievement-series="fable-volume"/g) ?? []).length, 1);
     assert.match(html, /data-achievement-series="fable-volume"[^>]*data-achievement-tier="bronze"/);
     assert.match(html, /data-achievement-id="fable-volume-bronze"/);
-    assert.match(html, /aria-label="[^"]*1[^\"]*3/);
+    assert.match(html, /aria-label="[^"]*1[^\"]*5/);
   });
 });
 

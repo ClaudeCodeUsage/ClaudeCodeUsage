@@ -5582,16 +5582,15 @@ export class UsageWebviewProvider {
     const card = ({ key, milestones, result, nextResult, series, tiers, tierCount, earnedTiers, earnedLevels, nextTierIndex,
       hasNextTier, tier }: typeof presentation[number]): string => {
       const earned = earnedTiers > 0 || isEarned(result) || milestones.some(isEarned);
-      const targetUnlocked = nextResult.unlocked || this.achievementGrants.has(nextResult.id);
       const monetary = API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===nextResult.id);
       const moneyProof = monetary ? this.achievementMoneyFacts[monetary.group] : undefined;
       const quality = monetary ? moneyProof?.coverage[monetary.scope] : undefined;
       const evidenceState = evidenceFor(nextResult);
       const proofReady = evidenceState === 'ready';
       const proofLabel = evidenceState === 'stale' ? copy.evidenceStale : quality?.status==='unpriced' ? moneyCopy.unpriced : copy.evidencePending;
-      const calendarLowerBound = this.achievementCalendarLowerBounds.has(nextResult.id);
-      const progress = Math.min(nextResult.target,
-        targetUnlocked && !calendarLowerBound ? nextResult.target : nextResult.progress);
+      // A retained award controls the earned rank, never the current numeric
+      // subtotal after retention/source changes. Keep those facts separate.
+      const progress = Math.min(nextResult.target, nextResult.progress);
       const formatted = compactValue(nextResult.id,progress) + ' / ' + compactValue(nextResult.id,nextResult.target);
       const exactProgress = integerValue(nextResult.id,progress) + ' / ' + integerValue(nextResult.id,nextResult.target);
       const cumulativeVolume = ['hundred-million-club',

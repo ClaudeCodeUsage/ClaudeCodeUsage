@@ -69,6 +69,18 @@ function emptyAuxiliary(): AchievementAuxiliaryProof {
 const ids = new Set<string>(ACHIEVEMENT_DEFINITIONS.map(row => row.id));
 const seriesIds = new Set(Object.values(ACHIEVEMENT_SERIES).flat());
 const keys = new Set([...Object.keys(ACHIEVEMENT_SERIES), ...ACHIEVEMENT_DEFINITIONS.filter(row => !seriesIds.has(row.id)).map(row => row.id)]);
+// Frozen v1 pin vocabulary: adding tiers must neither invalidate old series pins
+// nor let a newly invented series key enter a downgrade-readable file.
+const legacySeriesKeys = new Set<string>([
+  'cumulative-volume', 'sonnet-main', 'opus-cannon', 'haiku-worker', 'cache-wizard',
+  'claude-output', 'claude-output-sessions', 'claude-cache-creation', 'fable-volume',
+  'fable-days', 'fable-sessions', 'weekly-volume', 'output-hours', 'settings-explorer',
+  'astra-regular', 'sol-regular', 'luna-regular', 'agent-team', 'same-root-models',
+  'effort-breadth', 'agent-conductor', 'root-portfolio', 'agent-participation',
+  'model-relay-roots', 'active-day-streak', 'active-days', 'model-rainbow',
+  'codex-output', 'codex-cache-read', 'astra-days', 'sol-days', 'luna-days',
+  'sonnet-days', 'opus-days', 'haiku-days', 'dual-provider-days', 'active-weeks', 'weekly-average',
+]);
 const origins = new Set(['existing', 'history', 'usage', 'activity']);
 type WriteGuard = () => boolean;
 const invalid = (): never => { throw new Error('achievement-record:invalid'); };
@@ -101,8 +113,7 @@ function draft(value: unknown): AchievementRecordDraft {
   return row as unknown as AchievementRecordDraft;
 }
 function legacyPinKey(key:string):boolean {
-  return isLegacyAchievementId(key) || (Object.prototype.hasOwnProperty.call(ACHIEVEMENT_SERIES,key) &&
-    ACHIEVEMENT_SERIES[key].every(isLegacyAchievementId));
+  return isLegacyAchievementId(key) || legacySeriesKeys.has(key);
 }
 function pins(value: unknown, limit = 3, legacy = false): string[] {
   if (!Array.isArray(value) || value.length > limit || new Set(value).size !== value.length ||

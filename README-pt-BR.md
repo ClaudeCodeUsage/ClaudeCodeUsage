@@ -99,8 +99,11 @@ Medalhas fixadas ocultas podem ser desafixadas na lista recolhível sem reativar
 Registros importados de uso do plugin não geram avisos. Novas ações salvas com sucesso
 podem desbloquear emblemas com o painel fechado, sem abrir nem atualizar painéis ocultos.
 
-O catálogo do código do candidato 2.4.2, ainda não lançado, tem 50 temas, 144 condições de desbloqueio e 52 grupos de arte: tokens por modelo, saída/cache,
+O catálogo do código do candidato 2.4.2, ainda não lançado, tem 50 temas, 174 condições de desbloqueio e 52 grupos de arte: tokens por modelo, saída/cache,
 atividade, recordes semanais e algumas ações deliberadas no plugin.
+
+Quinze séries de Claude/atividade recebem Platina e Lendário, preservando as três metas iniciais, evidências e arte. Dias ativos, saída e sessões permitem progresso com três dias concentrados por semana, sem Codex ou maior gasto. As séries de dias consecutivos não são ampliadas.
+
 São 20 condições monetárias em seis temas separados de Claude/Codex: subtotal acumulado com preço conhecido, semanas encerradas que começam na segunda-feira e uso individual.
 As semanas usam o fuso atual dos dados; uso individual é uma sessão Claude ou uma árvore de tarefa Codex verificada.
 Preços de referência fixos em USD, com versão, exigem modelos exatos conhecidos e todas as tarifas dos componentes, incluindo TTL do cache Claude.

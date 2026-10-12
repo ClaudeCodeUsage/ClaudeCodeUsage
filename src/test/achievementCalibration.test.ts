@@ -19,7 +19,7 @@ test('calibrated volume ladders leave sustained high-use milestones beyond entry
     'weekly-volume': [5e8, 2e9, 1e10], 'weekly-average': [5e8, 2e9, 5e9], 'model-rainbow': [2, 5, 7],
   };
   for (const [series, targets] of Object.entries(expected)) {
-    assert.deepEqual(ACHIEVEMENT_SERIES[series].map(id => ACHIEVEMENT_DEFINITIONS.find(rule => rule.id === id)!.target), targets, series);
+    assert.deepEqual(ACHIEVEMENT_SERIES[series].slice(0,targets.length).map(id => ACHIEVEMENT_DEFINITIONS.find(rule => rule.id === id)!.target), targets, series);
   }
 });
 

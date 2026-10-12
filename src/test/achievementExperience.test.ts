@@ -144,6 +144,19 @@ test('high-level cards name their earned milestone, not the introductory thresho
   });
 });
 
+test('a retained Legendary award never substitutes its old target for current verified progress', async () => {
+  await gallery(provider => {
+    provider.providerAvailability={claude:true,codex:false,codexData:false};
+    provider.achievementGrants=new Set(['sonnet-main-legendary']);
+    provider.achievementResults=()=>ACHIEVEMENT_DEFINITIONS.map(rule=>({...rule,
+      progress:rule.id.startsWith('sonnet-main')?100_000_000:0,unlocked:false}));
+    const card=provider.renderAchievementData().match(/<article[^>]*data-achievement-key="sonnet-main"[\s\S]*?<\/article>/)[0];
+    assert.match(card,/data-achievement-tier="legendary"/);
+    assert.match(card,/100M \/ 50B/,'saved qualification is not the current retained subtotal');
+    assert.doesNotMatch(card,/50B \/ 50B/);
+  });
+});
+
 test('all displayed level requirements carry a unit or a qualified condition', async () => {
   await gallery(provider => {
     const html = provider.renderAchievementData();

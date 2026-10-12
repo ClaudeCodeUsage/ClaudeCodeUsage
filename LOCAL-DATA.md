@@ -31,6 +31,13 @@ credential, account-separation or explicit-network-consent restrictions.
 
 ## What is never cached
 
+Long-term ranks add only public catalog IDs to the existing envelope: at most174
+current records, unchanged64 KiB total. The maximal feasible174-current/21-archive
+fixture with auxiliary evidence serialized to36,416 bytes. No usage/cost value or
+source identity is stored per rank. Old144 v2 records and pins retain provenance;
+new IDs cannot be accepted in v1 or inferred from an old rank. Downgrade readers
+may fail closed without overwriting unknown current records.
+
 The compact achievement overview adds no stored fields or source reads. A bounded
 runtime set of positive combined-calendar lower-bound rule IDs reuses validated
 provider days; it is recomputed on evaluation, cleared when achievements stop and
@@ -265,7 +272,7 @@ replacement, reset, disable or panel close releases the retained artifact.
 The extension-owned ledger contains only the following validated fields:
 
 - `globalStorage/achievements-v2.json`: the canonical award envelope, at most
-  64 KiB and one current record for each of 144 public rule IDs. Fields are schema/catalog/rule
+  64 KiB and one current record for each of 174 public rule IDs. Fields are schema/catalog/rule
   version, monotonic clear generation/record sequence, four reason enums
   (`existing`, `history`, `usage`, `activity`), unread boolean, optional first-record
   calendar day and timezone, at most six ordered public series pins, automatic/manual

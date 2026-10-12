@@ -92,6 +92,14 @@ const row = (key: string, extra: Record<string, unknown> = {}) => ({
   progress: 600e6, target: 5e9, proof: 'ready', ...extra,
 });
 
+test('Claude model use and sustained days do not consume the same automatic representative slot', () => {
+  const rows=[row('sonnet-main',{group:'claude',earnedLevel:4}),
+    row('sonnet-days',{group:'claude',earnedLevel:5}),
+    row('cumulative-volume',{group:'combined',earnedLevel:3})];
+  assert.deepEqual(overview.selectAchievementOverview(rows,'claude',[],'automatic').badges,
+    ['sonnet-days','sonnet-main','cumulative-volume']);
+});
+
 test('Claude-only four-family progress remains a pinned badge but not an eligible silver NEXT goal', () => {
   const rainbow = row('model-rainbow', { group: 'combined', earnedLevel: 1,
     progress: 4, target: 5, nextEligible: false });

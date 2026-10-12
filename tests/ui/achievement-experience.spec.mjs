@@ -380,7 +380,7 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       expect(fit).toBe(true);
       await card.locator('summary').focus();
       await card.locator('summary').press('Enter');
-      await expect(card.locator('[data-achievement-level]')).toHaveCount(3);
+      await expect(card.locator('[data-achievement-level]')).toHaveCount(5);
       await expect(card.locator('.achievement-level-rules')).not.toContainText('500M');
       await page.reload();
       await expect(card.locator('details')).toHaveAttribute('open');
