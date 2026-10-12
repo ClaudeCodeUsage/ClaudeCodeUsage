@@ -14,9 +14,17 @@ test('achievement proof revision ignores display, structural and quota metadata'
   changed.files[0].session.projectName = 'another display name';
   changed.files[0].session.endedAt = 0;
   changed.files[0].structural.toolCalls++;
-  changed.files[0].period!.indexedThrough++;
   Object.values(changed.files[0].period!.days)[0].structural.toolCalls++;
   assert.equal(codexAchievementProofRevision(changed.files, fence), before);
+});
+
+test('calendar cursor provenance changes the proof revision even when counters stay equal', () => {
+  const files=snapshotFixture().files;
+  const before=codexAchievementProofRevision(files,fence);
+  const changed=structuredClone(files);
+  changed[0].period!.indexedThrough++;
+  assert.notEqual(codexAchievementProofRevision(changed,fence),before);
+  assert.equal(codexAchievementProofRevision(files,fence),before,'unchanged witnesses stay reusable');
 });
 
 test('every consumed numeric proof counter and completeness fence changes the revision', () => {

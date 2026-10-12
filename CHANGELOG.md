@@ -185,6 +185,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Fixed — 2.4.2 local candidate
 
+- **Calendar cursor cache binding** — cursor-only period changes now retire
+  runtime achievement date/Money revisions even when displayed counters match.
+  This adds no source reads, persistent fields or new award authority.
+
 - **Historical rank versus current progress** — retained awards preserve their
   earned rank but never replace a current verified subtotal with the old target.
   After log retention, an earned Legendary badge can therefore show a smaller

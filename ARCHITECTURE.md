@@ -454,6 +454,11 @@ Higher output/cache tiers use the same causal native-tail checks; session/calend
 reconciliation remains quiet with unknown dates. Explicit share choices never
 auto-upgrade to a higher rank.
 
+`codexAchievementRevision.ts` uses a runtime v2 digest including the period's
+indexed cursor as numeric provenance. Cursor-only changes retire calendar/Money
+caches even when displayed counters are unchanged; no stored field or I/O is
+added. This cache binding alone is not complete calendar/subset authority.
+
 The overview uses bounded horizontal cards rather than stretching a few icons
 across the desktop. In-card pins remain separate buttons; next-target bars are
 decorative companions to labelled numeric progress. Existing sizes, artwork,

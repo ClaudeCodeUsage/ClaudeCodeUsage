@@ -33,7 +33,7 @@ export function codexAchievementProofRevision(
     scalar('buckets'); scalar(keys.length);
     for (const key of keys) { scalar(key); vector(value[key]); }
   };
-  scalar('codex-achievement-proof-v1');
+  scalar('codex-achievement-proof-v2');
   scalar(fence.indexed); scalar(fence.calendarComplete); scalar(fence.timeZone);
   scalar(files.length);
   for (const file of files) {
@@ -42,6 +42,9 @@ export function codexAchievementProofRevision(
     const period = file.period;
     if (!object(period)) { scalar('invalid-period'); scalar(period); continue; }
     scalar('period'); scalar(period.timeZone); scalar(period.lineageVersion); scalar(period.lineagePrefixEvents);
+    // Numeric provenance must retire a stale calendar binding even when a
+    // cursor-only source change leaves all displayed counters unchanged.
+    scalar(period.indexedThrough);
     if (!object(period.days)) { scalar('invalid-days'); scalar(period.days); continue; }
     const dates = Object.keys(period.days).sort();
     scalar(dates.length);
