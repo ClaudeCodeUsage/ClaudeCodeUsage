@@ -346,6 +346,8 @@ local-log evidence cannot verify an account, so its forecast remains unavailable
 The dashboard and status-bar tooltip share localized copy; compact bar text and
 custom quota formats are unchanged. This adds no requests, timers or stored history.
 
+The overview uses bounded horizontal cards: artwork, title, rank and progress stay together, with pins inside the badge card and a thin progress bar for next targets. A few badges no longer spread across the entire desktop width; narrow views wrap without shrinking text.
+
 Gallery size controls precede the overview: Small / Medium / Large use 56 / 80 /
 112 px collection emblems and 72 / 96 / 128 px showcase emblems. Pin errors stay
 near their controls, and keyboard focus returns to a stable summary when a control

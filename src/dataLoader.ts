@@ -5,7 +5,7 @@ import * as path from 'path';
 // Removed tinyglobby dependency - using native fs instead
 // Removed zod dependency - using native validation instead
 import { calculateCostBreakdown, getModelRatesPerMillion } from './pricing';
-import { addClaudeReferenceUsage, claudeReferenceUsage, hasKnownClaudeCacheCreationShape } from './claudeReferenceUsage';
+import { addClaudeReferenceUsage, claudeReferenceUsage, hasKnownClaudeCacheCreationShape, normalizeClaudeNativeUsage } from './claudeReferenceUsage';
 import { detachedPromptPrefix, isRetryDuplicatePrompt } from './promptDedup';
 import {
   dayKeyInZone,
@@ -117,7 +117,7 @@ function usageModelName(value: unknown): string | undefined {
  * A usage-bearing assistant row may contain a very large response/tool body;
  * retaining the parsed row would pin that body in every dashboard snapshot. */
 export function compactUsageRecord(data: ClaudeUsageRecord): ClaudeUsageRecord {
-  const sourceUsage = data.message.usage;
+  const sourceUsage = normalizeClaudeNativeUsage(data.message.usage);
   const model = usageModelName(data.message.model);
   const usage: ClaudeUsageRecord['message']['usage'] = {
     input_tokens: sourceUsage.input_tokens,
@@ -1340,7 +1340,7 @@ export class ClaudeDataLoader {
         continue;
       }
 
-      const usage = record.message.usage;
+      const usage = normalizeClaudeNativeUsage(record.message.usage);
       // Skip error records and invalid records
       if (model === '<synthetic>' || record.isApiErrorMessage) {
         continue;

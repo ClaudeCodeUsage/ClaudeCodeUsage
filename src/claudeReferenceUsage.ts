@@ -14,11 +14,26 @@ export function hasKnownClaudeCacheCreationShape(
       key === 'ephemeral_5m_input_tokens' || key === 'ephemeral_1h_input_tokens');
 }
 
+/** Fill only a missing flat count from an explicitly complete native TTL split.
+ * Never change supplied flat evidence or infer an absent TTL count. Keep the
+ * source immutable; all other shapes retain their existing primary semantics. */
+export function normalizeClaudeNativeUsage(
+  usage: ClaudeUsageRecord['message']['usage'],
+): ClaudeUsageRecord['message']['usage'] {
+  if (usage.cache_creation_input_tokens !== undefined) return usage;
+  const split = usage.cache_creation;
+  if (!hasKnownClaudeCacheCreationShape(split) ||
+      !safeCount(split.ephemeral_5m_input_tokens) || !safeCount(split.ephemeral_1h_input_tokens)) return usage;
+  const creation = split.ephemeral_5m_input_tokens + split.ephemeral_1h_input_tokens;
+  return Number.isSafeInteger(creation) ? { ...usage, cache_creation_input_tokens: creation } : usage;
+}
+
 /** Called only inside the existing accepted/canonical record reducer. Never
  * infer TTL from prices, model names, or the primary cost fallback. */
 export function claudeReferenceUsage(
   usage: ClaudeUsageRecord['message']['usage'],
 ): ClaudeReferenceUsage | undefined {
+  usage = normalizeClaudeNativeUsage(usage);
   const input = usage.input_tokens;
   const output = usage.output_tokens;
   const read = usage.cache_read_input_tokens === undefined ? 0 : usage.cache_read_input_tokens;

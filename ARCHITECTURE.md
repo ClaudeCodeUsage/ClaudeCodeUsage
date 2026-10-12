@@ -421,7 +421,8 @@ special navigation retains disclosures/scroll, while ordinary tab/provider chang
 retire the intent. No host command, log scan, award evidence/date or share consent is added.
 
 `achievementStages.ts` adds display-only 1/2/5 integer nodes between formal
-Token tiers, not before the first tier or after the last. Closed cards show current
+Token tiers and within one decade before a Token entry tier, never after the last.
+First-tier stages require positive, ready progress; monetary entry tiers stay unchanged. Closed cards show current
 progress toward the next formal level and, where applicable, the next intermediate
 stage. Pending/stale proof has neither. Counter/setting exploration is excluded;
 formal IDs, thresholds, award counts, notifications and share choices are unchanged.
@@ -439,6 +440,30 @@ Overview buttons open the existing persisted series disclosure; they do not
 read logs, issue refresh requests or persist a second aggregate index. Pins and
 record projections and the foreground missed-notice summary use the bounded
 canonical envelope below without creating a second award store.
+
+The overview uses bounded horizontal cards rather than stretching a few icons
+across the desktop. In-card pins remain separate buttons; next-target bars are
+decorative companions to labelled numeric progress. Existing sizes, artwork,
+theme tokens and persistence routes remain. `modelRainbowNextEligibility`
+excludes a NEXT tier above enabled-provider family capacity (Claude four, Codex
+three), without changing formal conditions, pins or gallery visibility.
+
+Positive combined calendar rules have a bounded runtime set of per-rule lower
+bounds derived from independently validated provider days. Active days, streaks,
+active weeks, weekly Token peak and a proved three-family day can show `≥` while
+another provider is incomplete. Zero partial counts remain unknown; shared dates
+and four-week averages retain full-proof fences. This does not reopen the combined
+notice latch or invent dates for imported grants. `normalizeClaudeNativeUsage`
+restores a missing flat cache-creation count only from both explicit safe known
+TTL components, without mutating the source. Full and compact/incremental reducers
+share it; contradictions and unknown TTL fields remain excluded from money proof.
+
+With achievement proof enabled, a compatible legacy Codex period without current
+lineage markers enters the existing bounded period migration, rather than staying
+a warm no-op forever. All-time proof coverage remains incomplete until canonical
+files are revalidated; readable compatible slices remain available for ordinary
+display. Persisted cursors support cancellation/resume and completed proof returns
+to zero-body warm refresh. OFF skips this additional revalidation.
 
 `achievementEvidence.ts` classifies rules into nine independent runtime evidence
 domains. Ready, pending and stale proof is separate from saved award identity:

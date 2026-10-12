@@ -72,7 +72,7 @@ import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath 
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import { nextAchievementStage } from './achievementStages';
 import { ACHIEVEMENT_GALLERY, achievementGalleryKey, achievementStatisticsDestination } from './achievementGallery';
-import { AchievementOverviewSelection, AchievementUnreadBatch, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords, selectUnreadAchievementBatch } from './achievementOverview';
+import { AchievementOverviewSelection, AchievementUnreadBatch, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords, selectUnreadAchievementBatch, modelRainbowNextEligibility } from './achievementOverview';
 import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline, copyClaudeUsageDelta, codexTailAchievementCrossings, claudeTailAchievementCrossings } from './achievementEvidence';
 import { CodexAchievementUsageWindow, CodexAchievementUsageDelta, copyCodexUsageWindow,
@@ -1095,6 +1095,9 @@ export class UsageWebviewProvider {
   private revokedAchievementEvidence = new Set<SettingProvider>();
   private readonly achievementNoticeBaseline = new AchievementNoticeBaseline();
   private achievementEvidenceStates?: AchievementEvidenceStates;
+  // Display-only positive proofs from independently validated provider calendars.
+  // Keep the combined notice latch closed until the complete domain recovers.
+  private achievementCalendarLowerBounds = new Set<AchievementId>();
   private achievementOverviewSelection?: AchievementOverviewSelection;
   private achievementOverviewProvider?: 'claude' | 'codex' | 'compare';
   private achievementOverviewPinsSignature?: string;
@@ -4633,6 +4636,7 @@ export class UsageWebviewProvider {
       this.achievementOverviewSelection = undefined;
       this.achievementNoticeBaseline.reset();
       this.achievementEvidenceStates = undefined;
+      this.achievementCalendarLowerBounds.clear();
       this.observedPluginAchievementIds.clear();
       this.pendingAchievementRecordActions.clear();
       this.achievementNoticeInFlight = undefined;
@@ -4749,6 +4753,8 @@ export class UsageWebviewProvider {
     const active = achievementActiveDayKeys(claudeDayRows, codexDayRows, calendar.codexEvidenceComplete === true);
     const weekRows = [...claudeDayRows, ...codexDayRows];
     const weekCoverageComplete = calendar.peakEvidenceComplete === true;
+    const positiveCalendarProof = (availability.claude && calendar.claudeEvidenceComplete === true) ||
+      (availability.codex && calendar.codexEvidenceComplete === true);
     const codexSubsetTrusted = codexIndexTrusted &&
       (codexVolumeTrusted || codexSignals.verifiedSubset === true);
     const tokenEvidence = codexSubsetTrusted && codexSignals.tokenEvidence?.complete
@@ -4816,7 +4822,7 @@ export class UsageWebviewProvider {
       claudeFamilyTokens,
       claudeFamilyOutputTokens,
       fable: { ...fable, activeDays: claudeProof.complete ? fable.activeDays : 0 },
-      weeklyPeakProcessed: peakCalendarWeekProcessed(weekRows, weekCoverageComplete),
+      weeklyPeakProcessed: peakCalendarWeekProcessed(weekRows, positiveCalendarProof),
       outputHourStreak: Math.max(hours.streak, this.achievementHourEvidence.maxStreak),
       nightOutputPeak: hours.nightPeak,
       activity: this.achievementActivity,
@@ -4824,6 +4830,10 @@ export class UsageWebviewProvider {
         modelCount: 0, efforts: [], familyRootCounts: { astra: 0, sol: 0, luna: 0 },
       },
     });
+    this.achievementCalendarLowerBounds = new Set(results.filter(result => !weekCoverageComplete &&
+      positiveCalendarProof && result.progress > 0 &&
+      (/^(active-days-|active-day-streak|active-weeks-|weekly-volume-)/.test(result.id) ||
+        result.id === 'streak-machine' || result.id === 'three-family-day')).map(result => result.id));
     const newlyEarned = results.filter((result) =>
       result.unlocked && !this.achievementGrants.has(result.id) &&
       !this.pendingAchievementGrants.has(result.id),
@@ -5484,6 +5494,7 @@ export class UsageWebviewProvider {
     const results = this.achievementResults();
     const cumulativeLowerBound = this.codexAchievementVolume().lowerBound;
     const evidenceFor = (result:AchievementResult):AchievementEvidenceState => {
+      if (this.achievementCalendarLowerBounds.has(result.id)) return 'ready';
       const base=this.achievementEvidenceStates?.[achievementEvidenceDomain(result)] ?? 'ready';
       if (base==='stale') return base;
       const rule=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===result.id);
@@ -5578,7 +5589,9 @@ export class UsageWebviewProvider {
       const evidenceState = evidenceFor(nextResult);
       const proofReady = evidenceState === 'ready';
       const proofLabel = evidenceState === 'stale' ? copy.evidenceStale : quality?.status==='unpriced' ? moneyCopy.unpriced : copy.evidencePending;
-      const progress = Math.min(nextResult.target, targetUnlocked ? nextResult.target : nextResult.progress);
+      const calendarLowerBound = this.achievementCalendarLowerBounds.has(nextResult.id);
+      const progress = Math.min(nextResult.target,
+        targetUnlocked && !calendarLowerBound ? nextResult.target : nextResult.progress);
       const formatted = compactValue(nextResult.id,progress) + ' / ' + compactValue(nextResult.id,nextResult.target);
       const exactProgress = integerValue(nextResult.id,progress) + ' / ' + integerValue(nextResult.id,nextResult.target);
       const cumulativeVolume = ['hundred-million-club',
@@ -5587,6 +5600,7 @@ export class UsageWebviewProvider {
       const baseName = themeName(key, result);
       const bound = proofReady && (monetary ? !moneyValue(nextResult.id,progress).startsWith('<') &&
         (quality?.status==='partial' || (moneyProof?.coverage.excludedFiles ?? 0)>0) :
+        this.achievementCalendarLowerBounds.has(nextResult.id) ||
         cumulativeLowerBound && (cumulativeVolume || result.group === 'codex')) ? '≥' : '';
       const levelName = series && earnedTiers > 0
         ? copy.levels[tierOrder.indexOf(tier)] : earned ? copy.milestone : copy.locked;
@@ -5716,6 +5730,8 @@ export class UsageWebviewProvider {
       next: entry.series ? entry.hasNextTier : !(entry.result.unlocked || this.achievementGrants.has(entry.result.id)),
       progress: entry.nextResult.progress, target: entry.nextResult.target,
       proof: evidenceFor(entry.nextResult),
+      nextEligible: entry.key === 'model-rainbow'
+        ? modelRainbowNextEligibility(entry.nextResult.target, this.providerAvailability) : undefined,
     }));
     const pins = this.achievementRecordState?.pins ?? [];
     const currentPin = (key: string): boolean => this.achievementRecordState?.records.some(row =>
@@ -5759,7 +5775,8 @@ export class UsageWebviewProvider {
           const moneyLowerBound=monetary && !moneyValue(entry.nextResult.id,state.progress).startsWith('<') &&
             (moneyProof?.coverage[monetary.scope].status==='partial' || (moneyProof?.coverage.excludedFiles ?? 0)>0);
           const progress = (state.proof === 'ready' ?
-            (monetary ? moneyLowerBound ? '≥' : '' : cumulativeLowerBound && (entry.series === 'cumulative-volume' || entry.result.group === 'codex') ? '≥' : '') +
+            (monetary ? moneyLowerBound ? '≥' : '' : this.achievementCalendarLowerBounds.has(entry.nextResult.id) ||
+              cumulativeLowerBound && (entry.series === 'cumulative-volume' || entry.result.group === 'codex') ? '≥' : '') +
             compactValue(entry.nextResult.id,state.progress) + ' / ' + compactValue(entry.nextResult.id,state.target) : proofLabel);
           const imagePath = achievementImagePath(entry.result.id);
           const iconSrc = this.panel?.webview?.asWebviewUri && this.context.extensionPath ?
@@ -5777,6 +5794,8 @@ export class UsageWebviewProvider {
             this.escapeHtml(name) + '</span><span class="achievement-overview-rank">' + this.escapeHtml(rank) + '</span>' +
             (kind === 'next' ? '<span class="achievement-overview-progress">' + this.escapeHtml(progress) + '</span>' :
               state.proof === 'ready' ? '' : '<span class="achievement-overview-progress">' + this.escapeHtml(proofLabel) + '</span>') +
+            (kind === 'next' && state.proof === 'ready' ? '<span class="achievement-overview-track" aria-hidden="true"><span style="width:' +
+              Math.min(100, Math.max(0, state.progress / state.target * 100)) + '%"></span></span>' : '') +
             '</button></div>';
         }).join('') + '</div></section>';
     };
@@ -13652,27 +13671,35 @@ export class UsageWebviewProvider {
         }
       }
       .achievement-collection { --achievement-emblem-size: 80px; --achievement-card-width: 168px;
-        --achievement-showcase-size: 96px; --achievement-card-height: 180px; display: grid; gap: 22px; }
+        --achievement-showcase-size: 96px; --achievement-overview-width: 360px; --achievement-card-height: 180px; display: grid; gap: 16px; }
       .achievement-collection[data-achievement-size="small"] { --achievement-emblem-size: 56px;
-        --achievement-card-width: 136px; --achievement-showcase-size: 72px; --achievement-card-height: 156px; }
+        --achievement-card-width: 136px; --achievement-showcase-size: 72px; --achievement-overview-width: 320px; --achievement-card-height: 156px; }
       .achievement-collection[data-achievement-size="large"] { --achievement-emblem-size: 112px;
-        --achievement-card-width: 208px; --achievement-showcase-size: 128px; --achievement-card-height: 212px; }
+        --achievement-card-width: 208px; --achievement-showcase-size: 128px; --achievement-overview-width: 400px; --achievement-card-height: 212px; }
       .achievement-overview h3, .achievement-gallery-heading { margin: 0 0 12px; }
-      .achievement-gallery-heading { margin-bottom: -18px; }
-      .achievement-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+      .achievement-gallery-heading { margin-bottom: 0; }
+      .achievement-overview-grid { display: flex; flex-wrap: wrap; gap: 12px; }
+      .achievement-overview-item { position: relative; min-width: 0; width: min(100%, var(--achievement-overview-width));
+        border: 1px solid var(--vscode-panel-border); border-radius: 8px; box-sizing: border-box; }
       .achievement-overview-badge { background: transparent; color: var(--vscode-foreground); border: 0;
-        display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 7px; padding: 12px 8px; min-width: 0; }
-      .achievement-overview-item { position: relative; min-width: 0; }
-      .achievement-overview-badge { width: 100%; }
-      .achievement-overview-badge img { width: var(--achievement-showcase-size); max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; }
+        display: grid; grid-template-columns: var(--achievement-showcase-size) minmax(0, 1fr);
+        align-content: center; align-items: center; column-gap: 14px; row-gap: 5px;
+        text-align: left; padding: 14px; min-width: 0; width: 100%; box-sizing: border-box; border-radius: 8px; }
+      [data-achievement-overview="badges"] .achievement-overview-badge { padding-right: 48px; }
+      .achievement-overview-badge:hover { background: var(--vscode-list-hoverBackground); }
+      .achievement-overview-badge img { width: var(--achievement-showcase-size); max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain;
+        grid-column: 1; grid-row: 1 / span 4; }
+      .achievement-overview-name, .achievement-overview-rank, .achievement-overview-progress, .achievement-overview-track { grid-column: 2; min-width: 0; }
       .achievement-overview-name { font-weight: 650; text-wrap: balance; overflow-wrap: anywhere; }
       .achievement-overview-rank { font-size: .9rem; }
       .achievement-overview-progress { color: var(--vscode-descriptionForeground); font-size: .8rem; overflow-wrap: anywhere; }
+      .achievement-overview-track { height: 3px; background: var(--vscode-panel-border); overflow: hidden; }
+      .achievement-overview-track > span { display: block; height: 100%; background: var(--vscode-progressBar-background); }
       .achievement-overview-badge[data-overview-rank="silver"] .achievement-overview-rank { color: var(--vscode-charts-blue); }
       .achievement-overview-badge[data-overview-rank="gold"] .achievement-overview-rank { color: var(--vscode-charts-yellow); }
       .achievement-overview-badge:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
-      .achievement-recent-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-      #achievementPinStatus:empty { display: none; }
+      .achievement-recent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), var(--achievement-overview-width))); gap: 12px; }
+      #achievementPinStatus:empty, #achievementUnreadStatus:empty { display: none; }
       .achievement-hidden-pins { list-style: none; padding: 0; }
       .achievement-hidden-pins li { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
       .achievement-hidden-pins li span { min-width: 0; overflow-wrap: anywhere; }
@@ -13685,7 +13712,7 @@ export class UsageWebviewProvider {
       .achievement-pin-icon[aria-pressed="true"] svg { fill: currentColor; }
       .achievement-pin-icon:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
       .achievement-card-pins { position: absolute; top: 4px; right: 4px; z-index: 1; display: flex; flex-wrap: wrap; gap: 3px; }
-      .achievement-overview-item > .achievement-pin { position: absolute; top: 0; right: 0; z-index: 1; }
+      .achievement-overview-item > .achievement-pin { position: absolute; top: 6px; right: 6px; z-index: 1; }
       #achievementShowcaseEditor > summary { cursor: pointer; }
       #achievementShowcaseEditor[open] > summary { margin-bottom: 10px; }
       .achievement-selected-pins { list-style: none; padding: 0; display: grid; gap: 6px; }
@@ -13695,7 +13722,10 @@ export class UsageWebviewProvider {
       .achievement-pin-choices label { display: flex; align-items: center; gap: 8px; min-height: 32px; overflow-wrap: anywhere; }
       .achievement-pin-choices label[hidden] { display: none; }
       #achievementPinSearch { max-width: 100%; box-sizing: border-box; }
-      @media (pointer: coarse) { .achievement-pin-icon { width: 44px; height: 44px; } }
+      @media (pointer: coarse) {
+        .achievement-pin-icon { width: 44px; height: 44px; }
+        [data-achievement-overview="badges"] .achievement-overview-badge { padding-right: 56px; }
+      }
       .achievement-record-badge { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px;
         row-gap: 4px; align-items: center; width: 100%; padding: 8px 0; border: 0; background: transparent;
         color: var(--vscode-foreground); text-align: left; }
@@ -13709,19 +13739,28 @@ export class UsageWebviewProvider {
       .achievement-records-list img { width: 40px; height: 40px; }
       @media (max-width: 720px) { .achievement-recent-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
       @media (max-width: 480px) {
-        .achievement-overview-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-        .achievement-overview-badge { display: grid; grid-template-columns: var(--achievement-showcase-size) minmax(0, 1fr); text-align: left; column-gap: 14px; padding-right: 38px; }
-        .achievement-overview-badge img { grid-row: 1 / span 3; }
-        .achievement-overview-name, .achievement-overview-rank, .achievement-overview-progress { grid-column: 2; }
+        .achievement-overview-grid { gap: 8px; }
+        .achievement-overview-item { width: 100%; }
+        .achievement-overview-badge { column-gap: 10px; padding: 10px; }
+        [data-achievement-overview="badges"] .achievement-overview-badge { padding-right: 56px; }
       }
-      .achievement-intro { max-width: 74ch; }
+      .achievement-intro { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; }
+      .achievement-intro > h2 { grid-column: 1; grid-row: 1; }
+      .achievement-intro > .achievement-count { grid-column: 1; grid-row: 2; }
+      .achievement-intro > .achievement-actions { grid-column: 2; grid-row: 1 / span 2; }
+      .achievement-intro > .achievement-evidence-note { grid-column: 1 / -1; grid-row: 3; }
+      @media (max-width: 720px) {
+        .achievement-intro { grid-template-columns: minmax(0, 1fr); }
+        .achievement-intro > .achievement-actions { grid-column: 1; grid-row: 3; }
+        .achievement-intro > .achievement-evidence-note { grid-row: 4; }
+      }
       .achievement-intro h2 { margin: 0 0 5px; font-size: 1.35rem; }
       .achievement-intro p { margin: 0; color: var(--vscode-descriptionForeground); line-height: 1.5; }
       .achievement-evidence-note { color: var(--vscode-descriptionForeground); font-size: .85rem; }
       .achievement-evidence-note > summary { cursor: pointer; }
       .achievement-evidence-note > p { margin-top: 6px; }
       .achievement-proof-status { color: var(--vscode-descriptionForeground); font-size: .8rem; }
-      .achievement-intro .achievement-count { margin-top: 8px; color: var(--vscode-foreground); font-weight: 650; }
+      .achievement-intro .achievement-count { margin-top: 0; color: var(--vscode-foreground); font-weight: 650; }
       .achievement-actions, .achievement-filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .achievement-filter-toolbar { color: var(--vscode-descriptionForeground); }
       .achievement-filter-toolbar select { max-width: 100%; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 4px; padding: 5px 7px; }

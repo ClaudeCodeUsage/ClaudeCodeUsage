@@ -31,6 +31,16 @@ credential, account-separation or explicit-network-consent restrictions.
 
 ## What is never cached
 
+The compact achievement overview adds no stored fields or source reads. A bounded
+runtime set of positive combined-calendar lower-bound rule IDs reuses validated
+provider days; it is recomputed on evaluation, cleared when achievements stop and
+never serialized or shared as an identity. NEXT capacity checks and first-tier
+display stages are pure projections, not additional awards or dates. Claude
+split-only cache-creation normalization changes only accepted numeric aggregates
+when both known TTL counts are explicit and safe; source JSONL remains unchanged.
+Legacy Codex calendar proof recovery reuses existing numeric migration cursors and
+lineage markers after bounded body revalidation, not another store or scanner.
+
 - OAuth access or refresh tokens, cookies, authorization headers, or GitHub
   credentials in extension-owned derived storage. Claude's provider-owned
   credential file or macOS Keychain item may be updated when its OAuth token

@@ -1,0 +1,56 @@
+import { test } from 'node:test';
+import * as assert from 'node:assert/strict';
+import Module = require('node:module');
+import { I18n } from '../i18n';
+
+test('reliable Claude calendar remains a visible lower bound when Codex dates are pending', async () => {
+  const load = (Module as any)._load;
+  const zone = I18n.getTimezone();
+  const language = I18n.getLocale();
+  (Module as any)._load = function(request: string, parent: unknown, main: boolean) {
+    return request === 'vscode' ? {workspace:{workspaceFolders:[]}} : load.call(this,request,parent,main);
+  };
+  try {
+    I18n.setTimezone('UTC'); I18n.setLanguage('en');
+    const {UsageWebviewProvider} = require('../webview');
+    const values = new Map<string, unknown>();
+    const host = new UsageWebviewProvider({globalState:{get:(key:string)=>values.get(key),
+      update:async(key:string,value:unknown)=>{values.set(key,value);}}}) as any;
+    const model = {inputTokens:99_999_999,outputTokens:1,cacheCreationTokens:0,cacheReadTokens:0};
+    const data = {totalInputTokens:model.inputTokens,totalOutputTokens:1,totalCacheCreationTokens:0,
+      totalCacheReadTokens:0,modelBreakdown:{'claude-sonnet-5':model}};
+    host.providerAvailability = {claude:true,codex:true,codexData:true};
+    host.allTimeData = data;
+    host.dailyDataForEveryDay = Array.from({length:7},(_,i)=>({date:`2026-09-0${i+1}`,data}));
+    host.achievementCalendarTimeZone = 'UTC';
+    host.codexView = {currentManifestVerified:true,coverage:{complete:true,identity:{complete:false}},
+      periodCoverage:{timeZone:'UTC',allTime:{complete:false}},allTime:{total:{processed:0}},
+      last30DaysHourlyByDay:{},hourlyCoverage:{complete:false},allTimeDaily:[]};
+    const results = new Map<string,any>(host.achievementResults().map((row:any)=>[row.id,row]));
+    assert.equal(results.get('weekly-volume-bronze').progress,600_000_000,'weeks begin Monday, not the first fixture day');
+    assert.equal(results.get('active-day-streak').unlocked,true);
+    const html = host.renderAchievementData();
+    const card = (key:string) => html.match(new RegExp(`<article[^>]*data-achievement-key="${key}"[\\s\\S]*?<\\/article>`))![0];
+    assert.match(card('weekly-volume'),/data-achievement-proof="ready"/);
+    assert.match(card('weekly-volume'),/≥600M/);
+    assert.match(card('active-day-streak'),/data-achievement-proof="ready"/);
+    assert.match(card('active-days'),/≥7/);
+    assert.match(card('weekly-average'),/data-achievement-proof="pending"/);
+    assert.match(card('dual-provider-days'),/data-achievement-proof="pending"/);
+    assert.match(card('sol-days'),/data-achievement-proof="pending"/);
+    assert.equal(host.achievementEvidenceStates['combined-calendar'],'pending','do not reopen the whole notice domain');
+    host.achievementGrants.add('weekly-volume-gold');
+    const historicalHtml = host.renderAchievementData();
+    const historicalCard = historicalHtml.match(/<article[^>]*data-achievement-key="weekly-volume"[\s\S]*?<\/article>/)![0];
+    assert.match(historicalCard,/data-achievement-earned="true"/,'retain the historical earned rank');
+    assert.match(historicalCard,/≥600M \/ 10B/,'a saved target is not current lower-bound evidence');
+    assert.doesNotMatch(historicalCard,/≥10B/);
+    host.achievementGrants.delete('weekly-volume-gold');
+    host.revokedAchievementEvidence.add('codex');
+    assert.match(host.renderAchievementData(),/≥600M/,'a stale independent provider cannot retire verified Claude dates');
+    host.revokedAchievementEvidence.delete('codex');
+    I18n.setTimezone('Asia/Shanghai');
+    assert.doesNotMatch(host.renderAchievementData(),/≥600M/,'old-zone rows cannot prove the lower bound');
+    await Promise.all([host.achievementWrite,host.achievementHourWrite,host.achievementCalendarWrite]);
+  } finally { I18n.setTimezone(zone); I18n.setLanguage(language as any); (Module as any)._load = load; }
+});

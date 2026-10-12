@@ -15,12 +15,14 @@ export function achievementStages(series: string): readonly number[] {
   if (!TOKEN_STAGE_SERIES.has(series)) return [];
   const formal = ACHIEVEMENT_SERIES[series].map(id => targets.get(id)!);
   const stages: number[] = [];
-  for (let index = 1; index < formal.length; index++) {
-    const lower = formal[index - 1], upper = formal[index];
+  // One bounded decade before Token entry tiers; money keeps its existing gaps.
+  const firstIndex = series.includes('-api-') ? 1 : 0;
+  for (let index = firstIndex; index < formal.length; index++) {
+    const lower = index === 0 ? formal[0] / 10 : formal[index - 1], upper = formal[index];
     for (let power = Math.floor(Math.log10(lower)); power <= Math.floor(Math.log10(upper)); power++) {
       for (const multiplier of [1, 2, 5]) {
         const value = multiplier * 10 ** power;
-        if (Number.isSafeInteger(value) && value > lower && value < upper) stages.push(value);
+        if (Number.isSafeInteger(value) && (index === 0 ? value >= lower : value > lower) && value < upper) stages.push(value);
       }
     }
   }
@@ -33,7 +35,7 @@ export function nextAchievementStage(
   if (!evidenceReady || !Number.isSafeInteger(progress) || progress < 0 || !TOKEN_STAGE_SERIES.has(series)) return;
   const formal = ACHIEVEMENT_SERIES[series].map(id => targets.get(id)!);
   const index = formal.indexOf(formalTarget);
-  if (index <= 0 || progress >= formalTarget) return;
-  const lower = formal[index - 1];
+  if (index < 0 || progress >= formalTarget || index === 0 && progress === 0) return;
+  const lower = index === 0 ? 0 : formal[index - 1];
   return achievementStages(series).find(value => value > lower && value > progress && value < formalTarget);
 }

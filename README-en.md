@@ -224,6 +224,8 @@ rollover. Current Codex local logs cannot verify an account, so forecasting is
 unavailable. Dashboard and status-bar tooltip copy is shared across all eight
 locales; bar text/custom formats stay unchanged. No requests, timers or history are added.
 
+The overview uses bounded horizontal cards: artwork, title, rank and progress stay together, with pins inside the badge card and a thin progress bar for next targets. A few badges no longer spread across the entire desktop width; narrow views wrap without shrinking text.
+
 Gallery size controls now precede the overview. Small / Medium / Large use 56 / 80 /
 112 px collection icons and 72 / 96 / 128 px showcase icons, with nearby pin errors
 and stable keyboard focus when controls disappear or become disabled. These changes

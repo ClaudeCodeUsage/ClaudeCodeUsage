@@ -176,6 +176,26 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Fixed — 2.4.2 local candidate
 
+- **Calendar proof recovery and partial progress** — legacy Codex date indexes
+  without current lineage proof enter bounded, resumable revalidation when
+  achievements are enabled, then return to zero-body warm refresh. Independently
+  validated positive Claude calendar metrics remain visible as lower bounds while
+  Codex dates are incomplete; shared-provider dates and four-week means retain
+  complete-proof gates and recovered history does not generate live notices.
+- **Claude split-only cache writes** — both explicit safe TTL components restore
+  a missing flat count consistently through full/incremental aggregates and fixed
+  reference money. Contradictory totals, unknown fields and incomplete splits do
+  not gain pricing proof. Source records are unchanged.
+- **Reachable next targets** — model-rainbow tiers above enabled-provider family
+  capacity are not recommended; pins and formal rules remain. Positive proven
+  Token progress gains display-only stages within one decade before its first
+  formal tier, without new grants, dates, notifications or monetary entry stages.
+
+- **Compact achievement overview** — bounded horizontal badge/next-target cards
+  replace sparse full-width columns. Icons, titles, ranks and progress stay together,
+  pins remain inside their cards, and next targets show a thin progress bar. Existing
+  artwork, three sizes, theme tokens, evidence labels and keyboard routes remain.
+
 - **Sharing and subtotal edge cases** — the Codex-only gallery share action
   selects the requested achievement card, not the heatmap fallback. Restoring a
   default title no longer suppresses provider/amount preview regeneration.

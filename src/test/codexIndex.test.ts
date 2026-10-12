@@ -23,7 +23,9 @@ import {
   CODEX_REFRESH_MIN_BYTES,
   createEmptyCodexIndex,
   codexHourProofSnapshot,
+  isReadableCodexPeriod,
   loadCodexIndex,
+  runCodexFilePass,
   saveCodexIndexAtomic,
   updateCodexIndex as updateCodexIndexRaw,
 } from '../providers/codex/codexIndex';
@@ -38,6 +40,8 @@ import {
 } from '../providers/codex/codexFilePassPool';
 import { pseudonymousIdentityKey } from '../providers/codex/codexIdentity';
 import { parseCodexLine } from '../providers/codex/codexParser';
+import { codexAchievementDayEvidence } from '../achievementCalendar';
+import { CODEX_PERIOD_LINEAGE_VERSION } from '../providers/codex/codexPeriodIndex';
 
 const SALT = 'test-machine-salt';
 
@@ -714,6 +718,197 @@ test('disabled achievements leave a complete legacy usage index warm without ext
     const warm = await updateCodexIndex(enabled.index, manifest, { salt: SALT });
     assert.equal(warm.bodyReads, 0);
     assert.equal(warm.indexChanged, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const batched of [false, true]) test(`legacy calendar proof recovers one file per refresh and stays warm (${batched ? 'batch' : 'sequential'})`, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-calendar-legacy-'));
+  try {
+    const sessions = path.join(root, 'sessions');
+    await mkdir(sessions);
+    for (let i = 0; i < 3; i++) {
+      await writeFile(path.join(sessions, `${i}.jsonl`), completeSession(`calendar-${i}`, 100 + i, 10), 'utf8');
+    }
+    const manifest = await scanCodexManifest(root, SALT);
+    const now = () => Date.parse('2026-08-30T00:00:00.000Z');
+    const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest, { salt: SALT, now });
+    const legacy = structuredClone(cold.index);
+    for (const row of Object.values(legacy.files)) {
+      const period = row.aggregate.period!;
+      delete period.lineageVersion;
+      delete period.lineagePrefixEvents;
+      // Aggregate-size compatibility cannot prove these dates. Recovery must
+      // replay bodies rather than blessing otherwise plausible legacy buckets.
+      period.days = { '2026-07-19': period.days['2026-07-20'] };
+    }
+    const evidence = (index: typeof legacy) => codexAchievementDayEvidence(
+      Object.values(index.files).map(row => row.aggregate), 'UTC', index.coverage.period.allTime.complete,
+    );
+    assert.equal(legacy.coverage.complete, true);
+    assert.equal(legacy.coverage.period.allTime.complete, true);
+    assert.equal(evidence(legacy).complete, false);
+    const disabled = await updateCodexIndex(legacy, manifest, { salt: SALT, now, allowAchievementHourProof: false });
+    assert.equal(disabled.index, legacy);
+    assert.equal(disabled.bodyReads, 0);
+    assert.equal(disabled.migration.pending, false);
+    assert.ok(Object.values(disabled.index.files).every(row => isReadableCodexPeriod(row, 'UTC')));
+
+    const budget = { maxFilePasses: 1, maxBytes: CODEX_REFRESH_MIN_BYTES };
+    const taskKinds: string[] = [];
+    const filePassBatch: CodexFilePassBatchRunner | undefined = batched ? async (tasks, onOutcome) => {
+      assert.equal(tasks.length, 1, 'the batch must share the global file-pass budget');
+      for (const task of tasks) {
+        taskKinds.push(task.kind);
+        await onOutcome(await runCodexFilePass(task));
+      }
+    } : undefined;
+    const noBudget = await updateCodexIndex(disabled.index, manifest, {
+      salt: SALT, now, budget: { ...budget, maxFilePasses: 0 },
+    });
+    assert.equal(noBudget.bodyReads, 0);
+    assert.equal(noBudget.migration.pending, true);
+    assert.equal(noBudget.index.coverage.period.allTime.complete, false);
+    assert.ok(Object.values(noBudget.index.files).every(row => row.aggregate.period?.lineageVersion === undefined));
+    let index = noBudget.index;
+    const indexPath = path.join(root, 'index.json');
+    for (let i = 1; i <= 3; i++) {
+      const result = await updateCodexIndex(index, manifest, { salt: SALT, now, budget, filePassBatch });
+      assert.equal(result.failedFiles, 0);
+      assert.equal(result.bodyReads, 1);
+      assert.equal(result.migration.filePasses, 1);
+      assert.ok(result.migration.bytesRead <= budget.maxBytes);
+      assert.equal(result.migration.pending, i < 3);
+      assert.equal(result.index.coverage.period.allTime.migratedFiles, i);
+      assert.equal(result.index.coverage.period.allTime.complete, i === 3);
+      assert.equal(evidence(result.index).complete, i === 3);
+      assert.deepEqual(result.index.aggregate.total, cold.index.aggregate.total);
+      assert.equal(result.index.indexGeneration, cold.index.indexGeneration);
+      assert.equal(Object.values(result.index.files).filter(row =>
+        row.aggregate.period?.lineageVersion === CODEX_PERIOD_LINEAGE_VERSION).length, i);
+      await saveCodexIndexAtomic(indexPath, result.index);
+      index = await loadCodexIndex(indexPath, 'UTC');
+    }
+    assert.deepEqual(evidence(index), evidence(cold.index), 'dates come from source proof');
+    if (batched) assert.deepEqual(taskKinds, ['period', 'period']);
+    for (let i = 0; i < 2; i++) {
+      const io = trackingIo();
+      const warm = await updateCodexIndex(index, manifest, { salt: SALT, now, budget, io, filePassBatch });
+      assert.equal(warm.index, index);
+      assert.equal(warm.indexChanged, false);
+      assert.equal(warm.bodyReads, 0);
+      assert.equal(io.bodyReads.size, 0);
+      assert.equal(warm.migration.pending, false);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('legacy calendar proof is never stamped by blocked or failed history reads', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-calendar-failure-'));
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    await writeFile(path.join(root, 'sessions', 'history.jsonl'), completeSession('calendar-failure', 100, 10), 'utf8');
+    const manifest = await scanCodexManifest(root, SALT);
+    const now = () => Date.parse('2026-08-30T00:00:00.000Z');
+    const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest, { salt: SALT, now });
+    const legacy = structuredClone(cold.index);
+    const key = manifest.files[0].fileKey;
+    delete legacy.files[key].aggregate.period!.lineageVersion;
+    delete legacy.files[key].aggregate.period!.lineagePrefixEvents;
+    const blocked = await updateCodexIndex(legacy, manifest, { salt: SALT, now, allowHistoricalBackfill: false });
+    assert.equal(blocked.bodyReads, 0);
+    assert.equal(blocked.index.files[key].aggregate.period!.lineageVersion, undefined);
+    const failed = await updateCodexIndex(legacy, manifest, {
+      salt: SALT, now, io: { async *read() { throw new Error('synthetic proof read failure'); } },
+    });
+    assert.equal(failed.failedFiles, 1);
+    assert.equal(failed.migration.pending, true);
+    assert.equal(failed.index.coverage.period.allTime.complete, false);
+    assert.equal(failed.index.files[key].aggregate.period!.lineageVersion, undefined);
+    assert.deepEqual(failed.index.aggregate.total, cold.index.aggregate.total);
+    const recovered = await updateCodexIndex(failed.index, manifest, { salt: SALT, now });
+    assert.deepEqual(recovered.index.files[key].aggregate.period, cold.index.files[key].aggregate.period);
+    assert.equal(recovered.migration.pending, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('legacy calendar proof only revalidates canonical active/archive copies', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-calendar-copy-'));
+  try {
+    for (const area of ['sessions', 'archived_sessions']) {
+      await mkdir(path.join(root, area));
+      await writeFile(path.join(root, area, 'copy.jsonl'), completeSession('calendar-copy', 100, 10), 'utf8');
+    }
+    const manifest = await scanCodexManifest(root, SALT);
+    const now = () => Date.parse('2026-08-30T00:00:00.000Z');
+    const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest, { salt: SALT, now });
+    assert.equal(cold.index.coverage.period.allTime.totalFiles, 1);
+    const legacy = structuredClone(cold.index);
+    for (const row of Object.values(legacy.files)) {
+      delete row.aggregate.period!.lineageVersion;
+      delete row.aggregate.period!.lineagePrefixEvents;
+    }
+    const io = trackingIo();
+    const recovered = await updateCodexIndex(legacy, manifest, {
+      salt: SALT, now, io, budget: { maxFilePasses: 1, maxBytes: CODEX_REFRESH_MIN_BYTES },
+    });
+    const canonical = manifest.files.find(row => row.sourceArea === 'sessions')!;
+    assert.deepEqual(io.fileKeysRead, [canonical.fileKey]);
+    assert.equal(recovered.index.coverage.period.allTime.complete, true);
+    assert.equal(recovered.migration.pending, false);
+    assert.deepEqual(recovered.index.aggregate.total, cold.index.aggregate.total);
+    const warm = await updateCodexIndex(recovered.index, manifest, { salt: SALT, now });
+    assert.equal(warm.bodyReads, 0);
+    assert.equal(warm.indexChanged, false, 'an excluded copy cannot restart proof recovery');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('legacy calendar proof cancellation resumes its persisted body cursor', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-calendar-cancel-'));
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    const body = `${sessionLine('calendar-cancel')}\n${contextLine()}\n` + Array.from(
+      { length: 11_000 }, (_, i) => tokenLine(i + 1, i + 1, '2026-07-20T00:01:00.000Z'),
+    ).join('\n') + '\n';
+    await writeFile(path.join(root, 'sessions', 'history.jsonl'), body, 'utf8');
+    const manifest = await scanCodexManifest(root, SALT);
+    const now = () => Date.parse('2026-08-30T00:00:00.000Z');
+    const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), manifest, { salt: SALT, now });
+    const legacy = structuredClone(cold.index);
+    const key = manifest.files[0].fileKey;
+    delete legacy.files[key].aggregate.period!.lineageVersion;
+    delete legacy.files[key].aggregate.period!.lineagePrefixEvents;
+    const indexPath = path.join(root, 'index.json');
+    let cancelled = false;
+    await assert.rejects(updateCodexIndex(legacy, manifest, {
+      salt: SALT, now, budget: { maxFilePasses: 1, maxBytes: CODEX_REFRESH_MIN_BYTES },
+      shouldCancel: () => cancelled,
+      onProgress: progress => { if (progress.period.allTime.migratedBytes > 0) cancelled = true; },
+      onCheckpoint: async index => { await saveCodexIndexAtomic(indexPath, index); },
+    }), CodexIndexCancelledError);
+    const saved = await loadCodexIndex(indexPath, 'UTC');
+    const offset = saved.files[key].periodMigration!.offset;
+    assert.ok(offset > 0 && offset < manifest.files[0].size);
+    assert.equal(saved.files[key].aggregate.period?.lineageVersion, undefined);
+    assert.ok(isReadableCodexPeriod(saved.files[key], 'UTC'), 'compatible display slices survive a partial proof pass');
+    assert.equal(saved.coverage.period.allTime.complete, false);
+    assert.deepEqual(saved.aggregate.total, cold.index.aggregate.total);
+    const io = trackingIo();
+    const resumed = await updateCodexIndex(saved, manifest, { salt: SALT, now, io });
+    assert.equal(io.readOffsets[0], offset);
+    assert.ok(resumed.migration.bytesRead < Buffer.byteLength(body));
+    assert.deepEqual(resumed.index.files[key].aggregate.period, cold.index.files[key].aggregate.period);
+    assert.equal(resumed.index.coverage.period.allTime.complete, true);
+    assert.equal(resumed.migration.pending, false);
+    const warm = await updateCodexIndex(resumed.index, manifest, { salt: SALT, now });
+    assert.equal(warm.bodyReads, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -14,11 +14,24 @@ export interface AchievementOverviewCandidate {
   progress: number;
   target: number;
   proof: AchievementEvidenceState;
+  /** Explicit structural eligibility for NEXT only; absent means unknown. */
+  nextEligible?: boolean;
 }
 export interface AchievementOverviewSelection { badges: string[]; next: string[] }
 const order = ACHIEVEMENT_GALLERY.map(entry => entry.key);
 const known = new Set(order);
 const knownAwardIds = new Set<string>(ACHIEVEMENT_DEFINITIONS.map(rule => rule.id));
+
+/** Current recognized family capacity, not usage proof or selected-tab preference. */
+export function modelRainbowNextEligibility(
+  target: number, providers: { claude?: boolean; codex?: boolean },
+): boolean | undefined {
+  const formal = ACHIEVEMENT_DEFINITIONS.some(rule =>
+    (rule.id === 'model-rainbow' || rule.id.startsWith('model-rainbow-')) && rule.target === target);
+  if (!formal || typeof providers.claude !== 'boolean' || typeof providers.codex !== 'boolean') return;
+  const capacity = (providers.claude ? 4 : 0) + (providers.codex ? 3 : 0);
+  return target <= capacity;
+}
 
 export interface AchievementUnreadBatch {
   total: number;
@@ -82,7 +95,7 @@ function valid(row: AchievementOverviewCandidate): boolean {
     Number.isSafeInteger(row.progress) && row.progress >= 0 && Number.isSafeInteger(row.target) && row.target > 0;
 }
 function reachable(row: AchievementOverviewCandidate): boolean {
-  return valid(row) && row.next && row.proof === 'ready' && row.progress > 0 && row.progress < row.target &&
+  return valid(row) && row.next && row.nextEligible !== false && row.proof === 'ready' && row.progress > 0 && row.progress < row.target &&
     row.key !== 'output-hours' && row.key !== 'night-output-peak';
 }
 function diversify(rows: AchievementOverviewCandidate[], pinned: string[] = []): string[] {

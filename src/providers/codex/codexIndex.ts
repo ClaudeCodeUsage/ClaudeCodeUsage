@@ -35,6 +35,7 @@ import {
   CodexStructuralSummary,
   CodexTodayMigrationState,
   isCompatibleCodexPeriodLineage,
+  isCurrentCodexPeriodLineage,
   pruneCodexHourlyDays,
   reduceCodexRollingHourlySlice,
   reduceCodexStructuralSlice,
@@ -921,7 +922,10 @@ function contributionFor(
     },
     aggregate: {
       ...emptyFileAggregate(entry.fileKey, parserState.role),
-      period: { timeZone, indexedThrough: 0, days: {} },
+      // A new empty cursor is built by the current reducer from byte zero.
+      // Unlike a persisted legacy slice, it needs no second validation pass.
+      period: { timeZone, indexedThrough: 0, days: {},
+        lineageVersion: CODEX_PERIOD_LINEAGE_VERSION, lineagePrefixEvents: 0 },
     },
     qualityFlags: [...flags],
   };
@@ -1420,7 +1424,11 @@ async function migrateContributionPeriod(
     ...(quotaHistory.length > 0 ? { quotaHistory } : {}),
     aggregate: {
       ...contribution.aggregate,
-      period: undefined,
+      // A compatible legacy slice can still serve ordinary usage while its
+      // stronger calendar proof is rebuilt. Only the completed body pass may
+      // replace it with current lineage markers.
+      period: isReadableCodexPeriod(contribution, timeZone)
+        ? contribution.aggregate.period : undefined,
     },
     periodMigration: {
       timeZone,
@@ -2156,6 +2164,7 @@ function coverageFor(
   timeZone: string,
   asOfDay: string,
   deduplication = classifyCodexSessionDuplicates(files),
+  requireCalendarProof = false,
 ): CodexIndexCoverage {
   let indexedFiles = 0;
   let indexedBytes = 0;
@@ -2219,7 +2228,12 @@ function coverageFor(
       }
       rangeTotalFiles += 1;
       rangeTotalBytes += entry.size;
-      const periodIsCurrent = isReadableCodexPeriod(contribution, timeZone);
+      // Recent display ranges retain legacy compatibility. Calendar evidence
+      // requires proof across every canonical file, including older history.
+      const periodIsCurrent = isReadableCodexPeriod(contribution, timeZone) &&
+        (!requireCalendarProof || oldestDay !== undefined ||
+          isCurrentCodexPeriodLineage(contribution?.aggregate.period,
+            contribution?.lineage?.desiredPrefixEvents ?? 0));
       const periodMigration = contribution?.periodMigration;
       // A migration draft is intentionally not a readable period yet, but
       // its cursor still represents verified work for the progress display.
@@ -2412,6 +2426,7 @@ function recomputeDerivedIndex(
   timeZone: string,
   asOfDay: string,
   reconcileLineage = true,
+  requireCalendarProof = false,
 ): void {
   const initialDeduplication = classifyCodexSessionDuplicates(index.files);
   if (reconcileLineage) {
@@ -2429,6 +2444,7 @@ function recomputeDerivedIndex(
     timeZone,
     asOfDay,
     deduplication,
+    requireCalendarProof,
   );
 }
 
@@ -2503,6 +2519,9 @@ function isWarmNoOp(
       contribution.aggregate.period?.timeZone === timeZone &&
       contribution.aggregate.period.indexedThrough >= contribution.offset &&
       isReadableCodexPeriod(contribution, timeZone) &&
+      (!allowAchievementHourProof || !canonical.has(entry.fileKey) || isCurrentCodexPeriodLineage(
+        contribution.aggregate.period, contribution.lineage?.desiredPrefixEvents ?? 0,
+      )) &&
       !contribution.qualityFlags.includes('stale-file') &&
       !contribution.qualityFlags.includes('stale-reset-required'),
     );
@@ -2540,6 +2559,7 @@ export async function updateCodexIndex(
   const io = options.io ?? defaultIo();
   const timeZone = resolveTimeZone(options.timeZone);
   const refreshInstant = (options.now ?? Date.now)();
+  const requireCalendarProof = options.allowAchievementHourProof !== false;
   const requestedUsageWindow = copyCodexUsageWindow(options.achievementUsageWindow);
   const usageWindow = requestedUsageWindow && requestedUsageWindow.through <= refreshInstant &&
     previous.coverage.period.timeZone === timeZone && codexOriginBaselineReady(previous)
@@ -2761,7 +2781,7 @@ export async function updateCodexIndex(
     if (!due) {
       return false;
     }
-    recomputeDerivedIndex(index, manifest, timeZone, asOfDay, false);
+    recomputeDerivedIndex(index, manifest, timeZone, asOfDay, false, requireCalendarProof);
     options.onProgress(progressFor(index, index.coverage.indexedFiles));
     lastProgressAt = current;
     lastProgressBytes = bytesRead;
@@ -2789,6 +2809,7 @@ export async function updateCodexIndex(
       timeZone,
       asOfDay,
       reconcileLineageForCheckpoint,
+      requireCalendarProof,
     );
     options.onProgress?.(progressFor(index, index.coverage.indexedFiles));
     lastProgressAt = current;
@@ -2819,6 +2840,7 @@ export async function updateCodexIndex(
         timeZone,
         asOfDay,
         reconcileLineageForCheckpoint,
+        requireCalendarProof,
       );
       publishProgress(true);
       return;
@@ -2830,6 +2852,7 @@ export async function updateCodexIndex(
         timeZone,
         asOfDay,
         reconcileLineageForCheckpoint,
+        requireCalendarProof,
       );
     }
   };
@@ -3192,6 +3215,10 @@ export async function updateCodexIndex(
         contribution.offset >= entry.size &&
         !contribution.discardingOversizedLine &&
         (
+          (requireCalendarProof && !isCurrentCodexPeriodLineage(
+            contribution.aggregate.period,
+            contribution.lineage?.desiredPrefixEvents ?? 0,
+          )) ||
           !isCompatibleCodexPeriodLineage(
             contribution.aggregate.period,
             contribution.lineage?.desiredPrefixEvents ?? 0,
@@ -3550,7 +3577,7 @@ export async function updateCodexIndex(
   // Run this only under the historical-work allowance and only after lineage
   // and duplicate classification have settled. Each pass is streaming and
   // checkpointed at the same safe JSONL cursor as the other migrations.
-  recomputeDerivedIndex(index, manifest, timeZone, asOfDay);
+  recomputeDerivedIndex(index, manifest, timeZone, asOfDay, true, requireCalendarProof);
   const hourProofStart = filePasses;
   // Routine appended tails should not starve older hour proofs. Keep only one
   // historical migration stage per refresh to protect the bounded I/O budget.

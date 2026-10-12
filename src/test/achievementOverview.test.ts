@@ -92,6 +92,54 @@ const row = (key: string, extra: Record<string, unknown> = {}) => ({
   progress: 600e6, target: 5e9, proof: 'ready', ...extra,
 });
 
+test('Claude-only four-family progress remains a pinned badge but not an eligible silver NEXT goal', () => {
+  const rainbow = row('model-rainbow', { group: 'combined', earnedLevel: 1,
+    progress: 4, target: 5, nextEligible: false });
+  const before = JSON.stringify(rainbow);
+  const selected = overview.selectAchievementOverview([rainbow], 'claude', ['model-rainbow'], 'manual');
+  assert.deepEqual(selected.badges, ['model-rainbow']);
+  assert.deepEqual(selected.next, []);
+  assert.equal(JSON.stringify(rainbow), before, 'recommendation eligibility never edits award or gallery evidence');
+});
+
+test('rainbow NEXT eligibility uses explicit provider capacity and leaves unknown context unknown', () => {
+  const eligible = overview.modelRainbowNextEligibility;
+  for (const [providers, expected] of [
+    [{ claude: true, codex: false }, [true, false, false]],
+    [{ claude: false, codex: true }, [true, false, false]],
+    [{ claude: true, codex: true }, [true, true, true]],
+    [{ claude: false, codex: false }, [false, false, false]],
+  ] as const) {
+    assert.deepEqual([2, 5, 7].map(target => eligible(target, providers)), expected);
+  }
+  for (const providers of [{}, { claude: true }, { codex: false }]) {
+    assert.equal(eligible(5, providers), undefined, 'absent context is not a disabled provider');
+  }
+  for (const target of [0, 3, 4, 6, NaN, Infinity]) {
+    assert.equal(eligible(target, { claude: true, codex: false }), undefined, 'only actual rainbow targets');
+  }
+  const rainbow = row('model-rainbow', { group: 'combined', progress: 4, target: 5 });
+  for (const nextEligible of [undefined, true]) {
+    assert.deepEqual(overview.selectAchievementOverview([{ ...rainbow, nextEligible }], 'claude').next,
+      ['model-rainbow'], 'unknown and explicitly eligible candidates retain existing recommendation behavior');
+  }
+  for (const proof of ['pending', 'stale']) {
+    assert.deepEqual(overview.selectAchievementOverview([{ ...rainbow, nextEligible: true, proof }], 'claude').next, [],
+      'structural eligibility never manufactures evidence readiness');
+  }
+});
+
+test('a newly ineligible NEXT goal retires without replacement or changing retained pins', () => {
+  const rainbow = row('model-rainbow', { group: 'combined', progress: 4, target: 5, nextEligible: true });
+  const selected = overview.selectAchievementOverview([rainbow], 'claude', ['model-rainbow'], 'manual');
+  const changed = [{ ...rainbow, nextEligible: false }, row('claude-output', { group: 'claude', progress: 1e6, target: 2e6 })];
+  assert.deepEqual(overview.retainAchievementOverview(selected, changed), { badges: ['model-rainbow'], next: [] });
+  assert.deepEqual(overview.selectAchievementOverview(changed, 'claude', ['model-rainbow'], 'manual').next,
+    ['claude-output'], 'a new selection may choose another eligible goal');
+  assert.deepEqual(overview.retainAchievementOverview(selected, [{ ...rainbow, nextEligible: undefined }]), selected,
+    'unknown context alone does not retire a selected goal');
+});
+
 test('explicit earned pins take showcase priority without changing goals or share choices', () => {
   const rows = [row('astra-regular'), row('sol-regular'), row('local-share-export', { group: 'plugin' }),
     row('cumulative-volume', { group: 'combined', earnedLevel: 5 }),

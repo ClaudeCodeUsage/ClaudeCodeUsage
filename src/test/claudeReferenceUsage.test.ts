@@ -75,7 +75,7 @@ test('referenceUsage requires safe native components and a complete consistent s
     { ...known, cache_creation: { ephemeral_1h_input_tokens: 5 } },
     { ...known, cache_creation: { ephemeral_5m_input_tokens: 9 } },
     { ...known, cache_creation: { ephemeral_5m_input_tokens: 3, ephemeral_1h_input_tokens: 4 } },
-    { ...known, cache_creation_input_tokens: undefined },
+    { ...known, cache_creation_input_tokens: undefined, cache_creation: { ephemeral_1h_input_tokens: 5 } },
     { ...known, cache_creation_input_tokens: 0 },
     { ...known, cache_creation: null },
     { ...known, cache_creation: [] },
@@ -203,7 +203,7 @@ test('workflow referenceUsage follows canonical response replacements and compac
     await mkdir(directory, { recursive: true });
     const file = path.join(directory, 'agent-reference.jsonl');
     const malformed = [
-      { ...known, cache_creation_input_tokens: undefined },
+      { ...known, cache_creation_input_tokens: undefined, cache_creation: { ephemeral_1h_input_tokens: 5 } },
       { ...known, cache_creation_input_tokens: 0 },
       { ...known, cache_creation: { ephemeral_5m_input_tokens: 3 } },
       { ...known, cache_creation: null },
