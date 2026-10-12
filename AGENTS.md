@@ -207,7 +207,22 @@ anchors. A static assertion of the first render is not acceptance evidence.
 - Tracked files default to mode `100644` and LF endings. Use `100755` only for a
   real directly executed program, register it in the repository policy test,
   and verify modes with `git ls-files --stage` before committing.
-- Keep commits focused. The repository squash-merges reviewed PRs to `main`.
+- Keep commits focused. For reviewed multi-stage features, performance work and
+  version development, prefer a normal merge commit into `main`, preserving
+  meaningful implementation, test and fix commits and their original SHAs.
+- Use squash merge for a single small logical fix when its branch contains many
+  trial or fixup commits. Choose based on the actual commit history, not only the
+  PR title. Preserve meaningful commit chains when preparing a PR; do not first
+  collapse a multi-stage change into one publication commit.
+- Commit at meaningful, verifiable milestones, not per file, agent turn or
+  contribution-graph target. Keep a logical change with its regression tests and
+  necessary documentation together. Fold trivial formatting, wording and immediate
+  fixups into related unpublished work; retain separate commits for independently
+  useful fixes or evidence-backed milestones. Before a PR, consolidate noisy
+  unpublished checkpoints while preserving meaningful stages and attribution;
+  do not rewrite shared history without explicit authorization.
+- Leave previously squashed history unchanged. Do not reconstruct or re-merge
+  old commits merely to restore contribution-graph counts.
 - Never copy changes from a contributor pull request into a maintainer PR and
   close the contributor PR as superseded. To preserve attribution, merge the
   contributor's original pull request, or—with explicit authorization—update that
