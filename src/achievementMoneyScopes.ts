@@ -8,7 +8,7 @@ import type { CodexFileAggregate } from './providers/codex/codexIndex';
 import { CODEX_PERIOD_LINEAGE_VERSION } from './providers/codex/codexPeriodIndex';
 import type { ProviderTokenCounts, UsageProvider } from './providers/providerTypes';
 import type { UsageData } from './types';
-import type { AchievementDayEvidence } from './achievementCalendar';
+import { codexAchievementCalendarProjection, type AchievementDayEvidence } from './achievementCalendar';
 
 /** Accept existing materialized model rows without their dashboard cost/count.
  * referenceUsage is the admitted TTL-complete subset, never the full bucket. */
@@ -30,6 +30,8 @@ export interface MoneyScopeCoverage {
   readonly unpricedTokens?: number;
   /** Preserve real positive amounts even when integer microUSD floors to 0. */
   readonly amountPositive?: boolean;
+  /** Pricing coverage and date/census coverage are independent. */
+  readonly scopeLowerBound?: true;
 }
 export interface AchievementMoneyScopes {
   readonly provider: UsageProvider;
@@ -67,6 +69,9 @@ export interface CodexMoneyScopesInput {
    * census. Keys are ephemeral parent-resolution input, never output/storage. */
   readonly files: readonly CodexFileAggregate[];
   readonly complete: boolean;
+  /** Independent host coverage fence: the snapshot may omit unsettled usage
+   * contributions even while its base byte index is complete. */
+  readonly calendarComplete?: boolean;
   /** Independent date proof plus each file's complete period/model buckets.
    * Caller proves indexedThrough caught up and zone/prefix provenance. Legacy
    * byDay and a successful cumulative value cannot replace this proof. */
@@ -384,7 +389,35 @@ export function codexAchievementMoneyScopes(input: CodexMoneyScopesInput): Achie
   let week: Peak = { coverage: PENDING };
   // Date proof over the full census cannot silently become proof for a newly
   // selected subset; caller may supply a separately validated subset instead.
-  if (input.dayEvidence?.complete === true && files.length === input.files.length) {
+  if (input.dayEvidence?.sourceRevision !== undefined) {
+    try {
+      const supplied=input.dayEvidence;
+      const projection=codexAchievementCalendarProjection(input.files,supplied.timeZone ?? '',input.complete,input.calendarComplete!==false);
+      const current=projection.evidence;
+      const signatures=(proof:AchievementDayEvidence):string => {
+        const rows=new Map<string,string>();
+        for (const row of proof.days) {
+          dayOrdinal(row.day);
+          if (rows.has(row.day)) throw new RangeError('Duplicate date binding');
+          rows.set(row.day,dayProofSignature(row.processed,row.output,row.models));
+        }
+        return JSON.stringify([...rows].sort(([a],[b])=>a<b?-1:a>b?1:0));
+      };
+      if (current.sourceRevision!==supplied.sourceRevision || current.complete!==supplied.complete ||
+        current.scope!==supplied.scope || signatures(current)!==signatures(supplied)) throw new RangeError('Retired date binding');
+      if (current.complete || current.scope==='verified-subset') {
+        week=weekPeak(codexMoneyDays(projection.completeDateFiles,projection.completeDateEvidence,book),'codex',book,input.asOfDay);
+        if (!current.complete) {
+          // Only a positive lower bound is meaningful for an incomplete scope.
+          // Do not certify zero/empty weeks, or replace overflow/unpriced states.
+          if (week.value!==undefined && week.coverage.amountPositive &&
+            (week.coverage.status==='complete' || week.coverage.status==='partial')) {
+            week={...week,coverage:{...week.coverage,status:'partial',scopeLowerBound:true}};
+          } else if (week.coverage.status==='empty') week={coverage:PENDING};
+        }
+      }
+    } catch { week={coverage:PENDING}; }
+  } else if (input.dayEvidence?.complete === true && files.length === input.files.length) {
     try { week = weekPeak(codexMoneyDays(files, input.dayEvidence, book), 'codex', book, input.asOfDay); }
     catch { week = { coverage: INVALID }; }
   }

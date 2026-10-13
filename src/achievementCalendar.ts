@@ -5,6 +5,7 @@ import { createCodexParserState } from './providers/codex/codexParser';
 import type { ProviderTokenCounts } from './providers/providerTypes';
 import type { UsageData } from './types';
 import { verifiedCodexAchievementFiles } from './codexAchievementProof';
+import { codexAchievementProofRevision } from './codexAchievementRevision';
 
 /** Numeric, already-materialized calendar evidence; no source-log I/O. */
 export interface AchievementDay {
@@ -13,7 +14,13 @@ export interface AchievementDay {
   output: number;
   models: Record<string, { processed: number; output: number }>;
 }
-export interface AchievementDayEvidence { complete: boolean; days: AchievementDay[]; timeZone?: string }
+export interface AchievementDayEvidence {
+  complete: boolean; days: AchievementDay[]; timeZone?: string;
+  /** Positive dated components only. Missing dates never mean verified zero. */
+  scope?: 'verified-subset';
+  /** Runtime census/provenance binding, not persisted, rendered or exported. */
+  sourceRevision?: string;
+}
 export interface AchievementTokenEvidence { complete: boolean; output: number; cachedInput: number; lowerBound?: true }
 export interface AchievementCalendarSignals {
   familyDays: Partial<Record<'sonnet' | 'opus' | 'haiku' | 'fable' | 'astra' | 'sol' | 'luna', number>>;
@@ -26,6 +33,7 @@ export interface AchievementCalendarSignals {
   peakEvidenceComplete?: boolean;
   claudeEvidenceComplete?: boolean;
   codexEvidenceComplete?: boolean;
+  codexEvidenceUsable?: boolean;
 }
 const DAY_MS = 86_400_000;
 type Family = keyof AchievementCalendarSignals['familyDays'];
@@ -89,7 +97,8 @@ function monday(time: number): number {
 /** Undefined is invalid/incomplete; an empty Map is verified empty evidence. */
 function validatedDays(evidence: AchievementDayEvidence, asOf: number, additiveContributions = false): Map<string, AchievementDay> | undefined {
   const rows = new Map<string, AchievementDay>();
-  if (!object(evidence) || evidence.complete !== true || !Array.isArray(evidence.days)) return undefined;
+  if (!object(evidence) || (evidence.complete !== true && evidence.scope !== 'verified-subset') ||
+      !Array.isArray(evidence.days)) return undefined;
   for (const row of evidence.days) {
     if (!object(row) || typeof row.day !== 'string' || !object(row.models)) return undefined;
     if (!additiveContributions && rows.has(row.day)) return undefined;
@@ -133,8 +142,9 @@ export function achievementCalendarSignals(input: {
       input.claude.timeZone !== input.codex.timeZone) return result;
   const claudeProof = validatedDays(input.claude, asOf);
   const codexProof = validatedDays(input.codex, asOf);
-  result.claudeEvidenceComplete = !!claudeProof;
-  result.codexEvidenceComplete = !!codexProof;
+  result.claudeEvidenceComplete = !!claudeProof && input.claude.complete === true;
+  result.codexEvidenceComplete = !!codexProof && input.codex.complete === true;
+  result.codexEvidenceUsable = !!codexProof;
   const claude = claudeProof ?? new Map<string, AchievementDay>();
   const codex = codexProof ?? new Map<string, AchievementDay>();
   const familyDates = new Map<string, Map<Family, { processed: number; output: number }>>();
@@ -162,9 +172,11 @@ export function achievementCalendarSignals(input: {
     }
     result.threeFamilyDay ||= qualified >= 3;
   }
-  for (const [date, row] of claude) {
-    const other = codex.get(date);
-    if (row.processed >= 1_000_000 && row.output > 0 && other && other.processed >= 1_000_000 && other.output > 0) result.dualProviderDays++;
+  if (result.claudeEvidenceComplete && result.codexEvidenceComplete) {
+    for (const [date, row] of claude) {
+      const other = codex.get(date);
+      if (row.processed >= 1_000_000 && row.output > 0 && other && other.processed >= 1_000_000 && other.output > 0) result.dualProviderDays++;
+    }
   }
   result.dualProviderDay = result.dualProviderDays > 0;
   const weekTotals = new Map<number, number>();
@@ -188,7 +200,7 @@ export function achievementCalendarSignals(input: {
   result.activeWeeks = [...weekOutputDays].filter(([week, days]) => week < currentWeek && days.size >= 4).length;
   // Both present providers must be complete. A missing provider is an explicit
   // complete-empty input; incomplete evidence never supplies a combined mean.
-  if (!claudeProof || !codexProof) return result;
+  if (!result.claudeEvidenceComplete || !result.codexEvidenceComplete) return result;
   result.peakEvidenceComplete = true;
   if (!Number.isFinite(first)) return result;
   const firstWeek = monday(first) + (first === monday(first) ? 0 : 7 * DAY_MS);
@@ -275,37 +287,89 @@ export function codexAchievementTokenEvidence(files: readonly CodexFileAggregate
     ...(verified.length < files.length ? { lowerBound: true as const } : {}) } : fail();
 }
 
-/** Period proof is independent of byDay's legacy UTC projection. */
+/** Validate original dated components without confusing containment with coverage. */
+function codexFileDays(file: CodexFileAggregate, timeZone: string): AchievementDayEvidence | undefined {
+  const days: AchievementDay[] = [];
+  const period = file.period;
+  if (!object(period) || period.timeZone !== timeZone || period.lineageVersion !== CODEX_PERIOD_LINEAGE_VERSION ||
+      !count(period.lineagePrefixEvents) || !count(period.indexedThrough) ||
+      !object(period.days) || !validTokens(file.total) || !validBuckets(file.byModel, file.total)) return undefined;
+  const periodTotals: ProviderTokenCounts[] = [];
+  const periodModels = new Map<string, ProviderTokenCounts>();
+  for (const [date, slice] of Object.entries(period.days)) {
+    if (!Number.isFinite(dayTimestamp(date)) || !object(slice) || !validTokens(slice.total) ||
+        !validBuckets(slice.byModel, slice.total) || !validBuckets(slice.byEffort, slice.total)) return undefined;
+    periodTotals.push(slice.total);
+    for (const [model, tokens] of Object.entries(slice.byModel)) {
+      const sum = sumTokens([periodModels.get(model) ?? { inputTotal: 0, outputTotal: 0 }, tokens]);
+      const allowed = Object.prototype.hasOwnProperty.call(file.byModel, model) ? file.byModel[model] : undefined;
+      if (!sum || !allowed || !tokensFit(sum, allowed)) return undefined;
+      periodModels.set(model, sum);
+    }
+    const models = Object.fromEntries(Object.entries(slice.byModel).map(([model, tokens]) =>
+      [model, { processed: tokens.inputTotal + tokens.outputTotal, output: tokens.outputTotal }]));
+    days.push({ day: date, processed: slice.total.inputTotal + slice.total.outputTotal, output: slice.total.outputTotal, models });
+  }
+  const total = sumTokens(periodTotals);
+  if (!total || !tokensFit(total, file.total)) return undefined;
+  const equal = (a: ProviderTokenCounts, b: ProviderTokenCounts): boolean =>
+    TOKEN_FIELDS.every(field => b[field] === undefined || (a[field] ?? 0) === b[field]);
+  const complete = equal(total, file.total) && Object.entries(file.byModel).every(([model, tokens]) =>
+    equal(periodModels.get(model) ?? { inputTotal: 0, outputTotal: 0 }, tokens));
+  return { complete, days, timeZone, ...(!complete ? { scope: 'verified-subset' as const } : {}) };
+}
+/** Period proof is independent of byDay's legacy UTC projection. The caller
+ * supplies its complete-census/provenance fence; host snapshots use the stricter
+ * runtime-witness projection below. */
 export function codexAchievementDayEvidence(files: readonly CodexFileAggregate[], timeZone: string, complete: boolean): AchievementDayEvidence {
   const fail = (): AchievementDayEvidence => ({ complete: false, days: [], timeZone });
   if (complete !== true || !validTimeZone(timeZone) || !validCanonicalFiles(files)) return fail();
-  const days: AchievementDay[] = [];
-  for (const file of files) {
-    const period = file.period;
-    if (!object(period) || period.timeZone !== timeZone || period.lineageVersion !== CODEX_PERIOD_LINEAGE_VERSION ||
-        !count(period.lineagePrefixEvents) ||
-        !object(period.days)) return fail();
-    const periodTotals: ProviderTokenCounts[] = [];
-    const periodModels = new Map<string, ProviderTokenCounts>();
-    for (const [date, slice] of Object.entries(period.days)) {
-      if (!Number.isFinite(dayTimestamp(date)) || !object(slice) || !validTokens(slice.total) ||
-          !validBuckets(slice.byModel, slice.total) || !validBuckets(slice.byEffort, slice.total)) return fail();
-      periodTotals.push(slice.total);
-      for (const [model, tokens] of Object.entries(slice.byModel)) {
-        const sum = sumTokens([periodModels.get(model) ?? { inputTotal: 0, outputTotal: 0 }, tokens]);
-        const allowed = Object.prototype.hasOwnProperty.call(file.byModel, model) ? file.byModel[model] : undefined;
-        if (!sum || !allowed || !tokensFit(sum, allowed)) return fail();
-        periodModels.set(model, sum);
-      }
-      const models = Object.fromEntries(Object.entries(slice.byModel).map(([model, tokens]) =>
-        [model, { processed: tokens.inputTotal + tokens.outputTotal, output: tokens.outputTotal }]));
-      days.push({ day: date, processed: slice.total.inputTotal + slice.total.outputTotal, output: slice.total.outputTotal, models });
-    }
-    const total = sumTokens(periodTotals);
-    if (!total || !tokensFit(total, file.total)) return fail();
-  }
+  const proofs = files.map(file => codexFileDays(file,timeZone));
+  if (proofs.some(proof => !proof)) return fail();
+  const days = proofs.flatMap(proof => proof!.days);
   const combined = validatedDays({ complete: true, days }, Infinity, true);
-  return combined ? { complete: true, days: [...combined.values()], timeZone } : fail();
+  if (!combined) return fail();
+  const whole = proofs.every(proof => proof!.complete);
+  return { complete:whole, days:[...combined.values()], timeZone,
+    ...(!whole && [...combined.values()].some(day=>day.processed>0) ? {scope:'verified-subset' as const} : {}) };
+}
+
+export interface CodexAchievementCalendarProjection {
+  evidence: AchievementDayEvidence;
+  /** Fully dated files selected AFTER full-census ancestry validation. Money
+   * still validates all billable model/date vectors before admitting a week. */
+  completeDateFiles: CodexFileAggregate[];
+  completeDateEvidence: AchievementDayEvidence;
+}
+/** No source reads. Expected offsets/prefixes come from the provider's actual
+ * contributions, never copied from the period that they are meant to verify. */
+export function codexAchievementCalendarProjection(files: readonly CodexFileAggregate[], timeZone: string,
+  indexed: boolean, wholeCensusComplete = true): CodexAchievementCalendarProjection {
+  const empty = (): CodexAchievementCalendarProjection => ({evidence:{complete:false,days:[],timeZone},
+    completeDateFiles:[],completeDateEvidence:{complete:false,days:[],timeZone}});
+  if (!indexed || !Array.isArray(files) || !validTimeZone(timeZone)) return empty();
+  const selected = verifiedCodexAchievementFiles(files);
+  const proofs: AchievementDayEvidence[] = [], completeDateFiles: CodexFileAggregate[] = [], moneyDays: AchievementDay[] = [];
+  for (const file of selected) {
+    const witness=file.achievementPeriodWitness, period=file.period;
+    if (!witness || !period || !count(witness.size) || !count(witness.offset) ||
+      witness.size!==witness.offset || witness.offset!==period.indexedThrough ||
+      witness.timeZone!==timeZone || !count(witness.expectedPrefixEvents) ||
+      witness.expectedPrefixEvents!==period.lineagePrefixEvents) continue;
+    const proof=codexFileDays(file,timeZone);
+    if (!proof) continue;
+    proofs.push(proof);
+    if (proof.complete) {completeDateFiles.push(file); moneyDays.push(...proof.days);}
+  }
+  const rows=validatedDays({complete:true,days:proofs.flatMap(proof=>proof.days)},Infinity,true);
+  const moneyRows=validatedDays({complete:true,days:moneyDays},Infinity,true);
+  if (!rows || !moneyRows) return empty();
+  const whole=wholeCensusComplete && selected.length===files.length && proofs.length===files.length && proofs.every(proof=>proof.complete);
+  const days=[...rows.values()];
+  const sourceRevision=codexAchievementProofRevision(files,{indexed,calendarComplete:wholeCensusComplete,timeZone});
+  return {evidence:{complete:whole,days,timeZone,sourceRevision,
+    ...(!whole && days.some(day=>day.processed>0) ? {scope:'verified-subset' as const} : {})},
+    completeDateFiles, completeDateEvidence:{complete:true,days:[...moneyRows.values()],timeZone}};
 }
 
 /** All four Claude buckets are disjoint; models must fit each original component. */

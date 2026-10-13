@@ -330,7 +330,9 @@ test('Codex period model totals across days must fit the same all-time model com
   }]));
   assert.equal(dayProof([bad]).complete, false, 'each day fits, but the model period exceeds its file allowance');
   bad.byModel = { 'gpt-6-astra': tokens(8, 4), 'gpt-6-sol': tokens(12, 6) };
-  assert.equal(dayProof([bad]).complete, true);
+  assert.equal(dayProof([bad]).complete, false, 'valid dated subset is not exhaustive all-time coverage');
+  assert.equal(dayProof([bad]).scope, 'verified-subset');
+  assert.equal(dayProof([bad]).days.length, 2);
   bad.period.days['2026-09-02'].byModel = { 'gpt-6-luna': tokens(4, 2) };
   assert.equal(dayProof([bad]).complete, false, 'a period model missing from the file cannot prove a named family');
 });
@@ -344,11 +346,13 @@ test('Codex daily model subsets and component sums must fit both day and file', 
   assert.equal(dayProof([bad]).complete, false);
 });
 
-test('Codex total period is a component subset of the file rather than an all-time equality', () => {
+test('Codex dated containment permits a positive bound, but completeness requires all-time equality', () => {
   const valid = file('root', tokens(10, 4));
   const slice = { total: tokens(5, 2), byModel: { 'gpt-6-astra': tokens(5, 2) }, byEffort: {}, structural: {} };
   valid.period.days = { '2026-09-01': slice };
-  assert.equal(dayProof([valid]).complete, true);
+  assert.equal(dayProof([valid]).complete, false);
+  assert.equal(dayProof([valid]).scope, 'verified-subset');
+  assert.equal(dayProof([valid]).days.length, 1);
   valid.period.days['2026-09-02'] = slice;
   assert.equal(dayProof([valid]).complete, true);
   valid.period.days['2026-09-03'] = slice;

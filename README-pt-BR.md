@@ -117,7 +117,7 @@ Ocultar valores restaura cores, textos e Markdown de Tokens e invalida a prévia
 **Ritmo da cota semanal** (`showWeeklyQuotaPace`) vem desligado e reutiliza observações: 29% usado com 25% do ciclo decorrido projeta 116%.
 Não há previsão nas primeiras seis horas, após trinta minutos sem nova observação ou após o reset. Credenciais invalidadas retiram a previsão mesmo com o painel pausado; mudanças de conta/origem e quedas do contador exigem uma virada normal de sete dias verificada.
 Logs Codex não verificam a conta, portanto a previsão está indisponível. Painel e tooltip compartilham traduções; texto da barra e formatos próprios ficam iguais. Sem novas requisições, timers ou histórico.
-O resumo usa cartões horizontais com largura limitada: imagem, nome, nível e progresso ficam juntos. Os botões de fixação ficam no cartão e os próximos objetivos têm uma barra fina. Poucos emblemas não se espalham por toda a tela; em telas estreitas, os cartões quebram linha sem reduzir o texto.
+O resumo usa cartões horizontais com largura limitada: imagem, nome, nível e progresso ficam juntos. Os botões de fixação ficam no cartão e os próximos objetivos têm uma barra fina. Poucos emblemas não se espalham por toda a tela; em telas estreitas, os cartões quebram linha sem reduzir o texto. Rótulos do nível ouro permanecem legíveis em temas claros, mantendo um detalhe dourado.
 
 O seletor de tamanho precede o resumo: ícones da coleção 56 / 80 / 112 px, vitrine 72 / 96 / 128 px, erros de fixação junto aos controles e foco estável.
 O subtotal USD de effort não qualifica a conquista. Valores vazios e sem preço são distintos; valores parciais mostram limite inferior, e valores inválidos ou com overflow ficam indisponíveis.
@@ -127,7 +127,15 @@ Evidências pendentes ou desatualizadas substituem o progresso zero e ficam fora
 Cartões fechados mostram o progresso até o próximo nível; etapas intermediárias nas longas escalas de tokens não geram prêmios, avisos ou opções de compartilhamento extras.
 Pequeno / Médio / Grande alteram medalhas e molduras, preservando fonte e áreas de clique. Próximas metas destaca até três temas e exclui metas sem comprovação e modelos não utilizados.
 Metas exigem progresso positivo atual; a ordem fica estável durante a visita. Clicar abre as regras sem ler logs nem selecionar para compartilhar.
-Após indexação atual completa, linhagens Codex sem conflito podem comprovar marcos de tokens/agentes; conquistas de calendário ainda exigem identidade e datas verificadas por completo.
+Após indexação atual completa, linhagens Codex sem conflito podem comprovar marcos de tokens/agentes; ramos conflitantes e seus descendentes são excluídos.
+
+Com o histórico local atual verificado e totalmente indexado, datas parciais confiáveis podem mostrar
+`≥` no progresso de atividade, famílias de modelos e Tokens semanais. Limites inferiores de valores
+semanais usam apenas arquivos selecionados verificados com todo o uso datado; cobertura de preços e
+de datas são independentes. Datas parciais não comprovam histórico completo nem uso zero, e médias de
+quatro semanas/picos retidos ficam pendentes até a cobertura completa. Escopos acumulados/de tarefa
+não mudam, sem leituras adicionais das fontes, armazenamento ou chamadas de rede.
+
 Séries e níveis têm contagens separadas. Filtros locais persistem após recarregar;
 o próximo alvo aparece no cartão e as regras de todos os níveis ficam na seção expansível.
 Ativas por padrão; desative **Local achievements** em ⚙ Settings

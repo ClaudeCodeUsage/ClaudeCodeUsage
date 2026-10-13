@@ -123,7 +123,7 @@ Menyembunyikan nilai mengembalikan warna, teks dan Markdown ke Token serta memba
 **Laju kuota mingguan** (`showWeeklyQuotaPace`) default nonaktif dan memakai observasi yang sudah ada: terpakai 29% saat 25% siklus berlalu memproyeksikan 116%.
 Tidak ada prediksi dalam enam jam pertama, setelah tiga puluh menit tanpa observasi baru, atau setelah reset. Kredensial tidak valid segera menarik prediksi meski dasbor dijeda; pergantian akun/sumber dan penurunan penghitung menunggu pergantian tujuh hari normal yang terverifikasi.
 Log Codex saat ini tidak memverifikasi akun, sehingga prediksi tidak tersedia. Dasbor dan tooltip bilah status berbagi terjemahan; teks bilah dan format khusus tetap sama. Tanpa permintaan, timer atau riwayat baru.
-Ringkasan memakai kartu horizontal dengan lebar terbatas: gambar, nama, tingkat, dan progres tetap berdekatan. Tombol semat berada di dalam kartu, dan target berikutnya memiliki bilah progres tipis. Beberapa lencana tidak lagi tersebar sepanjang layar; tampilan sempit membungkus kartu tanpa mengecilkan teks.
+Ringkasan memakai kartu horizontal dengan lebar terbatas: gambar, nama, tingkat, dan progres tetap berdekatan. Tombol semat berada di dalam kartu, dan target berikutnya memiliki bilah progres tipis. Beberapa lencana tidak lagi tersebar sepanjang layar; tampilan sempit membungkus kartu tanpa mengecilkan teks. Label tingkat emas tetap terbaca pada tema terang dengan aksen emas yang dipertahankan.
 
 Pilihan ukuran mendahului ringkasan: koleksi 56 / 80 / 112 px, etalase 72 / 96 / 128 px; kesalahan semat dekat kontrol dan fokus keyboard tetap stabil.
 Subtotal USD effort bukan syarat pencapaian. Kosong dan tanpa harga dibedakan; nilai parsial menunjukkan batas bawah, sedangkan nilai tidak valid/overflow tidak tersedia.
@@ -133,7 +133,15 @@ Bukti belum lengkap atau kedaluwarsa ditandai, bukan dianggap progres nol, dan d
 Kartu tertutup menampilkan progres menuju tingkat berikutnya; tahap perantara pada tangga token panjang bukan lencana, pemberitahuan, atau pilihan berbagi tambahan.
 Kecil / Sedang / Besar mengubah lencana dan bingkai kartu, menjaga ukuran huruf dan area klik. Target berikutnya maksimal tiga tema, melewati target yang belum terbukti dan model yang belum dipakai.
 Target memerlukan progres positif dengan bukti terkini; urutan tetap selama kunjungan. Klik membuka aturan tanpa membaca log atau otomatis memilih untuk berbagi.
-Setelah indeks terkini lengkap, silsilah Codex tanpa konflik dapat membuktikan tonggak token/agen; pencapaian kalender tetap memerlukan verifikasi identitas dan tanggal lengkap.
+Setelah indeks terkini lengkap, silsilah Codex tanpa konflik dapat membuktikan tonggak token/agen; cabang yang berkonflik dan keturunannya dikecualikan.
+
+Setelah riwayat lokal terkini terverifikasi dan seluruhnya terindeks, sebagian tanggal yang tepercaya
+dapat menampilkan `≥` untuk progres aktivitas, keluarga model dan Token mingguan. Batas bawah nilai uang
+mingguan hanya memakai berkas terpilih yang terverifikasi dengan seluruh penggunaan bertanggal;
+cakupan harga dan tanggal terpisah. Sebagian tanggal tidak membuktikan riwayat lengkap atau penggunaan
+nol, dan rata-rata empat minggu/puncak tersimpan tetap tertunda hingga cakupan lengkap.
+Cakupan kumulatif/tugas tetap sama, tanpa pembacaan sumber, penyimpanan atau panggilan jaringan tambahan.
+
 Seri dan tingkat dihitung terpisah. Filter lokal bertahan setelah muat ulang;
 target berikutnya tampil di kartu, semua aturan tingkat ada di bagian yang dapat dibuka.
 Aktif secara default; matikan **Local achievements** di ⚙ Settings

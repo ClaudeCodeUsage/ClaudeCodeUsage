@@ -1139,6 +1139,7 @@ export class UsageWebviewProvider {
     asOfDay: string;
     claudeComplete: boolean;
     codexComplete: boolean;
+    codexDatesUsable: boolean;
     claudeEnabled: boolean;
     codexEnabled: boolean;
     claudeProof: AchievementDayEvidence;
@@ -4678,7 +4679,8 @@ export class UsageWebviewProvider {
     }
     // Discover all identities first. Then independently verified lineages may
     // prove positive milestones without treating ambiguous display totals as
-    // evidence. Calendar claims still need global identity/period completeness.
+    // evidence. Complete means whole-census coverage; positive dated subsets
+    // remain separately witnessed lower bounds, never complete-empty history.
     const codexIndexTrusted = !this.revokedAchievementEvidence.has('codex') &&
       codexView?.currentManifestVerified === true && !!codexView.coverage.complete;
     const codexVolumeTrusted = !this.revokedAchievementEvidence.has('codex') &&
@@ -4694,11 +4696,14 @@ export class UsageWebviewProvider {
       (codexVolumeTrusted && codexView?.periodCoverage.allTime.complete === true &&
         codexView.periodCoverage.timeZone === timeZone &&
         dayEvidence?.complete === true && dayEvidence.timeZone === timeZone);
+    const codexDatesUsable = codexIndexTrusted && dayEvidence?.timeZone === timeZone &&
+      (codexComplete || (dayEvidence.scope === 'verified-subset' && typeof dayEvidence.sourceRevision === 'string'));
     const calendarCache = this.achievementCalendarCache;
     const reusableCalendar = calendarCache && calendarCache.days === claudeDays &&
       calendarCache.codexEvidence === dayEvidence && calendarCache.timeZone === timeZone &&
       calendarCache.asOfDay === asOfDay && calendarCache.claudeComplete === claudeComplete &&
       calendarCache.codexComplete === codexComplete &&
+      calendarCache.codexDatesUsable === codexDatesUsable &&
       calendarCache.claudeEnabled === availability.claude &&
       calendarCache.codexEnabled === availability.codex;
     const claudeProof: AchievementDayEvidence = reusableCalendar ? calendarCache.claudeProof
@@ -4707,13 +4712,14 @@ export class UsageWebviewProvider {
         : { complete: true, days: [], timeZone };
     const codexProof: AchievementDayEvidence = reusableCalendar ? calendarCache.codexProof
       : availability.codex
-        ? { complete: codexComplete, days: codexComplete ? dayEvidence!.days : [], timeZone }
+        ? { complete: codexComplete, days: codexDatesUsable ? dayEvidence!.days : [], timeZone,
+          ...(codexDatesUsable && !codexComplete ? {scope:'verified-subset' as const} : {}) }
         : { complete: true, days: [], timeZone };
     const calendar = reusableCalendar ? calendarCache.value
       : achievementCalendarSignals({ claude: claudeProof, codex: codexProof, asOfDay });
     this.achievementCalendarCache = {
       days: claudeDays, codexEvidence: dayEvidence, timeZone, asOfDay,
-      claudeComplete, codexComplete, value: calendar,
+      claudeComplete, codexComplete, codexDatesUsable, value: calendar,
       claudeProof, codexProof,
       claudeEnabled: availability.claude, codexEnabled: availability.codex,
     };
@@ -4746,15 +4752,15 @@ export class UsageWebviewProvider {
     }
     // Older activity/weekly rules use the same canonical, current-zone proof.
     // Display fallbacks (including legacy UTC rows) are never award evidence.
-    const currentRows = (proof: AchievementDayEvidence) => proof.complete
+    const currentRows = (proof: AchievementDayEvidence) => proof.complete || proof.scope === 'verified-subset'
       ? proof.days.filter((row) => row.day <= asOfDay).map(({ day, processed }) => ({ day, processed })) : [];
     const claudeDayRows = calendar.claudeEvidenceComplete ? currentRows(claudeProof) : [];
-    const codexDayRows = calendar.codexEvidenceComplete ? currentRows(codexProof) : [];
-    const active = achievementActiveDayKeys(claudeDayRows, codexDayRows, calendar.codexEvidenceComplete === true);
+    const codexDayRows = calendar.codexEvidenceUsable ? currentRows(codexProof) : [];
+    const active = achievementActiveDayKeys(claudeDayRows, codexDayRows, calendar.codexEvidenceUsable === true);
     const weekRows = [...claudeDayRows, ...codexDayRows];
     const weekCoverageComplete = calendar.peakEvidenceComplete === true;
     const positiveCalendarProof = (availability.claude && calendar.claudeEvidenceComplete === true) ||
-      (availability.codex && calendar.codexEvidenceComplete === true);
+      (availability.codex && calendar.codexEvidenceUsable === true);
     const codexSubsetTrusted = codexIndexTrusted &&
       (codexVolumeTrusted || codexSignals.verifiedSubset === true);
     const tokenEvidence = codexSubsetTrusted && codexSignals.tokenEvidence?.complete
@@ -4833,7 +4839,8 @@ export class UsageWebviewProvider {
     this.achievementCalendarLowerBounds = new Set(results.filter(result => !weekCoverageComplete &&
       positiveCalendarProof && result.progress > 0 &&
       (/^(active-days-|active-day-streak|active-weeks-|weekly-volume-)/.test(result.id) ||
-        result.id === 'streak-machine' || result.id === 'three-family-day')).map(result => result.id));
+        result.id === 'streak-machine' || result.id === 'three-family-day' ||
+        (!calendar.codexEvidenceComplete && /^(astra|sol|luna)-days-/.test(result.id)))).map(result => result.id));
     const newlyEarned = results.filter((result) =>
       result.unlocked && !this.achievementGrants.has(result.id) &&
       !this.pendingAchievementGrants.has(result.id),
@@ -5889,7 +5896,9 @@ export class UsageWebviewProvider {
       '<div class="achievement-intro"><h2>' + this.escapeHtml(copy.heading) + '</h2>' +
       '<details class="achievement-evidence-note" data-persist="achievement:evidence"><summary>' +
       this.escapeHtml(copy.evidenceTitle) + '</summary><p>' +
-      this.escapeHtml((cumulativeLowerBound ? copy.lowerBoundNote + ' ' : '') + copy.lowerBoundDetails) +
+      this.escapeHtml((cumulativeLowerBound || this.achievementCalendarLowerBounds.size > 0 ||
+        this.achievementMoneyFacts.codex?.coverage.completedMondayWeekPeak.scopeLowerBound
+        ? copy.lowerBoundNote + ' ' : '') + copy.lowerBoundDetails) +
       '</p></details>' +
       '<p class="achievement-count">' +
       this.escapeHtml(countLabel(copy.seriesCount, seriesCount, visibleCards.length)) + ' · ' +
@@ -13696,6 +13705,8 @@ export class UsageWebviewProvider {
       .achievement-overview-track > span { display: block; height: 100%; background: var(--vscode-progressBar-background); }
       .achievement-overview-badge[data-overview-rank="silver"] .achievement-overview-rank { color: var(--vscode-charts-blue); }
       .achievement-overview-badge[data-overview-rank="gold"] .achievement-overview-rank { color: var(--vscode-charts-yellow); }
+      .vscode-light .achievement-overview-badge[data-overview-rank="gold"] .achievement-overview-rank {
+        color: var(--vscode-foreground); border-inline-start: 2px solid var(--vscode-charts-yellow); padding-inline-start: 6px; }
       .achievement-overview-badge:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
       .achievement-recent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), var(--achievement-overview-width))); gap: 12px; }
       #achievementPinStatus:empty, #achievementUnreadStatus:empty { display: none; }

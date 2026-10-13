@@ -546,7 +546,11 @@ test('real paused host routes worker tail proof through the facade into shared u
     const silver = (await loadAchievementRecords(file)).records.find((row: any) => row.id === 'astra-regular-silver');
     assert.equal(silver.origin, 'usage'); assert.equal(silver.unread, true);
     assert.equal(silver.timeZone, 'UTC'); assert.match(silver.recordedDay, /^\d{4}-\d{2}-\d{2}$/);
-    assert.equal((await loadAchievementRecords(file)).records.some((row: any) => row.id === 'weekly-volume-bronze'), false);
+    const weekly = (await loadAchievementRecords(file)).records.find((row: any) => row.id === 'weekly-volume-bronze');
+    assert.ok(weekly, 'witnessed positive date subset may prove the volume milestone despite the unrelated conflict');
+    assert.equal(weekly.origin, 'history');
+    assert.equal(weekly.unread, false, 'recovered calendar proof is not a live calendar origin');
+    assert.equal(weekly.recordedDay, null);
     await extension.runCodexRefresh('poll'); await owner.achievementWrite;
     assert.equal(responses[responses.length - 1].diagnostic.bodyReads, 0);
     assert.equal(responses[responses.length - 1].achievementUsageDelta, undefined);
@@ -937,6 +941,7 @@ test('coordinator accepts fresh period lineage proof even when rendered statisti
   snapshot.files = [snapshot.files[0]];
   snapshot.currentManifestVerified = true;
   snapshot.coverage.identity.complete = true;
+  snapshot.files[0].achievementPeriodWitness = {size:1,offset:1,expectedPrefixEvents:0,timeZone:'UTC'};
   extension.applyCodexSnapshot(snapshot);
   assert.equal(extension.codexAchievementSignals.dayEvidence.complete, false);
   const view = extension.codexView;

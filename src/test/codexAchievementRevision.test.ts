@@ -27,6 +27,37 @@ test('calendar cursor provenance changes the proof revision even when counters s
   assert.equal(codexAchievementProofRevision(files,fence),before,'unchanged witnesses stay reusable');
 });
 
+test('calendar witness presence and every field independently retire the proof revision', () => {
+  const files = snapshotFixture().files;
+  const absent = codexAchievementProofRevision(files, fence);
+  files[0].achievementPeriodWitness = {
+    size: 100, offset: 100, expectedPrefixEvents: 0, timeZone: 'UTC',
+  };
+  const witnessed = codexAchievementProofRevision(files, fence);
+  assert.notEqual(witnessed, absent);
+  assert.equal(codexAchievementProofRevision(structuredClone(files), fence), witnessed);
+  for (const change of [
+    { size: 101 }, { offset: 99 }, { expectedPrefixEvents: 1 }, { timeZone: 'Asia/Shanghai' },
+  ]) {
+    const changed = structuredClone(files);
+    Object.assign(changed[0].achievementPeriodWitness!, change);
+    assert.notEqual(codexAchievementProofRevision(changed, fence), witnessed, JSON.stringify(change));
+  }
+  const removed = structuredClone(files);
+  delete removed[0].achievementPeriodWitness;
+  assert.equal(codexAchievementProofRevision(removed, fence), absent);
+});
+
+test('calendar witness changes are hashed even when no readable period is present', () => {
+  const files = snapshotFixture().files;
+  delete files[0].period;
+  const absent = codexAchievementProofRevision(files, fence);
+  files[0].achievementPeriodWitness = {
+    size: 100, offset: 100, expectedPrefixEvents: 0, timeZone: 'UTC',
+  };
+  assert.notEqual(codexAchievementProofRevision(files, fence), absent);
+});
+
 test('every consumed numeric proof counter and completeness fence changes the revision', () => {
   const files = snapshotFixture().files;
   const before = codexAchievementProofRevision(files, fence);

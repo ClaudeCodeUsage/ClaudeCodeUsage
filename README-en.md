@@ -184,8 +184,16 @@ its settings shortcut to focus the opt-out without changing it. No GitHub identi
 auto-export or upload is involved.
 Rules reuse verified numeric aggregates; expanding cards does not read logs.
 With complete current indexing, unrelated Codex identity conflicts no longer block
-independently verified token/agent milestones. Calendar awards still require complete
-identity and date evidence; conflicting branches are excluded.
+independently verified Token/agent milestones; conflicting branches and descendants
+are excluded.
+
+With current local history verified and fully indexed, trusted partial dates can
+show `≥` for activity, model-family and weekly Token progress. Weekly money bounds
+use only verified selected files whose usage is fully dated; pricing coverage is
+independent of date coverage. Partial dates do not establish complete history or
+verified zero, and four-week means/retained peaks remain pending until full coverage.
+Cumulative/task scopes are unchanged, with no extra source reads, storage or network calls.
+
 Older Codex indexes may get one bounded, resumable hour-proof pass, without
 resetting primary totals. Refresh failures retain visible statistics but cannot
 award from stale evidence.
@@ -225,7 +233,7 @@ rollover. Current Codex local logs cannot verify an account, so forecasting is
 unavailable. Dashboard and status-bar tooltip copy is shared across all eight
 locales; bar text/custom formats stay unchanged. No requests, timers or history are added.
 
-The overview uses bounded horizontal cards: artwork, title, rank and progress stay together, with pins inside the badge card and a thin progress bar for next targets. A few badges no longer spread across the entire desktop width; narrow views wrap without shrinking text.
+The overview uses bounded horizontal cards: artwork, title, rank and progress stay together, with pins inside the badge card and a thin progress bar for next targets. A few badges no longer spread across the entire desktop width; narrow views wrap without shrinking text. Gold rank labels stay legible in light themes while retaining a gold accent.
 
 Gallery size controls now precede the overview. Small / Medium / Large use 56 / 80 /
 112 px collection icons and 72 / 96 / 128 px showcase icons, with nearby pin errors

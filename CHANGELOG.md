@@ -185,6 +185,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Fixed — 2.4.2 local candidate
 
+- **Codex calendar subset proof** — runtime contribution witnesses and full-census
+  ancestry/revision checks preserve positive activity/family/weekly Token bounds.
+  Weekly money requires fully dated billable/model equality; date/pricing coverage
+  stays separate. Partial zero-only/empty stays pending, without four-week means or
+  retained peaks. Cumulative/task scopes, prices and rules are unchanged; no new
+  I/O, timers, stores, persistent witnesses or identity export.
+
 - **Calendar cursor cache binding** — cursor-only period changes now retire
   runtime achievement date/Money revisions even when displayed counters match.
   This adds no source reads, persistent fields or new award authority.
@@ -213,6 +220,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   replace sparse full-width columns. Icons, titles, ranks and progress stay together,
   pins remain inside their cards, and next targets show a thin progress bar. Existing
   artwork, three sizes, theme tokens, evidence labels and keyboard routes remain.
+  Light-theme gold rank labels use legible foreground text with a gold accent.
 
 - **Sharing and subtotal edge cases** — the Codex-only gallery share action
   selects the requested achievement card, not the heatmap fallback. Restoring a

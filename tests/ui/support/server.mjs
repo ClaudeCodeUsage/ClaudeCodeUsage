@@ -49,6 +49,7 @@ const server = createServer(async (request, response) => {
       'session-timezone-boundaries',
       'local-currency',
       'achievement-token-stages',
+      'achievement-calendar-subset',
       'achievement-long-term-gold',
       'achievement-long-term-platinum',
       'achievement-long-term-legendary',

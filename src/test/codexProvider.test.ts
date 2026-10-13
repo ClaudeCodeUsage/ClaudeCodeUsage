@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -13,7 +13,9 @@ import {
   CodexIndexProgress,
   CodexIndexV1,
   createEmptyCodexIndex,
+  saveCodexIndexAtomic,
 } from '../providers/codex/codexIndex';
+import { CODEX_PERIOD_LINEAGE_VERSION } from '../providers/codex/codexPeriodIndex';
 import { CodexWorkerResult } from '../providers/codex/codexWorkerProtocol';
 import { CodexWorkerError } from '../providers/codex/codexIndexClient';
 import { pseudonymousIdentityKey } from '../providers/codex/codexIdentity';
@@ -197,6 +199,176 @@ function workerResult(index = partialIndex()): CodexWorkerResult {
     },
   };
 }
+
+function calendarWitnessIndex(prefixEvents = 0): CodexIndexV1 {
+  const index = partialIndex();
+  const file = Object.values(index.files)[0];
+  file.lineage = {
+    fingerprintBlocks: [], pendingFingerprints: [], tokenEvents: prefixEvents,
+    desiredPrefixEvents: prefixEvents, appliedPrefixEvents: prefixEvents,
+  };
+  file.aggregate.period = {
+    timeZone: 'UTC', indexedThrough: file.offset,
+    lineageVersion: CODEX_PERIOD_LINEAGE_VERSION, lineagePrefixEvents: prefixEvents,
+    days: {
+      '2026-07-20': {
+        total: { ...file.aggregate.total }, byModel: structuredClone(file.aggregate.byModel),
+        byEffort: structuredClone(file.aggregate.byEffort), structural: { ...file.aggregate.structural },
+      },
+    },
+  };
+  Object.assign(index.coverage, {
+    complete: true, indexedFiles: 1, totalFiles: 1, indexedBytes: file.offset, totalBytes: file.size,
+  });
+  return index;
+}
+
+test('calendar witness comes from a verified settled source, survives warm zero-body refresh, and stays runtime-only', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-provider-calendar-witness-'));
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    const index = calendarWitnessIndex(2);
+    const file = Object.values(index.files)[0];
+    const indexPath = path.join(root, 'index.json');
+    await saveCodexIndexAtomic(indexPath, index);
+    const before = JSON.stringify(index);
+    const client = new FakeClient([
+      { ...workerResult(index), failedFiles: 0 },
+      { ...workerResult(index), failedFiles: 0, bodyReads: 0, indexChanged: false },
+      new CodexWorkerError('cancelled', 'synthetic cancellation'),
+      { ...workerResult(index), failedFiles: 0, bodyReads: 0 },
+    ]);
+    const provider = new CodexProvider({
+      enabled: true, codexHome: root, indexPath, salt: 'salt', timeZone: 'UTC',
+    }, () => client);
+    const cached = await provider.loadPersistedSnapshot();
+    assert.equal(cached?.currentManifestVerified, false);
+    assert.equal(cached?.files[0].achievementPeriodWitness, undefined);
+    const verified = await provider.refresh();
+    const expected = { size: file.size, offset: file.offset, expectedPrefixEvents: 2, timeZone: 'UTC' };
+    assert.deepEqual(verified.snapshot.files[0].achievementPeriodWitness, expected);
+    assert.equal(JSON.stringify(index), before, 'snapshot publication must not mutate the worker index');
+    assert.equal(Object.prototype.hasOwnProperty.call(file.aggregate, 'achievementPeriodWitness'), false);
+    const projectedIndex = structuredClone(index);
+    projectedIndex.files[file.fileKey].aggregate = verified.snapshot.files[0];
+    await saveCodexIndexAtomic(indexPath, projectedIndex);
+    assert.equal((await readFile(indexPath, 'utf8')).includes('achievementPeriodWitness'), false,
+      'the existing persisted DTO must omit even an attached runtime projection');
+    const warm = await provider.refresh();
+    assert.equal(warm.diagnostic?.bodyReads, 0);
+    assert.deepEqual(warm.snapshot.files[0].achievementPeriodWitness, expected);
+    const displayOnly = await provider.loadPersistedSnapshot();
+    assert.equal(displayOnly?.currentManifestVerified, false);
+    assert.equal(displayOnly?.files[0].achievementPeriodWitness, undefined);
+    const failed = await provider.refresh();
+    assert.equal(failed.snapshot.currentManifestVerified, false);
+    assert.equal(failed.snapshot.files[0].achievementPeriodWitness, undefined);
+    assert.deepEqual(failed.snapshot.files[0].period, file.aggregate.period);
+    assert.deepEqual(verified.snapshot.files[0].achievementPeriodWitness, expected, 'published snapshots stay immutable');
+    const recovered = await provider.refresh();
+    assert.deepEqual(recovered.snapshot.files[0].achievementPeriodWitness, expected);
+    await provider.dispose();
+    assert.equal(provider.snapshot()?.files[0].achievementPeriodWitness, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('calendar witness fails closed on independent source and period fences without filtering display files', async (t) => {
+  const cases: Array<[string, (index: CodexIndexV1, file: CodexFileContribution) => void]> = [
+    ['incomplete source coverage', (index) => { index.coverage.complete = false; }],
+    ['stale reset', (_index, file) => { file.qualityFlags.push('stale-reset-required'); }],
+    ['lineage reconciliation', (_index, file) => {
+      file.lineageReconciliation = {
+        offset: 0, discardingOversizedLine: false, prefixEvents: 0, tokenEventsSeen: 0,
+        parserState: file.parserState, aggregate: file.aggregate, qualityFlags: [],
+      };
+    }],
+    ['unapplied prefix', (_index, file) => { file.lineage!.desiredPrefixEvents = 1; }],
+    ['oversized discard', (_index, file) => { file.discardingOversizedLine = true; }],
+    ['unread tail', (_index, file) => { file.size++; }],
+    ['cursor beyond source', (_index, file) => { file.size--; }],
+    ['negative cursor', (_index, file) => { file.size = file.offset = file.aggregate.period!.indexedThrough = -1; }],
+    ['fractional cursor', (_index, file) => { file.size = file.offset = file.aggregate.period!.indexedThrough = 0.5; }],
+    ['unsafe cursor', (_index, file) => { file.size = file.offset = file.aggregate.period!.indexedThrough = Number.MAX_SAFE_INTEGER + 1; }],
+    ['nonfinite cursor', (_index, file) => { file.size = file.offset = file.aggregate.period!.indexedThrough = Infinity; }],
+    ['negative expected prefix', (_index, file) => { file.lineage!.desiredPrefixEvents = file.lineage!.appliedPrefixEvents = -1; }],
+    ['fractional expected prefix', (_index, file) => { file.lineage!.desiredPrefixEvents = file.lineage!.appliedPrefixEvents = 0.5; }],
+    ['unsafe expected prefix', (_index, file) => { file.lineage!.desiredPrefixEvents = file.lineage!.appliedPrefixEvents = Number.MAX_SAFE_INTEGER + 1; file.aggregate.period!.lineagePrefixEvents = Number.MAX_SAFE_INTEGER + 1; }],
+    ['active period migration', (_index, file) => {
+      file.periodMigration = {
+        offset: file.offset, discardingOversizedLine: false, timeZone: 'UTC',
+        prefixEvents: 0, tokenEventsSeen: 0, parserState: file.parserState, days: {}, qualityFlags: [],
+      };
+    }],
+    ['missing period', (_index, file) => { delete file.aggregate.period; }],
+    ['legacy readable period', (_index, file) => { delete file.aggregate.period!.lineageVersion; delete file.aggregate.period!.lineagePrefixEvents; }],
+    ['old lineage version', (_index, file) => { file.aggregate.period!.lineageVersion = CODEX_PERIOD_LINEAGE_VERSION + 1; }],
+    ['period prefix mismatch', (_index, file) => { file.aggregate.period!.lineagePrefixEvents = 1; }],
+    ['period timezone mismatch', (_index, file) => { file.aggregate.period!.timeZone = 'Asia/Shanghai'; }],
+    ['period cursor behind', (_index, file) => { file.aggregate.period!.indexedThrough--; }],
+    ['period cursor ahead', (_index, file) => { file.aggregate.period!.indexedThrough++; }],
+    ['period exceeds aggregate', (_index, file) => { file.aggregate.period!.days['2026-07-20'].total.inputTotal++; }],
+    ['invalid period tokens', (_index, file) => { file.aggregate.period!.days['2026-07-20'].total.inputTotal = NaN; }],
+    ['model exceeds day', (_index, file) => { file.aggregate.period!.days['2026-07-20'].byModel['gpt-5.6-sol'].inputTotal++; }],
+    ['effort exceeds day', (_index, file) => { file.aggregate.period!.days['2026-07-20'].byEffort.high.outputTotal++; }],
+  ];
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-provider-calendar-fences-'));
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    for (const [label, mutate] of cases) {
+      await t.test(label, async () => {
+        const index = calendarWitnessIndex();
+        const file = Object.values(index.files)[0];
+        mutate(index, file);
+        // Even a forged incoming aggregate witness must not bypass validation.
+        file.aggregate.achievementPeriodWitness = { size: 100, offset: 100, expectedPrefixEvents: 0, timeZone: 'UTC' };
+        const provider = new CodexProvider({
+          enabled: true, codexHome: root, indexPath: path.join(root, 'index.json'), salt: 'salt', timeZone: 'UTC',
+        }, () => new FakeClient([{ ...workerResult(index), failedFiles: 0 }]));
+        const result = await provider.refresh();
+        assert.equal(result.snapshot.currentManifestVerified, true);
+        assert.ok(result.snapshot.files.every((aggregate) => aggregate.achievementPeriodWitness === undefined));
+        const excluded = ['stale reset', 'lineage reconciliation', 'unapplied prefix'].includes(label);
+        assert.equal(result.snapshot.files.length, excluded ? 0 : 1, 'only existing usage filtering may exclude files');
+        if (label === 'legacy readable period') {
+          assert.deepEqual(result.snapshot.files[0].period, file.aggregate.period, 'trusted legacy slices remain visible');
+        }
+        await provider.dispose();
+      });
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('calendar witness is per-file evidence while canonical contributions are withheld', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-provider-calendar-subtotal-'));
+  try {
+    await mkdir(path.join(root, 'sessions'));
+    const index = calendarWitnessIndex();
+    const withheld = contribution('withheld-file');
+    withheld.aggregate.session.sessionKey = withheld.parserState.sessionKey = 'withheld-session';
+    withheld.qualityFlags.push('stale-reset-required');
+    index.files[withheld.fileKey] = withheld;
+    Object.assign(index.coverage, { indexedFiles: 2, totalFiles: 2, indexedBytes: 200, totalBytes: 200 });
+    index.coverage.identity.complete = false;
+    index.coverage.period.allTime.complete = false;
+    const provider = new CodexProvider({
+      enabled: true, codexHome: root, indexPath: path.join(root, 'index.json'), salt: 'salt', timeZone: 'UTC',
+    }, () => new FakeClient([{ ...workerResult(index), failedFiles: 0 }]));
+    const result = await provider.refresh();
+    assert.equal(result.snapshot.coverage.complete, true, 'source-index coverage is not a calendar census');
+    assert.equal(result.snapshot.coverage.identity.complete, false);
+    assert.equal(result.snapshot.coverage.period.allTime.complete, false);
+    assert.equal(result.snapshot.files.length, 1, 'retain the existing usage contribution exclusion');
+    assert.deepEqual(result.snapshot.files[0].achievementPeriodWitness,
+      { size: 100, offset: 100, expectedPrefixEvents: 0, timeZone: 'UTC' });
+    await provider.dispose();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('facade copies the accepted usage window and exposes only matching successful producer proof', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-provider-origin-'));

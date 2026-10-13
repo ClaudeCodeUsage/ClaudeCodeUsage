@@ -224,6 +224,17 @@ It separates proof changes from chart changes without retaining a second index
 or reading logs. Turning achievements off skips this projection and evaluation;
 source replacement retires the cached proof. Existing grants remain saved.
 
+Codex calendar witnesses are runtime-only projections of the provider's independent
+current contribution size/offset/prefix/zone, admitted only with a verified current
+manifest and complete base index, without period migration, oversized-line discard
+or lineage reconciliation.
+`sourceRevision` binds the full census, global calendar fence and numeric day
+vectors in the existing hash/cache; ancestry is resolved before date selection.
+Neither witnesses nor revisions are logged, persisted or exported; they add no
+raw identity exposure, index field, I/O, timer or store. Weekly money coverage's
+`scopeLowerBound` is only a runtime marker alongside numeric coverage, distinct
+from pricing coverage; no subset identity list reaches the UI or exports.
+
 Nine fixed, memory-only evidence-domain latches distinguish first/recovered
 history from later eligible awards. Pending or stale proof is shown explicitly,
 not as zero usage; saved awards remain independent. No action history, new
@@ -393,11 +404,16 @@ overflow states remain explicit: partial money shows a lower bound, unsafe money
 is withheld; absent/incomplete evidence shows
 unknown, not six zero rows. No new effort preference, rule, storage or log read is added.
 
-Once the current manifest is fully indexed, positive Codex milestones may use
-independently verified lineages while
-withholding conflicting branches and descendants. Calendar awards retain their
-complete identity/date requirement. This selection is in memory only: no new
-scan, network call, persisted identity list or storage field is added.
+Once the verified current manifest is fully indexed, positive Codex milestones
+may use independently verified lineages, excluding conflicting branches and
+descendants. Sound witnessed dates support activity/family/weekly Token lower
+bounds; partial history cannot prove zero, a four-week mean or a retained peak.
+Weekly money revalidates the full-census revision and day vectors, then requires
+exact billable/model date equality in each selected fully dated file. Only positive
+amounts support a partial-scope lower bound; partial zero-only/empty remains pending.
+Date coverage does not imply pricing coverage: unknown prices and overflow retain
+their existing states. Cumulative/task scopes and reference prices are unchanged.
+This selection stays in memory; no new scan, network call or persistence is added.
 Codex's per-file index additionally
 stores positive-output UTC hour IDs with a verified byte offset and excluded-lineage
 event count: at most 32,768 hours per file and 524,288 unique hours per snapshot.

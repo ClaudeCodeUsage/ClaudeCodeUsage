@@ -118,6 +118,13 @@ export interface CodexFileAggregate {
   };
   structural: CodexStructuralSummary;
   period?: CodexFilePeriodIndex;
+  /** Runtime-only current-source calendar provenance; never persisted as index proof. */
+  achievementPeriodWitness?: {
+    size: number;
+    offset: number;
+    expectedPrefixEvents: number;
+    timeZone: string;
+  };
   today?: CodexFileTodayIndex;
 }
 

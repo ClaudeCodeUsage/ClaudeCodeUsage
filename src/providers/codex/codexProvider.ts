@@ -26,6 +26,7 @@ import {
   CODEX_ROLLING_HOURLY_DAYS,
   codexPeriodFitsAggregate,
   isCompatibleCodexPeriodLineage,
+  isCurrentCodexPeriodLineage,
 } from './codexPeriodIndex';
 import {
   appendCodexQuotaHistory,
@@ -133,6 +134,10 @@ function displayOnlySnapshot(snapshot: CodexProviderSnapshot): CodexProviderSnap
   return {
     ...snapshot,
     currentManifestVerified: false,
+    files: snapshot.files.map((file) => {
+      const { achievementPeriodWitness: _witness, ...display } = file;
+      return display;
+    }),
     ...(snapshot.outputHourProof ? {
       outputHourProof: { ...snapshot.outputHourProof, complete: false, hours: [] },
     } : {}),
@@ -331,8 +336,30 @@ function snapshotFromIndex(
         file,
         index.coverage.period.timeZone,
       );
+      // Source size/cursor/prefix are independent of the period's own claims.
+      // This proves one file only; completeness of the canonical identity
+      // census and any withheld usage contributions belongs to the consumer.
+      const timeZone = index.coverage.period.timeZone;
+      const expectedPrefixEvents = file.lineage ? file.lineage.desiredPrefixEvents : 0;
+      const period = file.aggregate.period;
+      const witnessed = currentManifestVerified === true && index.coverage.complete &&
+        isCodexUsageContributionCurrent(file) && !file.lineageReconciliation &&
+        (!file.lineage || file.lineage.appliedPrefixEvents === expectedPrefixEvents) &&
+        Number.isSafeInteger(expectedPrefixEvents) && expectedPrefixEvents >= 0 &&
+        !file.discardingOversizedLine &&
+        Number.isSafeInteger(file.size) && file.size >= 0 &&
+        Number.isSafeInteger(file.offset) && file.offset === file.size &&
+        file.periodMigration === undefined && periodReadable &&
+        isCurrentCodexPeriodLineage(period, expectedPrefixEvents) &&
+        period?.timeZone === timeZone && period.indexedThrough === file.offset;
+      // Never accept a witness carried by an incoming aggregate or write the
+      // projection back to the worker's persistent contribution.
+      const { achievementPeriodWitness: _witness, ...aggregate } = file.aggregate;
       return {
-        ...file.aggregate,
+        ...aggregate,
+        ...(witnessed ? {
+          achievementPeriodWitness: { size: file.size, offset: file.offset, expectedPrefixEvents, timeZone },
+        } : {}),
         // Keep the trusted all-time aggregate visible, but do not let a
         // rejected or rebuilding period projection reach any period consumer.
         ...(periodReadable ? {} : { period: undefined }),

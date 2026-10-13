@@ -303,9 +303,16 @@ its existing rule without reading logs or selecting it for sharing.
   profile lookup or background upload.
 
 Evaluation reuses verified numeric aggregates; opening cards never reads logs.
-After complete current indexing, unrelated Codex identity conflicts no longer block
-milestones supported by independently verified lineages; calendar awards still need
-complete identity and date evidence. Conflicting branches are excluded, not estimated.
+After complete current indexing, independently verified Codex lineages support
+Token/agent milestones, excluding conflicting branches and descendants.
+
+With current local history verified and fully indexed, trusted partial dates can
+show `≥` for activity, model-family and weekly Token progress. Weekly money bounds
+use only verified selected files whose usage is fully dated; pricing coverage is
+independent of date coverage. Partial dates do not establish complete history or
+verified zero, and four-week means/retained peaks remain pending until full coverage.
+Cumulative/task scopes are unchanged, with no extra source reads, storage or network calls.
+
 An older Codex index may need a bounded, resumable pass for positive-output hour
 proof, without resetting its primary totals. Turning achievements off stops this
 extra historical work, not the ordinary usage tracker. A refresh failure revokes
@@ -347,7 +354,7 @@ local-log evidence cannot verify an account, so its forecast remains unavailable
 The dashboard and status-bar tooltip share localized copy; compact bar text and
 custom quota formats are unchanged. This adds no requests, timers or stored history.
 
-The overview uses bounded horizontal cards: artwork, title, rank and progress stay together, with pins inside the badge card and a thin progress bar for next targets. A few badges no longer spread across the entire desktop width; narrow views wrap without shrinking text.
+The overview uses bounded horizontal cards: artwork, title, rank and progress stay together, with pins inside the badge card and a thin progress bar for next targets. A few badges no longer spread across the entire desktop width; narrow views wrap without shrinking text. Gold rank labels stay legible in light themes while retaining a gold accent.
 
 Gallery size controls precede the overview: Small / Medium / Large use 56 / 80 /
 112 px collection emblems and 72 / 96 / 128 px showcase emblems. Pin errors stay

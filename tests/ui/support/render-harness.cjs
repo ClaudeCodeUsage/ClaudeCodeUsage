@@ -724,6 +724,30 @@ exports.renderHarness = async function renderHarness({
       effortSignals,
     );
     provider.currentProvider = selectedProvider;
+    if (fixture === 'achievement-calendar-subset') {
+      // Synthetic full-census conflict plus one sound dated root. Exercise
+      // production projection/evaluation, not injected ready flags or grants.
+      const {codexAchievementCalendarProjection}=require('../../../out/achievementCalendar.js');
+      const {codexAchievementMoneyScopes}=require('../../../out/achievementMoneyScopes.js');
+      const total={inputTotal:500_000_000,outputTotal:4};
+      const part={inputTotal:125_000_000,outputTotal:1};
+      const good={total,byModel:{'gpt-6.1-sol':total},byEffort:{},byDay:{},structural:{},
+        session:{sessionKey:'synthetic-calendar-good',role:'root'},
+        achievementPeriodWitness:{size:1,offset:1,expectedPrefixEvents:0,timeZone},
+        period:{timeZone,indexedThrough:1,lineageVersion:1,lineagePrefixEvents:0,
+          days:Object.fromEntries(['13','14','15','16'].map(d=>[`2026-07-${d}`,
+            {total:part,byModel:{'gpt-6.1-sol':part},byEffort:{},structural:{}}]))}};
+      const files=[good,{...good,session:{sessionKey:'synthetic-calendar-conflict',role:'root'}},
+        {...good,session:{sessionKey:'synthetic-calendar-conflict',role:'root'}}];
+      const dayEvidence=codexAchievementCalendarProjection(files,timeZone,true,false).evidence;
+      provider.codexView={...view,currentManifestVerified:true,coverage:{...view.coverage,complete:true,
+        identity:{...view.coverage.identity,complete:false}},
+        periodCoverage:{...view.periodCoverage,timeZone,allTime:{...view.periodCoverage.allTime,complete:false}}};
+      provider.providerAvailability={claude:false,codex:true,codexData:true};
+      provider.codexAchievementSignals={...codexModelSignals(files),dayEvidence,
+        money:codexAchievementMoneyScopes({files,complete:true,calendarComplete:false,dayEvidence,
+          backend:'openai',asOfDay:'2026-07-20'})};
+    }
     if (fixture === 'achievement-effort-statistics-retired') provider.invalidateAchievementEvidence('codex');
     if (fixture === 'weekly-quota-pace') {
       const { usage, snapshot: paceSnapshot } = quotaPaceFixture(quotaPaceState);

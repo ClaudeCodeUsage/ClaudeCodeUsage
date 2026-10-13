@@ -108,7 +108,7 @@ import { codexIndexStoragePath, codexIndexCanonicalName, readOwnedLegacyCodexInd
 import { buildCodexUsageView, CodexUsageView } from './providers/codex/codexUsage';
 import { codexModelSignals, CodexAchievementSignals } from './achievements';
 import {codexAchievementMoneyScopes} from './achievementMoneyScopes';
-import { codexAchievementDayEvidence, codexAchievementTokenEvidence } from './achievementCalendar';
+import { codexAchievementCalendarProjection, codexAchievementTokenEvidence } from './achievementCalendar';
 import { codexAchievementProofRevision } from './codexAchievementRevision';
 import {
   buildScopedCodexInsights,
@@ -3547,10 +3547,10 @@ export class ClaudeCodeUsageExtension {
         this.codexAchievementSignals.effortStatistics = indexed
           ? codexAchievementEffortStatistics(snapshot.files) : undefined;
         this.codexAchievementSignals.tokenEvidence = codexAchievementTokenEvidence(snapshot.files, indexed);
-        this.codexAchievementSignals.dayEvidence = codexAchievementDayEvidence(
+        this.codexAchievementSignals.dayEvidence = codexAchievementCalendarProjection(
           snapshot.files, nextView.periodCoverage.timeZone,
-          calendarComplete,
-        );
+          indexed, calendarComplete,
+        ).evidence;
         this.codexAchievementRevision = revision;
         this.codexAchievementMoneyRevision = undefined;
       }
@@ -3558,7 +3558,7 @@ export class ClaudeCodeUsageExtension {
       const moneyRevision=revision+'|'+moneyDay;
       if (this.codexAchievementMoneyRevision!==moneyRevision) {
         this.codexAchievementSignals.money=codexAchievementMoneyScopes({backend:'openai',asOfDay:moneyDay,
-          files:snapshot.files,complete:indexed,dayEvidence:this.codexAchievementSignals.dayEvidence});
+          files:snapshot.files,complete:indexed,calendarComplete,dayEvidence:this.codexAchievementSignals.dayEvidence});
         this.codexAchievementMoneyRevision=moneyRevision;
       }
     }

@@ -33,12 +33,18 @@ export function codexAchievementProofRevision(
     scalar('buckets'); scalar(keys.length);
     for (const key of keys) { scalar(key); vector(value[key]); }
   };
-  scalar('codex-achievement-proof-v2');
+  scalar('codex-achievement-proof-v3');
   scalar(fence.indexed); scalar(fence.calendarComplete); scalar(fence.timeZone);
   scalar(files.length);
   for (const file of files) {
     scalar(file.session.sessionKey); scalar(file.session.parentSessionKey); scalar(file.session.role);
     vector(file.total); buckets(file.byModel); buckets(file.byEffort);
+    const witness = file.achievementPeriodWitness;
+    if (!object(witness)) { scalar('invalid-witness'); scalar(witness); }
+    else {
+      scalar('witness'); scalar(witness.size); scalar(witness.offset);
+      scalar(witness.expectedPrefixEvents); scalar(witness.timeZone);
+    }
     const period = file.period;
     if (!object(period)) { scalar('invalid-period'); scalar(period); continue; }
     scalar('period'); scalar(period.timeZone); scalar(period.lineageVersion); scalar(period.lineagePrefixEvents);

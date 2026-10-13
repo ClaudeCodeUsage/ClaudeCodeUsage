@@ -61,10 +61,10 @@ only the separate publish action can perform that network operation.
 | `claudeApiClient.ts` | Existing Claude OAuth/quota transport and runtime one-way identity signal for the credentials used by the last successful request; pace reads this signal without a new request or credential lookup. |
 | `dataLoader.ts` | Claude parsing, validation, attribution, and content-analysis primitives retained for exact compatibility. |
 | `claudeIncrementalIndex.ts` | Production in-memory per-file Claude index: append-tail parsing, exact cross-file response deduplication, affected-group aggregation, content-analysis contributions, and materialized dashboard rows. |
-| `achievements.ts`, `achievementSnapshot.ts`, `achievementCalendar.ts`, `achievementHours.ts` | Versioned rule catalog and validated token/day/week/hour evidence, consuming numeric materialized inputs rather than log bodies. |
+| `achievements.ts`, `achievementSnapshot.ts`, `achievementCalendar.ts`, `achievementHours.ts` | Versioned rules and numeric token/day/week/hour evidence; `codexAchievementCalendarProjection` resolves full-census ancestry before selecting witnessed dates, keeping positive subsets separate from whole-census completeness. |
 | `achievementActivity.ts`, `achievementIcons.ts`, `achievementShare.ts` | Allowlisted deliberate local-action enums, bundled emblem lookup and explicit self-contained badge SVG export. |
 | `achievementGallery.ts`, `achievementOverview.ts`, `achievementRecordStore.ts` | Pure theme ownership/record projections, stable goals, automatic/manual showcase selection and the ≤64 KiB canonical v2 envelope; six ordered manual pins and shared v1 lease/migration fences. |
-| `achievementMoney.ts`, `achievementMoneyScopes.ts`, `achievementMoneyCatalog.ts` | Fixed, versioned USD reference-price evidence for six provider-specific achievement themes; independent from floating dashboard/heatmap estimates. |
+| `achievementMoney.ts`, `achievementMoneyScopes.ts`, `achievementMoneyCatalog.ts` | Fixed USD reference-price evidence for six provider-specific themes; weekly Codex subsets require census-bound date proof and fully dated billable/model vectors. Pricing coverage is separate from date coverage and floating dashboard estimates. |
 | `achievementMoneyOrigin.ts` | Runtime-only frozen-book increment validation, fixed-field copying/economic bounds and necessary-and-sufficient cumulative crossings; independent of Token origin and never persisted as index proof. |
 | `achievementEffortStatistics.ts`, `achievementCollaboration.ts` | Complete-current-census Codex root × effort statistics and existing joint tier criteria; optional `CodexAchievementSignals.effortStatistics` is cached by proof revision and rendered only inside the existing effort-breadth disclosure. |
 | `apiHeatmapDaily.ts`, `pricing.ts#getCurrentEstimatePricing` | Read-only ≤366-date projection with per-projection memoized, in-memory selected-model/component rate admission; preserves current cost scalars, excludes generic unknown-model fallback coverage and adds no network/corpus reads. |
@@ -87,7 +87,7 @@ only the separate publish action can perform that network operation.
 | `providers/codex/codexQuotaHistory.ts` | Small account-neutral weekly reset-observation cache; compacts repeated local samples without retaining credentials, account names, or raw labels. |
 | `providers/codex/codexIndexWorker.ts` / `codexIndexClient.ts` | Background coordinator, recent-first progress, cancellation, resume, checkpoint persistence, and single-flight client. |
 | `providers/codex/codexFilePassPool.ts` / `codexFilePassWorker.ts` | Adaptive bounded local pool for independent per-file main, lineage, period, current-day, and identity passes during incomplete backfills. |
-| `providers/codex/codexProvider.ts` | Extension-facing Codex snapshot facade and partial/unavailable/error outcomes. |
+| `providers/codex/codexProvider.ts` | Extension-facing Codex snapshot facade and partial/unavailable/error outcomes; constructs runtime-only period witnesses from independent current contribution size/offset/prefix/zone, never from an incoming aggregate's witness. |
 | `providers/codex/codexUsage.ts` | Codex calendar-Today/hourly, 7-day, 30-day, monthly, task, and project view-model aggregation with exact-model API-equivalent cost. |
 | `providers/codex/codexInsights.ts` | Deterministic structural usage guidance; no prompt/body inspection. |
 | `codexView.ts` / `codexViewComponents.ts` | Codex localized-copy and default-provider contracts; no HTML renderer, client script, or CSS ownership. |
@@ -454,10 +454,38 @@ Higher output/cache tiers use the same causal native-tail checks; session/calend
 reconciliation remains quiet with unknown dates. Explicit share choices never
 auto-upgrade to a higher rank.
 
-`codexAchievementRevision.ts` uses a runtime v2 digest including the period's
-indexed cursor as numeric provenance. Cursor-only changes retire calendar/Money
-caches even when displayed counters are unchanged; no stored field or I/O is
-added. This cache binding alone is not complete calendar/subset authority.
+`codexAchievementRevision.ts` uses a runtime v3 digest binding the full census,
+independent indexed/global-calendar/timezone fences, contribution witnesses and
+period cursors/day vectors. Cursor-, witness- or fence-only changes retire
+calendar/Money caches even when displayed counters match. The digest reuses the
+existing hash/cache path; it adds no I/O, timer, store or persistent index field.
+
+`codexAchievementCalendarProjection` requires a verified current manifest and
+complete base index. The provider constructs each runtime-only witness from the
+contribution's own size, offset, expected lineage prefix and zone: EOF must match
+the period cursor, prefix/zone must match current period semantics, and period migration,
+oversized-line discard and lineage reconciliation must be absent. Incoming
+aggregate witnesses are stripped; failed refreshes cannot reuse them as authority.
+The projection resolves ancestry over the full census before selecting dates,
+excluding conflicting branches and descendants. Sound positive dated components
+remain `verified-subset` lower bounds for activity, family and weekly Token rules,
+even with undated residuals or an incomplete global calendar fence. A subset never
+proves complete/zero history, a four-completed-week mean or a retained calendar peak;
+dual-provider date rules also retain their existing full-proof fence.
+
+`codexAchievementMoneyScopes` reprojects the original full census and checks
+`sourceRevision`, completeness/scope and numeric day/model signatures before
+selecting fully dated files. Each selected file must cover every billable counter
+and model/date vector exactly; Token containment alone is insufficient. A positive
+completed-Monday-week amount from this subset is a lower bound with partial
+coverage and runtime `scopeLowerBound`; partial zero-only/empty remains pending.
+Positivity uses exact units, even when integer microUSD floors to zero.
+Pricing coverage is independent of date/census coverage: unknown models remain
+unpriced and overflow remains unavailable. Cumulative and task scopes are unchanged.
+No prices or rules are added; the existing eight-locale evidence caveat is reused
+with updated wording for unverified Codex lineage or dated usage. The footer also
+shows it for date/weekly-money scope bounds when identity coverage is complete.
+Witnesses/revisions carry no raw identity into rendering, export or persistent index state.
 
 The overview uses bounded horizontal cards rather than stretching a few icons
 across the desktop. In-card pins remain separate buttons; next-target bars are
@@ -780,13 +808,15 @@ cap. Codex positive token/model/agent milestones require complete current manife
 indexing and independently verified canonical lineages. Identity conflicts block
 only affected branches and descendants, not unrelated positive proof. Selection
 and root resolution are iterative/memoized; invalid vectors, orphan/cyclic/unknown
-roles and unsafe sums fail closed. Calendar awards still require global identity
-and applicable period proof. Positive-output UTC hours piggyback on normal parsing; existing
+roles and unsafe sums fail closed. Calendar selection uses the full-census ancestry
+and runtime-witness contract above; only whole-census completeness authorizes zero,
+four-week means and retained peaks. Positive-output UTC hours piggyback on normal parsing; existing
 indexes use bounded checkpointable proof migration while preserving primary
 totals. OFF suppresses that extra migration, not ordinary usage parsing.
 The host keeps a separate runtime-only SHA-256 achievement proof revision:
 canonical identities, six Token counters, model/effort buckets, period lineage
-markers and date buckets, plus completeness/timezone fences. A proof-only change
+markers/cursors, runtime contribution witnesses and date buckets, plus independent
+indexed/global-calendar/timezone fences. A proof-only change
 updates achievement signals even when the complete dashboard render contract
 is equal. Unchanged proof and display-only title/structural changes reuse the
 signals; no second corpus, JSONL read, persistent key or timer is added. The

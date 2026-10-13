@@ -124,7 +124,7 @@ Beträge ausblenden stellt Token-Farben, Texte und Markdown wieder her und verwi
 **Wöchentliches Kontingenttempo** (`showWeeklyQuotaPace`) ist standardmäßig aus und nutzt vorhandene Beobachtungen: 29% Nutzung bei 25% Zeit ergibt 116% für den Zyklus.
 Keine Prognose in den ersten sechs Stunden, nach dreißig Minuten ohne neue Beobachtung oder nach Reset; ungültige Zugangsdaten ziehen sie auch bei pausiertem Dashboard zurück. Konto-/Quellenwechsel und Zählerrückgänge sperren sie bis zu einem verifizierten normalen Sieben-Tage-Wechsel.
 Codex-Logs verifizieren derzeit kein Konto, daher ist die Prognose nicht verfügbar. Dashboard und Statusleisten-Tooltip teilen die Übersetzungen; Balkentext und eigene Formate bleiben gleich. Keine neuen Anfragen, Timer oder Historien.
-Die Übersicht verwendet horizontale Karten mit begrenzter Breite: Bild, Name, Rang und Fortschritt bleiben zusammen. Pins sitzen in der Karte, nächste Ziele haben einen schmalen Fortschrittsbalken. Wenige Abzeichen verteilen sich nicht mehr über die ganze Bildschirmbreite; schmale Ansichten umbrechen ohne kleinere Schrift.
+Die Übersicht verwendet horizontale Karten mit begrenzter Breite: Bild, Name, Rang und Fortschritt bleiben zusammen. Pins sitzen in der Karte, nächste Ziele haben einen schmalen Fortschrittsbalken. Wenige Abzeichen verteilen sich nicht mehr über die ganze Bildschirmbreite; schmale Ansichten umbrechen ohne kleinere Schrift. Gold-Rangbezeichnungen bleiben in hellen Designs gut lesbar und behalten einen goldenen Akzent.
 
 Größenwahl vor der Übersicht: Sammlung 56 / 80 / 112 px, Schaukasten 72 / 96 / 128 px; Pinfehler stehen beim Steuerelement, der Tastaturfokus bleibt stabil.
 Der USD-Effort-Teilbetrag zählt nicht zur Qualifikation. Leere und unbepreiste Werte werden gekennzeichnet, Teilbeträge als Untergrenze; ungültige oder überlaufende Beträge bleiben unverfügbar.
@@ -134,7 +134,15 @@ Fehlende oder veraltete Nachweise werden statt Nullfortschritt angezeigt und vom
 Geschlossene Karten zeigen den aktuellen Fortschritt zur nächsten Stufe; Zwischenziele auf langen Token-Leitern sind keine zusätzlichen Abzeichen, Hinweise oder Exportoptionen.
 Klein / Mittel / Groß verändern Abzeichen und Kartenrahmen, nicht Schriftgröße oder Klickflächen.
 Nächste Ziele zeigt höchstens drei Themen mit aktuellen positiven Nachweisen; unbelegte Ziele und ungenutzte Modelle werden übersprungen. Die Auswahl bleibt beim Browsen stabil; ein Klick öffnet Regeln ohne Log-Lesen oder automatische Freigabe.
-Nach vollständiger aktueller Indexierung zählen konfliktfreie Codex-Abstammungen für Token-/Agentenmeilensteine; Kalendererfolge brauchen weiterhin vollständige Identitäts- und Tagesnachweise.
+Nach vollständiger aktueller Indexierung zählen konfliktfreie Codex-Abstammungen für Token-/Agentenmeilensteine; Konfliktzweige und ihre Nachkommen sind ausgeschlossen.
+
+Bei verifizierter, vollständig indexierter aktueller lokaler Historie können belegte Teilzeiträume
+Aktivitäts-, Modellfamilien- und Wochen-Token-Fortschritt mit `≥` zeigen. Untergrenzen für Wochenbeträge
+nutzen nur verifizierte ausgewählte Dateien mit vollständig datierter Nutzung; Preisabdeckung und
+Datumsabdeckung sind unabhängig. Teilzeiträume belegen weder vollständige Historie noch Nullverbrauch;
+Vierwochenmittel und gespeicherte Spitzenwerte bleiben bis zur vollständigen Abdeckung ausstehend.
+Gesamt-/Aufgabenumfänge bleiben unverändert, ohne zusätzliche Quelldatenlesevorgänge, Speicherung oder Netzaufrufe.
+
 Serien und Stufen werden getrennt gezählt. Lokale Filter bleiben nach Neuladen
 erhalten; das nächste Ziel steht auf der Karte, alle Stufenregeln im aufklappbaren Bereich.
 Standardmäßig an; **Local achievements** in ⚙ Settings (`enableAchievements`)

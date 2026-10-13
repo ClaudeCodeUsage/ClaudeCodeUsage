@@ -45,10 +45,10 @@ Codex effort 统计及仅累计范围的金额新活动收据已完成接入。
 | `claudeApiClient.ts` | 既有 Claude OAuth／额度请求及最近成功请求所用凭证的运行期单向身份信号；周节奏只读取该信号，不新增请求或凭证查询。 |
 | `dataLoader.ts` | 为精确兼容保留的 Claude 解析、校验、归因和内容分析 primitive。 |
 | `claudeIncrementalIndex.ts` | 生产环境 Claude 内存 per-file 索引：append-tail 解析、精确跨文件 response 去重、受影响 group 聚合、内容分析 contribution 和已物化 dashboard row。 |
-| `achievements.ts`、`achievementSnapshot.ts`、`achievementCalendar.ts`、`achievementHours.ts` | 带版本的规则目录与已验证 Token／日／周／小时证据；只消费已物化数值，不读取日志正文。 |
+| `achievements.ts`、`achievementSnapshot.ts`、`achievementCalendar.ts`、`achievementHours.ts` | 带版本的规则与数值 Token／日／周／小时证据；`codexAchievementCalendarProjection` 先解析全清单祖先关系，再选择有见证的日期，区分正向子集与全清单完整性。 |
 | `achievementActivity.ts`、`achievementIcons.ts`、`achievementShare.ts` | 白名单内的主动本地行为枚举、随插件打包的徽章查找与明确触发的自包含 SVG 导出。 |
 | `achievementGallery.ts`、`achievementOverview.ts`、`achievementRecordStore.ts` | 纯主题归属／记录投影、稳定目标、自动／手动展示选择及 ≤64 KiB 权威 v2 封套；最多六项有序手动固定，共用 v1 租约／迁移屏障。 |
-| `achievementMoney.ts`、`achievementMoneyScopes.ts`、`achievementMoneyCatalog.ts` | 六个供应商独立成就主题的带版本固定美元参考价证据；独立于仪表盘／热力图浮动估算。 |
+| `achievementMoney.ts`、`achievementMoneyScopes.ts`、`achievementMoneyCatalog.ts` | 六个供应商独立主题的固定美元参考价证据；Codex 周金额子集要求绑定全清单的日期证明及完整归日的计费／模型向量。定价覆盖独立于日期覆盖及仪表盘浮动估算。 |
 | `achievementMoneyOrigin.ts` | 仅运行期固定参考价增量校验、固定字段复制／经济上界及累计跨级必要／充分判断；独立于 Token 来源，不持久化为索引证明。 |
 | `achievementEffortStatistics.ts`、`achievementCollaboration.ts` | 当前完整索引的 Codex 根任务 × effort 统计及既有联合等级条件；可选 `CodexAchievementSignals.effortStatistics` 按证明修订缓存，仅在已有 effort 广度详情显示。 |
 | `apiHeatmapDaily.ts`、`pricing.ts#getCurrentEstimatePricing` | 最多 366 日只读投影，按次缓存选中型号／组件的内存单价准入；保留当前成本标量，排除通用未知型号回退覆盖，不联网、不读全量记录。 |
@@ -71,7 +71,7 @@ Codex effort 统计及仅累计范围的金额新活动收据已完成接入。
 | `providers/codex/codexQuotaHistory.ts` | 小型、账户中性的每周重置观测缓存；压缩重复本地样本，不保留凭据、账户名或原始标签。 |
 | `providers/codex/codexIndexWorker.ts` / `codexIndexClient.ts` | 后台协调器、recent-first progress、cancel、resume、checkpoint 持久化和 single-flight client。 |
 | `providers/codex/codexFilePassPool.ts` / `codexFilePassWorker.ts` | 未完成回填期间，用于独立 main、lineage、period、current-day 和 identity per-file pass 的自适应受限本地 pool。 |
-| `providers/codex/codexProvider.ts` | 面向 extension 的 Codex snapshot facade 与 partial/unavailable/error outcome。 |
+| `providers/codex/codexProvider.ts` | 面向 extension 的 Codex snapshot facade 与 partial/unavailable/error outcome；从当前 contribution 独立的大小／偏移／前缀／时区构造仅运行期日期见证，不采信传入聚合自带的见证。 |
 | `providers/codex/codexUsage.ts` | Codex 自然日 Today/小时、7 天、30 天、月度、task 与项目 view model 聚合，以及精确模型 API 等效成本。 |
 | `providers/codex/codexInsights.ts` | 确定性的结构用量建议，不读 prompt/body。 |
 | `codexView.ts` / `codexViewComponents.ts` | Codex 本地化文案与默认 provider contract；不负责 HTML renderer、client script 或 CSS。 |
@@ -330,9 +330,29 @@ Token 首级前的一数量级也有展示节点，但需正向且有效的进�
 未知ID，但不能覆盖权威封套。高阶输出／缓存沿用原生尾部因果核验，会话／日期补认
 保持静默且日期未知；分享选择不自动升级。
 
-`codexAchievementRevision.ts` 的运行期v2摘要把period索引游标纳入数值来源证明。
-只变游标也会使日期／金额缓存失效，不新增持久字段或I/O；摘要绑定本身不等于
-完整日期或可信子集资格。
+`codexAchievementRevision.ts` 的运行期 v3 摘要绑定全清单、独立的索引／全局日期／
+时区边界、contribution 见证及 period 游标／日期向量。仅游标、见证或边界变化也会
+退役日期／金额缓存，即使显示计数相同。复用既有摘要／缓存路径，不增加 I/O、
+定时器、存储或持久索引字段。
+
+`codexAchievementCalendarProjection` 要求当前清单已验证、主索引完整。供应商从
+contribution 自身大小、偏移、预期谱系前缀及时区构造仅运行期见证：EOF 必须与
+period 游标一致，前缀／时区须符合当前 period 语义，且无 period 迁移、超长行丢弃或谱系
+对账。传入聚合自带见证被剥离；刷新失败后不能沿用见证作为授权。投影先解析全清单
+祖先关系，再选日期，排除冲突分支及后代。可信正向日期分量即使存在未归日余量或
+全局日期边界不完整，仍可作为活跃、模型家族及单周 Token 规则的 `verified-subset`
+下界。子集不能证明完整／零用量历史、四个已结束周的周均值或保留日历峰值；
+双供应商同日规则也保留既有完整证明门。
+
+`codexAchievementMoneyScopes` 重新投影原始全清单，核对 `sourceRevision`、完整性／
+范围及数值日期／模型签名后，才选择完整归日文件。每个入选文件的所有计费计数和
+模型／日期向量必须精确相等，仅 Token 包含关系不足以证明金额。此子集中已结束的
+周一始自然周正金额仅为下界，覆盖标为部分并附运行期 `scopeLowerBound`；部分范围
+的纯零值／空值仍待补齐。正金额按精确单位判断，即使整数 microUSD 向下取整为零。
+定价覆盖独立于日期／清单覆盖：未知型号仍未定价，溢出金额
+仍不可用。累计及任务范围不变。不新增价格或规则；复用既有八语证据说明，更新文案
+以涵盖无法核验的 Codex 谱系或日期用量。即使身份覆盖完整，存在日期／周金额范围
+下界时页脚也显示该说明。见证／摘要不把原始身份带入渲染、导出或持久索引状态。
 
 顶部采用宽度受限的横向卡片，少量徽章不再平分桌面全宽；卡内固定按钮仍是独立按钮，
 下一目标的细条仅辅助已有带标签数值。保留三档大小、图案、主题变量和状态持久化。
@@ -525,11 +545,13 @@ ID／序号，成员隐藏、已读或替换时重新选组。投影复制记录
 Claude 在会话列表 1000 行显示截断前物化全会话计数。Codex Token／模型／协作里程碑
 要求当前清单索引完整，并逐谱系核验规范化证据。身份冲突只排除相关分支及后代，
 不阻断无关谱系的正向证明。筛选与根会话定位采用迭代／记忆化；无效数值、孤立／
-循环／未知角色及不安全求和均不授予。日历成就仍要求全局身份及适用日期证明。
+循环／未知角色及不安全求和均不授予。日期选择沿用上述全清单祖先解析及运行期见证
+合同；只有全清单完整性才能证明零值、四周周均及保留峰值。
 UTC 正输出小时在正常解析时同步获取；旧索引使用有界、可保存
 检查点的证明迁移，保留主用量。关闭成就只停止这项额外迁移，不停止普通用量解析。
 宿主另保留一个仅运行期的 SHA-256 成就证明版本：规范化身份、六种 Token 计数、
-模型／推理档位桶、period 谱系标记与日期桶，以及完整性／时区边界。证明单独变化
+模型／推理档位桶、period 谱系标记／游标、运行期 contribution 见证与日期桶，以及
+独立的索引／全局日期／时区边界。证明单独变化
 时，即使仪表板完整渲染合同相同，也更新成就信号；证明不变及纯标题／结构显示变化
 复用信号。摘要从已有聚合逐项计算，不另留完整数据副本、不读取 JSONL、不增加持久
 键或定时器，亦不记录或导出。关闭成就完全跳过摘要和信号计算并退役内存证明；
