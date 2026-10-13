@@ -858,6 +858,9 @@ exports.renderHarness = async function renderHarness({
         features: [...provider.achievementActivity.features, 'localShareExport'] };
     }
 
+    if (fixture === 'achievement-proof-stale') {
+      provider.updateRefreshState('codex',{failed:true,lastSuccessfulAt:Date.parse('2026-07-20T11:00:00Z')});
+    }
     if (fixture === 'achievement-review-loading' || fixture === 'achievement-review-failure') {
       // Controlled host state only: production renders the complete document.
       // Async initialization/failure is covered by Node host tests; this fixture

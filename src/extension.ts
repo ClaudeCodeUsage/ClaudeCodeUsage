@@ -3319,6 +3319,20 @@ export class ClaudeCodeUsageExtension {
           return;
         }
 
+        // Only this host's explicit lifecycle cancellation is neutral. A
+        // cancelled worker alone is not trusted, and any failed file still
+        // withdraws current evidence. Do not accept its display-only snapshot,
+        // timestamp a success, or issue a new achievement receipt.
+        if (this.codexWorkerCancellationRequested && result.outcome === 'error' &&
+            result.failureCode === 'cancelled' && result.diagnostic?.failedFiles === 0) {
+          if (historicalAttempt && this.codexBackgroundState.status === 'running') {
+            this.codexBackgroundState = interruptBackgroundWork(this.codexBackgroundState, {now:Date.now()});
+            await this.saveCodexBackgroundState();
+            if (!ownsCurrentSource()) return;
+          }
+          this.outputChannel.appendLine('refresh: codex-cancelled=1; prior accepted snapshot retained');
+          return;
+        }
         const refreshFailed = result.outcome === 'error' || (result.diagnostic?.failedFiles ?? 0) > 0;
         if (!refreshFailed || (!this.codexSkipPersistedHydration && !this.codexView && result.snapshot.coverage.totalFiles > 0)) {
           this.applyCodexSnapshot(result.snapshot);

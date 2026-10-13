@@ -66,6 +66,7 @@ only the separate publish action can perform that network operation.
 | `achievements.ts`, `achievementSnapshot.ts`, `achievementCalendar.ts`, `achievementHours.ts` | Versioned rules and numeric token/day/week/hour evidence; `codexAchievementCalendarProjection` resolves full-census ancestry before selecting witnessed dates, keeping positive subsets separate from whole-census completeness. |
 | `achievementActivity.ts`, `achievementIcons.ts`, `achievementShare.ts` | Allowlisted deliberate local-action enums, bundled emblem lookup and explicit self-contained badge SVG export. |
 | `achievementGallery.ts`, `achievementOverview.ts`, `achievementRecordStore.ts` | Pure theme ownership/record projections, stable goals, automatic/manual showcase selection and the ≤64 KiB canonical v2 envelope; six ordered manual pins and shared v1 lease/migration fences. |
+| `achievementUiIcons.ts` | Pure rendering of known inline SVG control icons; no dependencies, network access or additional asset files. Existing localized labels remain in the shared Webview renderer. |
 | `achievementMoney.ts`, `achievementMoneyScopes.ts`, `achievementMoneyCatalog.ts` | Fixed USD reference-price evidence for six provider-specific themes; weekly Codex subsets require census-bound date proof and fully dated billable/model vectors. Pricing coverage is separate from date coverage and floating dashboard estimates. |
 | `achievementMoneyOrigin.ts` | Runtime-only frozen-book increment validation, fixed-field copying/economic bounds and necessary-and-sufficient cumulative crossings; independent of Token origin and never persisted as index proof. |
 | `achievementModels.ts` | Non-monetary model-label recognition for collaboration/rainbow and Claude families, independent of fixed-price aliases; recognition does not establish a remote model's identity or pricing. |
@@ -509,7 +510,7 @@ Witnesses/revisions carry no raw identity into rendering, export or persistent i
 
 The overview uses bounded horizontal cards rather than stretching a few icons
 across the desktop. In-card pins remain separate buttons; next-target bars are
-decorative companions to labelled numeric progress. Existing sizes, artwork,
+decorative companions to labelled numeric progress. Existing size choices, artwork,
 theme tokens and persistence routes remain. `modelRainbowNextEligibility`
 excludes a NEXT tier above enabled-provider family capacity (Claude four, Codex
 three), without changing formal conditions, pins or gallery visibility.
@@ -1033,7 +1034,7 @@ timer, historical scan or persistent state is added. Dashboard and status-bar
 tooltip share eight-locale `weeklyQuotaPaceCopy`; bar text/custom formats are unchanged.
 
 The gallery toolbar precedes showcase/overview. Small/Medium/Large set collection
-emblems to 56/80/112 px and showcase emblems to 72/96/128 px, retaining text size and
+emblems to 56/80/112 px and showcase emblems to 56/72/96 px, retaining text size and
 click areas. Saved pin errors appear near the requesting controls; disabled or
 removed controls fall back to a stable summary. Existing browser gallery/API checks
 exercise these surfaces, but do not validate native/F5, new VSIX or performance.
@@ -1042,6 +1043,48 @@ registered fixture theme, treating registered null colors as CSS `initial`.
 The unregistered pink-variable reference now uses its exact existing endpoint
 `#d16ba5`; this is no palette/appearance change or broader visual redesign.
 Automated checks do not replace the user's subjective appearance review.
+
+Above 960 px, the shared renderer uses a content-sized badge column capped at
+`2 * --achievement-overview-width + 8px` and a next-target column that fills the
+remaining space, with a 16 px gap. This avoids reserving an empty half-width column
+for one badge. At 960 px or below they stack directly with a 12 px gap. Layout
+results remain provisional. Auxiliary
+history sections follow both. `achievementUiIcons` supplies decorative inline SVG
+icons beside existing localized share/settings/filter/size/editor/info labels;
+summary counts use compact chips. This presentation change preserves control IDs,
+persistence, eligibility and host/client message protocols. Early-data evidence
+remains under investigation; this layout change establishes no data fix or new
+runtime/native acceptance result.
+
+Pending/stale card details use all eight I18n locales to explain calendar,
+model-ownership, money and current-source requirements, with an information icon
+on notes; these are scope requirements, not exact root-cause classifications, and
+expose no raw source/error details or new evidence authority.
+
+The native focus diagnostic confirmed host-owned cancellation with
+`errorCode=cancelled`, `failed=0`; that investigation read no actual conversation
+logs, credentials or databases. Following this finding,
+`extension.ts` now returns early only when `codexWorkerCancellationRequested` is
+true, the outcome is `error`, `failureCode === 'cancelled'`, and
+`result.diagnostic?.failedFiles === 0` exactly; a missing count remains unknown
+and follows failure/revocation behavior. The host ignores this cancellation result:
+no snapshot application, success timestamp or new acceptance receipt; the prior
+failed state and last successful time remain intact. Processing resumes after a
+fresh successful scan. `codexProvider.ts` is unchanged and still marks every error
+result's manifest incomplete. True file errors and unowned cancellation retain
+failure/revocation behavior. Added regressions cover a missing failed-file count
+and preservation of an earlier true failure with `lastSuccessfulAt: 123`.
+Integrated compilation passed; the Node suite reported 2,436 passed, one skipped
+and zero failed. These results do not establish native acceptance.
+
+Valid period-migration checkpoints now resume even when `tokenEventsSeen` is below
+the inherited prefix, provided `days` is empty. The bounded cursor advances across
+passes, persistence/restart and cancellation. Resuming does not promote dates:
+promotion still requires the complete prefix, EOF and current-timezone witness
+checks. Reviewed regressions cover batching, persistence, cancellation, negative
+EOF cases and unchanged warm reads of zero bodies. Undated, oversized and
+conflicting evidence remains conservatively pending; this correction does not
+resolve every missing date.
 
 Combined activity adds Claude processed volume to Codex processed volume only for the
 explicit activity visualization; Codex cached input and reasoning subsets are

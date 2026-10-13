@@ -360,8 +360,16 @@ custom quota formats are unchanged. This adds no requests, timers or stored hist
 
 The overview uses bounded horizontal cards: artwork, title, rank and progress stay together, with pins inside the badge card and a thin progress bar for next targets. A few badges no longer spread across the entire desktop width; narrow views wrap without shrinking text. Gold rank labels stay legible in light themes while retaining a gold accent.
 
+Lightweight inline SVG icons accompany the existing localized share, settings,
+filter, size, showcase-editor and information labels; counts appear as compact chips.
+Above 960 px, the badge column fits its content up to two overview-card widths
+plus their internal gap; the next-target column fills the remaining space, with
+16 px between columns. At 960 px or below they stack directly with a 12 px gap.
+Auxiliary history sections follow both. Layout results remain provisional.
+Existing controls, saved state, eligibility and message protocols are unchanged.
+
 Gallery size controls precede the overview: Small / Medium / Large use 56 / 80 /
-112 px collection emblems and 72 / 96 / 128 px showcase emblems. Pin errors stay
+112 px collection emblems and 56 / 72 / 96 px showcase emblems. Pin errors stay
 near their controls, and keyboard focus returns to a stable summary when a control
 disappears or becomes disabled. These are source-integrated candidate changes;
 integration alone does not establish full Node/UI, native/F5, installed-VSIX or

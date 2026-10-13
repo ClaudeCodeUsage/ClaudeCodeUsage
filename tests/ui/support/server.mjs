@@ -52,6 +52,7 @@ const server = createServer(async (request, response) => {
       'achievement-calendar-subset',
       'achievement-review-loading',
       'achievement-review-failure',
+      'achievement-proof-stale',
       'achievement-review-next-rank',
       'achievement-long-term-gold',
       'achievement-long-term-platinum',

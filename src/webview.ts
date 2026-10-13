@@ -2,8 +2,9 @@ import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import type { ClaudeUsageRecord } from './types';
 import {achievementTitleWithoutRank} from './achievementTitles';
+import {achievementUiIcon} from './achievementUiIcons';
 import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
-import { I18n, achievementCopyFor, achievementAppearanceCopyFor, achievementEffortCopyFor, weeklyQuotaPaceCopy, achievementRecordStatusCopyFor } from './i18n';
+import { I18n, achievementCopyFor, achievementAppearanceCopyFor, achievementEffortCopyFor, weeklyQuotaPaceCopy, achievementRecordStatusCopyFor, achievementEvidenceHintCopyFor } from './i18n';
 import {CODEX_ACHIEVEMENT_EFFORTS,EFFORT_STATISTICS_PRICEBOOK_VERSION} from './achievementEffortStatistics';
 import {EFFORT_PROCESSED,EFFORT_OUTPUT,EFFORT_ROOTS} from './achievementCollaboration';
 import {adaptClaudeQuotaPace,adaptCodexQuotaPace,QUOTA_PACE_MAX_WINDOWS,type QuotaPaceAdapterSnapshot} from './quotaPaceAdapters';
@@ -5513,7 +5514,7 @@ export class UsageWebviewProvider {
       return '<section class="achievement-collection" data-achievement-record-state="'+recordState+'" aria-label="'+
         this.escapeHtml(copy.heading)+'"><div class="achievement-intro"><h2>'+this.escapeHtml(copy.heading)+
         '</h2><p class="achievement-record-status" role="'+(recordState==='unavailable'?'alert':'status')+'"'+(recordState==='loading'?' aria-busy="true"':'')+'>'+
-        this.escapeHtml(status[recordState])+'</p><div class="achievement-actions"><button class="btn-secondary btn-small" onclick="openAchievementSettings()">'+
+        this.escapeHtml(status[recordState])+'</p><div class="achievement-actions"><button class="btn-secondary btn-small achievement-action" onclick="openAchievementSettings()">'+achievementUiIcon('settings')+
         this.escapeHtml(copy.settingsTitle)+'</button></div></div></section>';
     }
     const cumulativeLowerBound = this.codexAchievementVolume().lowerBound;
@@ -5611,6 +5612,10 @@ export class UsageWebviewProvider {
       const evidenceState = evidenceFor(nextResult);
       const proofReady = evidenceState === 'ready';
       const proofLabel = evidenceState === 'stale' ? copy.evidenceStale : quality?.status==='unpriced' ? moneyCopy.unpriced : copy.evidencePending;
+      const domain=achievementEvidenceDomain(nextResult);
+      const proofHintKind=evidenceState==='stale' ? 'stale' : monetary ? 'money' :
+        domain.includes('calendar') ? 'calendar' : domain==='codex-lineage' ? 'lineage' : 'index';
+      const proofHint=achievementEvidenceHintCopyFor(I18n.getLocale())[proofHintKind];
       // A retained award controls the earned rank, never the current numeric
       // subtotal after retention/source changes. Keep those facts separate.
       const progress = Math.min(nextResult.target, nextResult.progress);
@@ -5733,7 +5738,8 @@ export class UsageWebviewProvider {
         '<progress id="achievement-progress-' + result.id + '" max="' + nextResult.target +
         '" value="' + progress + '" aria-valuetext="' + this.escapeHtml(bound + exactProgress +
           ' ' + unitFor(result.id)) + '"></progress>' :
-          '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p>') +
+          '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p><p class="achievement-proof-note" data-proof-explanation="'+proofHintKind+'">' +
+            achievementUiIcon('info') + this.escapeHtml(proofHint) + '</p>') +
         '<h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
         '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + monetaryDetails +
         (key === 'effort-breadth' ? this.renderAchievementEffortStatistics(nextTierIndex) : '') +
@@ -5784,7 +5790,7 @@ export class UsageWebviewProvider {
     const overview = retainAchievementOverview(this.achievementOverviewSelection, overviewRows);
     const overviewSection = (kind: 'badges' | 'next', heading: string): string => {
       if (!overview[kind].length) return '';
-      return '<section class="achievement-overview" data-achievement-overview="' + kind + '"><h3>' +
+      return '<section class="achievement-overview" data-achievement-overview="' + kind + '"><h3>' + achievementUiIcon(kind==='badges'?'medal':'target')+
         this.escapeHtml(heading) + '</h3><div class="achievement-overview-grid">' + overview[kind].map(key => {
           const entry = visibleCards.find(entry => entry.key === key)!;
           const state = overviewRows.find(row => row.key === key)!;
@@ -5869,7 +5875,7 @@ export class UsageWebviewProvider {
     const showcaseEditor = this.achievementRecordState ?
       '<details id="achievementShowcaseEditor" data-persist="achievement:showcase" data-generation="' +
       this.achievementRecordState.generation + '" data-revision="' + (this.achievementRecordState.pinRevision ?? 0) +
-      '"><summary id="achievementShowcaseEditorSummary">' + this.escapeHtml(appearance.editShowcase) + '</summary><div class="achievement-actions">' +
+      '"><summary id="achievementShowcaseEditorSummary">' + achievementUiIcon('display') + this.escapeHtml(appearance.editShowcase) + '</summary><div class="achievement-actions">' +
       (['automatic','manual'] as const).map(value => '<button class="btn-secondary btn-small" data-showcase-mode="' + value +
         '" aria-pressed="' + (mode === value) + '" onclick="requestAchievementShowcaseMode(this)">' +
         this.escapeHtml(appearance[value]) + '</button>').join('') + '</div><p id="achievementSelectedCount">' +
@@ -5896,40 +5902,41 @@ export class UsageWebviewProvider {
           '" aria-pressed="' + selected + '"' + (selected ? ' checked' : '') +
           ' onchange="requestAchievementPin(this)"><span>' + this.escapeHtml(name) + '</span></label>';
       }).join('') + '</div></details>' : '';
-    const filterToolbar = '<div class="achievement-filter-toolbar"><label for="achievementFilter">' + this.escapeHtml(copy.filterLabel) +
+    const filterToolbar = '<div class="achievement-filter-toolbar"><div class="achievement-filter-control"><label for="achievementFilter">' + achievementUiIcon('filter') + this.escapeHtml(copy.filterLabel) +
       '</label><select id="achievementFilter" onchange="filterAchievements(this.value, true)">' +
       '<option value="all">' + this.escapeHtml(copy.filterAll) + '</option><option value="next">' +
       this.escapeHtml(copy.filterNext) + '</option><option value="earned">' + this.escapeHtml(copy.filterEarned) +
-      '</option></select><label for="achievementSize">' + this.escapeHtml(appearance.sizeLabel) +
+      '</option></select></div><div class="achievement-filter-control"><label for="achievementSize">' + achievementUiIcon('size') + this.escapeHtml(appearance.sizeLabel) +
       '</label><select id="achievementSize" onchange="setAchievementSize(this.value, true)">' +
       (['small','medium','large'] as const).map(value => '<option value="' + value + '"' +
         (value === 'medium' ? ' selected' : '') + '>' + this.escapeHtml(appearance[value]) + '</option>').join('') +
-      '</select><span id="achievementShownCount" role="status"></span></div>';
+      '</select></div><span id="achievementShownCount" role="status"></span></div>';
     const earnedCount = visibleResults.filter(isEarned).length;
     const seriesCount = overviewRows.filter(entry => entry.earned).length;
     const countLabel = (template: string, earned: number, total: number): string =>
       template.replace('{earned}', integer(earned)).replace('{total}', integer(total));
     return '<section class="achievement-collection" data-achievement-size="medium" aria-label="' + this.escapeHtml(copy.heading) + '">' +
-      '<div class="achievement-intro"><h2>' + this.escapeHtml(copy.heading) + '</h2>' +
+      '<div class="achievement-intro"><h2><span class="achievement-heading-icon">' + achievementUiIcon('medal') + '</span>' + this.escapeHtml(copy.heading) + '</h2>' +
       '<details class="achievement-evidence-note" data-persist="achievement:evidence"><summary>' +
-      this.escapeHtml(copy.evidenceTitle) + '</summary><p>' +
+      achievementUiIcon('info') + this.escapeHtml(copy.evidenceTitle) + '</summary><p>' +
       this.escapeHtml((cumulativeLowerBound || this.achievementCalendarLowerBounds.size > 0 ||
         this.achievementMoneyFacts.codex?.coverage.completedMondayWeekPeak.scopeLowerBound
         ? copy.lowerBoundNote + ' ' : '') + copy.lowerBoundDetails) +
       '</p></details>' +
       '<p class="achievement-count">' +
-      this.escapeHtml(countLabel(copy.seriesCount, seriesCount, visibleCards.length)) + ' · ' +
-      this.escapeHtml(countLabel(copy.levelCount, earnedCount, visibleResults.length)) + '</p>' +
+      '<span>' + this.escapeHtml(countLabel(copy.seriesCount, seriesCount, visibleCards.length)) + '</span> · ' +
+      '<span>' + this.escapeHtml(countLabel(copy.levelCount, earnedCount, visibleResults.length)) + '</span></p>' +
       '<div class="achievement-actions">' +
       (this.setting<boolean>('enableShareCard', true)
-        ? '<button class="btn-secondary btn-small" onclick="openAchievementShare()">' +
+        ? '<button class="btn-secondary btn-small achievement-action achievement-action-share" onclick="openAchievementShare()">' + achievementUiIcon('share') +
           this.escapeHtml(copy.shareTitle) + '</button>' : '') +
-      '<button class="btn-secondary btn-small" onclick="openAchievementSettings()">' +
+      '<button class="btn-secondary btn-small achievement-action" onclick="openAchievementSettings()">' + achievementUiIcon('settings') +
         this.escapeHtml(copy.settingsTitle) + '</button></div></div>' +
       '<p id="achievementPinStatus" class="table-hint" role="status"></p>' +
       '<p id="achievementUnreadStatus" class="table-hint" role="status"></p>' +
       filterToolbar +
-      showcaseEditor + overviewSection('badges', copy.myBadges) + hiddenPinSection + legacySection + unreadSection + recentSection + overviewSection('next', copy.nextGoals) + historySection +
+      showcaseEditor + '<div class="achievement-showcase">' + overviewSection('badges', copy.myBadges) +
+      overviewSection('next', copy.nextGoals) + '</div>' + hiddenPinSection + legacySection + unreadSection + recentSection + historySection +
       '<h3 class="achievement-gallery-heading">' + this.escapeHtml(copy.galleryTitle) + '</h3>' +
       '<p id="achievementFilterEmpty" class="table-hint" hidden>' + this.escapeHtml(copy.filterEmpty) + '</p>' +
       visibleGroups
@@ -13696,20 +13703,29 @@ export class UsageWebviewProvider {
         }
       }
       .achievement-collection { --achievement-emblem-size: 80px; --achievement-card-width: 168px;
-        --achievement-showcase-size: 96px; --achievement-overview-width: 360px; --achievement-card-height: 180px; display: grid; gap: 16px; }
+        --achievement-showcase-size: 72px; --achievement-overview-width: 320px; --achievement-card-height: 180px; display: grid; gap: 12px; }
       .achievement-collection[data-achievement-size="small"] { --achievement-emblem-size: 56px;
-        --achievement-card-width: 136px; --achievement-showcase-size: 72px; --achievement-overview-width: 320px; --achievement-card-height: 156px; }
+        --achievement-card-width: 136px; --achievement-showcase-size: 56px; --achievement-overview-width: 280px; --achievement-card-height: 156px; }
       .achievement-collection[data-achievement-size="large"] { --achievement-emblem-size: 112px;
-        --achievement-card-width: 208px; --achievement-showcase-size: 128px; --achievement-overview-width: 400px; --achievement-card-height: 212px; }
-      .achievement-overview h3, .achievement-gallery-heading { margin: 0 0 12px; }
+        --achievement-card-width: 208px; --achievement-showcase-size: 96px; --achievement-overview-width: 360px; --achievement-card-height: 212px; }
+      .achievement-ui-icon { width: 17px; height: 17px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7;
+        stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
+      .achievement-showcase { display: grid; grid-template-columns: fit-content(calc(2 * var(--achievement-overview-width) + 8px)) minmax(0,1fr);
+        gap: 16px; align-items: start; }
+      .achievement-showcase:empty { display: none; }
+      .achievement-showcase > :only-child { grid-column: 1 / -1; }
+      .achievement-overview { min-width: 0; }
+      .achievement-overview h3, .achievement-gallery-heading { margin: 0 0 8px; }
+      .achievement-overview h3 { display: flex; align-items: center; gap: 7px; font-size: 1rem; }
+      .achievement-overview h3 > .achievement-ui-icon { color: var(--vscode-descriptionForeground); }
       .achievement-gallery-heading { margin-bottom: 0; }
-      .achievement-overview-grid { display: flex; flex-wrap: wrap; gap: 12px; }
-      .achievement-overview-item { position: relative; min-width: 0; width: min(100%, var(--achievement-overview-width));
+      .achievement-overview-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+      .achievement-overview-item { position: relative; min-width: 0; width: var(--achievement-overview-width); max-width: 100%;
         border: 1px solid var(--vscode-panel-border); border-radius: 8px; box-sizing: border-box; }
       .achievement-overview-badge { background: transparent; color: var(--vscode-foreground); border: 0;
         display: grid; grid-template-columns: var(--achievement-showcase-size) minmax(0, 1fr);
-        align-content: center; align-items: center; column-gap: 14px; row-gap: 5px;
-        text-align: left; padding: 14px; min-width: 0; width: 100%; box-sizing: border-box; border-radius: 8px; }
+        align-content: center; align-items: center; column-gap: 12px; row-gap: 4px;
+        text-align: left; padding: 10px; min-width: 0; width: 100%; box-sizing: border-box; border-radius: 8px; }
       [data-achievement-overview="badges"] .achievement-overview-badge { padding-right: 48px; }
       .achievement-overview-badge:hover { background: var(--vscode-list-hoverBackground); }
       .achievement-overview-badge img { width: var(--achievement-showcase-size); max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain;
@@ -13772,6 +13788,10 @@ export class UsageWebviewProvider {
         [data-achievement-overview="badges"] .achievement-overview-badge { padding-right: 56px; }
       }
       .achievement-intro { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; }
+      .achievement-intro h2 { display: flex; align-items: center; gap: 9px; }
+      .achievement-heading-icon { display: inline-grid; place-items: center; width: 32px; height: 32px;
+        border-radius: 8px; background: var(--vscode-editorWidget-background); color: var(--vscode-charts-blue); }
+      .achievement-heading-icon > svg { width: 24px; height: 24px; }
       .achievement-intro > h2 { grid-column: 1; grid-row: 1; }
       .achievement-intro > .achievement-count { grid-column: 1; grid-row: 2; }
       .achievement-intro > .achievement-record-status { grid-column: 1; grid-row: 2; overflow-wrap: anywhere; }
@@ -13786,11 +13806,29 @@ export class UsageWebviewProvider {
       .achievement-intro p { margin: 0; color: var(--vscode-descriptionForeground); line-height: 1.5; }
       .achievement-evidence-note { color: var(--vscode-descriptionForeground); font-size: .85rem; }
       .achievement-evidence-note > summary { cursor: pointer; }
+      .achievement-evidence-note > summary > svg, #achievementShowcaseEditorSummary > svg { margin-inline: 5px 6px; }
       .achievement-evidence-note > p { margin-top: 6px; }
       .achievement-proof-status { color: var(--vscode-descriptionForeground); font-size: .8rem; }
-      .achievement-intro .achievement-count { margin-top: 0; color: var(--vscode-foreground); font-weight: 650; }
+      .achievement-proof-note { background: var(--vscode-editorWidget-background); padding: 8px; border-radius: 5px;
+        font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
+      .achievement-proof-note > svg { margin-inline-end: 6px; }
+      .achievement-intro .achievement-count { margin-top: 0; color: var(--vscode-foreground); font-weight: 500; display: flex; flex-wrap: wrap; gap: 6px; }
+      .achievement-count > span { background: var(--vscode-editorWidget-background); padding: 4px 9px; border-radius: 5px; font-size: .85rem; }
+      .achievement-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; border-radius: 6px; }
+      .achievement-intro .achievement-action-share { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+      .achievement-intro .achievement-action-share:hover { background: var(--vscode-button-hoverBackground); }
       .achievement-actions, .achievement-filter-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
       .achievement-filter-toolbar { color: var(--vscode-descriptionForeground); }
+      .achievement-filter-control { display: flex; align-items: center; gap: 7px; padding: 4px 8px;
+        background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; min-width: 0; }
+      .achievement-filter-control label { display: flex; align-items: center; gap: 6px; font-size: .85rem; }
+      .achievement-filter-control select { min-height: 28px; }
+      #achievementShownCount { margin-inline-start: auto; font-size: .85rem; }
+      #achievementShowcaseEditor { border-block-end: 1px solid var(--vscode-panel-border); padding-bottom: 8px; }
+      #achievementShowcaseEditorSummary { width: fit-content; font-size: .9rem; color: var(--vscode-foreground); }
+      @media (max-width: 960px) { .achievement-showcase { grid-template-columns: minmax(0,1fr); gap: 12px; } }
+      @media (max-width: 480px) { .achievement-filter-control { width: 100%; box-sizing: border-box; }
+        .achievement-filter-control select { margin-inline-start: auto; min-width: 0; } }
       .achievement-filter-toolbar select { max-width: 100%; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 4px; padding: 5px 7px; }
       .achievement-filter-toolbar select:focus-visible { outline: 2px solid var(--vscode-focusBorder); }
       .achievement-group { --achievement-accent: var(--vscode-charts-purple); }
@@ -13875,7 +13913,7 @@ export class UsageWebviewProvider {
       .achievement-unlock-notice span { min-width: 0; overflow-wrap: anywhere; }
       .achievement-unlock-notice button { align-self: start; margin-inline-start: auto; border: 0; background: transparent; color: inherit; cursor: pointer; }
       .achievement-unlock-notice button:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
-      .achievement-intro .btn-secondary { margin-top: 10px; }
+      .achievement-intro .btn-secondary { margin-top: 0; }
       .achievement-share-preview { overflow-x: auto; border: 1px solid var(--vscode-panel-border); border-radius: 10px; background: var(--vscode-editor-background); }
       .achievement-share-preview svg { display: block; width: 100%; min-width: 320px; height: auto; }
       @media (max-width: 480px) {

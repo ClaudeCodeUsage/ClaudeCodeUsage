@@ -49,6 +49,7 @@ Codex effort 统计及仅累计范围的金额新活动收据已完成接入。
 | `achievements.ts`、`achievementSnapshot.ts`、`achievementCalendar.ts`、`achievementHours.ts` | 带版本的规则与数值 Token／日／周／小时证据；`codexAchievementCalendarProjection` 先解析全清单祖先关系，再选择有见证的日期，区分正向子集与全清单完整性。 |
 | `achievementActivity.ts`、`achievementIcons.ts`、`achievementShare.ts` | 白名单内的主动本地行为枚举、随插件打包的徽章查找与明确触发的自包含 SVG 导出。 |
 | `achievementGallery.ts`、`achievementOverview.ts`、`achievementRecordStore.ts` | 纯主题归属／记录投影、稳定目标、自动／手动展示选择及 ≤64 KiB 权威 v2 封套；最多六项有序手动固定，共用 v1 租约／迁移屏障。 |
+| `achievementUiIcons.ts` | 纯函数渲染已知的内联 SVG 控件图标；无依赖、网络访问或额外资源文件。既有本地化标签仍由共享 Webview 渲染器提供。 |
 | `achievementMoney.ts`、`achievementMoneyScopes.ts`、`achievementMoneyCatalog.ts` | 六个供应商独立主题的固定美元参考价证据；Codex 周金额子集要求绑定全清单的日期证明及完整归日的计费／模型向量。定价覆盖独立于日期覆盖及仪表盘浮动估算。 |
 | `achievementMoneyOrigin.ts` | 仅运行期固定参考价增量校验、固定字段复制／经济上界及累计跨级必要／充分判断；独立于 Token 来源，不持久化为索引证明。 |
 | `achievementModels.ts` | 协作／彩虹及 Claude 家族的非金额模型标签识别，独立于固定计价别名；识别不证明远端型号身份或价格。 |
@@ -699,12 +700,41 @@ SVG 原字节写入，不重新构建；复制 Markdown 也须有有效产物。
 历史扫描或持久字段。仪表盘与状态栏提示共用八语 `weeklyQuotaPaceCopy`，简短状态栏及自定义格式不变。
 
 图鉴工具列先于展示柜／概览。小／中／大设置图鉴图标为 56／80／112 px，展示柜为
-72／96／128 px，保留字号及点击区域。固定错误位于对应控件附近；控件禁用或消失
+56／72／96 px，保留字号及点击区域。固定错误位于对应控件附近；控件禁用或消失
 时回退到稳定摘要。既有图鉴／API 浏览器检查只证明浏览器行为，不证明原生／F5、
 新 VSIX 或性能已经验证。
 样式契约逐一核对实际使用的全部 47 个 VS Code 变量是否在对应注册 fixture 主题中声明，
 注册的 null 颜色明确设为 CSS `initial`。未注册粉色变量改为其原有精确端点
 `#d16ba5`，不改变配色／外观，也不表示更广的视觉重设计；自动检查不替代用户主观视觉审阅。
+
+共享渲染器在大于 960 px 时让徽章栏按内容收缩，上限为
+`2 * --achievement-overview-width + 8px`；下一目标栏填满剩余空间，两栏间距 16 px，
+避免单个徽章仍占用半幅空白栏。960 px 及以下直接上下堆叠，间距 12 px。
+布局结果尚未最终确认。辅助历史区统一放在两者之后。`achievementUiIcons` 为既有
+分享／设置／筛选／尺寸／编辑／信息本地化标签提供装饰性内联 SVG 图标，汇总计数使用
+紧凑标签。此次展示调整保留控件 ID、状态保存、资格判断及宿主／客户端消息协议。
+早期数据证据仍在调查；此布局调整不证明数据已修复，也不新增运行期／原生验收结论。
+
+待补齐／已过期卡片详情通过 I18n 八语文案说明日期、模型归属、金额及当前来源的要求，
+说明旁带信息图标；这是范围要求，不是精确根因分类，不暴露原始来源／错误详情，
+也不赋予新的证据效力。
+
+原生焦点诊断确认宿主拥有的取消，`errorCode=cancelled`、`failed=0`；该调查未读取
+实际对话日志、凭证或数据库。针对这一发现，`extension.ts` 已实现提前返回，
+仅当 `codexWorkerCancellationRequested` 为 true、结果为 `error`、
+`failureCode === 'cancelled'` 且严格满足 `result.diagnostic?.failedFiles === 0` 时生效。
+缺失计数仍是未知，继续走失败／证据撤销路径。
+宿主忽略该取消结果，不应用快照、不记录成功时间、不生成新的接纳收据；保留先前失败状态
+及最后成功时间，待新的扫描成功后恢复处理。`codexProvider.ts` 未变，所有错误结果的
+清单仍标记为不完整。真实文件错误及非宿主拥有的取消仍维持失败／证据撤销行为。
+新增回归覆盖失败文件计数缺失，以及保留先前真实失败和 `lastSuccessfulAt: 123`。
+集成后编译通过；Node 测试为 2,436 项通过、1 项跳过、0 项失败。这些结果不代表原生验收。
+
+有效的周期迁移检查点在 `tokenEventsSeen` 尚未达到继承前缀时也可续跑，前提是
+`days` 为空。有界游标可跨批次、持久化／重启及取消继续推进。续跑本身不提升日期证据：
+仍须通过完整前缀、EOF 及当前时区见证检查。已审阅回归覆盖分批、持久化、取消、
+EOF 反例及未变化热刷新读取零正文。无日期、超大行或冲突证据仍保守保持待补齐，
+此次修正不表示所有缺失日期均已解决。
 
 综合活动仅在明确的活动可视化中把 Claude processed 与
 Codex processed 相加；Codex cached input 与 reasoning 子集不会重复计入，也不声称成本、额度、

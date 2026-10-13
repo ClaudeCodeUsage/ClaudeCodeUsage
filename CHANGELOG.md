@@ -128,7 +128,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Disabled-source pins remain removable from a folded management list without
   re-enabling that source, reading logs or deleting other saved pins.
   Size/filter controls precede the overview; collection emblems use 56/80/112 px,
-  showcase emblems 72/96/128 px. Errors stay near controls and disabled/removed
+  showcase emblems 56/72/96 px. Errors stay near controls and disabled/removed
   controls fall back to a stable summary without losing keyboard focus.
 - **Recent award views** — up to three actually recorded new series, plus a
   collapsible thirty-row list linked to the existing rules. First-record dates
@@ -237,6 +237,41 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   pins remain inside their cards, and next targets show a thin progress bar. Existing
   artwork, three sizes, theme tokens, evidence labels and keyboard routes remain.
   Light-theme gold rank labels use legible foreground text with a gold accent.
+
+- **Achievement controls and paired showcase** — lightweight inline SVG icons
+  accompany existing localized share/settings/filter/size/editor/info labels;
+  counts use compact chips. Above 960 px, the badge column fits its content up to
+  two overview-card widths plus their internal gap; next targets fill the remaining
+  space, with a 16 px column gap. At 960 px or below they stack directly with a
+  12 px gap. Layout results remain provisional. Auxiliary history
+  sections follow both. Gallery icons remain 56/80/112 px; overview icons use
+  56/72/96 px. The pure `achievementUiIcons` module uses known SVG paths without
+  dependencies, network access or additional asset files. Existing controls,
+  persistence, eligibility and message protocols are unchanged. Early-data
+  evidence remains under investigation; this UI entry claims no data fix or new
+  validation pass. Source package version remains 2.1.1; the candidate is unreleased.
+
+- **Owned Codex cancellation** — following the native focus-related diagnostic
+  `errorCode=cancelled`, `failed=0`, `extension.ts` now returns early only for
+  explicit `codexWorkerCancellationRequested`, an error outcome with
+  `failureCode === 'cancelled'`, and `result.diagnostic?.failedFiles === 0`
+  exactly; a missing count is unknown and retains failure/revocation behavior.
+  It ignores that result: no snapshot application, success timestamp or new
+  acceptance receipt; prior failed state and last successful time remain intact.
+  Processing resumes after a fresh successful scan. The provider is unchanged:
+  all error results still mark the manifest incomplete. True file errors and
+  unowned cancellation retain failure/revocation behavior. Added regressions cover
+  a missing failed-file count and preservation of an earlier true failure with
+  `lastSuccessfulAt: 123`. Integrated compilation passed; the Node suite reported
+  2,436 passed, one skipped and zero failed. This is not native acceptance.
+
+- **Codex period-migration continuation** — valid checkpoints now resume while
+  `tokenEventsSeen` is below the inherited prefix when `days` is empty. The bounded
+  cursor advances across passes, persistence/restart and cancellation; dates are
+  promoted only after the complete prefix, EOF and current-timezone witness checks.
+  Reviewed regressions cover batching, persistence, cancellation, negative EOF
+  cases and unchanged warm reads of zero bodies. Undated, oversized or conflicting
+  evidence remains conservatively pending; this does not fix every missing date.
 
 - **Sharing and subtotal edge cases** — the Codex-only gallery share action
   selects the requested achievement card, not the heatmap fallback. Restoring a

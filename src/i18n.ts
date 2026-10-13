@@ -10,6 +10,53 @@ import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievem
 import { API_HEATMAP_COPY } from './apiHeatmapCopy';
 import { LONG_TERM_ACHIEVEMENT_DEFINITIONS, type LongTermAchievementId } from './achievementLongTerm';
 
+export function achievementEvidenceHintCopyFor(locale:string):Record<'calendar'|'lineage'|'money'|'index'|'stale',string> {
+  const words:Record<SupportedLanguage,readonly[string,string,string,string,string]>={
+    en:['Dates, time zone and session ownership must be verified. Cumulative Tokens cannot establish daily or weekly progress.',
+      'Session ownership needs verification; unknown or conflicting branches are excluded.',
+      'Only priced usage verified for this scope counts. A priced lifetime total cannot establish a weekly or single-task amount.',
+      'Waiting for current-source verification. Cached totals alone cannot establish new achievements.',
+      'The current source is not verified. Refresh to retry; saved awards remain, while new awards are paused.'],
+    'zh-CN':['日期、时区与会话归属须通过核验；累计 Token 不能代替按日或按周的进度。',
+      '会话归属尚待核验；来源不明或存在冲突的分支不计入。',
+      '仅统计本范围内已定价且可核验的用量；累计金额不能代替单周或单次任务金额。',
+      '等待当前来源核验；缓存中的旧总量不作为新成就依据。',
+      '当前来源尚未通过重新核验。可刷新重试；已获徽章保留，新增授奖暂停。'],
+    'zh-TW':['日期、時區與會話歸屬須通過核驗；累計 Token 不能代替按日或按週的進度。',
+      '會話歸屬尚待核驗；來源不明或存在衝突的分支不計入。',
+      '僅統計本範圍內已定價且可核驗的用量；累計金額不能代替單週或單次任務金額。',
+      '等待目前來源核驗；快取中的舊總量不作為新成就依據。',
+      '目前來源尚未通過重新核驗。可重新整理再試；已獲徽章保留，新增授獎暫停。'],
+    'de-DE':['Datum, Zeitzone und Sitzungszuordnung müssen geprüft sein. Kumulative Tokens belegen keine Tages- oder Wochenfortschritte.',
+      'Die Sitzungszuordnung muss geprüft werden; unbekannte oder widersprüchliche Zweige sind ausgeschlossen.',
+      'Nur bepreiste, für diesen Bereich geprüfte Nutzung zählt. Eine Gesamtsumme belegt keinen Wochen- oder Aufgabenbetrag.',
+      'Die aktuelle Quelle wird geprüft. Zwischengespeicherte Summen allein belegen keine neuen Erfolge.',
+      'Die aktuelle Quelle ist nicht geprüft. Aktualisieren Sie erneut; gespeicherte Auszeichnungen bleiben, neue sind ausgesetzt.'],
+    ja:['日付・タイムゾーン・セッションの所属を検証する必要があります。累計 Token は日別・週別の進捗の根拠にはなりません。',
+      'セッションの所属を検証する必要があります。不明または競合する分岐は除外されます。',
+      'この範囲で料金と根拠を確認できる使用量のみを集計します。累計金額は週別・タスク別金額の根拠にはなりません。',
+      '現在のデータソースの検証を待っています。キャッシュ済み合計だけでは新しい実績を付与しません。',
+      '現在のデータソースは未検証です。更新して再試行してください。取得済みのバッジは保持し、新規付与は一時停止します。'],
+    ko:['날짜, 시간대, 세션 소속을 검증해야 합니다. 누적 Token은 일별 또는 주별 진행의 근거가 아닙니다.',
+      '세션 소속을 검증해야 합니다. 알 수 없거나 충돌하는 분기는 제외합니다.',
+      '이 범위에서 가격과 근거가 검증된 사용량만 집계합니다. 누적 금액은 주별 또는 작업별 금액의 근거가 아닙니다.',
+      '현재 데이터 소스 검증을 기다립니다. 캐시된 합계만으로 새 업적을 부여하지 않습니다.',
+      '현재 데이터 소스가 검증되지 않았습니다. 새로 고쳐 다시 시도하세요. 기존 배지는 유지하고 새 수여는 일시 중지합니다.'],
+    'pt-BR':['Datas, fuso horário e vínculo das sessões precisam ser verificados. Tokens acumulados não comprovam progresso diário ou semanal.',
+      'O vínculo das sessões precisa ser verificado; ramos desconhecidos ou conflitantes são excluídos.',
+      'Conta apenas o uso com preço e evidência verificados neste escopo. O total acumulado não comprova um valor semanal ou por tarefa.',
+      'Aguardando a verificação da fonte atual. Totais em cache não comprovam novas conquistas.',
+      'A fonte atual não está verificada. Atualize para tentar novamente; os prêmios salvos permanecem e novas concessões são suspensas.'],
+    id:['Tanggal, zona waktu, dan kepemilikan sesi harus diverifikasi. Token kumulatif tidak membuktikan progres harian atau mingguan.',
+      'Kepemilikan sesi perlu diverifikasi; cabang yang tidak diketahui atau bertentangan dikecualikan.',
+      'Hanya penggunaan berharga yang terverifikasi dalam cakupan ini dihitung. Total kumulatif tidak membuktikan nilai mingguan atau per tugas.',
+      'Menunggu verifikasi sumber saat ini. Total dalam cache saja tidak membuktikan pencapaian baru.',
+      'Sumber saat ini belum terverifikasi. Muat ulang data untuk mencoba lagi; penghargaan tersimpan tetap ada, pemberian baru ditunda.'],
+  };
+  const [calendar,lineage,money,index,stale]=words[locale as SupportedLanguage] ?? words.en;
+  return {calendar,lineage,money,index,stale};
+}
+
 export function achievementRecordStatusCopyFor(locale:string):Record<'loading'|'unavailable'|'changed'|'disabled',string> {
   const words:Record<SupportedLanguage,readonly[string,string,string,string]>={
     en:['Loading achievement records.','Achievement records are unavailable. Reload this VS Code window to retry.','Achievement records have changed. Reload this VS Code window to continue.','Local achievements are disabled. Enable them in Achievement settings.'],

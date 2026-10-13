@@ -2148,7 +2148,7 @@ test('earned achievements survive a dashboard reload without source logs', async
       assert.match(html, /data-achievement-series="sonnet-main"[^>]*data-achievement-id="sonnet-main"/);
       assert.equal(html.includes('data-achievement-series="fable-sessions"'), true);
       assert.match(html, /data-achievement-icon="sonnet-main"/);
-      assert.match(html.match(/class="achievement-count"[^>]*>([^<]+)/)?.[1] ?? '',
+      assert.match((html.match(/class="achievement-count"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '').replace(/<[^>]+>/g,''),
         /^2 \/ \d+ series · 2 \/ \d+ levels$/);
       await provider.achievementWrite;
       assert.ok((state.get('ccu.achievements.grants.v5') as string[]).includes('sonnet-main'));
@@ -2159,7 +2159,7 @@ test('earned achievements survive a dashboard reload without source logs', async
       provider.providerAvailability = { claude: true, codex: false, codexData: false };
       const html = provider.renderAchievementData();
       assert.match(html, /achievement-card earned" data-achievement-series="sonnet-main"[^>]*data-achievement-id="sonnet-main"/);
-      assert.match(html.match(/class="achievement-count"[^>]*>([^<]+)/)?.[1] ?? '',
+      assert.match((html.match(/class="achievement-count"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '').replace(/<[^>]+>/g,''),
         /^2 \/ \d+ series · 2 \/ \d+ levels$/);
     });
   } finally {

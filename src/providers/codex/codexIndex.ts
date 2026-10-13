@@ -749,6 +749,23 @@ function uniqueFlags(...groups: string[][]): string[] {
   return [...new Set(groups.flat())].sort();
 }
 
+/** A valid checkpoint may still be skipping inherited events. Resuming that
+ * scan is not permission to publish its dates; promotion still requires the
+ * entire prefix and source cursor below. */
+function resumablePeriodMigration(
+  contribution: CodexFileContribution,
+  timeZone: string,
+): CodexPeriodMigrationState | undefined {
+  const migration = contribution.periodMigration;
+  const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
+  const seen = migration?.tokenEventsSeen;
+  if (!migration || migration.timeZone !== timeZone || migration.prefixEvents !== prefixEvents ||
+      typeof seen !== 'number' || !Number.isSafeInteger(seen) || seen < 0 ||
+      !Number.isSafeInteger(migration.offset) || migration.offset < 0 || migration.offset > contribution.offset ||
+      (seen < prefixEvents && Object.keys(migration.days).length > 0)) return undefined;
+  return migration;
+}
+
 function promoteCaughtUpPeriod(
   contribution: CodexFileContribution,
   timeZone: string,
@@ -1398,12 +1415,8 @@ async function migrateContributionPeriod(
 ): Promise<CodexFilePassResult> {
   const timeZone = resolveTimeZone(options.timeZone);
   const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
-  const savedMigration = contribution.periodMigration;
-  const canResume = savedMigration?.timeZone === timeZone &&
-    savedMigration.prefixEvents === prefixEvents &&
-    Number.isFinite(savedMigration.tokenEventsSeen) &&
-    (savedMigration.tokenEventsSeen ?? 0) >= prefixEvents;
-  const initial: CodexPeriodMigrationState = canResume
+  const savedMigration = resumablePeriodMigration(contribution, timeZone);
+  const initial: CodexPeriodMigrationState = savedMigration
     ? savedMigration
     : {
         timeZone,
@@ -1511,24 +1524,7 @@ async function migrateContributionPeriod(
       ['oversized-jsonl-line'],
     );
   }
-  if (
-    updated.periodMigration &&
-    updated.periodMigration.offset >= contribution.offset &&
-    !updated.periodMigration.discardingOversizedLine
-  ) {
-    updated.aggregate.period = {
-      timeZone,
-      indexedThrough: contribution.offset,
-      days: updated.periodMigration.days,
-      lineageVersion: CODEX_PERIOD_LINEAGE_VERSION,
-      lineagePrefixEvents: prefixEvents,
-    };
-    updated.qualityFlags = uniqueFlags(
-      updated.qualityFlags,
-      updated.periodMigration.qualityFlags,
-    );
-    delete updated.periodMigration;
-  }
+  promoteCaughtUpPeriod(updated, timeZone);
   return { contribution: updated, bytesRead: scan.bytesRead };
 }
 
@@ -2693,15 +2689,7 @@ export async function updateCodexIndex(
     )) {
       delete contribution.aggregate.period;
     }
-    if (
-      contribution.periodMigration &&
-      (
-        contribution.periodMigration.timeZone !== timeZone ||
-        contribution.periodMigration.prefixEvents !== desiredPrefixEvents ||
-        !Number.isFinite(contribution.periodMigration.tokenEventsSeen) ||
-        (contribution.periodMigration.tokenEventsSeen ?? 0) < desiredPrefixEvents
-      )
-    ) {
+    if (contribution.periodMigration && !resumablePeriodMigration(contribution, timeZone)) {
       delete contribution.periodMigration;
     }
     promoteCaughtUpPeriod(contribution, timeZone);
@@ -3259,14 +3247,7 @@ export async function updateCodexIndex(
         continue;
       }
       const base = cloneContribution(prior);
-      const start = base.periodMigration?.timeZone === timeZone &&
-          base.periodMigration.prefixEvents ===
-            (base.lineage?.desiredPrefixEvents ?? 0) &&
-          Number.isFinite(base.periodMigration.tokenEventsSeen) &&
-          (base.periodMigration.tokenEventsSeen ?? 0) >=
-            (base.lineage?.desiredPrefixEvents ?? 0)
-        ? base.periodMigration.offset
-        : 0;
+      const start = resumablePeriodMigration(base, timeZone)?.offset ?? 0;
       const endExclusive = Math.min(
         base.offset,
         start + (budget.maxBytes - bytesRead - reservedBytes),
@@ -3304,14 +3285,7 @@ export async function updateCodexIndex(
       continue;
     }
     const base = cloneContribution(prior);
-    const start = base.periodMigration?.timeZone === timeZone &&
-        base.periodMigration.prefixEvents ===
-          (base.lineage?.desiredPrefixEvents ?? 0) &&
-        Number.isFinite(base.periodMigration.tokenEventsSeen) &&
-        (base.periodMigration.tokenEventsSeen ?? 0) >=
-          (base.lineage?.desiredPrefixEvents ?? 0)
-      ? base.periodMigration.offset
-      : 0;
+    const start = resumablePeriodMigration(base, timeZone)?.offset ?? 0;
     const endExclusive = Math.min(
       base.offset,
       start + (budget.maxBytes - bytesRead),

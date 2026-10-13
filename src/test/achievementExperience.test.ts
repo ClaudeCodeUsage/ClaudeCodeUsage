@@ -271,7 +271,7 @@ test('evidence boundaries stay available in a collapsed disclosure, not permanen
     const html = provider.renderAchievementData();
     const evidence = html.match(/<details class="achievement-evidence-note"[\s\S]*?<\/details>/)?.[0];
     assert.ok(evidence);
-    assert.match(evidence, /<summary>Evidence details<\/summary>/);
+    assert.match(evidence, /<summary>[\s\S]*aria-hidden="true"[\s\S]*Evidence details<\/summary>/);
     assert.doesNotMatch(evidence, /<details[^>]*\bopen\b/);
     assert.match(evidence, /first event week/);
     assert.match(evidence, /Deleted\/rotated logs/);

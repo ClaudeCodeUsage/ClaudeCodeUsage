@@ -593,6 +593,65 @@ test('retirement while waiting for the achievement receipt cannot strand a worke
   assert.equal(extension.codexBackfillLease?.active ?? false, false);
 });
 
+test('owned lifecycle cancellation keeps the prior verified display without failure or new award delivery', async () => {
+  const {extension,snapshot}=coordinatorHarness(true);
+  snapshot.currentManifestVerified=true;
+  let accepted=0,withdrawals=0;
+  extension.webviewProvider.acceptCodexAchievementSnapshot=()=>{accepted++;};
+  extension.webviewProvider.invalidateAchievementEvidence=()=>{withdrawals++;};
+  await extension.runCodexRefresh('focus');
+  const priorView=extension.codexView,priorState={...extension.providerRefreshStates.codex};
+  const priorAccepted=accepted;
+  extension.codexProvider.refresh=async()=>{
+    extension.codexWorkerCancellationRequested=true; // real blur owner sets this before cancel().
+    await extension.cancelCodexProviderAndWait();
+    return {outcome:'error',failureCode:'cancelled',snapshot:{...snapshot,currentManifestVerified:false},
+      diagnostic:{bodyReads:0,failedFiles:0,errorCode:'cancelled'}};
+  };
+  await extension.runCodexRefresh('focus');
+  assert.equal(extension.codexView,priorView);
+  assert.deepEqual(extension.providerRefreshStates.codex,priorState);
+  assert.equal(accepted,priorAccepted,'cancellation is not a new accepted source or award receipt');
+  assert.equal(withdrawals,0,'intentional cancellation is not evidence of source failure');
+  assert.equal(extension.codexRefreshing,false);
+  assert.equal(extension.codexWorkerLease?.active ?? false,false);
+});
+
+test('only owned clean cancellation is neutral; unowned cancellation and read/worker failures still revoke', async () => {
+  for(const row of [
+    {requested:false,code:'cancelled',failed:0},
+    {requested:true,code:'worker-failed',failed:0},
+    {requested:true,code:'cancelled',failed:1},
+    {requested:true,code:'cancelled',failed:undefined},
+  ]) {
+    const {extension,snapshot}=coordinatorHarness(true);
+    await extension.runCodexRefresh('focus');
+    let withdrawals=0;
+    extension.webviewProvider.invalidateAchievementEvidence=()=>{withdrawals++;};
+    extension.codexProvider.refresh=async()=>{
+      extension.codexWorkerCancellationRequested=row.requested;
+      return {outcome:'error',failureCode:row.code,snapshot:{...snapshot,currentManifestVerified:false},
+        diagnostic:{bodyReads:0,failedFiles:row.failed,errorCode:row.code}};
+    };
+    await extension.runCodexRefresh('focus');
+    assert.equal(extension.providerRefreshStates.codex.failed,true,JSON.stringify(row));
+    assert.ok(withdrawals>0,JSON.stringify(row));
+  }
+});
+
+test('owned cancellation does not clear an earlier real refresh failure or advance its timestamp', async () => {
+  const {extension,snapshot}=coordinatorHarness(true);
+  await extension.runCodexRefresh('focus');
+  extension.providerRefreshStates.codex={failed:true,lastSuccessfulAt:123};
+  extension.codexProvider.refresh=async()=>{
+    extension.codexWorkerCancellationRequested=true;
+    return {outcome:'error',failureCode:'cancelled',snapshot:{...snapshot,currentManifestVerified:false},
+      diagnostic:{bodyReads:0,failedFiles:0,errorCode:'cancelled'}};
+  };
+  await extension.runCodexRefresh('focus');
+  assert.deepEqual(extension.providerRefreshStates.codex,{failed:true,lastSuccessfulAt:123});
+});
+
 test('coordinator dashboard pause suppresses automatic Codex data, insights and progress but keeps indexing and status', async () => {
   for (const trigger of ['watch', 'poll', 'focus', 'workspace', 'credentials'] as const) {
     const { extension, deliveries, statuses } = coordinatorHarness();

@@ -268,7 +268,47 @@ fillers. Closed-card pin controls and the searchable editor use the same lease;
 bulk selection/reorder checks the current pin revision. Nearby save errors retain
 the old choice, with stable summary focus when a control is removed or disabled.
 The toolbar precedes the overview; Small/Medium/Large changes collection emblems
-to 56/80/112 px and showcase emblems to 72/96/128 px while preserving text/click areas.
+to 56/80/112 px and showcase emblems to 56/72/96 px while preserving text/click areas.
+Above 960 px, the badge column fits its content up to two overview-card widths
+plus their internal gap; next targets fill the remaining space, with 16 px between
+columns. At 960 px or below they stack directly with a 12 px gap; auxiliary history
+sections follow both. Layout results remain provisional.
+Count chips and decorative control icons retain the existing localized labels.
+The pure `achievementUiIcons` module renders known inline SVG paths without
+dependencies, network access or additional asset files. These presentation changes
+add no stored fields or source reads and preserve controls, persistence, eligibility
+and message protocols. Early-data evidence remains under investigation; no data
+repair or new validation pass is claimed here.
+
+Pending/stale card details show calendar, model-ownership, money and current-source
+requirements in all eight I18n locales, with information icons on notes. These
+scope requirements do not classify exact root causes, expose raw source/error
+details, or confer new evidence authority.
+
+The native focus diagnostic confirmed host-owned cancellation with
+`errorCode=cancelled`, `failed=0`; that investigation read no actual conversation
+logs, credentials or databases. Following this finding,
+the implemented host correction returns early only for explicit
+`codexWorkerCancellationRequested`, an `error` outcome with
+`failureCode === 'cancelled'`, and exactly `result.diagnostic?.failedFiles === 0`.
+A missing count remains unknown and follows failure/revocation behavior.
+The cancellation result supplies no applied snapshot, success timestamp or new
+acceptance receipt; prior failed state and last successful time remain intact.
+Processing resumes after a fresh successful scan. The provider is unchanged:
+all error results still mark the manifest incomplete, and true file errors or
+unowned cancellation retain failure/revocation behavior. Added regressions cover
+a missing failed-file count and preservation of an earlier true failure with
+`lastSuccessfulAt: 123`. Integrated compilation passed; the Node suite reported
+2,436 passed, one skipped and zero failed. These results do not establish native
+acceptance.
+
+Valid period-migration checkpoints now resume with `tokenEventsSeen` below the
+inherited prefix when `days` is empty. Their bounded cursor advances across passes,
+persistence/restart and cancellation; dates are promoted only after the complete
+prefix, EOF and current-timezone witness checks. Reviewed regressions cover
+batching, persistence, cancellation, negative EOF cases and unchanged warm reads
+of zero bodies. Undated, oversized and conflicting evidence remains conservatively
+pending; this does not resolve every missing date.
 
 The gallery persists only `all` / `next` / `earned` filter and small/medium/large
 size enums in existing Webview UI state; disclosure keys are public series IDs. The sharing

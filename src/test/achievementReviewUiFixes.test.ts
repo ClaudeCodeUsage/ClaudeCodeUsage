@@ -56,3 +56,21 @@ test('a clear generation fence explains why the catalogue requires reload',async
   assert.match(html,/Reload/);
   assert.doesNotMatch(html,/0 \/ 0/);
 }));
+test('pending and stale card explanations describe their own proof scope without inventing progress',async()=>fixture(async host=>{
+  const {ACHIEVEMENT_DEFINITIONS}=require('../achievements');
+  host.providerAvailability={claude:true,codex:true,codexData:true};
+  host.achievementResults=()=>ACHIEVEMENT_DEFINITIONS.map((rule:any)=>({...rule,progress:0,unlocked:false}));
+  host.achievementEvidenceStates={'codex-calendar':'pending','codex-lineage':'stale','combined-calendar':'pending'};
+  const html=host.renderAchievementData();
+  const calendar=html.match(/<article[^>]*data-achievement-key="astra-days"[\s\S]*?<\/article>/)![0];
+  assert.match(calendar,/data-proof-explanation="calendar"/);
+  assert.match(calendar,/time zone/);
+  assert.doesNotMatch(calendar,/<progress|class="achievement-current-progress"/);
+  const stale=html.match(/<article[^>]*data-achievement-key="astra-regular"[\s\S]*?<\/article>/)![0];
+  assert.match(stale,/data-proof-explanation="stale"/);
+  assert.match(stale,/saved awards remain/);
+  for(const locale of ['en','zh-CN','zh-TW','de-DE','ja','ko','pt-BR','id']){
+    const copy=(require('../i18n') as any).achievementEvidenceHintCopyFor(locale);
+    for(const key of ['calendar','lineage','money','index','stale'])assert.ok(copy[key]?.length>10,locale+':'+key);
+  }
+}));

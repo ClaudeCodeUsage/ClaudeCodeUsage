@@ -1,5 +1,38 @@
 import { test, expect, openClaude } from './support/app.mjs';
 
+for (const theme of ['dark','light','highContrast']) {
+  test(`showcase pairs badges with goals and uses accessible illustrated controls: ${theme}`, async ({page},testInfo) => {
+    await openClaude(page,{locale:'zh-CN',theme,fixture:'achievement-pins',width:1440});
+    await page.locator('#tab-achievements').click();
+    const showcase=page.locator('.achievement-showcase');
+    await expect(showcase.locator(':scope > [data-achievement-overview]')).toHaveCount(2);
+    const badges=showcase.locator('[data-achievement-overview="badges"]');
+    const next=showcase.locator('[data-achievement-overview="next"]');
+    const a=await badges.boundingBox(),b=await next.boundingBox();
+    expect(Math.abs(a.y-b.y)).toBeLessThanOrEqual(1);
+    expect(b.x-a.x-a.width).toBeLessThanOrEqual(20);
+    for(const command of ['openAchievementShare()','openAchievementSettings()']) {
+      const button=page.locator('.achievement-intro button[onclick="'+command+'"]');
+      await expect(button).toBeVisible();
+      await expect(button).toHaveAccessibleName(/\S/);
+      await expect(button.locator('svg')).toHaveAttribute('aria-hidden','true');
+    }
+    await page.screenshot({path:testInfo.outputPath('compact-showcase-desktop.png'),animations:'disabled'});
+    await page.setViewportSize({width:320,height:900});
+    const narrowA=await badges.boundingBox(),narrowB=await next.boundingBox();
+    expect(narrowB.y-narrowA.y-narrowA.height).toBeLessThanOrEqual(16);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.locator('#achievementSize').selectOption('small');
+    await page.locator('#achievementFilter').selectOption('earned');
+    await page.reload();
+    await expect(page.locator('#achievementSize')).toHaveValue('small');
+    await expect(page.locator('#achievementFilter')).toHaveValue('earned');
+    await expect(page.locator('.achievement-showcase > [data-achievement-overview]')).toHaveCount(2);
+    await page.screenshot({path:testInfo.outputPath('compact-showcase-narrow.png'),animations:'disabled'});
+    expect(await page.evaluate(()=>window.__ccuPostedMessages.some(row=>['refresh','updateSetting'].includes(row.command)))).toBe(false);
+  });
+}
+
 for (const theme of ['dark', 'light', 'highContrast']) {
   test(`overview uses bounded horizontal cards rather than sparse columns: ${theme}`, async ({page}, testInfo) => {
     await openClaude(page, {locale:'zh-CN', theme, fixture:'achievement-pins', width:1920});
