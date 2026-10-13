@@ -62,6 +62,10 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 
 ## Local achievements (candidate)
 
+Collaboration/rainbow model recognition is separate from pricing, so recognized but unpriced labels stay unpriced; retained monetary records keep their published pricebook labels, and Claude-only peaks survive unrelated Codex version changes.
+Loading, unavailable, changed and disabled record states replace empty counts; verified Claude cumulative usage shows `≥` while enabled Codex evidence remains unverified.
+Next targets show the target name and rank, earned cards keep their earned rank, and SVG exports show each rank once.
+
 Badge details link to existing current model/token statistics for the same provider,
 with a keyboard-safe return. Shared and historical-period badges do not substitute
 one provider's current totals for award evidence; navigation does not scan logs.

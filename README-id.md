@@ -60,6 +60,10 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Pencapaian lokal (kandidat)
 
+Pengenalan model untuk kolaborasi/pelangi terpisah dari harga, sehingga model yang dikenali tanpa tarif tetap tanpa harga acuan; catatan nilai uang mempertahankan label tabel harga yang telah diterbitkan, dan puncak khusus Claude tetap tersimpan saat versi Codex yang tidak terkait berubah.
+Status catatan sedang dimuat, tidak tersedia, berubah, dan dinonaktifkan ditampilkan secara jelas alih-alih jumlah kosong; penggunaan kumulatif Claude yang terverifikasi menunjukkan `≥` selama bukti Codex yang diaktifkan belum terverifikasi.
+Target berikutnya menampilkan nama dan tingkat target, kartu yang diperoleh mempertahankan tingkatnya, dan ekspor SVG menampilkan setiap tingkat sekali saja.
+
 Detail lencana membuka statistik model/token saat ini dari penyedia yang sama, dengan kembali dan fokus terjaga.
 Tidak memindai ulang log atau mengganti bukti lintas penyedia/periode lama dengan jumlah saat ini.
 

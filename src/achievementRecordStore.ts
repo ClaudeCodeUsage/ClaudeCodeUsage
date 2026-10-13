@@ -11,6 +11,7 @@ import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import { achievementRuleVersion, isLegacyAchievementId } from './achievementRuleVersions';
 import { isAchievementMoneyId, type AchievementMoneyId } from './achievementMoneyCatalog';
 import { getAchievementMoneyPricebook } from './achievementMoney';
+import {isPublishedAchievementReferencePricebook} from './achievementReferenceBooks';
 
 // The joint-rule evaluator and canonical migration switch together.
 export const ACHIEVEMENT_RECORD_FILE = 'achievements-v2.json';
@@ -99,13 +100,17 @@ function validZone(value: unknown): boolean {
   if (typeof value !== 'string' || value.length > 64 || !/^[A-Za-z0-9_+./-]+$/.test(value)) return false;
   try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; }
 }
-function draft(value: unknown): AchievementRecordDraft {
+function draft(value: unknown, bookPolicy: 'current' | 'history' = 'current'): AchievementRecordDraft {
   const monetary = !!value && typeof value === 'object' && typeof (value as {id?:unknown}).id === 'string' &&
     isAchievementMoneyId((value as {id:string}).id);
   const row = object(value, ['id', 'origin', 'recordedDay', 'timeZone', ...(monetary ? ['referencePricebook'] : [])]);
-  if (monetary && !(String(row.id).startsWith('codex-') ? [getAchievementMoneyPricebook('openai').version] :
-      [getAchievementMoneyPricebook('anthropic').version,getAchievementMoneyPricebook('aws-bedrock-in-region').version])
-      .includes(row.referencePricebook as string)) return invalid();
+  if (monetary) {
+    const provider=String(row.id).startsWith('codex-') ? 'codex' : 'claude';
+    const current=provider==='codex' ? [getAchievementMoneyPricebook('openai').version] :
+      [getAchievementMoneyPricebook('anthropic').version,getAchievementMoneyPricebook('aws-bedrock-in-region').version];
+    if (!current.includes(row.referencePricebook as string) &&
+      !(bookPolicy==='history' && isPublishedAchievementReferencePricebook(provider,row.referencePricebook))) return invalid();
+  }
   if (typeof row.id !== 'string' || !ids.has(row.id) || typeof row.origin !== 'string' || !origins.has(row.origin)) return invalid();
   const historical = row.origin === 'history' || row.origin === 'existing';
   if (historical ? row.recordedDay !== null || row.timeZone !== null
@@ -181,7 +186,7 @@ export function parseAchievementRecordStore(value: unknown): AchievementRecordSt
     const row = object(value, ['id', 'origin', 'recordedDay', 'timeZone', 'ruleVersion', 'seq', 'unread',
       ...(monetary ? ['referencePricebook'] : [])]);
     const base = draft({ id: row.id, origin: row.origin, recordedDay: row.recordedDay, timeZone: row.timeZone,
-      ...(monetary ? {referencePricebook:row.referencePricebook} : {}) });
+      ...(monetary ? {referencePricebook:row.referencePricebook} : {}) },'history');
     const expectedVersion = archived || version === 1 ? 1 : achievementRuleVersion(base.id);
     if ((version === 1 || archived) && !isLegacyAchievementId(base.id)) return invalid();
     if (archived && (achievementRuleVersion(base.id) !== 2 || row.unread !== false)) return invalid();
@@ -436,7 +441,7 @@ export class AchievementRecordRepository {
   }
   async append(generation: number, values: readonly AchievementRecordDraft[], guard: WriteGuard = () => true): Promise<{ store: AchievementRecordStore; added: AchievementRecord[] }> {
     if (!Array.isArray(values) || values.length > ids.size) return invalid();
-    const drafts = values.map(draft);
+    const drafts = values.map(value=>draft(value));
     const result = await this.mutate(generation, guard, store => appendRecords(store, drafts));
     return { store: result.store, added: result.value };
   }

@@ -185,6 +185,22 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Fixed — 2.4.2 local candidate
 
+- **Achievement recognition and retained history** — non-monetary collaboration/
+  rainbow model recognition is separate from fixed pricing aliases; Claude accepts
+  only explicit global/us/eu/jp/apac/in Anthropic prefixes, and recognized but
+  unpriced labels remain unpriced. Saved monetary records retain current or
+  explicitly published reference-book labels, while new append/usage writes
+  require a current provider book. Unknown non-current books still fail closed
+  and remain untouched by clearing. Claude-only retained peaks ignore unrelated
+  Codex parser/period changes, preserving rule/timezone/provider and complete-current
+  evidence checks. No prices, award IDs, storage fields or schema are added.
+- **Achievement record and target display** — eight-locale loading, unavailable,
+  changed and disabled states precede gallery counts instead of showing `0 / 0`.
+  Verified Claude cumulative usage stays a `≥` lower bound while enabled Codex
+  evidence is unverified. Next-target cards show the target name/rank/color;
+  earned gallery ranks remain unchanged. Shared public title handling removes
+  only exact localized rank suffixes from SVG titles when rank is shown separately.
+
 - **Codex calendar subset proof** — runtime contribution witnesses and full-census
   ancestry/revision checks preserve positive activity/family/weekly Token bounds.
   Weekly money requires fully dated billable/model equality; date/pricing coverage

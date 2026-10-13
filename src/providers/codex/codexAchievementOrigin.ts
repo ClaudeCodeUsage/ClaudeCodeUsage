@@ -1,6 +1,6 @@
 import type { NormalizedUsageEvent } from '../providerTypes';
 import type { CodexFileAggregate, CodexFileContribution, CodexIndexV3 } from './codexIndex';
-import { codexModelFamily } from '../../achievements';
+import { codexModelFamily, normalizeCodexAchievementModel } from '../../achievementModels';
 import { validAchievementTokenVector, verifiedCodexAchievementFiles } from '../../codexAchievementProof';
 import { classifyCodexSessionDuplicates } from './codexDedup';
 import { getAchievementMoneyPricebook, priceAchievementModelBucket } from '../../achievementMoney';
@@ -64,7 +64,8 @@ export function addCodexOriginEvent(target: CodexAchievementUsageDelta, event: N
   addition.processed = event.tokens.inputTotal + event.tokens.outputTotal;
   addition.output = event.tokens.outputTotal;
   addition.cacheRead = event.tokens.cachedInput ?? 0;
-  const family = event.model && codexModelFamily(event.model);
+  const model = event.model && normalizeCodexAchievementModel(event.model);
+  const family = model ? codexModelFamily(model) : null;
   if (family) addition.families[family] = addition.processed;
   if (event.provider === 'codex') {
     // Unknown aliases and non-native cache buckets remain an excluded subset.
@@ -107,8 +108,9 @@ function aggregateVolume(aggregate: CodexFileAggregate, window: CodexAchievement
   volume.processed = aggregate.total.inputTotal + aggregate.total.outputTotal;
   volume.output = aggregate.total.outputTotal;
   volume.cacheRead = aggregate.total.cachedInput ?? 0;
-  for (const [model, tokens] of Object.entries(aggregate.byModel)) {
-    const family = codexModelFamily(model);
+  for (const [label, tokens] of Object.entries(aggregate.byModel)) {
+    const model = normalizeCodexAchievementModel(label);
+    const family = model ? codexModelFamily(model) : null;
     if (family) volume.families[family] += tokens.inputTotal + tokens.outputTotal;
   }
   return volume;

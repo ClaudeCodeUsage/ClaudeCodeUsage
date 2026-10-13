@@ -12,8 +12,10 @@ import { codexCollaborationEvidence, AchievementCollaborationEvidence } from './
 import { RECALIBRATED_ACHIEVEMENT_IDS_V2, isLegacyAchievementId } from './achievementRuleVersions';
 import { LONG_TERM_ACHIEVEMENT_DEFINITIONS, type LongTermAchievementId } from './achievementLongTerm';
 
-export type CodexModelFamily = 'astra' | 'sol' | 'luna';
-export type ClaudeModelFamily = 'sonnet' | 'opus' | 'haiku';
+import { claudeAchievementFamily, codexModelFamily, normalizeCodexAchievementModel,
+  type CodexModelFamily, type ClaudeModelFamily } from './achievementModels';
+export { claudeAchievementFamily, codexModelFamily } from './achievementModels';
+export type { CodexModelFamily, ClaudeModelFamily } from './achievementModels';
 type EffortTier = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
 const SPECTRUM_EFFORTS: readonly EffortTier[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 
@@ -80,8 +82,6 @@ interface ClaudeModelTokens {
 }
 
 type ClaudeModelRows = Record<string, ClaudeModelTokens>;
-const FABLE_MODEL_ID = /^(?:(?:global|us|eu|jp|apac)\.anthropic\.)?claude-(?:fable|mythos)-5(?:-1)?(?:\[1m\])?$/i;
-const CLAUDE_OTHER_MODEL_ID = /^(?:[a-z]{2}\.anthropic\.)?claude-(?:3-\d-)?(sonnet|opus|haiku)(?:-\d(?:-\d)?(?:-\d{8})?|-\d{8})(?:\[1m\])?(?:-v\d+:\d+)?$/i;
 
 export interface FableAchievementSignals {
   processedTokens: number;
@@ -127,14 +127,6 @@ export function claudeSessionAchievementEvidence(sessions: Iterable<{
     if (evidence.fable && evidence.other) fableMixedFamilySession = true;
   }
   return { outputSessions, fableOutputSessions, fableMixedFamilySession };
-}
-
-/** The price table's family fallback is deliberately not an achievement proof. */
-export function claudeAchievementFamily(model: string): ClaudeModelFamily | 'fable' | null {
-  const name = model.trim();
-  if (FABLE_MODEL_ID.test(name)) return 'fable';
-  const match = CLAUDE_OTHER_MODEL_ID.exec(name);
-  return match ? match[1] as ClaudeModelFamily : null;
 }
 
 function positiveOutput(tokens: ClaudeModelTokens): boolean {
@@ -482,18 +474,6 @@ function positiveUsage(tokens: ProviderTokenCounts | undefined): boolean {
     tokens.inputTotal + tokens.outputTotal > 0;
 }
 
-/** Model names are allowlisted, not guessed from arbitrary substrings. */
-export function codexModelFamily(model: string): CodexModelFamily | null {
-  const match = /^gpt-\d+(?:\.\d+)?-(astra|sol|luna)(?:-|$)/i.exec(model.trim());
-  return match ? match[1].toLowerCase() as CodexModelFamily : null;
-}
-
-function realCodexModel(model: string): string | null {
-  const normalized = model.trim().toLowerCase();
-  return /^gpt-\d+(?:\.\d+)?-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)
-    ? normalized : null;
-}
-
 /**
  * Uses already-reconciled per-file aggregates. Orphan/cyclic parent chains,
  * inherited fork prefixes, unknown models, and zero usage cannot award.
@@ -556,7 +536,7 @@ export function codexModelSignals(files: readonly CodexFileAggregate[]): CodexAc
     let hasRealModelUsage = false;
     for (const [rawModel, tokens] of Object.entries(file.byModel)) {
       if (!positiveUsage(tokens)) continue;
-      const model = realCodexModel(rawModel);
+      const model = normalizeCodexAchievementModel(rawModel);
       if (!model) continue;
       hasRealModelUsage = true;
       models.add(model);

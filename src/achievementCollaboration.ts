@@ -1,5 +1,5 @@
 import type { CodexFileAggregate } from './providers/codex/codexIndex';
-import { normalizeAchievementMoneyModel } from './achievementMoney';
+import { codexModelFamily, normalizeCodexAchievementModel } from './achievementModels';
 import { validAchievementBuckets, verifiedCodexAchievementFiles } from './codexAchievementProof';
 
 export type CollaborationTierCounts = [number, number, number];
@@ -96,9 +96,9 @@ export function codexCollaborationEvidence(files: readonly CodexFileAggregate[])
     if (!task) tasks.set(root, task = { members: triple(), modelOutput: new Map() });
     let memberOutput = 0;
     for (const [label, tokens] of Object.entries(file.byModel)) {
-      const model = normalizeAchievementMoneyModel(label);
-      if (!model || !/^(?:gpt-|o\d)/.test(model)) continue;
-      const family = /-(astra|sol|luna)$/.exec(model)?.[1] as keyof typeof result.rainbowFamilies | undefined;
+      const model = normalizeCodexAchievementModel(label);
+      if (!model) continue;
+      const family = codexModelFamily(model);
       if (family) {
         const bucket = result.rainbowFamilies[family];
         bucket.processed = add(bucket.processed, tokens.inputTotal + tokens.outputTotal);

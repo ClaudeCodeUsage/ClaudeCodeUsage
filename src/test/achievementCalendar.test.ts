@@ -21,6 +21,16 @@ test('model output days need reconciled daily volume, output and exact family ID
   assert.equal(signals([], [day('2026-09-01')], { codex: evidence([day('2026-09-01')], false) }).familyDays.astra, 0);
 });
 
+test('calendar families share native namespace/date admission and reject custom suffixes', () => {
+  const value = signals([], [
+    day('2026-09-01', 1_000_000, 1, 'openai/gpt-6-sol'),
+    day('2026-09-02', 1_000_000, 1, 'gpt-6-sol-20261001'),
+    day('2026-09-03', 1_000_000, 1, 'gpt-6-sol-custom'),
+  ]);
+  assert.equal(value.familyDays.sol, 2);
+  assert.equal(signals([], [day('2026-09-03', 1_000_000, 1, 'gpt-6-sol-custom')]).familyDays.sol, 0);
+});
+
 test('three-family and dual-provider milestones use same-day joined output evidence', () => {
   const rows = ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'].map(model => day('2026-09-01', 1_000_000, 1, model));
   assert.equal(signals([], [{ day: '2026-09-01', processed: 3_000_000, output: 3,
@@ -176,11 +186,13 @@ test('unsafe daily originals and duplicate-date overflow invalidate expected-pro
 
 test('Codex family matching requires a complete named-model grammar before matching the prefix', () => {
   for (const model of ['gpt-6-astra-', 'gpt-6-sol--max', 'gpt-6-luna/preview',
-    'gpt-6-astra-☀', 'gpt-6-astra-hello world', 'gpt-6-astra.proxy', 'gpt-6-astra-max_1']) {
+    'gpt-6-astra-☀', 'gpt-6-astra-hello world', 'gpt-6-astra.proxy', 'gpt-6-astra-max_1',
+    'gpt-6.1-astra-max-2', ' GPT-6.1-ASTRA-MAX ']) {
     const value = signals([], [day('2026-09-01', 1_000_000, 1, model)]);
     assert.equal(Object.values(value.familyDays).reduce((a: number, b: any) => a + b, 0), 0, model);
   }
-  for (const model of ['gpt-6-astra', 'gpt-6.1-astra-max-2', ' GPT-6.1-ASTRA-MAX ']) {
+  // Effort is a separate field, not evidence for an arbitrary model suffix.
+  for (const model of ['gpt-6-astra', 'gpt-6.1-astra-20261001', ' GPT-6.1-ASTRA ']) {
     assert.equal(signals([], [day('2026-09-01', 1_000_000, 1, model)]).familyDays.astra, 1, model);
   }
   assert.equal(signals([day('2026-09-01', 1_000_000, 1, 'claude-fable-5')], []).threeFamilyDay, false);

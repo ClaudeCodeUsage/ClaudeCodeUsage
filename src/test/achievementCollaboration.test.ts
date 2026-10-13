@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { codexCollaborationEvidence } from '../achievementCollaboration';
+import { priceAchievementModelBucket } from '../achievementMoney';
 import type { CodexFileAggregate } from '../providers/codex/codexIndex';
 import type { ProviderTokenCounts } from '../providers/providerTypes';
 
@@ -125,9 +126,43 @@ test('explicit aliases merge outputs while genuine generations and o-series rema
   assert.equal(codexCollaborationEvidence([file('root'), member]).qualifiedSubagentCount, 1);
 });
 
-test('unknown, invented and non-OpenAI labels cannot prove explicit models or rainbow', () => {
-  const row = file('root', Object.fromEntries(['unknown', 'gpt-99-sol', 'my-gpt-6-astra',
-    'gpt-6-sol-custom', ' GPT-6-SOL ', 'claude-opus-5-5', 'anthropic/claude-fable-5',
+test('strict unpriced family labels still qualify team, model and rainbow output', () => {
+  for (const model of ['gpt-6.2-sol', 'gpt-6.1-astra', 'gpt-6-luna-2026-09-01', 'gpt-6-sol-20260901']) {
+    const rows = [file('root', { [model]: tokens(10_000, 10_000) }),
+      ...Array.from({ length: 3 }, (_, i) => file(`child-${i}`, { [model]: tokens(0, 5_000) }, 'root'))];
+    const result = codexCollaborationEvidence(rows);
+    assert.deepEqual(result.teamTaskCounts, [1, 0, 0], model);
+    assert.equal(result.qualifiedSubagentCount, 3, model);
+    assert.deepEqual(result.modelTaskCounts, [0, 0, 0], 'one shared model is not two models');
+    const family = model.includes('-astra') ? 'astra' : model.includes('-luna') ? 'luna' : 'sol';
+    assert.deepEqual(result.rainbowFamilies[family], { processed: 35_000, output: 25_000 }, model);
+    const money = priceAchievementModelBucket({ provider: 'codex', model, tokens: rows[0].total }, 'anthropic');
+    assert.equal(money.pricedTokens, 0, model);
+    assert.equal(money.microUsd, null, model);
+  }
+  const root = file('mixed', { 'gpt-6.2-sol': tokens(0, 10_000), 'gpt-6.1-astra': tokens(0, 10_000) });
+  assert.deepEqual(codexCollaborationEvidence([root]).modelTaskCounts, [1, 0, 0]);
+});
+
+test('unpriced recognized labels retain inclusive per-member and per-model output thresholds', () => {
+  for (const output of [4_999, 5_000]) {
+    const rows = [file('root'), ...Array.from({ length: 3 }, (_, i) =>
+      file(`child-${i}`, { 'gpt-6.2-sol': tokens(1_000_000, output) }, 'root'))];
+    assert.equal(codexCollaborationEvidence(rows).qualifiedSubagentCount, output === 5_000 ? 3 : 0);
+    assert.deepEqual(codexCollaborationEvidence(rows).teamTaskCounts, output === 5_000 ? [1, 0, 0] : [0, 0, 0]);
+  }
+  for (const output of [9_999, 10_000]) {
+    const row = file('root', { 'gpt-6.2-sol': tokens(1_000_000, output), 'gpt-6.1-astra': tokens(0, 10_000) });
+    assert.equal(codexCollaborationEvidence([row]).multiModelTasks, output === 10_000 ? 1 : 0);
+  }
+  const silent = file('root', { 'gpt-6.2-sol': tokens(10_000_000, 0) });
+  assert.deepEqual(codexCollaborationEvidence([silent]).rainbowFamilies.sol, { processed: 10_000_000, output: 0 });
+  assert.equal(codexCollaborationEvidence([silent]).multiModelTasks, 0);
+});
+
+test('unknown, custom and non-OpenAI labels cannot prove explicit models or rainbow', () => {
+  const row = file('root', Object.fromEntries(['unknown', 'gpt-99-custom', 'my-gpt-6-astra',
+    'gpt-6-sol-custom', ' GPT-6-SOL-CUSTOM ', 'claude-opus-5-5', 'anthropic/claude-fable-5',
     '__proto__', 'constructor'].map(model => [model, tokens(0, 100_000)])));
   assert.equal(codexCollaborationEvidence([row]).multiModelTasks, 0);
   assert.deepEqual(codexCollaborationEvidence([row]).rainbowFamilies,

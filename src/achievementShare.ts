@@ -4,6 +4,7 @@ import type { AchievementCopy } from './i18n';
 import { randomUUID } from 'node:crypto';
 import {isAchievementMoneyId} from './achievementMoneyCatalog';
 import {achievementConditionFor} from './achievementConditions';
+import { achievementTitleWithoutRank } from './achievementTitles';
 
 /** One accepted local artifact, not an export history. Capture before any save dialog. */
 export class AchievementSharePreview {
@@ -101,13 +102,14 @@ export function renderAchievementShareSvg(input: {
   const cells = rows.map((id, index) => {
     const x = 48 + (index % 3) * 304;
     const y = 155 + Math.floor(index / 3) * 140;
-    const title = input.titles[id] || id;
+    const series = Object.values(ACHIEVEMENT_SERIES).find((ids) => ids.includes(id));
+    const level = series?.indexOf(id);
+    const title = achievementTitleWithoutRank(input.titles[id] || id,
+      level === undefined ? undefined : input.levels[level]);
     const titleLines = wrapLabel(title, 11, 3).map((line, lineIndex) =>
       `<tspan x="${x + 86}" dy="${lineIndex === 0 ? 0 : 19}">${escapeXml(line)}</tspan>`).join('');
     const group = ACHIEVEMENT_DEFINITIONS.find((entry) => entry.id === id)?.group ?? 'combined';
     const accent = group === 'claude' ? '#db8b5b' : group === 'codex' ? '#82a9ed' : '#ad99e2';
-    const series = Object.values(ACHIEVEMENT_SERIES).find((ids) => ids.includes(id));
-    const level = series?.indexOf(id);
     const color = level === undefined ? accent :
       ['#e7b899', '#d6dce5', '#efce76', '#8dcaf0', '#cfadff'][level];
     const levelLabel = level === undefined ? input.milestone : input.levels[level];

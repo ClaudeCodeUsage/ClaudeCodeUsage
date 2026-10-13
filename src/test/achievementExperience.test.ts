@@ -206,6 +206,9 @@ test('missing and stale proof are not zero progress, while an earned badge remai
 
 test('a long Token ladder exposes current progress and a display-only stage without opening its rules', async () => {
   await gallery(provider => {
+    // This test injects exact evaluated family progress, rather than an
+    // unverified index. Its presentation bound must describe that fixture.
+    provider.codexAchievementVolume = () => ({ processed: 600_000_000, lowerBound: false });
     provider.achievementGrants = new Set(['astra-regular']);
     provider.achievementResults = () => ACHIEVEMENT_DEFINITIONS.map(entry => ({ ...entry,
       progress: entry.id.startsWith('astra-regular') ? 600_000_000 : 0, unlocked: false }));
@@ -215,6 +218,8 @@ test('a long Token ladder exposes current progress and a display-only stage with
     assert.match(summary, /class="achievement-current-progress"[^>]*>600M \/ 5B/);
     assert.match(summary, /class="achievement-stage-target"[^>]*>Next stage · 1B/);
     assert.doesNotMatch(summary, /data-achievement-id="[^"]*stage/);
+    provider.codexAchievementVolume = () => ({ processed: 600_000_000, lowerBound: true });
+    assert.match(read().split('</summary>')[0], /class="achievement-current-progress"[^>]*>≥600M \/ 5B/);
     provider.achievementEvidenceStates = { 'codex-lineage': 'pending' };
     const pending = read().split('</summary>')[0];
     assert.doesNotMatch(pending, /class="achievement-current-progress"|class="achievement-stage-target"/);

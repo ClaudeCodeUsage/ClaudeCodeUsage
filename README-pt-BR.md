@@ -55,6 +55,10 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Conquistas locais (candidato)
 
+O reconhecimento de modelos para colaboração/arco-íris é separado dos preços, mantendo sem preço os modelos reconhecidos sem tarifa; registros monetários preservam os rótulos das tabelas publicadas, e picos apenas do Claude resistem a mudanças independentes de versão do Codex.
+Registros carregando, indisponíveis, alterados e desativados têm estados explícitos em vez de contagens vazias; o uso cumulativo verificado do Claude mostra `≥` enquanto as evidências do Codex ativado não forem verificadas.
+Os próximos objetivos mostram nome e nível de destino, os cartões conquistados mantêm o nível obtido e as exportações SVG mostram cada nível uma única vez.
+
 Os detalhes abrem estatísticas atuais existentes de modelos/tokens do mesmo provedor, com retorno e foco preservado.
 Não releem logs nem substituem evidências compartilhadas ou de períodos anteriores pelos totais atuais.
 

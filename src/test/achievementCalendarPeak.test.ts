@@ -36,6 +36,16 @@ test('malformed calendar maxima and unknown storage fields cannot become award p
   }
 });
 
+test('Claude-only retained peaks ignore unrelated Codex versions but retain zone, rules and completeness fences',()=>{
+  const context=calendar.calendarPeakContext('UTC',true,false);
+  const saved=calendar.updateCalendarPeakEvidence(undefined,context,4_900_000_000,true);
+  const revised={...context,parserVersion:context.parserVersion+1,periodVersion:context.periodVersion+1};
+  assert.equal(calendar.readCalendarPeakEvidence(saved,revised,true),4_900_000_000);
+  assert.equal(calendar.readCalendarPeakEvidence(saved,revised,false),0);
+  for(const change of [{timeZone:'Asia/Shanghai'},{ruleVersion:context.ruleVersion+1},{providers:3}])
+    assert.equal(calendar.readCalendarPeakEvidence(saved,{...revised,...change},true),0);
+});
+
 test('a complete flag alone does not certify duplicated or malformed normalized day evidence', () => {
   const day = { day: '2026-08-31', processed: 8_000_000_000, output: 1, models: {} };
   const input = { claude: { complete: true, days: [], timeZone: 'UTC' },

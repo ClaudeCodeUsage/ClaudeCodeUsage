@@ -32,6 +32,8 @@ Source integration alone does not establish full Node/UI, native/F5, installed-V
 or performance acceptance; gate outcomes are recorded separately in local candidate
 evidence. Browser checks cannot establish native/F5, installed-package or Windows
 acceptance, and subjective appearance still requires user review.
+Source-level guards check source contracts; they do not establish executed UI
+transitions, native Webview behavior or installed-package acceptance.
 Codex effort statistics and cumulative-only monetary-origin receipts are integrated.
 GitHub-linked achievements, personal reviews and visualization redesign are not
 part of this candidate.
@@ -66,6 +68,9 @@ only the separate publish action can perform that network operation.
 | `achievementGallery.ts`, `achievementOverview.ts`, `achievementRecordStore.ts` | Pure theme ownership/record projections, stable goals, automatic/manual showcase selection and the ≤64 KiB canonical v2 envelope; six ordered manual pins and shared v1 lease/migration fences. |
 | `achievementMoney.ts`, `achievementMoneyScopes.ts`, `achievementMoneyCatalog.ts` | Fixed USD reference-price evidence for six provider-specific themes; weekly Codex subsets require census-bound date proof and fully dated billable/model vectors. Pricing coverage is separate from date coverage and floating dashboard estimates. |
 | `achievementMoneyOrigin.ts` | Runtime-only frozen-book increment validation, fixed-field copying/economic bounds and necessary-and-sufficient cumulative crossings; independent of Token origin and never persisted as index proof. |
+| `achievementModels.ts` | Non-monetary model-label recognition for collaboration/rainbow and Claude families, independent of fixed-price aliases; recognition does not establish a remote model's identity or pricing. |
+| `achievementReferenceBooks.ts` | Three explicitly published v1 reference-book labels for reading saved money records, separate from current-book selection and new-write authorization. |
+| `achievementTitles.ts` | Shared public title helper removing only an exact localized rank suffix with a catalog middle-dot separator when rank is displayed separately. |
 | `achievementEffortStatistics.ts`, `achievementCollaboration.ts` | Complete-current-census Codex root × effort statistics and existing joint tier criteria; optional `CodexAchievementSignals.effortStatistics` is cached by proof revision and rendered only inside the existing effort-breadth disclosure. |
 | `apiHeatmapDaily.ts`, `pricing.ts#getCurrentEstimatePricing` | Read-only ≤366-date projection with per-projection memoized, in-memory selected-model/component rate admission; preserves current cost scalars, excludes generic unknown-model fallback coverage and adds no network/corpus reads. |
 | `apiHeatmap.ts`, `apiHeatmapCopy.ts` | Whitelisted provider/metric configuration and canonical local SVG/Markdown artifact; Token default, explicit amounts, separate provider monetary panels and eight-locale artifact copy. |
@@ -375,7 +380,18 @@ crossings now use verified live append receipts; completed-week and single-sessi
 task monetary scopes still reconcile quietly with unknown dates. Dashboard pricing/
 display currency does not alter these rules.
 
+`achievementModels.ts` keeps non-monetary collaboration/rainbow recognition
+independent of `achievementMoney.ts`'s fixed pricing aliases. Claude family labels
+admit only the explicit `global`, `us`, `eu`, `jp`, `apac` and `in` Anthropic prefixes;
+arbitrary prefixes such as `xx` are rejected. Recognized Codex named-family labels
+may still be unpriced; recognition adds no rate or pricing alias and is not proof
+of upstream routing or availability.
+
 Gallery counts use the enabled-provider series and level denominators separately.
+Before those counts render, record loading, unavailable, changed and disabled
+states use explicit eight-locale status copy instead of an apparent empty `0 / 0`
+collection. A verified Claude cumulative subtotal is shown as a `≥` lower bound
+while an enabled Codex source remains unverified; unknown Codex usage is not exact zero.
 Canonical series keys own disclosure/focus restoration across tier changes, with
 aliases for older level-specific keys. All/Next/Earned filtering uses only a local
 UI enum; it never schedules provider work. A safe provider enum and one-shot focus
@@ -440,6 +456,10 @@ Overview buttons open the existing persisted series disclosure; they do not
 read logs, issue refresh requests or persist a second aggregate index. Pins and
 record projections and the foreground missed-notice summary use the bounded
 canonical envelope below without creating a second award store.
+Next-target overview cards use the target's name, rank label and rank color;
+earned gallery cards keep their earned rank. `achievementTitles.ts` is shared
+with SVG export so an exact localized rank suffix is not repeated beside a
+separate rank label; other title text and unranked milestones remain intact.
 
 `achievementLongTerm.ts` appends 30 fixed ranks to 15 existing sustained Claude/
 activity series. Their first three IDs, thresholds and evidence remain unchanged;
@@ -662,8 +682,21 @@ only a missing canonical file. The v1 file is read-only migration input outside
 explicit clearing. Versioned migration archives saved awards from the 21 changed
 model/team/effort/rainbow conditions; legacy records are capped at 48 and never
 prove current rules. Fixed-price award rows may retain a public reference-pricebook
-version, never a personal amount. Schema/catalog versions, automatic/manual mode,
-ordered pins, pin revision and a bounded legacy-file boundary share the same envelope.
+version, never a personal amount.
+
+Reading saved monetary rows accepts the provider's current books and the three
+explicitly published v1 labels in `achievementReferenceBooks.ts`: Claude
+`api-reference-2026-10-anthropic-v1` and
+`api-reference-2026-10-aws-bedrock-in-region-v1`, and Codex
+`api-reference-2026-10-openai-v1`. Retained labels are not rewritten when current
+book selection changes. New `append` and `recordUsage` drafts require a current
+provider book; readable historical labels alone cannot authorize new grants.
+This is an explicit published-history registry, not a pattern-based future
+whitelist, and adds no prices, IDs, storage fields or schema. An unknown non-current
+book fails closed; its envelope remains untouched, including by Clear All.
+
+Schema/catalog versions, automatic/manual mode, ordered pins, pin revision and a
+bounded legacy-file boundary share the same envelope.
 The existing v1 lease coordinates both files; Clear All commits a v2 tombstone
 then an empty v1 downgrade fence, with interrupted clears resumed under that lease.
 Old Gold is not evidence for recalibrated rules. Migration preserves unknown
@@ -683,8 +716,11 @@ new-activity origin still reconcile quietly with unknown dates. Ready-domain
 growth or price-only changes do not establish producer-origin evidence. The envelope also owns
 the existing bounded activity/hour/calendar proof: activity unions the 29 safe
 keys/four enums, hours retain a maximum ≤48, and calendar maxima merge only within
-the same measurement context. Legacy auxiliary Memento entries are migration
-inputs, not runtime mirrors. Hydration always adopts canonical proof, including
+the same measurement context. A Claude-only retained peak ignores unrelated Codex
+parser/period versions; rules, timezone, provider-presence and complete-current
+evidence fences still apply, and any context including Codex still checks both versions.
+Legacy auxiliary Memento entries are migration inputs, not runtime mirrors.
+Hydration always adopts canonical proof, including
 empty proof after clear; a bounded 33-key pending-action map replays deliberate
 bootstrap actions only after hydration. This avoids restoring stale whole-object
 Memento caches. Plugin provenance compares the actual under-lease before/after

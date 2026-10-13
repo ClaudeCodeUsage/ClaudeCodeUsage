@@ -58,6 +58,10 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Lokale Erfolge (Kandidat)
 
+Die Modellerkennung für Zusammenarbeit/Regenbogen ist von der Preisberechnung getrennt, sodass erkannte Modelle ohne Preis unbepreist bleiben; gespeicherte Geldwert-Auszeichnungen behalten veröffentlichte Preisbuchkennungen, und reine Claude-Spitzen bleiben bei unabhängigen Codex-Versionsänderungen erhalten.
+Ladende, nicht verfügbare, geänderte und deaktivierte Aufzeichnungen erhalten klare Statusanzeigen statt leerer Zähler; verifizierte kumulative Claude-Nutzung zeigt `≥`, solange die Nachweise des aktivierten Codex noch nicht verifiziert sind.
+Nächste Ziele zeigen Zielname und Zielrang, erhaltene Karten behalten ihren erreichten Rang, und SVG-Exporte zeigen jeden Rang nur einmal.
+
 Abzeichendetails öffnen vorhandene aktuelle Modell-/Tokenstatistiken desselben Anbieters
 mit Rückweg und erhaltenem Fokus. Keine Logsuche oder Ersetzung historischer Nachweise durch aktuelle Summen.
 

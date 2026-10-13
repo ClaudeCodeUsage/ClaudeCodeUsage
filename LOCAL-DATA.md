@@ -239,6 +239,11 @@ Nine fixed, memory-only evidence-domain latches distinguish first/recovered
 history from later eligible awards. Pending or stale proof is shown explicitly,
 not as zero usage; saved awards remain independent. No action history, new
 persistent key, source identifier or network request is added by these latches.
+Record loading, unavailable, changed and disabled states have explicit eight-locale
+copy before gallery counts render, rather than an apparent empty `0 / 0` catalog.
+A verified Claude cumulative subtotal remains a `≥` lower bound while an enabled
+Codex source is unverified. Next-target names/ranks and duplicate-free SVG rank
+labels are display projections, with no new stored fields or award authority.
 
 Plugin notices require an actual target crossing in a successfully saved local
 action delta. Hydrated/imported actions grant quietly; re-enabling does not turn
@@ -294,7 +299,17 @@ The extension-owned ledger contains only the following validated fields:
   At most 48 old-rule records retain saved awards from the 21 changed model/team/
   effort/rainbow conditions without authorizing new rules; unknown dates stay unknown.
   Money records may retain a public frozen-reference pricebook version, never
-  personal amounts. Notice reservation
+  personal amounts. Reads accept the provider's current books plus the three
+  explicitly published v1 labels in `achievementReferenceBooks.ts`: Claude's
+  `api-reference-2026-10-anthropic-v1` and
+  `api-reference-2026-10-aws-bedrock-in-region-v1`, and Codex's
+  `api-reference-2026-10-openai-v1`. Changing the current book does not relabel
+  saved records; new `append` and `recordUsage` drafts require a current provider
+  book. Historical readability does not authorize a new grant. This registry
+  adds no prices, IDs, storage fields or schema and does not admit future books
+  by string pattern. Unknown non-current books fail closed, leaving the entire
+  envelope untouched even by Clear All; the exact deletion scope is not broadened.
+  Notice reservation
   updates the shared five-minute cooldown, not unread state. Only foreground display
   confirmation with a current opaque runtime token reads its represented IDs through
   the issued sequence; other/later awards remain unread. Failed delivery, OFF, blur,
@@ -356,6 +371,9 @@ The extension-owned ledger contains only the following validated fields:
 - `auxiliary.calendarPeak` (old `ccu.achievements.calendarPeak.v1` migration input): one verified four-completed-week average
   maximum plus measurement versions, timezone and provider-presence bitmask.
   Reuse requires matching context and complete current normalized numeric evidence.
+  Claude-only peaks ignore unrelated Codex parser/period versions; rule version,
+  timezone, provider-presence and complete-current evidence checks remain. Any
+  context including Codex still requires matching parser and period versions.
   Canonical transactions merge activity sets/hour maxima and matching-context
   calendar peaks; different calendar contexts are never combined. Real hosts do
   not mirror these fields back to cached Memento entries. The empty clear fence
@@ -363,6 +381,12 @@ The extension-owned ledger contains only the following validated fields:
 - Exact audit/migration booleans and a bounded rule-ID migration draft; unknown
   fields are rejected. Clear All includes these and known older achievement schemas
   by exact name, without deleting unrelated or future state.
+
+Non-monetary collaboration/rainbow model recognition in `achievementModels.ts`
+is independent of fixed pricing aliases. Claude admits only explicit `global`,
+`us`, `eu`, `jp`, `apac` and `in` Anthropic prefixes, rejecting `xx`; recognized
+named-family labels without fixed rates remain unpriced. This adds no pricing
+coverage or proof of upstream model identity.
 
 Numeric evaluation reuses materialized indexes. Six API-equivalent achievement
 themes use fixed versioned USD reference prices
@@ -499,6 +523,8 @@ are recorded separately in local candidate evidence. Browser checks cannot prove
 native/F5, installed-package or Windows acceptance. Subjective appearance still
 requires user review. Cumulative-only live money awards and inline Codex effort
 statistics are integrated in the current source.
+Source-level guards check source contracts, not executed UI transitions, native
+Webview behavior or installed-package acceptance.
 
 - A reset that never appears in an official response or local structured event
   cannot be reconstructed. Day-only Codex evidence lowers boundary confidence.

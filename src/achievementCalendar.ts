@@ -1,4 +1,4 @@
-import { claudeAchievementFamily, codexModelFamily } from './achievements';
+import { claudeAchievementFamily, codexModelFamily, normalizeCodexAchievementModel } from './achievementModels';
 import type { CodexFileAggregate } from './providers/codex/codexIndex';
 import { CODEX_PERIOD_LINEAGE_VERSION } from './providers/codex/codexPeriodIndex';
 import { createCodexParserState } from './providers/codex/codexParser';
@@ -70,8 +70,10 @@ export function parseCalendarPeakEvidence(value: unknown): CalendarPeakEvidence 
     peakFourWeekAverage: value.peakFourWeekAverage };
 }
 function samePeakContext(saved: CalendarPeakEvidence, current: CalendarPeakContext): boolean {
-  return saved.ruleVersion === current.ruleVersion && saved.parserVersion === current.parserVersion &&
-    saved.periodVersion === current.periodVersion && saved.timeZone === current.timeZone && saved.providers === current.providers;
+  return saved.ruleVersion === current.ruleVersion && saved.timeZone === current.timeZone &&
+    saved.providers === current.providers &&
+    ((current.providers & 2) === 0 || (saved.parserVersion === current.parserVersion &&
+      saved.periodVersion === current.periodVersion));
 }
 export function readCalendarPeakEvidence(value: unknown, context: CalendarPeakContext, complete: boolean): number {
   const saved = parseCalendarPeakEvidence(value);
@@ -152,8 +154,8 @@ export function achievementCalendarSignals(input: {
     for (const [date, row] of rows) {
       const families = familyDates.get(date) ?? new Map();
       for (const [model, tokens] of Object.entries(row.models)) {
-        const namedCodexModel = /^gpt-\d+(?:\.\d+)?-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(model.trim().toLowerCase());
-        const family = provider === 'claude' ? claudeAchievementFamily(model) : namedCodexModel ? codexModelFamily(model) : null;
+        const codexModel = normalizeCodexAchievementModel(model);
+        const family = provider === 'claude' ? claudeAchievementFamily(model) : codexModel ? codexModelFamily(codexModel) : null;
         if (!family) continue;
         const bucket = families.get(family) ?? { processed: 0, output: 0 };
         bucket.processed += tokens.processed;

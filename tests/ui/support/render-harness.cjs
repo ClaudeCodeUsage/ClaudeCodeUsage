@@ -858,6 +858,42 @@ exports.renderHarness = async function renderHarness({
         features: [...provider.achievementActivity.features, 'localShareExport'] };
     }
 
+    if (fixture === 'achievement-review-loading' || fixture === 'achievement-review-failure') {
+      // Controlled host state only: production renders the complete document.
+      // Async initialization/failure is covered by Node host tests; this fixture
+      // must not open a filesystem store or start another hydration attempt.
+      await provider.achievementWrite;
+      provider.achievementRecordState = undefined;
+      provider.achievementRecordRepository = {
+        initialize: () => { throw new Error('synthetic-review:unexpected-hydration'); },
+      };
+      provider.achievementRecordLoading = fixture === 'achievement-review-loading';
+      provider.achievementRecordLoadFailed = fixture === 'achievement-review-failure';
+    }
+    if (fixture === 'achievement-review-next-rank') {
+      // A retained historical bronze award with a smaller current subtotal.
+      // Use the real record validator, evaluator and renderer; do not replace
+      // achievementResults or build an overview/gallery HTML fragment here.
+      const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
+      provider.providerAvailability = { claude: true, codex: false, codexData: false };
+      provider.allTimeData = { ...claudeUsage(), totalInputTokens: 6_000_000,
+        totalOutputTokens: 1, totalCacheCreationTokens: 0, totalCacheReadTokens: 0,
+        modelBreakdown: {} };
+      provider.dailyDataForEveryDay = [];
+      provider.sessionBreakdown = [];
+      provider.achievementCalendarTimeZone = timeZone;
+      provider.achievementRecordState = parseAchievementRecordStore({
+        schemaVersion: 2, catalogVersion: 2, generation: 1, sequence: 1,
+        lastNoticeAt: 0, pinRevision: 0, showcaseMode: 'automatic',
+        legacyBoundary: null, legacyRecords: [], pins: [],
+        records: [{ id: 'hundred-million-club', seq: 1, ruleVersion: 1,
+          origin: 'history', unread: false, recordedDay: null, timeZone: null }],
+        auxiliary: { activity: { schemaVersion: 2, settingKeys: [], features: [] },
+          hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null },
+      });
+      provider.achievementGrants = new Set(['hundred-million-club']);
+    }
+
     if (/^\d{4}-\d{2}$/.test(codexMonth)) {
       const rows = view.allTimeDaily
         .filter((row) => row.day.startsWith(codexMonth + '-'))

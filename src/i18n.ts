@@ -10,6 +10,21 @@ import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievem
 import { API_HEATMAP_COPY } from './apiHeatmapCopy';
 import { LONG_TERM_ACHIEVEMENT_DEFINITIONS, type LongTermAchievementId } from './achievementLongTerm';
 
+export function achievementRecordStatusCopyFor(locale:string):Record<'loading'|'unavailable'|'changed'|'disabled',string> {
+  const words:Record<SupportedLanguage,readonly[string,string,string,string]>={
+    en:['Loading achievement records.','Achievement records are unavailable. Reload this VS Code window to retry.','Achievement records have changed. Reload this VS Code window to continue.','Local achievements are disabled. Enable them in Achievement settings.'],
+    'zh-CN':['正在加载成就记录。','成就记录暂不可用。请重新加载 VS Code 窗口后重试。','成就记录状态已变更。请重新加载 VS Code 窗口后继续。','本地成就已关闭。可在成就设置中启用。'],
+    'zh-TW':['正在載入成就記錄。','成就記錄暫時無法使用。請重新載入 VS Code 視窗後重試。','成就記錄狀態已變更。請重新載入 VS Code 視窗後繼續。','本機成就已關閉。可在成就設定中啟用。'],
+    'de-DE':['Erfolgsaufzeichnungen werden geladen.','Erfolgsaufzeichnungen sind nicht verfügbar. Laden Sie dieses VS Code-Fenster erneut.','Erfolgsaufzeichnungen haben sich geändert. Laden Sie dieses VS Code-Fenster erneut, um fortzufahren.','Lokale Erfolge sind deaktiviert. Aktivieren Sie sie in den Erfolgseinstellungen.'],
+    ja:['実績の記録を読み込んでいます。','実績の記録を利用できません。VS Code のウィンドウを再読み込みしてください。','実績の記録が変更されました。続行するには VS Code のウィンドウを再読み込みしてください。','ローカル実績は無効です。実績設定で有効にできます。'],
+    ko:['업적 기록을 불러오는 중입니다.','업적 기록을 사용할 수 없습니다. VS Code 창을 다시 불러오세요.','업적 기록이 변경되었습니다. 계속하려면 VS Code 창을 다시 불러오세요.','로컬 업적이 꺼져 있습니다. 업적 설정에서 켤 수 있습니다.'],
+    'pt-BR':['Carregando registros de conquistas.','Os registros de conquistas estão indisponíveis. Recarregue esta janela do VS Code para tentar novamente.','Os registros de conquistas mudaram. Recarregue esta janela do VS Code para continuar.','As conquistas locais estão desativadas. Ative-as nas configurações de conquistas.'],
+    id:['Memuat catatan pencapaian.','Catatan pencapaian tidak tersedia. Muat ulang jendela VS Code ini untuk mencoba lagi.','Catatan pencapaian telah berubah. Muat ulang jendela VS Code ini untuk melanjutkan.','Pencapaian lokal dinonaktifkan. Aktifkan di pengaturan pencapaian.'],
+  };
+  const [loading,unavailable,changed,disabled]=words[locale as SupportedLanguage] ?? words.en;
+  return {loading,unavailable,changed,disabled};
+}
+
 function apiAchievementTitles(locale: SupportedLanguage): Record<AchievementMoneyId,string> {
   const themes:Record<SupportedLanguage,readonly string[]> = {
     en:['API-equivalent total','Weekly API equivalent','Session API equivalent','Task API equivalent'],

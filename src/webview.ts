@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
 import type { ClaudeUsageRecord } from './types';
+import {achievementTitleWithoutRank} from './achievementTitles';
 import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
-import { I18n, achievementCopyFor, achievementAppearanceCopyFor, achievementEffortCopyFor, weeklyQuotaPaceCopy } from './i18n';
+import { I18n, achievementCopyFor, achievementAppearanceCopyFor, achievementEffortCopyFor, weeklyQuotaPaceCopy, achievementRecordStatusCopyFor } from './i18n';
 import {CODEX_ACHIEVEMENT_EFFORTS,EFFORT_STATISTICS_PRICEBOOK_VERSION} from './achievementEffortStatistics';
 import {EFFORT_PROCESSED,EFFORT_OUTPUT,EFFORT_ROOTS} from './achievementCollaboration';
 import {adaptClaudeQuotaPace,adaptCodexQuotaPace,QUOTA_PACE_MAX_WINDOWS,type QuotaPaceAdapterSnapshot} from './quotaPaceAdapters';
@@ -4312,15 +4313,15 @@ export class UsageWebviewProvider {
     const view = this.acceptedCodexAchievement?.view ?? this.codexView;
     if (this.revokedAchievementEvidence.has('codex') ||
         view?.currentManifestVerified !== true || !view.coverage.complete) {
-      return { processed: 0, lowerBound: false };
+      return { processed: 0, lowerBound: this.providerAvailability.codex };
     }
     const visible = view.allTime.total.processed;
-    if (!Number.isSafeInteger(visible) || visible < 0) return { processed: 0, lowerBound: false };
+    if (!Number.isSafeInteger(visible) || visible < 0) return { processed: 0, lowerBound: this.providerAvailability.codex };
     if (view.coverage.identity.complete) return { processed: visible, lowerBound: false };
     const bound = (this.acceptedCodexAchievement?.signals ?? this.codexAchievementSignals).processedLowerBound;
     return Number.isSafeInteger(bound) && bound !== undefined && bound >= 0 && bound <= visible
       ? { processed: bound, lowerBound: true }
-      : { processed: 0, lowerBound: false };
+      : { processed: 0, lowerBound: this.providerAvailability.codex };
   }
 
   async beginClaudeAchievementObservation(current: () => boolean): Promise<{
@@ -4584,7 +4585,12 @@ export class UsageWebviewProvider {
       this.achievementResults();
       if (this.panel?.visible && this.webviewClientReady) this.updateWebview();
     }).catch(() => {
-      if (canWrite()) this.achievementRecordLoadFailed = true;
+      if (canWrite()) {
+        this.achievementRecordLoadFailed = true;
+        if (this.panel?.visible && this.webviewClientReady) {
+          try {this.updateWebview();} catch { /* UI failure cannot revive record authority. */ }
+        }
+      }
     }).finally(() => {
       this.achievementRecordLoading = false;
       this.pendingAchievementRecordActions.clear();
@@ -5499,6 +5505,17 @@ export class UsageWebviewProvider {
     const compactValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : compact(value);
     const integerValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : integer(value);
     const results = this.achievementResults();
+    const recordState = !this.setting<boolean>('enableAchievements',true) ? 'disabled' :
+      this.clearingAchievements ? 'changed' : this.achievementRecordLoadFailed ? 'unavailable' :
+      this.achievementRecordRepository && !this.achievementRecordState ? 'loading' : undefined;
+    if (recordState) {
+      const status=achievementRecordStatusCopyFor(I18n.getLocale());
+      return '<section class="achievement-collection" data-achievement-record-state="'+recordState+'" aria-label="'+
+        this.escapeHtml(copy.heading)+'"><div class="achievement-intro"><h2>'+this.escapeHtml(copy.heading)+
+        '</h2><p class="achievement-record-status" role="'+(recordState==='unavailable'?'alert':'status')+'"'+(recordState==='loading'?' aria-busy="true"':'')+'>'+
+        this.escapeHtml(status[recordState])+'</p><div class="achievement-actions"><button class="btn-secondary btn-small" onclick="openAchievementSettings()">'+
+        this.escapeHtml(copy.settingsTitle)+'</button></div></div></section>';
+    }
     const cumulativeLowerBound = this.codexAchievementVolume().lowerBound;
     const evidenceFor = (result:AchievementResult):AchievementEvidenceState => {
       if (this.achievementCalendarLowerBounds.has(result.id)) return 'ready';
@@ -5570,9 +5587,8 @@ export class UsageWebviewProvider {
         key === 'dual-provider-days' ? copy.sharedDaysTheme : copy.titles[result.id];
       if (ACHIEVEMENT_SERIES[key]) {
         for (const level of copy.levels) {
-          if (name.endsWith(level) && /[\s·・]$/u.test(name.slice(0, -level.length))) {
-            name = name.slice(0, -level.length).replace(/[\s·・]+$/u, ''); break;
-          }
+          const base=achievementTitleWithoutRank(name,level);
+          if (base!==name) {name=base;break;}
         }
       }
       return name;
@@ -5772,8 +5788,9 @@ export class UsageWebviewProvider {
         this.escapeHtml(heading) + '</h3><div class="achievement-overview-grid">' + overview[kind].map(key => {
           const entry = visibleCards.find(entry => entry.key === key)!;
           const state = overviewRows.find(row => row.key === key)!;
-          const name = themeName(key, entry.result);
-          const rank = entry.series && state.earnedLevel > 0 ? copy.levels[state.earnedLevel - 1] :
+          const name = themeName(key, kind==='next' ? entry.nextResult : entry.result);
+          const rank = kind==='next' && entry.series ? copy.nextTarget+' · '+copy.levels[entry.nextTierIndex] :
+            entry.series && state.earnedLevel > 0 ? copy.levels[state.earnedLevel - 1] :
             state.earned ? copy.milestone : copy.locked;
           const proofLabel = state.proof === 'stale' ? copy.evidenceStale : copy.evidencePending;
           const monetary=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===entry.nextResult.id);
@@ -5792,7 +5809,7 @@ export class UsageWebviewProvider {
           return '<div class="achievement-overview-item">' + (kind === 'badges' && pinKey ?
             pinControl(pinKey, !!selectedPin, 'achievement-overview-pin-' + key, 'achievement-summary-' + key, name) : '') +
             '<button class="achievement-overview-badge" data-achievement-open="' + key +
-            '" data-overview-rank="' + entry.tier + '" onclick="openAchievementDetail(this.dataset.achievementOpen)"' +
+            '" data-overview-rank="' + (kind==='next' && entry.series ? tierOrder[entry.nextTierIndex] : entry.tier) + '" onclick="openAchievementDetail(this.dataset.achievementOpen)"' +
             ' aria-label="' + this.escapeHtml(copy.viewBadge + ': ' + name + ' · ' + rank +
               (kind === 'next' ? ' · ' + progress + ' ' + unitFor(entry.result.id) :
                 state.proof === 'ready' ? '' : ' · ' + proofLabel)) + '">' +
@@ -13757,6 +13774,7 @@ export class UsageWebviewProvider {
       .achievement-intro { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; }
       .achievement-intro > h2 { grid-column: 1; grid-row: 1; }
       .achievement-intro > .achievement-count { grid-column: 1; grid-row: 2; }
+      .achievement-intro > .achievement-record-status { grid-column: 1; grid-row: 2; overflow-wrap: anywhere; }
       .achievement-intro > .achievement-actions { grid-column: 2; grid-row: 1 / span 2; }
       .achievement-intro > .achievement-evidence-note { grid-column: 1 / -1; grid-row: 3; }
       @media (max-width: 720px) {
