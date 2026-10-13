@@ -654,7 +654,7 @@ exports.renderHarness = async function renderHarness({
       achievementNotices,
       quotaPace,
     });
-    if (!codexOnly) addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
+    if (!codexOnly && fixture !== 'achievement-calendar-subset') addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
     if (fixture === 'achievement-token-stages') {
       // Synthetic materialized Token history for presentation, not a calendar
       // proof fixture or an injected grant. Run the actual rule evaluator.
@@ -742,6 +742,7 @@ exports.renderHarness = async function renderHarness({
       const dayEvidence=codexAchievementCalendarProjection(files,timeZone,true,false).evidence;
       provider.codexView={...view,currentManifestVerified:true,coverage:{...view.coverage,complete:true,
         identity:{...view.coverage.identity,complete:false}},
+        allTime:{...view.allTime,total:{...view.allTime.total,processed:1_500_000_012}},
         periodCoverage:{...view.periodCoverage,timeZone,allTime:{...view.periodCoverage.allTime,complete:false}}};
       provider.providerAvailability={claude:false,codex:true,codexData:true};
       provider.codexAchievementSignals={...codexModelSignals(files),dayEvidence,

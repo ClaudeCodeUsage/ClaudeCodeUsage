@@ -11,6 +11,9 @@ for (const locale of ['en','de-DE','zh-TW','zh-CN','ja','ko','pt-BR','id']) {
         await expect(card(key).locator('.achievement-next-target')).toContainText(text);
       }
       await expect(card('weekly-average')).toHaveAttribute('data-achievement-proof','pending');
+      // Existing cumulative volume admits one maximal counter per identity;
+      // dates/money require the separately sound root. Preserve these scopes.
+      await expect(card('cumulative-volume').locator('.achievement-next-target')).toContainText('≥1B');
       expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
       await card('sol-days').locator('summary').focus();
       await page.keyboard.press('Enter');
