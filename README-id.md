@@ -58,7 +58,7 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - **Harga multi-vendor** — Opus 4.x / Sonnet 4.x / Haiku 4.5 diverifikasi terhadap harga publik Anthropic; tarif referensi untuk OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen dengan fallback berbasis family model. `Refresh Token Pricing` menarik data LiteLLM langsung.
 - **Personalisasi** — bahasa, zona waktu, angka desimal, angka ringkas, pengelompokan proyek, toggle penyegaran otomatis dashboard.
 
-## Pencapaian lokal (kandidat)
+## Pencapaian lokal (2.4.2)
 
 Pengenalan model untuk kolaborasi/pelangi terpisah dari harga, sehingga model yang dikenali tanpa tarif tetap tanpa harga acuan; catatan nilai uang mempertahankan label tabel harga yang telah diterbitkan, dan puncak khusus Claude tetap tersimpan saat versi Codex yang tidak terkait berubah.
 Status catatan sedang dimuat, tidak tersedia, berubah, dan dinonaktifkan ditampilkan secara jelas alih-alih jumlah kosong; penggunaan kumulatif Claude yang terverifikasi menunjukkan `≥` selama bukti Codex yang diaktifkan belum terverifikasi.
@@ -87,9 +87,8 @@ Impor dan pembangunan ulang manual tetap senyap; nilai referensi API kumulatif k
 
 Catatan penghargaan hanya lokal, maksimal 64 KiB. Tanggal lama tetap tidak diketahui;
 tindakan baru yang tersimpan mempertahankan status belum dibaca dan hari pencatatan pertama
-meski notifikasi terlewat. Catatan utama adalah `achievements-v2.json`; v1 hanya masukan migrasi baca-saja.
-Catatan yang sudah tersimpan dari 21 syarat model/tim/effort/pelangi yang berubah masuk arsip terbatas, dengan tanggal tak diketahui tetap terjaga; emas lama tidak membuktikan aturan baru.
-Lease v1 bersama, penanda penghapusan v2, dan pagar v1 kosong saat memakai versi lama mencegah penulisan lama memulihkan penghargaan yang dihapus; log sumber penyedia tidak diubah.
+meski notifikasi terlewat. Penghargaan tersimpan bertahan setelah mulai ulang dan dibagikan antarjendela.
+Penghargaan dari aturan lama mempertahankan riwayatnya tanpa membuktikan syarat baru. Penghapusan tidak mengubah log sumber penyedia.
 Notifikasi hanya tampil di panel yang terlihat di depan, maksimal sekali per lima
 menit antarjendela dan setelah mulai ulang. Hanya kelompok yang dikonfirmasi tampil
 ditandai dibaca; yang terlewat tetap belum dibaca. Hover atau fokus papan ketik menunda penutupan.
@@ -106,10 +105,18 @@ Mode manual hanya menampilkan pilihan pengguna; rekomendasi otomatis maksimal ti
 Pilihan dan urutan bertahan setelah mulai ulang, tanpa memilih lencana untuk dibagikan.
 Lencana tersemat yang tersembunyi dapat dilepas melalui daftar lipat tanpa mengaktifkan kembali penyedia.
 
+Berbagi secara eksplisit dapat menyertakan lencana yang sudah diperoleh dan tersimpan dari penyedia nonaktif.
+Galeri dan pilihan sematan baru mengikuti penyedia aktif; lencana tersimpan tidak membuktikan
+progres saat ini atau memberi hak untuk penghargaan baru.
+
 Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
 yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.
 
-Katalog sumber kandidat 2.4.2 yang belum dirilis memuat 50 tema, 174 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
+Log agen yang diletakkan sejajar tanpa sesi induk yang terbukti dari jalur tidak
+dihitung sebagai bukti pencapaian berbasis sesi. Token, harga, agregat harian dan
+baris sesi tetap sama; atribusi agen bersarang serta lencana tersimpan dipertahankan.
+
+Galeri 2.4.2 memuat 50 tema, 174 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
 output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
 
 Lima belas seri Claude/aktivitas menambah Platina dan Legendaris, tanpa mengubah tiga target awal, bukti, atau gambar. Hari aktif, output, dan sesi mendukung kemajuan dalam tiga hari kerja terpusat per pekan, tanpa Codex atau belanja tambahan. Tingkat hari berturut-turut tidak ditambah.
@@ -127,13 +134,18 @@ Menyembunyikan nilai mengembalikan warna, teks dan Markdown ke Token serta memba
 **Laju kuota mingguan** (`showWeeklyQuotaPace`) default nonaktif dan memakai observasi yang sudah ada: terpakai 29% saat 25% siklus berlalu memproyeksikan 116%.
 Tidak ada prediksi dalam enam jam pertama, setelah tiga puluh menit tanpa observasi baru, atau setelah reset. Kredensial tidak valid segera menarik prediksi meski dasbor dijeda; pergantian akun/sumber dan penurunan penghitung menunggu pergantian tujuh hari normal yang terverifikasi.
 Log Codex saat ini tidak memverifikasi akun, sehingga prediksi tidak tersedia. Dasbor dan tooltip bilah status berbagi terjemahan; teks bilah dan format khusus tetap sama. Tanpa permintaan, timer atau riwayat baru.
+Jika atribusi akun tidak jelas, nilai total dan belum terpakai setara API untuk siklus
+berjalan tetap berupa estimasi riwayat lokal berkeyakinan rendah, bukan saldo akun.
+Pemisahan akurat per akun ditunda hingga dukungan multiakun mendatang; perkiraan ini
+terpisah dari prediksi laju kuota mingguan.
+
 Ringkasan memakai kartu horizontal dengan lebar terbatas: gambar, nama, tingkat, dan progres tetap berdekatan. Tombol semat berada di dalam kartu, dan target berikutnya memiliki bilah progres tipis. Beberapa lencana tidak lagi tersebar sepanjang layar; tampilan sempit membungkus kartu tanpa mengecilkan teks. Label tingkat emas tetap terbaca pada tema terang dengan aksen emas yang dipertahankan.
 
 Ikon SVG inline ringan menyertai label terjemahan yang ada untuk berbagi, pengaturan, filter, ukuran, editor etalase, dan informasi; jumlah ditampilkan sebagai chip ringkas.
-Di atas 960 px, kolom lencana mengikuti isi dengan batas dua lebar kartu ringkasan beserta jarak internalnya. Kolom target berikutnya mengisi ruang tersisa, dengan jarak antarkolom 16 px. Pada lebar 960 px atau kurang, keduanya langsung bertumpuk dengan jarak 12 px. Bagian riwayat tambahan berada setelah keduanya. Hasil tata letak masih sementara. Kontrol, penyimpanan status, kelayakan, dan protokol pesan tetap sama.
+Di atas 960 px, kolom lencana mengikuti isi dengan batas dua lebar kartu ringkasan beserta jarak internalnya. Kolom target berikutnya mengisi ruang tersisa, dengan jarak antarkolom 16 px. Pada lebar 960 px atau kurang, keduanya langsung bertumpuk dengan jarak 12 px. Bagian riwayat tambahan berada setelah keduanya.
 Pilihan ukuran mendahului ringkasan: koleksi 56 / 80 / 112 px, etalase 56 / 72 / 96 px; kesalahan semat dekat kontrol dan fokus keyboard tetap stabil.
 Subtotal USD effort bukan syarat pencapaian. Kosong dan tanpa harga dibedakan; nilai parsial menunjukkan batas bawah, sedangkan nilai tidak valid/overflow tidak tersedia.
-Integrasi dalam kode kandidat saja tidak membuktikan penerimaan lengkap Node/UI, native/F5, VSIX terpasang atau performa. Hasil dicatat terpisah dalam bukti kandidat lokal; pemeriksaan browser tidak membuktikan validasi native/F5, pemasangan paket atau Windows. Kandidat belum dirilis; tampilan subjektif perlu tinjauan pengguna. [Detail bahasa Inggris](README-en.md#heatmap-sharing-and-weekly-quota-pace-candidate).
+[Detail bahasa Inggris](README-en.md#heatmap-sharing-and-weekly-quota-pace-242).
 Setiap seri memiliki gambar berbeda, dipakai bersama oleh tingkatnya dengan warna tingkat. Angka hanya bilangan bulat; batas data dapat dibuka.
 Bukti belum lengkap atau kedaluwarsa ditandai, bukan dianggap progres nol, dan dikecualikan dari target berikutnya; lencana yang diperoleh tetap tersimpan.
 Kartu tertutup menampilkan progres menuju tingkat berikutnya; tahap perantara pada tangga token panjang bukan lencana, pemberitahuan, atau pilihan berbagi tambahan.
@@ -158,7 +170,7 @@ Pembukaan historis tetap senyap; pemberitahuan baru singkat di panel tanpa suara
 atau mengambil fokus. Pilih hingga sembilan lencana dan ekspor SVG persis seperti pratinjau;
 balasan lama tidak mengaktifkan ekspor. Ada pintasan kembali ke galeri dan ke pengaturan nonaktif,
 tanpa login GitHub. Riwayat akun bersama/beberapa login bukan bukti produktivitas
-pribadi. [Penyimpanan dan penghapusan](LOCAL-DATA.md#local-achievements-242-candidate).
+pribadi. [Penyimpanan dan penghapusan](LOCAL-DATA.md#local-achievements-242).
 
 ## Yang baru di v2.4
 

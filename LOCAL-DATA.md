@@ -5,7 +5,7 @@ only bounded derived state needed for fast refresh and reset-aware estimates,
 and never treats API-equivalent cost as a bill.
 
 This page is the current inventory and versioned data-contract supplement for
-the v2.4 development line, including the unreleased 2.4.2 candidate. The
+the v2.4 line, including the capabilities in 2.4.2. The
 historical v2.3.1 field-level baseline is in
 [`docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md).
 The later sharing, quota-pace and achievement sections here govern their added
@@ -22,19 +22,19 @@ credential, account-separation or explicit-network-consent restrictions.
 | Codex titles | Exactly `$CODEX_HOME/session_index.jsonl` | `id → thread_name` is streamed for runtime display; titles are not written to the index | Runtime only | None |
 | Quota observations | Claude's official quota response or structured Codex rate-limit events | Provider, machine-local anonymous account epoch, observed/reset time, period, used/remaining fraction, anonymous window identity, source, confidence, and quality flags | At most 180 days and 512 observations per provider/account/period after boundary-preserving compaction; clear separately or with all derived data | Claude quota lookup contacts Anthropic when enabled; an expired Claude token is refreshed with Anthropic and written back to its credential source. Codex quota evidence is local |
 | Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy/palette/provider/metric/show-amounts controls, gallery filter/size, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
-| Heatmap artifact (2.4.2 candidate) | At most 366 selected materialized civil-day aggregates | One accepted immutable SVG/Markdown artifact, opaque document-bound preview ID, source references and whitelisted config/quality identity | Runtime only; replaced/retired on control, source, pricing or display change, reset or disposal | None; preview/local export adds no source-log reads or network requests |
-| Weekly quota pace (2.4.2 candidate) | Existing successful raw quota cache and original observation time | Runtime-only ≤16-window numeric projection, original-response metadata and bounded verified-account/window continuity anchors; default-off shared `showWeeklyQuotaPace` STATE preference | No extra observation store; source/credential invalidation withdraws forecasts and disposal releases runtime state | None added; does not enable quota tracking or request new credentials |
+| Heatmap artifact (2.4.2) | At most 366 selected materialized civil-day aggregates | One accepted immutable SVG/Markdown artifact, opaque document-bound preview ID, source references and whitelisted config/quality identity | Runtime only; replaced/retired on control, source, pricing or display change, reset or disposal | None; preview/local export adds no source-log reads or network requests |
+| Weekly quota pace (2.4.2) | Existing successful raw quota cache and original observation time | Runtime-only ≤16-window numeric projection, original-response metadata and bounded verified-account/window continuity anchors; default-off shared `showWeeklyQuotaPace` STATE preference | No extra observation store; source/credential invalidation withdraws forecasts and disposal releases runtime state | None added; does not enable quota tracking or request new credentials |
 | Share destination | User-entered GitHub target | One versioned `ccu.heatmapDestination.v1` object containing optional `owner/repository/path`; no GitHub credential | Until sharing preferences are reset | Only after an explicit publish action and exact destination confirmation. A successful write is reported even if saving this convenience preference fails |
 | Advice evidence | Derived local aggregates and explicit feedback | Coarse observations, recommendations, ratings, snoozes, comparable-task metrics, coverage, and versions | Bounded local ledger; clear independently | Nothing by default; only the exact previewed request is sent after a separate action |
-| Local achievements (2.4.2 candidate) | Verified numeric usage and deliberate allowlisted local actions | A ≤64 KiB award envelope with public IDs, sequence/reason/unread state and optional first-record day/zone; safe setting-key/feature enums (never values), hour-streak maximum and qualified four-week peak | Default on; off stops new grants and extra proof work. Clear all removes exact achievement state and retains only an empty clear fence | None; sharing requires explicit local preview/export, not GitHub authentication |
+| Local achievements (2.4.2) | Verified numeric usage and deliberate allowlisted local actions | A ≤64 KiB award envelope with public IDs, sequence/reason/unread state and optional first-record day/zone; safe setting-key/feature enums (never values), hour-streak maximum and qualified four-week peak | Default on; off stops new grants and extra proof work. Clear all removes exact achievement state and retains only an empty clear fence | None; sharing requires explicit local preview/export, not GitHub authentication |
 | Advice API key | User-provided secret | Secret value in VS Code SecretStorage only | Until the key or all derived data is cleared | Used only as the authorization credential for the explicitly configured endpoint |
 
 ## What is never cached
 
-Long-term ranks add only public catalog IDs to the existing envelope: at most174
-current records, unchanged64 KiB total. The maximal feasible174-current/21-archive
-fixture with auxiliary evidence serialized to36,416 bytes. No usage/cost value or
-source identity is stored per rank. Old144 v2 records and pins retain provenance;
+Long-term ranks add only public catalog IDs to the existing envelope: at most 174
+current records within the unchanged 64 KiB total cap, including auxiliary evidence
+and retained old-rule records. No usage/cost value or source identity is stored per rank.
+Old 144-record v2 envelopes and pins retain provenance;
 new IDs cannot be accepted in v1 or inferred from an old rank. Downgrade readers
 may fail closed without overwriting unknown current records.
 
@@ -109,7 +109,7 @@ values from the [ECB euro reference rates](https://www.ecb.europa.eu/stats/polic
 The preview-first sharing workspace reuses materialized provider aggregates; it
 does not scan logs again or create another statistics cache. Its remembered
 presentation is one local enum (`ccu.sharing.template`): combined activity
-heatmap, Claude Share Card, Claude token heatmap, or (in the 2.4.2 candidate)
+heatmap, Claude Share Card, Claude token heatmap, or (in 2.4.2)
 explicitly selected earned badges. `enableShareCard` is the
 only visible on/off setting. The retired `showHeatmap` value remains catalogued
 for bounded clearing and one-release compatibility, but it no longer creates a
@@ -150,7 +150,7 @@ aggregates only; they do not imply that Codex exposes equivalent fields.
 Preview and local export are strictly network-free and do not request GitHub
 authentication, profile, avatar, or name data.
 
-The candidate heatmap defaults to Tokens and allowlists Claude/Codex/Both plus
+The heatmap defaults to Tokens and allowlists Claude/Codex/Both plus
 Tokens/API-equivalent amount. Amounts require an explicit choice and reuse current
 floating daily estimates, not the fixed USD pricebooks used for achievements.
 Claude estimates retain current backend/fallback/override semantics; Codex prices
@@ -185,7 +185,7 @@ Private repositories use local SVG plus Markdown instead of silently requesting
 broader access. After GitHub accepts the write, success is authoritative and is
 reported before any warning that the atomic destination preference could not be saved.
 
-## Weekly quota pace (2.4.2 candidate)
+## Weekly quota pace (2.4.2)
 
 `showWeeklyQuotaPace` defaults false, is shared by both providers and does not
 enable quota tracking. Off exits before source getters, clock/cache/client access
@@ -209,7 +209,20 @@ including when dashboard auto-refresh is off. The client does not optimistically
 recompute forecasts. The dashboard and status-bar tooltip reuse shared eight-locale
 copy without changing compact bar text or custom quota formats.
 
-## Local achievements (2.4.2 candidate)
+<a id="local-achievements-242-candidate"></a>
+
+## Local achievements (2.4.2)
+
+Codex achievement reuse compares the rebuilt full file census and independent
+witnesses exactly, then reuses detached, deeply immutable copies for revision and
+calendar/money-projection memoization. Flags or matching totals alone do not prove
+equality. These copies and caches are runtime-only, not another persistent index;
+source reads, exported identity and clearing boundaries are unchanged.
+
+Flat Claude `agent-*.jsonl` files without a path-proven parent are excluded only
+from session-achievement evidence. Token totals, prices, daily aggregates and
+visible session rows remain unchanged. Nested agents retain their parent-path
+contract, source logs stay untouched, and cached/saved awards are retained.
 
 `enableAchievements` defaults to true. The once-only upgrade reminder reuses
 `ccu.lastSeenVersion`; it requests no new permission, opens no panel automatically,
@@ -285,22 +298,21 @@ requirements in all eight I18n locales, with information icons on notes. These
 scope requirements do not classify exact root causes, expose raw source/error
 details, or confer new evidence authority.
 
-The native focus diagnostic confirmed host-owned cancellation with
-`errorCode=cancelled`, `failed=0`; that investigation read no actual conversation
-logs, credentials or databases. Following this finding,
-the implemented host correction returns early only for explicit
+The host returns early only for explicit
 `codexWorkerCancellationRequested`, an `error` outcome with
 `failureCode === 'cancelled'`, and exactly `result.diagnostic?.failedFiles === 0`.
 A missing count remains unknown and follows failure/revocation behavior.
+The zero-count check is defensive: the current producer reports `failedFiles: 0`
+on terminal cancellation/throws because final file diagnostics are unavailable.
+It does not prove that no files failed before cancellation.
 The cancellation result supplies no applied snapshot, success timestamp or new
 acceptance receipt; prior failed state and last successful time remain intact.
-Processing resumes after a fresh successful scan. The provider is unchanged:
-all error results still mark the manifest incomplete, and true file errors or
-unowned cancellation retain failure/revocation behavior. Added regressions cover
-a missing failed-file count and preservation of an earlier true failure with
-`lastSuccessfulAt: 123`. Integrated compilation passed; the Node suite reported
-2,436 passed, one skipped and zero failed. These results do not establish native
-acceptance.
+Processing resumes after a fresh successful scan. The interrupted result does not
+authorize new awards; subsequent history-only reconciliation remains import-only,
+without live dates or notices. All error results mark the manifest incomplete.
+Reported nonzero/missing failure counts, other errors and unowned cancellations
+retain failure/revocation behavior. Tests supplying a nonzero cancelled count cover
+a defensive host branch, not a failure census supplied by the current producer.
 
 Valid period-migration checkpoints now resume with `tokenEventsSeen` below the
 inherited prefix when `days` is empty. Their bounded cursor advances across passes,
@@ -318,6 +330,10 @@ filtering or expanding the gallery does not read logs or add network calls.
 Current-statistics navigation also keeps one public theme key and a provider enum
 in that same UI state until return, ordinary navigation or UI reset. It stores no
 dates, models, paths or new action history and does not scan provider logs.
+Explicit sharing can include retained earned badges from a disabled provider.
+The gallery and new pins filter by enabled providers. Retained badges do not supply
+current progress or new grant authority, and sharing does not re-enable a provider
+or read its logs.
 Badge-sharing preferences remember only manually selected public rule IDs (at
 most nine). One accepted SVG and its opaque preview handle stay in provider
 memory, not on disk as an export history. The current language is checked before
@@ -394,7 +410,7 @@ The extension-owned ledger contains only the following validated fields:
   (schema/generation/sequence, empty records/pins/activity, zero cooldown/hour
   maximum and no calendar peak), then writes an empty v1 downgrade fence. It is not
   unlinked, preventing a still-running old host from resurrecting legacy awards.
-  Candidate hosts with the old generation suspend writes until reload. Leases,
+  Hosts with the old generation suspend writes until reload. Leases,
   lookalikes, unknown files and provider sources are not deleted. Inventory P12
   reports only aggregate byte/record counts, not record contents or dates.
 - `globalStorage/achievements-v1.json`: read-only migration input outside explicit
@@ -557,19 +573,20 @@ and the clear control is run again (or the setting is removed manually).
 
 ## Known limits
 
-The source-integrated candidate is unreleased. Integration alone does not establish
-full Node/UI, native/F5, installed-VSIX or performance acceptance; gate outcomes
-are recorded separately in local candidate evidence. Browser checks cannot prove
-native/F5, installed-package or Windows acceptance. Subjective appearance still
-requires user review. Cumulative-only live money awards and inline Codex effort
-statistics are integrated in the current source.
+This inventory describes data contracts, not a release or acceptance record.
+Native/F5, installed-package and performance checks require their own evidence;
+browser checks do not establish those results. Live monetary award dates are
+limited to verified cumulative crossings; other monetary scopes remain historical.
 Source-level guards check source contracts, not executed UI transitions, native
 Webview behavior or installed-package acceptance.
 
 - A reset that never appears in an official response or local structured event
   cannot be reconstructed. Day-only Codex evidence lowers boundary confidence.
-- Local Codex histories may include several sign-ins. Ambiguous overlap remains
-  used-only; the extension never invents an account split.
+- Local Codex histories may include several sign-ins. Current-cycle total/unused
+  estimates retain the low-confidence local-history approximation described above.
+  Multiple distinct quota series mapped to one completed window remain used-only;
+  the extension never invents an account split. Accurate per-account separation
+  remains deferred to multi-account support.
 - API-equivalent values use currently known public API prices and pricing
   coverage. They are estimates, not provider bills or subscription prices.
 - Retention of source logs is controlled by Claude Code and Codex, not this

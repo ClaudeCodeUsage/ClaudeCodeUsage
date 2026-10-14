@@ -56,7 +56,7 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 Das Bild nutzt synthetische Daten, nicht das Konto einer Person. Weitere
 Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](README.md).
 
-## Lokale Erfolge (Kandidat)
+## Lokale Erfolge (2.4.2)
 
 Die Modellerkennung für Zusammenarbeit/Regenbogen ist von der Preisberechnung getrennt, sodass erkannte Modelle ohne Preis unbepreist bleiben; gespeicherte Geldwert-Auszeichnungen behalten veröffentlichte Preisbuchkennungen, und reine Claude-Spitzen bleiben bei unabhängigen Codex-Versionsänderungen erhalten.
 Ladende, nicht verfügbare, geänderte und deaktivierte Aufzeichnungen erhalten klare Statusanzeigen statt leerer Zähler; verifizierte kumulative Claude-Nutzung zeigt `≥`, solange die Nachweise des aktivierten Codex noch nicht verifiziert sind.
@@ -86,10 +86,8 @@ Neuindizierung bleiben still; kumulative API-Referenzwerte haben eigene Live-Nac
 Der lokale Nachweisspeicher ist auf 64 KiB begrenzt. Alte Abzeichen haben kein
 bekanntes Datum; neue gespeicherte Aktionen behalten ungelesene Erstaufnahmetage,
 auch bei verpasstem Hinweis. Fenster führen Auszeichnungen zusammen.
-`achievements-v2.json` ist der maßgebliche Speicher; v1 dient nur als schreibgeschützte Migrationseingabe.
-Bereits gespeicherte Auszeichnungen der 21 geänderten Modell-/Team-/Effort-/Regenbogen-Bedingungen bleiben begrenzt archiviert,
-mit unbekannten Daten; altes Gold belegt keine neuen Regeln. Gemeinsame v1-Lease,
-v2-Löschmarkierung und leere v1-Downgradesperre verhindern die Wiederherstellung gelöschter Auszeichnungen; Anbieterlogs bleiben unverändert.
+Gespeicherte Auszeichnungen bleiben nach Neustarts erhalten und werden zwischen Fenstern geteilt.
+Alte Regeln behalten ihre Historie, belegen aber keine neuen Bedingungen. Löschen verändert keine Anbieterlogs.
 Hinweise erscheinen nur im sichtbaren Vordergrundpanel, höchstens alle fünf Minuten
 über Fenster und Neustarts hinweg. Nur bestätigte Anzeigen markieren ihre Gruppe
 als gelesen; verpasste bleiben ungelesen. Maus- und Tastaturfokus pausieren das Ausblenden.
@@ -107,10 +105,18 @@ Auswahl und Reihenfolge bleiben nach Neustart erhalten und sind keine Freigabe z
 Ausgeblendete angeheftete Abzeichen können in einer einklappbaren Liste gelöst werden,
 ohne den deaktivierten Anbieter wieder einzuschalten.
 
+Beim ausdrücklichen Teilen können erhaltene Abzeichen deaktivierter Anbieter gewählt werden.
+Galerie und neue Pins richten sich nach aktivierten Anbietern; gespeicherte Abzeichen belegen
+weder aktuellen Fortschritt noch die Berechtigung für neue Auszeichnungen.
+
 Importierte Plugin-Nutzungsnachweise bleiben ohne Hinweis. Erfolgreich gespeicherte
 neue Aktionen können Abzeichen auch bei geschlossenem Dashboard freischalten, ohne versteckte Ansichten zu öffnen oder zu aktualisieren.
 
-Der noch nicht veröffentlichte Kandidat 2.4.2 hat laut Quellkatalog 50 Themenkarten, 174 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
+Flach abgelegte Agentenlogs ohne durch den Pfad belegte Elternsitzung zählen nicht
+als Nachweis für sitzungsbezogene Erfolge. Token, Preise, Tagessummen und sichtbare
+Sitzungen bleiben unverändert; verschachtelte Zuordnung und gespeicherte Abzeichen bleiben erhalten.
+
+Die Galerie in 2.4.2 bietet 50 Themenkarten, 174 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
 Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
 
 15 Claude-/Aktivitätsserien erhalten Platin und Legendär; die ersten drei Schwellen und Nachweise bleiben unverändert, die Motive werden weiterverwendet. Aktivitätstage, Ausgabe und Sitzungen ermöglichen Fortschritt bei drei konzentrierten Tagen pro Woche, ohne Codex oder höhere Ausgaben. Serien aufeinanderfolgender Tage werden nicht erweitert.
@@ -128,13 +134,18 @@ Beträge ausblenden stellt Token-Farben, Texte und Markdown wieder her und verwi
 **Wöchentliches Kontingenttempo** (`showWeeklyQuotaPace`) ist standardmäßig aus und nutzt vorhandene Beobachtungen: 29% Nutzung bei 25% Zeit ergibt 116% für den Zyklus.
 Keine Prognose in den ersten sechs Stunden, nach dreißig Minuten ohne neue Beobachtung oder nach Reset; ungültige Zugangsdaten ziehen sie auch bei pausiertem Dashboard zurück. Konto-/Quellenwechsel und Zählerrückgänge sperren sie bis zu einem verifizierten normalen Sieben-Tage-Wechsel.
 Codex-Logs verifizieren derzeit kein Konto, daher ist die Prognose nicht verfügbar. Dashboard und Statusleisten-Tooltip teilen die Übersetzungen; Balkentext und eigene Formate bleiben gleich. Keine neuen Anfragen, Timer oder Historien.
+Bei unklarer Kontozuordnung bleiben der API-äquivalente Gesamtwert und der ungenutzte
+Wert des aktuellen Zyklus lokale Verlaufsschätzungen mit geringer Sicherheit, keine
+Kontoguthaben. Eine genaue Trennung nach Konto ist zukünftiger Mehrkontenunterstützung
+vorbehalten. Diese Näherung ist von der Prognose des wöchentlichen Kontingenttempos getrennt.
+
 Die Übersicht verwendet horizontale Karten mit begrenzter Breite: Bild, Name, Rang und Fortschritt bleiben zusammen. Pins sitzen in der Karte, nächste Ziele haben einen schmalen Fortschrittsbalken. Wenige Abzeichen verteilen sich nicht mehr über die ganze Bildschirmbreite; schmale Ansichten umbrechen ohne kleinere Schrift. Gold-Rangbezeichnungen bleiben in hellen Designs gut lesbar und behalten einen goldenen Akzent.
 
 Leichte Inline-SVG-Symbole ergänzen die vorhandenen übersetzten Beschriftungen für Teilen, Einstellungen, Filter, Größe, Schaukasten-Editor und Informationen; Zähler erscheinen als kompakte Chips.
-Über 960 px passt sich die Abzeichenspalte dem Inhalt an, begrenzt auf zwei Übersichtskartenbreiten plus deren inneren Abstand. Die Zielspalte füllt den verbleibenden Platz; der Spaltenabstand beträgt 16 px. Bei höchstens 960 px stehen beide direkt untereinander mit 12 px Abstand. Ergänzende Verlaufsbereiche folgen beiden. Die Layout-Ergebnisse sind noch vorläufig. Bestehende Bedienelemente, Zustandsspeicherung, Vergaberegeln und Nachrichtenprotokolle bleiben unverändert.
+Über 960 px passt sich die Abzeichenspalte dem Inhalt an, begrenzt auf zwei Übersichtskartenbreiten plus deren inneren Abstand. Die Zielspalte füllt den verbleibenden Platz; der Spaltenabstand beträgt 16 px. Bei höchstens 960 px stehen beide direkt untereinander mit 12 px Abstand. Ergänzende Verlaufsbereiche folgen beiden.
 Größenwahl vor der Übersicht: Sammlung 56 / 80 / 112 px, Schaukasten 56 / 72 / 96 px; Pinfehler stehen beim Steuerelement, der Tastaturfokus bleibt stabil.
 Der USD-Effort-Teilbetrag zählt nicht zur Qualifikation. Leere und unbepreiste Werte werden gekennzeichnet, Teilbeträge als Untergrenze; ungültige oder überlaufende Beträge bleiben unverfügbar.
-Diese Anbindung ist im Kandidatencode vorhanden, belegt aber allein keine vollständige Node/UI-, native/F5-, installierte-VSIX- oder Leistungsabnahme. Ergebnisse stehen separat in lokalen Kandidatennachweisen; Browserprüfungen belegen keine native/F5-, Paketinstallations- oder Windows-Abnahme. Der Kandidat ist unveröffentlicht; die subjektive Darstellung braucht Nutzerprüfung. Details: [Englisch](README-en.md#heatmap-sharing-and-weekly-quota-pace-candidate).
+Details: [Englisch](README-en.md#heatmap-sharing-and-weekly-quota-pace-242).
 Jede Serie hat ein eigenes Motiv, ihre Stufen teilen es mit Stufenfarben. Zahlen sind ganzzahlig; Datengrenzen sind aufklappbar.
 Fehlende oder veraltete Nachweise werden statt Nullfortschritt angezeigt und vom nächsten Ziel ausgeschlossen; erworbene Abzeichen bleiben gespeichert.
 Geschlossene Karten zeigen den aktuellen Fortschritt zur nächsten Stufe; Zwischenziele auf langen Token-Leitern sind keine zusätzlichen Abzeichen, Hinweise oder Exportoptionen.
@@ -159,7 +170,7 @@ Spätere Hinweise bleiben kurz im Dashboard, ohne Ton oder Fokuswechsel.
 Bis zu neun gewählte Abzeichen lassen sich nach Vorschau als genau dieses SVG exportieren;
 veraltete Antworten erlauben keinen Export. Direkte Wege führen zurück zur Galerie und zur Abschaltoption,
 ohne GitHub-Anmeldung. Die Daten können mehrere Anmeldungen enthalten und
-belegen keine persönliche Produktivität. [Speicherung und Löschen](LOCAL-DATA.md#local-achievements-242-candidate).
+belegen keine persönliche Produktivität. [Speicherung und Löschen](LOCAL-DATA.md#local-achievements-242).
 
 ## Daten richtig lesen
 

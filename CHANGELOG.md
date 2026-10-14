@@ -6,7 +6,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
-### Added — 2.4.2 local candidate
+### Added — 2.4.2
 
 - **Claude-heavy long-term ranks** — fifteen existing Claude/sustained-activity
   series gain thirty Platinum/Legendary conditions, preserving the original three
@@ -14,8 +14,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   Claude and concentrated weekly patterns without buying models or using Codex.
   No consecutive-day tiers are added. Locale-native titles, current progress,
   explicit sharing and quiet historical reconciliation retain their contracts.
-  Frozen v1 IDs/pin keys and v2 canonical records stay compatible; up to174 current
-  records remain bounded by64 KiB. Old labels cannot authorize new high ranks.
+  Frozen v1 IDs/pin keys and v2 canonical records stay compatible; up to 174 current
+  records remain bounded by 64 KiB. Old labels cannot authorize new high ranks.
 
 - **Provider/metric heatmap sharing** — Claude / Codex / Both × Tokens /
   API-equivalent amount, defaulting to Tokens with explicit amount disclosure.
@@ -38,11 +38,6 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   even with auto-refresh off; no optimistic client calculation, new request, timer
   or history. Dashboard/status tooltip share eight-locale copy; bar text and custom
   formats are unchanged. Off avoids source getter, clock/cache/client access.
-- **Candidate validation boundary** — source integration is present, but does not
-  establish full Node/UI, native/F5, installed-VSIX or performance acceptance.
-  Gate outcomes are recorded separately in local candidate evidence. Browser
-  checks cannot prove native/F5, installed-package or Windows acceptance. The
-  candidate is unreleased; subjective appearance still requires user review.
 - **Verified cumulative-money awards** — four existing cumulative tiers per provider
   now use accepted native Claude/Codex tail-window increments under the same frozen
   public pricebook as the before/after scope. The increment must be sufficient from
@@ -90,7 +85,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   to that theme's summary when its button disappears. Surviving controls retain
   focus normally; no refresh, read acknowledgement or new preference is added.
 - **Growing themes without duplicate cards** — the current default gallery has 50 theme
-  cards, 144 rules and 52 artwork groups, including six API resource themes. The fourteen-day and
+  cards, 174 rules and 52 artwork groups, including six API resource themes. The fourteen-day and
   first shared-day milestones live inside their growing themes, not as extra
   tiers. Old disclosure links and pins still work; duplicate old pins can be
   removed separately. Recent views collapse themes but preserve exact records,
@@ -150,7 +145,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Bounded durable award records** — a ≤64 KiB canonical file keeps each public
   rule once, with quiet unknown-date migration and unread saved-action records.
   Cross-process leases merge peers' awards; an empty clear-generation fence
-  prevents old candidate hosts from restoring deleted awards or cached auxiliary
+  prevents older hosts from restoring deleted awards or cached auxiliary
   proof. Existing bounded local-action/hour/calendar proof is merged in the same
   envelope, not mirrored into stale window caches. Invalid/future
   input remains untouched; OFF does not initialize it. Inventory and Clear All
@@ -165,7 +160,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   the next formal tier; long Token ladders include display-only 1/2/5 stage targets.
   These are not extra awards, notifications or sharing choices, and do not change
   any formal threshold. Pending/outdated proof never fabricates stage progress.
-- **Tiered local achievements** — 50 icon-first themes and 144 award conditions,
+- **Tiered local achievements** — 50 icon-first themes and 174 award conditions,
   with distinct bundled artwork per series, shared by its colored tiers. Token-led Claude Sonnet/Opus/Haiku/Fable and Codex
   Astra/Sol/Luna progression, output/cache, model/effort and agent experiences,
   calendar activity, weekly peaks, completed four-week averages, and a few safe
@@ -183,7 +178,22 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   target, with every tier's rule inside a stable disclosure. The settings shortcut
   focuses the existing opt-out without changing it; sharing offers a return path.
 
-### Fixed — 2.4.2 local candidate
+### Fixed — 2.4.2
+
+- **Codex achievement evidence reuse** — each successful refresh reconstructs the
+  full file census and independent witnesses, then compares them exactly with a
+  detached, deeply immutable publication. Equal evidence can reuse its revision
+  and calendar projection, including the projection checked by monetary scopes.
+  Unchanged flags, zero body reads or matching totals alone cannot authorize reuse.
+  Changed evidence retains full validation; this does not make refresh work constant-time.
+- **Claude session-achievement evidence** — flat `agent-*.jsonl` files without a
+  path-proven parent no longer count as independent session evidence for achievements.
+  Token totals, prices, daily aggregates and visible session rows are unchanged.
+  Nested agents retain the existing parent-path contract, and saved awards remain.
+- **Complete UI CI gate** — the canonical browser suite runs in four isolated
+  shards, each with one worker and a 35-minute limit. The stable `UI Test` aggregate
+  fails if any shard fails, is cancelled or is skipped. `Node Tests` and
+  `Release Package` retain their check names; packaging still requires both gates.
 
 - **Achievement recognition and retained history** — non-monetary collaboration/
   rainbow model recognition is separate from fixed pricing aliases; Claude accepts
@@ -243,27 +253,20 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   counts use compact chips. Above 960 px, the badge column fits its content up to
   two overview-card widths plus their internal gap; next targets fill the remaining
   space, with a 16 px column gap. At 960 px or below they stack directly with a
-  12 px gap. Layout results remain provisional. Auxiliary history
+  12 px gap. Auxiliary history
   sections follow both. Gallery icons remain 56/80/112 px; overview icons use
   56/72/96 px. The pure `achievementUiIcons` module uses known SVG paths without
   dependencies, network access or additional asset files. Existing controls,
-  persistence, eligibility and message protocols are unchanged. Early-data
-  evidence remains under investigation; this UI entry claims no data fix or new
-  validation pass. Source package version remains 2.1.1; the candidate is unreleased.
+  persistence, eligibility and message protocols are unchanged.
 
-- **Owned Codex cancellation** — following the native focus-related diagnostic
-  `errorCode=cancelled`, `failed=0`, `extension.ts` now returns early only for
-  explicit `codexWorkerCancellationRequested`, an error outcome with
-  `failureCode === 'cancelled'`, and `result.diagnostic?.failedFiles === 0`
-  exactly; a missing count is unknown and retains failure/revocation behavior.
-  It ignores that result: no snapshot application, success timestamp or new
-  acceptance receipt; prior failed state and last successful time remain intact.
-  Processing resumes after a fresh successful scan. The provider is unchanged:
-  all error results still mark the manifest incomplete. True file errors and
-  unowned cancellation retain failure/revocation behavior. Added regressions cover
-  a missing failed-file count and preservation of an earlier true failure with
-  `lastSuccessfulAt: 123`. Integrated compilation passed; the Node suite reported
-  2,436 passed, one skipped and zero failed. This is not native acceptance.
+- **Owned Codex cancellation** — an explicitly host-requested cancellation can
+  retain the prior accepted view without accepting the interrupted snapshot,
+  recording a successful refresh or creating a new award receipt. Earlier failures
+  stay failed; new activity requires a fresh verified scan, and history-only
+  reconciliation stays quiet. The strict zero failed-file check is defensive:
+  the current producer reports zero on terminal cancellation because final file
+  diagnostics are unavailable, not because no file failed. Missing/nonzero reported
+  counts, other errors and unowned cancellations retain failure/revocation behavior.
 
 - **Codex period-migration continuation** — valid checkpoints now resume while
   `tokenEventsSeen` is below the inherited prefix when `days` is empty. The bounded

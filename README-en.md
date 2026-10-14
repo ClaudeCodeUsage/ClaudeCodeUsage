@@ -60,7 +60,7 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 - **Multi-vendor pricing** — Opus 4.x / Sonnet 4.x / Haiku 4.5 verified against Anthropic's public pricing; reference rates for OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen with family-aware fallback. `Refresh Token Pricing` pulls live LiteLLM data.
 - **Personalisation** — language, timezone, decimal places, compact numbers, project grouping, dashboard auto-refresh toggle.
 
-## Local achievements (candidate)
+## Local achievements (2.4.2)
 
 Collaboration/rainbow model recognition is separate from pricing, so recognized but unpriced labels stay unpriced; retained monetary records keep their published pricebook labels, and Claude-only peaks survive unrelated Codex version changes.
 Loading, unavailable, changed and disabled record states replace empty counts; verified Claude cumulative usage shows `≥` while enabled Codex evidence remains unverified.
@@ -93,11 +93,9 @@ their own live receipts; other usage scopes still need their own origin proof.
 
 Awards use a local envelope capped at 64 KiB. Old badges keep unknown dates;
 new saved-action badges retain unread first-record days even if a notice is missed.
-`achievements-v2.json` is canonical; v1 is a read-only migration input. Records already
-saved under the 21 changed model/team/effort/rainbow conditions move to bounded old-rule history with
-unknown dates preserved; old Gold cannot prove the recalibrated rules. Windows
-share the v1 lease; clearing retains a v2 tombstone and an empty v1 downgrade
-fence so old writes cannot restore cleared awards. Provider source logs stay untouched.
+Saved awards survive restarts and are shared across windows. Awards under older
+rules retain their history without proving newer conditions. Clearing removes
+the award records without changing provider source logs.
 Badge notices appear only in the visible foreground panel, at most once per five
 minutes across windows/restarts. Display confirmation reads only that batch; missed
 notices stay unread. Hovering or keyboard focus pauses dismissal.
@@ -111,13 +109,21 @@ Manual mode shows only chosen pins; automatic mode recommends at most three.
 Pins and order survive restart and never select sharing.
 Pins hidden by a disabled provider can be removed from the folded hidden-pin list
 without re-enabling that provider.
+
+Explicit sharing can include retained earned badges from a disabled provider.
+The gallery and pin choices follow enabled providers; retained badges do not
+supply current progress or authorize new awards.
 Dates mean first recorded, not inferred
 attainment; historical dates remain unknown. Browsing does not mark records read or select sharing.
 
 Imported plugin-experience records stay quiet. A newly saved action can unlock
 its badge even with the dashboard closed; it never opens or refreshes a hidden panel.
 
-The unreleased 2.4.2 candidate's icon-first gallery groups **50 themes and 174 award conditions** into ordinary,
+Flat agent logs without a path-proven parent do not count toward session-based
+achievements. Their Token totals, pricing, daily aggregates and visible session
+rows stay unchanged; nested-agent ownership and saved awards are retained.
+
+The 2.4.2 icon-first gallery groups **50 themes and 174 award conditions** into ordinary,
 silver and gold tiers, with platinum/legendary cumulative milestones. Expand a card
 for every level's rule; the next target is visible on the card. Series and unlocked
 levels are counted separately. Local All / Next level / Earned filters survive reload,
@@ -126,7 +132,7 @@ Astra/Sol/Luna progression is primarily token-based; effort, agents, active days
 cache/output, and a few deliberate plugin actions add variety.
 Each series has distinct artwork, with one emblem shared by its colored tiers.
 Achievement numbers use integers; detailed conditions and data caveats stay expandable.
-The source catalog supplies 52 artwork groups. Fourteen-day and first shared-day
+The gallery uses 52 artwork groups. Fourteen-day and first shared-day
 milestones sit inside their growing themes, with distinct award and sharing choices.
 Fifteen sustained Claude/activity series add Platinum and Legendary ranks without changing their first three targets. Existing verified counters and artwork are reused. Activity days, output and sessions support concentrated three-day weeks without requiring Codex or higher spending; consecutive-day tiers are not extended.
 Pending or outdated evidence is labelled, not shown as zero progress, and excluded
@@ -206,11 +212,11 @@ Badges describe local history, possibly from shared accounts or several sign-ins
 not personal productivity or subscription allowance. Hour streaks mean recorded
 output in each UTC hour, not continuous human work. Safe-setting exploration and
 local feedback never require credentials or network consent. The exact bounded
-award storage and clear controls are in [LOCAL-DATA.md](LOCAL-DATA.md#local-achievements-242-candidate).
+award storage and clear controls are in [LOCAL-DATA.md](LOCAL-DATA.md#local-achievements-242).
 
-## Heatmap sharing and weekly quota pace (candidate)
+## Heatmap sharing and weekly quota pace (2.4.2)
 
-The unreleased 2.4.2 candidate's sharing heatmap offers **Claude / Codex / Both**
+The 2.4.2 sharing heatmap offers **Claude / Codex / Both**
 and **Tokens / API-equivalent amount**. Tokens are the default; amounts require
 an explicit choice. Amounts use current daily estimates, not achievement reference
 prices: Claude is estimated, while Codex prices exact known models only. Missing
@@ -237,6 +243,11 @@ rollover. Current Codex local logs cannot verify an account, so forecasting is
 unavailable. Dashboard and status-bar tooltip copy is shared across all eight
 locales; bar text/custom formats stay unchanged. No requests, timers or history are added.
 
+Current-cycle total and unused API-equivalent values remain low-confidence
+local-history estimates when account attribution is unclear. Accurate per-account
+separation is deferred to future multi-account support; these values are not account
+balances. This approximation is separate from the weekly quota-pace forecast.
+
 The overview uses bounded horizontal cards: artwork, title, rank and progress stay together, with pins inside the badge card and a thin progress bar for next targets. A few badges no longer spread across the entire desktop width; narrow views wrap without shrinking text. Gold rank labels stay legible in light themes while retaining a gold accent.
 
 Lightweight inline SVG icons accompany the existing localized share, settings,
@@ -244,17 +255,11 @@ filter, size, showcase-editor and information labels; counts appear as compact c
 Above 960 px, the badge column fits its content up to two overview-card widths
 plus their internal gap; the next-target column fills the remaining space, with
 16 px between columns. At 960 px or below they stack directly with a 12 px gap.
-Auxiliary history sections follow both. Layout results remain provisional.
-Existing controls, saved state, eligibility and message protocols are unchanged.
+Auxiliary history sections follow both.
 
 Gallery size controls now precede the overview. Small / Medium / Large use 56 / 80 /
 112 px collection icons and 56 / 72 / 96 px showcase icons, with nearby pin errors
-and stable keyboard focus when controls disappear or become disabled. These changes
-are integrated in candidate source. Integration alone does not establish full
-Node/UI, native/F5, installed-VSIX or performance acceptance; gate outcomes are
-recorded separately in local candidate evidence. Browser checks cannot prove
-native/F5, installed-package or Windows acceptance. The candidate is unreleased;
-subjective appearance requires user review. See [the data inventory](LOCAL-DATA.md)
+and stable keyboard focus when controls disappear or become disabled. See [the data inventory](LOCAL-DATA.md)
 for exact storage boundaries.
 
 ## What's new in v2.4

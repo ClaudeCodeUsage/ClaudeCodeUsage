@@ -24,19 +24,17 @@ v2.4 phase 1 consolidates the existing sharing surfaces into one preview-first
 workspace. A presentation selector switches among the combined activity
 heatmap, the legacy Claude Share Card, and the Claude-only token heatmap; the
 full-width export preview always precedes its controls.
-The unreleased 2.4.2 candidate adds default-on, local-only tiered achievements
+Version 2.4.2 adds default-on, local-only tiered achievements
 (`enableAchievements`), a once-only upgrade opt-out, and evidence/performance guards.
 It also integrates provider/metric heatmap sharing, a six-pin manual showcase and
-default-off weekly quota pace. These describe the unreleased working candidate.
-Source integration alone does not establish full Node/UI, native/F5, installed-VSIX
-or performance acceptance; gate outcomes are recorded separately in local candidate
-evidence. Browser checks cannot establish native/F5, installed-package or Windows
-acceptance, and subjective appearance still requires user review.
+default-off weekly quota pace. This document describes implementation contracts,
+not a release or acceptance record. Native/F5, installed-package and performance
+checks require their own evidence; browser checks do not establish those results.
 Source-level guards check source contracts; they do not establish executed UI
 transitions, native Webview behavior or installed-package acceptance.
 Codex effort statistics and cumulative-only monetary-origin receipts are integrated.
 GitHub-linked achievements, personal reviews and visualization redesign are not
-part of this candidate.
+part of version 2.4.2.
 
 - Claude: exact local token buckets, model pricing estimates, and Anthropic
   OAuth 5-hour/weekly quota.
@@ -361,7 +359,7 @@ credentials or make a network call to refresh it.
 
 ## Privacy and persistence
 
-### Local achievements (2.4.2 candidate)
+### Local achievements (2.4.2)
 
 The gallery has 50 display themes and 174 award conditions. `enableAchievements` defaults
 on, but an existing opt-out wins; a once-only non-modal upgrade announcement offers
@@ -469,7 +467,7 @@ No consecutive-day tiers or scanners are added. Family days now share the activi
 topic, so one automatic slot need not suppress an independently earned model-volume
 badge. Historical IDs and v1 series-pin vocabulary stay frozen, independent of live
 series membership. Additive IDs cannot be imported as v1 proof; current v2 accepts
-old144 envelopes and up to174 current records under the unchanged64 KiB cap. An
+old 144-record envelopes and up to 174 current records under the unchanged 64 KiB cap. An
 old binary may reject unfamiliar IDs but must not overwrite the canonical envelope.
 Higher output/cache tiers use the same causal native-tail checks; session/calendar
 reconciliation remains quiet with unknown dates. Explicit share choices never
@@ -480,6 +478,23 @@ independent indexed/global-calendar/timezone fences, contribution witnesses and
 period cursors/day vectors. Cursor-, witness- or fence-only changes retire
 calendar/Money caches even when displayed counters match. The digest reuses the
 existing hash/cache path; it adds no I/O, timer, store or persistent index field.
+
+The provider rebuilds the current full census and independent witnesses before
+comparing them exactly with the preceding publication. Only equal, detached,
+deeply immutable copies registered by `immutableCodexAchievementFiles` can reuse
+revision and calendar-projection memoization under the same independent fences.
+`indexChanged`, zero body reads, equal totals or a caller-supplied digest are not
+substitutes for this comparison. Mutable or malformed inputs take the ordinary
+validation path; worker-owned aggregates and older publications are not mutated.
+Money-scope binding reuses the internally validated projection instead of repeating
+the same calendar computation, without trusting an arbitrary supplied projection.
+
+A synthetic 20,000-file × three-date benchmark, including snapshot construction,
+measured median warm evaluation of about 348 → 109 ms and changed evaluation of
+about 2,110 → 1,460 ms. Changed/append work remains roughly 1.5 seconds and O(files)
+in this case; even reuse still requires full-census comparison. These local
+measurements exclude worker parsing, file discovery and dashboard rendering.
+They are not end-to-end refresh, native responsiveness or general latency guarantees.
 
 `codexAchievementCalendarProjection` requires a verified current manifest and
 complete base index. The provider constructs each runtime-only witness from the
@@ -494,7 +509,8 @@ even with undated residuals or an incomplete global calendar fence. A subset nev
 proves complete/zero history, a four-completed-week mean or a retained calendar peak;
 dual-provider date rules also retain their existing full-proof fence.
 
-`codexAchievementMoneyScopes` reprojects the original full census and checks
+`codexAchievementMoneyScopes` obtains the validated projection of the original
+full census, reusing it only for the immutable snapshots described above, and checks
 `sourceRevision`, completeness/scope and numeric day/model signatures before
 selecting fully dated files. Each selected file must cover every billable counter
 and model/date vector exactly; Token containment alone is insufficient. A positive
@@ -823,6 +839,11 @@ group ownership rather than replaying missed notices.
 既有 DOM 描述符仅存于运行期，保留幸存锚点，不新增偏好或客户端状态。
 排队保存前也复核供应商是否仍启用，避免请求发出后关闭供应商仍新增固定。
 
+Explicit badge sharing can include retained earned records from a disabled provider.
+The gallery and pin acquisition filter by enabled providers; retained records supply
+neither current usage progress nor new grant authority. Sharing does not re-enable
+the provider or read its logs.
+
 Badge sharing keeps one accepted SVG plus an opaque runtime-only handle. Client
 token/request counters reject superseded replies; a response may remove unavailable
 selected IDs but never add badges. Restore reuses matching accepted bytes. Export
@@ -838,10 +859,16 @@ and four local-feature enums, a streak maximum capped at 48, and one qualified
 four-week-average numeric maximum. It stores no setting values, account/source
 identifiers, prompts, credentials, timestamps of actions, or export history.
 Audit and recoverable migration state is exact-allowlisted in Clear All.
-See [the complete inventory](LOCAL-DATA.md#local-achievements-242-candidate).
+See [the complete inventory](LOCAL-DATA.md#local-achievements-242).
 
-Claude materializes all-session counts before the Sessions tab's 1,000-row display
-cap. Codex positive token/model/agent milestones require complete current manifest
+Claude materializes session-achievement evidence before the Sessions tab's
+1,000-row display cap. Flat `projects/<project>/agent-*.jsonl` files have no
+path-proven parent and are excluded only from that session-achievement evidence.
+Record `sessionId`/`isSidechain` metadata is not promoted into an ownership contract.
+Token totals, pricing, daily aggregates and visible session rows are unchanged;
+nested agents keep the existing parent-directory contract. This runtime-only
+filter neither changes source logs nor removes cached or saved awards.
+Codex positive token/model/agent milestones require complete current manifest
 indexing and independently verified canonical lineages. Identity conflicts block
 only affected branches and descendants, not unrelated positive proof. Selection
 and root resolution are iterative/memoized; invalid vectors, orphan/cyclic/unknown
@@ -974,7 +1001,7 @@ does not retain a history of artifacts or perform network/log reads.
 修改控制项后须重新预览；过期回复不会恢复导出权限。导出在保存对话框之前捕获已确认
 的 SVG，不重新生成不同内容，也不保留产物历史。
 
-The candidate's heatmap config allowlists `provider=claude|codex|both` and
+The heatmap config allowlists `provider=claude|codex|both` and
 `metric=tokens|apiEquivalent`. Amounts require `showAmounts=true`; otherwise it
 normalizes to Tokens. `apiHeatmapDaily.ts` locates the interval with logarithmic
 date-key lookup in existing descending daily arrays and projects only selected
@@ -1061,21 +1088,21 @@ model-ownership, money and current-source requirements, with an information icon
 on notes; these are scope requirements, not exact root-cause classifications, and
 expose no raw source/error details or new evidence authority.
 
-The native focus diagnostic confirmed host-owned cancellation with
-`errorCode=cancelled`, `failed=0`; that investigation read no actual conversation
-logs, credentials or databases. Following this finding,
-`extension.ts` now returns early only when `codexWorkerCancellationRequested` is
+`extension.ts` returns early only when `codexWorkerCancellationRequested` is
 true, the outcome is `error`, `failureCode === 'cancelled'`, and
 `result.diagnostic?.failedFiles === 0` exactly; a missing count remains unknown
-and follows failure/revocation behavior. The host ignores this cancellation result:
+and follows failure/revocation behavior. This zero-count check is defensive:
+the current producer reports `failedFiles: 0` for terminal cancellation/throws
+because final per-file diagnostics are unavailable. It does not prove that no
+files failed before cancellation. The host ignores this cancellation result:
 no snapshot application, success timestamp or new acceptance receipt; the prior
 failed state and last successful time remain intact. Processing resumes after a
-fresh successful scan. `codexProvider.ts` is unchanged and still marks every error
-result's manifest incomplete. True file errors and unowned cancellation retain
-failure/revocation behavior. Added regressions cover a missing failed-file count
-and preservation of an earlier true failure with `lastSuccessfulAt: 123`.
-Integrated compilation passed; the Node suite reported 2,436 passed, one skipped
-and zero failed. These results do not establish native acceptance.
+fresh successful scan. The interrupted result authorizes no new awards; subsequent
+history-only reconciliation remains import-only, without live dates or notices.
+`codexProvider.ts` marks every error result's manifest incomplete. Reported nonzero
+or missing failed-file counts, other errors and unowned cancellations retain
+failure/revocation behavior. A hypothetical nonzero cancelled result tests the
+host's defensive branch, not a failure census supplied by the current producer.
 
 Valid period-migration checkpoints now resume even when `tokenEventsSeen` is below
 the inherited prefix, provided `days` is empty. The bounded cursor advances across
@@ -1427,7 +1454,7 @@ of remaining subscription usage. This is not the elapsed-time prediction in
 
 The maintainer's 2026-10-11 decision preserves this existing current-cycle
 estimation behavior. Accurate per-account attribution belongs to future
-multi-account compatibility; it is not implemented or promised by this candidate.
+multi-account compatibility; it is not implemented or promised by version 2.4.2.
 
 v2.3.0 does not infer a $20, $100, or $200 subscription tier. Local Codex logs
 do not expose a reliable account-and-plan identity, so a future comparison must
@@ -1437,6 +1464,12 @@ use an explicit opt-in account mapping rather than attaching prices by guess.
 
 - Strict TypeScript, red-green TDD, full `node:test`, F5 smoke test, and installed
   VSIX smoke test are required in proportion to the change.
+- The canonical CI browser gate uses four isolated shards, one worker per shard
+  and a 35-minute timeout per shard. The stable `UI Test` aggregate runs with
+  `if: always()` and passes only when all shards succeed; failed, cancelled or
+  skipped shards fail closed. `Node Tests` and `Release Package` keep their check
+  names, and packaging depends on both Node and aggregated UI success. This
+  configuration is not evidence that a particular CI run has passed.
 - User-visible strings cover `en`, `de-DE`, `zh-TW`, `zh-CN`, `ja`, `ko`,
   `pt-BR`, and `id`; all nine README files (the main page plus eight locale
   editions) move together.
