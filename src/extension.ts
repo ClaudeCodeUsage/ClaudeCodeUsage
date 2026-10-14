@@ -3320,8 +3320,11 @@ export class ClaudeCodeUsageExtension {
         }
 
         // Only this host's explicit lifecycle cancellation is neutral. A
-        // cancelled worker alone is not trusted, and any failed file still
-        // withdraws current evidence. Do not accept its display-only snapshot,
+        // cancelled worker alone is not trusted. A reported failed file still
+        // withdraws current evidence; the current facade's thrown/cancelled
+        // response reports zero because final file diagnostics are unavailable.
+        // Keep the defensive guard for richer producers. This branch preserves
+        // only prior accepted proof. Do not accept its display-only snapshot,
         // timestamp a success, or issue a new achievement receipt.
         if (this.codexWorkerCancellationRequested && result.outcome === 'error' &&
             result.failureCode === 'cancelled' && result.diagnostic?.failedFiles === 0) {
@@ -3553,6 +3556,9 @@ export class ClaudeCodeUsageExtension {
       const indexed = nextView.currentManifestVerified === true && nextView.coverage.complete;
       const calendarComplete = indexed && nextView.coverage.identity.complete &&
         nextView.periodCoverage.allTime.complete;
+      // The provider may reuse a deeply immutable census after reconstructing
+      // current witnesses and comparing every field. Revision/calendar memoize
+      // only that publication; mutable snapshots still take full validation.
       const revision = codexAchievementProofRevision(snapshot.files, {
         indexed, calendarComplete, timeZone: nextView.periodCoverage.timeZone,
       });

@@ -15,6 +15,8 @@ import {
   analyzeLine,
   ClaudeDataLoader,
   compactUsageRecord,
+  tagClaudeSessionEvidence,
+  ClaudeSessionUsage,
   finalizeAnalysis,
   mergeAnalysisAcc,
   newAnalysisAcc,
@@ -230,7 +232,7 @@ export interface ClaudeUsageIndex {
   visibleKeysByBranch: Map<string, Set<string>>;
   visibleKeysByWorkflow: Map<string, Set<string>>;
   visibleKeysByLocalDay: Map<string, Set<string>>;
-  sessionRows: Map<string, SessionUsage>;
+  sessionRows: Map<string, ClaudeSessionUsage>;
   projectRows: Map<string, ProjectUsage>;
   projectSessionIds: Map<string, Set<string>>;
   branchRows: Map<string, BranchUsage>;
@@ -1598,6 +1600,7 @@ async function parsePlan(
               _sessionId: sessionInfo.sessionId,
               _projectDirEncoded: sessionInfo.projectPath,
             };
+            tagClaudeSessionEvidence(record, plan.entry.path);
             const cwd = parsed.cwd;
             if (typeof cwd === 'string' && cwd.trim()) {
               record._projectPath = cwd;
@@ -1624,6 +1627,7 @@ async function parsePlan(
         if (!validateUsageRecord(parsed)) return;
         const record = compactUsageRecord(parsed as unknown as ClaudeUsageRecord);
         record._sessionId = sessionInfo.sessionId;
+        tagClaudeSessionEvidence(record, plan.entry.path);
         record._projectDirEncoded = sessionInfo.projectPath;
         const cwd = parsed.cwd;
         if (typeof cwd === 'string' && cwd.trim()) {
@@ -2085,6 +2089,7 @@ function retagMovedFile(
   const retag = (value: IndexedRecord): IndexedRecord => {
     const record = { ...value.record, message: value.record.message };
     record._sessionId = newInfo.sessionId;
+    tagClaudeSessionEvidence(record, entry.path);
     record._projectDirEncoded = newInfo.projectPath;
     if (record._projectPath === oldInfo.projectPath) {
       record._projectPath = newInfo.projectPath;
@@ -2543,7 +2548,9 @@ export function claudeUsageDashboardSnapshot(
   const now = options.now ?? new Date();
   const aggregates = claudeUsageAggregateSnapshot(index, now);
   const achievementSessions = [...index.sessionRows.values()];
-  const achievementSessionEvidence = claudeSessionAchievementEvidence(achievementSessions);
+  const achievementSessionEvidence = claudeSessionAchievementEvidence(
+    achievementSessions.filter((row) => !row._unownedAgentSession),
+  );
   const sessions = [...achievementSessions]
     .sort((left, right) => right.endTime.getTime() - left.endTime.getTime())
     .slice(0, 1000);

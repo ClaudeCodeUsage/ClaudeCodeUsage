@@ -5,7 +5,7 @@ import { createCodexParserState } from './providers/codex/codexParser';
 import type { ProviderTokenCounts } from './providers/providerTypes';
 import type { UsageData } from './types';
 import { verifiedCodexAchievementFiles } from './codexAchievementProof';
-import { codexAchievementProofRevision } from './codexAchievementRevision';
+import { codexAchievementProofRevision, isImmutableCodexAchievementFiles } from './codexAchievementRevision';
 
 /** Numeric, already-materialized calendar evidence; no source-log I/O. */
 export interface AchievementDay {
@@ -343,10 +343,25 @@ export interface CodexAchievementCalendarProjection {
   completeDateFiles: CodexFileAggregate[];
   completeDateEvidence: AchievementDayEvidence;
 }
+const calendarProjections = new WeakMap<readonly CodexFileAggregate[], {
+  timeZone: string; indexed: boolean; wholeCensusComplete: boolean; projection: CodexAchievementCalendarProjection;
+}>();
+function freezeDayEvidence(evidence: AchievementDayEvidence): void {
+  for (const day of evidence.days) {
+    for (const model of Object.values(day.models)) Object.freeze(model);
+    Object.freeze(day.models); Object.freeze(day);
+  }
+  Object.freeze(evidence.days); Object.freeze(evidence);
+}
 /** No source reads. Expected offsets/prefixes come from the provider's actual
- * contributions, never copied from the period that they are meant to verify. */
+ * contributions, never copied from the period that they are meant to verify.
+ * Only a detached, deeply immutable census can reuse this evaluation. All
+ * independent fences are keys; caller-supplied projections cannot seed it. */
 export function codexAchievementCalendarProjection(files: readonly CodexFileAggregate[], timeZone: string,
   indexed: boolean, wholeCensusComplete = true): CodexAchievementCalendarProjection {
+  const cached = calendarProjections.get(files);
+  if (cached && cached.timeZone === timeZone && cached.indexed === indexed &&
+    cached.wholeCensusComplete === wholeCensusComplete) return cached.projection;
   const empty = (): CodexAchievementCalendarProjection => ({evidence:{complete:false,days:[],timeZone},
     completeDateFiles:[],completeDateEvidence:{complete:false,days:[],timeZone}});
   if (!indexed || !Array.isArray(files) || !validTimeZone(timeZone)) return empty();
@@ -369,9 +384,15 @@ export function codexAchievementCalendarProjection(files: readonly CodexFileAggr
   const whole=wholeCensusComplete && selected.length===files.length && proofs.length===files.length && proofs.every(proof=>proof.complete);
   const days=[...rows.values()];
   const sourceRevision=codexAchievementProofRevision(files,{indexed,calendarComplete:wholeCensusComplete,timeZone});
-  return {evidence:{complete:whole,days,timeZone,sourceRevision,
+  const projection: CodexAchievementCalendarProjection = {evidence:{complete:whole,days,timeZone,sourceRevision,
     ...(!whole && days.some(day=>day.processed>0) ? {scope:'verified-subset' as const} : {})},
     completeDateFiles, completeDateEvidence:{complete:true,days:[...moneyRows.values()],timeZone}};
+  if (isImmutableCodexAchievementFiles(files)) {
+    freezeDayEvidence(projection.evidence); freezeDayEvidence(projection.completeDateEvidence);
+    Object.freeze(projection.completeDateFiles); Object.freeze(projection);
+    calendarProjections.set(files, { timeZone, indexed, wholeCensusComplete, projection });
+  }
+  return projection;
 }
 
 /** All four Claude buckets are disjoint; models must fit each original component. */

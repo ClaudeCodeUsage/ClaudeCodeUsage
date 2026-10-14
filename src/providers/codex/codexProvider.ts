@@ -1,5 +1,6 @@
 import { lstat } from 'node:fs/promises';
 import * as path from 'node:path';
+import { immutableCodexAchievementFiles } from '../../codexAchievementRevision';
 
 import {
   ProviderLimitSnapshot,
@@ -555,7 +556,15 @@ export class CodexProvider {
         return { outcome: 'unavailable', snapshot: this.invalidateCurrentManifestProof() };
       }
       this.snapshotGeneration += 1;
-      this.currentSnapshot = snapshotFromIndex(result.index, sessionTitles, true);
+      const snapshot = snapshotFromIndex(result.index, sessionTitles, true);
+      if (result.failedFiles === 0 && this.options.allowAchievementHourProof !== false) {
+        // Rebuild current census and witnesses above even on zero-body reads.
+        // Only full equality against a detached frozen publication allows reuse;
+        // indexChanged is persistence metadata, not an achievement revision.
+        snapshot.files = immutableCodexAchievementFiles(snapshot.files,
+          this.currentSnapshot?.currentManifestVerified ? this.currentSnapshot.files : undefined);
+      }
+      this.currentSnapshot = snapshot;
       const outcome: ProviderSourceOutcome =
         result.failedFiles > 0 ||
           !result.index.coverage.complete ||
@@ -597,6 +606,8 @@ export class CodexProvider {
         snapshot,
         progress: this.lastProgress,
         diagnostic: {
+          // A thrown/cancelled worker returns no final per-file diagnostics.
+          // Zero here means unavailable, not a fresh successful failure census.
           bodyReads: 0, failedFiles: 0, metadataMs: 0, parseMs: 0,
           migrationPending: false,
           errorCode: safeCodexIndexErrorCode(error instanceof CodexWorkerError ? error.code : undefined),

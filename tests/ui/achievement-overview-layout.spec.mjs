@@ -1,4 +1,5 @@
 import { test, expect, openClaude } from './support/app.mjs';
+import AxeBuilder from '@axe-core/playwright';
 
 for (const theme of ['dark','light','highContrast']) {
   test(`showcase pairs badges with goals and uses accessible illustrated controls: ${theme}`, async ({page},testInfo) => {
@@ -16,6 +17,10 @@ for (const theme of ['dark','light','highContrast']) {
       await expect(button).toBeVisible();
       await expect(button).toHaveAccessibleName(/\S/);
       await expect(button.locator('svg')).toHaveAttribute('aria-hidden','true');
+    }
+    if(theme==='light'){
+      const audit=await new AxeBuilder({page}).include('.achievement-filter-toolbar').analyze();
+      expect(audit.violations.filter(row=>['serious','critical'].includes(row.impact))).toEqual([]);
     }
     await page.screenshot({path:testInfo.outputPath('compact-showcase-desktop.png'),animations:'disabled'});
     await page.setViewportSize({width:320,height:900});

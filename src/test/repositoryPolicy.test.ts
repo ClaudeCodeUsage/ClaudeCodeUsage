@@ -1666,6 +1666,14 @@ test('v2.4 synthetic preview images are present and carry no text metadata', () 
 });
 
 test('v2.4 README editions describe one preview-first sharing workspace', () => {
+  const assertMinorReleaseHeadings = (body: string, readme: string): void => {
+    // Feature chapters may document a patch release; What's new remains minor-only.
+    const releaseHeadings = body.split(/\r?\n/).filter((line) =>
+      /^#{2,6}\s/.test(line) && /What['’]s new|新功能|新機能|새로운 기능|Yang baru/i.test(line),
+    );
+    assert.doesNotMatch(releaseHeadings.join('\n'), /(?:^|[^\d])2\.4\.\d/,
+      `${readme} must keep What's new at minor-version granularity`);
+  };
   const expectations: Record<string, RegExp[]> = {
     'README.md': [
       /^## What's new in 2\.4$/m,
@@ -1727,11 +1735,10 @@ test('v2.4 README editions describe one preview-first sharing workspace', () => 
       assert.ok(body.includes(publicId), `${readme} is missing compatibility command ${publicId}`);
     }
     assert.match(body, /enableShareCard/, `${readme} is missing the single visible sharing switch`);
-    assert.doesNotMatch(
-      body,
-      /^##[^\n]*2\.4\.\d[^\n]*$/m,
-      `${readme} must keep What's new at minor-version granularity`,
-    );
+    assertMinorReleaseHeadings(body, readme);
+    const patchHeading = body.match(patterns[0])![0].replace('2.4', '2.4.2');
+    assert.throws(() => assertMinorReleaseHeadings(`${body}\n${patchHeading}`, readme),
+      /minor-version granularity/, 'a patch-level release heading must still fail in every edition');
   }
 });
 
@@ -1944,7 +1951,65 @@ test('CI has separate Node, browser, and package release gates', () => {
   assert.match(workflow, /image:\s*mcr\.microsoft\.com\/playwright:v1\.61\.1-noble/);
   assert.match(workflow, /PLAYWRIGHT_BROWSERS_PATH:\s*\/ms-playwright/);
   assert.match(workflow, /needs:\s*\[test, ui\]/);
-  assert.ok(runValues.includes('npm run test:ui'));
+  const assertShardedUiGate = (source: string): void => {
+    // Scope assertions to each job so unrelated commands/comments cannot satisfy a gate.
+    const active = source.split(/\r?\n/).filter((line) => !line.trimStart().startsWith('#')).join('\n');
+    const job = (id: string): string => {
+      const blocks = [...active.matchAll(new RegExp(`^  ${id}:\\s*\n([\\s\\S]*?)(?=^  [\\w-]+:|(?![\\s\\S]))`, 'gm'))];
+      assert.equal(blocks.length, 1, `exactly one ${id} job is required`);
+      return blocks[0][1];
+    };
+    const node = job('test');
+    const shards = job('ui_shards');
+    const ui = job('ui');
+    const packaging = job('package');
+    assert.match(node, /^    name:\s*Node Tests\s*$/m);
+    assert.match(ui, /^    name:\s*UI Test\s*$/m);
+    assert.match(packaging, /^    name:\s*Release Package\s*$/m);
+    for (const [name, block] of [['Node', node], ['UI shards', shards], ['UI gate', ui], ['package', packaging]]) {
+      assert.doesNotMatch(block, /^\s+continue-on-error:/m, `${name} must propagate failures`);
+    }
+    for (const block of [node, shards, packaging]) {
+      assert.doesNotMatch(block, /^\s+if:/m, 'required gates must not be conditional or bypass default success checks');
+    }
+    assert.ok(workflowStepValues(node, 'run').some(({ value }) => value === 'npm test'));
+    assert.match(shards, /^      fail-fast:\s*false\s*$/m);
+    const matrices = [...shards.matchAll(/^      matrix:\s*\n((?:^ {8}[^\n]*\n?)*)/gm)];
+    assert.equal(matrices.length, 1, 'UI requires one complete four-shard matrix');
+    assert.equal(matrices[0][1].trim(), 'shard: [1, 2, 3, 4]', 'no missing, duplicate, excluded or extra shards');
+    assert.deepEqual(workflowStepValues(shards, 'run').map(({ value }) => value), [
+      'npm ci',
+      'npm run test:ui -- --fully-parallel --workers=1 --shard=${{ matrix.shard }}/4',
+    ], 'each shard must run the unfiltered full UI suite and propagate its exit status');
+    assert.match(shards, /^      image:\s*mcr\.microsoft\.com\/playwright:v1\.61\.1-noble\s*$/m);
+    assert.match(shards, /^      PLAYWRIGHT_BROWSERS_PATH:\s*\/ms-playwright\s*$/m);
+    assert.match(ui, /^    needs:\s*\[ui_shards\]\s*$/m);
+    assert.deepEqual(ui.match(/^\s+if:[^\n]*$/gm)?.map((line) => line.trim()), ['if: always()']);
+    assert.deepEqual(workflowStepValues(ui, 'run').map(({ value }) => value), [
+      "test '${{ needs.ui_shards.result }}' = 'success'",
+    ], 'failed, cancelled and skipped shards must fail the stable UI Test gate');
+    assert.match(packaging, /^    needs:\s*\[test, ui\]\s*$/m);
+  };
+  assertShardedUiGate(workflow);
+  for (const [before, after] of [
+    ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3]'],
+    ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3, 3]'],
+    ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3, 4]\n        exclude: [{ shard: 4 }]'],
+    ['--shard=${{ matrix.shard }}/4', '--shard=1/4'],
+    ['--workers=1', '--workers=1 --grep smoke'],
+    ['--shard=${{ matrix.shard }}/4', '--shard=${{ matrix.shard }}/4 || true'],
+    ['  ui_shards:\n', '  ui_shards:\n    continue-on-error: true\n'],
+    ['  ui_shards:\n', '  ui_shards:\n    if: false\n'],
+    ['    needs: [ui_shards]', '    needs: [test]'],
+    ['    if: always()', '    if: success()'],
+    ["= 'success'", "!= 'failure'"],
+    ['    needs: [test, ui]', '    needs: [test]'],
+    ['  package:\n', '  package:\n    if: always()\n'],
+  ]) {
+    assert.ok(workflow.includes(before), `mutation anchor is missing: ${before}`);
+    assert.throws(() => assertShardedUiGate(workflow.replace(before, after)),
+      { code: 'ERR_ASSERTION' }, `unsafe CI mutation must fail: ${after}`);
+  }
   const packageAt = runValues.indexOf('npx -y @vscode/vsce@4.0.0 package --out /tmp/claude-code-usage-ci.vsix');
   const verifyAt = runValues.indexOf('node .github/scripts/verify-vsix.mjs /tmp/claude-code-usage-ci.vsix');
   assert.ok(packageAt >= 0 && verifyAt > packageAt, 'smoke VSIX verification must follow packaging');

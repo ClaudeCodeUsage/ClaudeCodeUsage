@@ -392,6 +392,9 @@ export function codexAchievementMoneyScopes(input: CodexMoneyScopesInput): Achie
   if (input.dayEvidence?.sourceRevision !== undefined) {
     try {
       const supplied=input.dayEvidence;
+      // Immutable producer snapshots reuse the internally evaluated projection
+      // (including its full-census ancestry/witness checks). Mutable inputs are
+      // re-evaluated. A supplied digest or matching totals never seeds the cache.
       const projection=codexAchievementCalendarProjection(input.files,supplied.timeZone ?? '',input.complete,input.calendarComplete!==false);
       const current=projection.evidence;
       const signatures=(proof:AchievementDayEvidence):string => {

@@ -37,10 +37,14 @@ jobs:
       - name: Run Node tests
         run: npm test
 
-  ui:
-    name: UI Test
+  ui_shards:
+    name: UI Shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     container:
       image: mcr.microsoft.com/playwright:v1.61.1-noble
       options: --ipc=host
@@ -57,7 +61,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run full Webview gate
-        run: npm run test:ui
+        run: npm run test:ui -- --fully-parallel --workers=1 --shard=${{ matrix.shard }}/4
+
+  # Preserve the stable required check and fail closed on any failed,
+  # cancelled or skipped shard. Each shard has its own VM/server/storage.
+  ui:
+    name: UI Test
+    needs: [ui_shards]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every UI shard to pass
+        run: test '${{ needs.ui_shards.result }}' = 'success'
 
   package:
     name: Release Package

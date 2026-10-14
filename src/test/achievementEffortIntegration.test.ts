@@ -5,6 +5,8 @@ import type { CodexProviderSnapshot } from '../providers/codex/codexProvider';
 import { buildCodexUsageView } from '../providers/codex/codexUsage';
 import { createEmptyQuotaObservationStore } from '../quotaObservationStore';
 import { snapshotFixture } from './codexFixtures';
+import { immutableCodexAchievementFiles } from '../codexAchievementRevision';
+import * as crypto from 'node:crypto';
 
 // Same module shim / bare-prototype pattern as extensionWindowActivity.test.
 // Loading the class does not construct or activate a second extension instance.
@@ -182,6 +184,38 @@ test('unchanged cloned proof reuses identical effort DTO with zero extra helper 
     if (change === 'clone') assert.equal(extension.codexView, firstView);
     else assert.notEqual(extension.codexView, firstView, `${change} really changed the display contract`);
   }
+});
+
+test('actual host performs no additional history hash or effort evaluation on an immutable warm publication', (t) => {
+  const calls = instrument(t), { extension, config } = harness();
+  const snapshot = completeCurrentSnapshot();
+  snapshot.files = immutableCodexAchievementFiles(snapshot.files);
+  let hashes = 0, insideRevision = false;
+  const proof = require('../codexAchievementRevision') as typeof import('../codexAchievementRevision');
+  const calculateRevision = proof.codexAchievementProofRevision;
+  proof.codexAchievementProofRevision = (...args) => {
+    insideRevision = true;
+    try { return calculateRevision(...args); } finally { insideRevision = false; }
+  };
+  const createHash = crypto.createHash;
+  t.mock.method(crypto, 'createHash', (...args: Parameters<typeof createHash>) => {
+    if (insideRevision) hashes++;
+    return createHash(...args);
+  });
+  adopt(extension, snapshot);
+  const first = extension.codexAchievementSignals, afterCold = hashes;
+  assert.equal(afterCold, 1, 'host revision, calendar and money share one digest');
+  adopt(extension, { ...snapshot });
+  assert.equal(hashes, afterCold);
+  assert.equal(calls.effort, 1);
+  assert.equal(extension.codexAchievementSignals, first);
+  config.enableAchievements = false;
+  adopt(extension, snapshot);
+  assert.equal(extension.codexAchievementRevision, undefined);
+  config.enableAchievements = true;
+  adopt(extension, snapshot);
+  assert.notEqual(extension.codexAchievementSignals, first);
+  assert.equal(calls.effort, 2, 're-enable reevaluates current authority even for immutable input');
 });
 
 test('effort-only counter proof change recomputes all six rows even when the rendered view remains equal', (t) => {

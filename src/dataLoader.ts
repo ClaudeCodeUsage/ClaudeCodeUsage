@@ -46,6 +46,23 @@ import {
   WorkflowUsage,
 } from './types';
 
+/** In-memory provenance only; never accept this flag from JSONL metadata. */
+type ClaudeSessionEvidenceRecord = ClaudeUsageRecord & { _unownedAgentSession?: true };
+export type ClaudeSessionUsage = SessionUsage & { _unownedAgentSession?: true };
+
+/** Flat agent files have no path-proven parent. Keep their usage/session rows,
+ * but do not treat their basename as evidence of an independent conversation.
+ * Record sessionId/isSidechain metadata is not an established ownership contract
+ * here; nested agents retain the existing parent-directory contract. No I/O. */
+export function tagClaudeSessionEvidence(record: ClaudeUsageRecord, filePath: string): void {
+  const tagged = record as ClaudeSessionEvidenceRecord;
+  if (/(?:^|[\\/])projects[\\/][^\\/]+[\\/]agent-[^\\/]+\.jsonl$/.test(filePath)) {
+    tagged._unownedAgentSession = true;
+  } else {
+    delete tagged._unownedAgentSession;
+  }
+}
+
 /** One-pass bounds; spreading an unbounded history exceeds V8's argument limit. */
 export function recordTimestampBounds(
   records: Iterable<Pick<ClaudeUsageRecord, 'timestamp'>>,
@@ -1020,6 +1037,7 @@ export class ClaudeDataLoader {
                     _sessionId: sessionInfo.sessionId,
                     _projectDirEncoded: sessionInfo.projectPath,
                   };
+                  tagClaudeSessionEvidence(prompt, file);
                   const pcwd = lineAny.cwd;
                   if (typeof pcwd === 'string' && pcwd.trim() !== '') {
                     prompt._projectPath = pcwd;
@@ -1049,6 +1067,7 @@ export class ClaudeDataLoader {
               // over the lossy, dash-encoded folder name when it is available.
               const record = compactUsageRecord(data as ClaudeUsageRecord);
               record._sessionId = sessionInfo.sessionId;
+              tagClaudeSessionEvidence(record, file);
               record._projectDirEncoded = sessionInfo.projectPath;
               const cwd = (parsed as { cwd?: unknown }).cwd;
               if (typeof cwd === 'string' && cwd.trim() !== '') {
@@ -2427,7 +2446,7 @@ export class ClaudeDataLoader {
    *   cap, not a "recent" window: the Sessions tab shows all of a normal user's
    *   sessions and narrows them with client-side time / project / model filters.
    */
-  static getSessionBreakdown(records: ClaudeUsageRecord[], limit: number = 1000): SessionUsage[] {
+  static getSessionBreakdown(records: ClaudeUsageRecord[], limit: number = 1000): ClaudeSessionUsage[] {
     // Internal grouping tables have no inherited keys. Public rows/snapshots
     // still use their existing ordinary-object shape.
     const recordsBySession: Record<string, ClaudeUsageRecord[]> = Object.create(null);
@@ -2440,7 +2459,7 @@ export class ClaudeDataLoader {
       recordsBySession[sessionId].push(record);
     }
 
-    const sessions: SessionUsage[] = Object.entries(recordsBySession).map(([sessionId, sessionRecords]) => {
+    const sessions: ClaudeSessionUsage[] = Object.entries(recordsBySession).map(([sessionId, sessionRecords]) => {
       const timestamps = recordTimestampBounds(sessionRecords);
       const startTime = new Date(timestamps.first);
       const endTime = new Date(timestamps.last);
@@ -2458,6 +2477,8 @@ export class ClaudeDataLoader {
         endTime,
         data: this.calculateUsageData(sessionRecords),
         peakContextTokens,
+        ...(sessionRecords.some((r) => (r as ClaudeSessionEvidenceRecord)._unownedAgentSession)
+          ? { _unownedAgentSession: true as const } : {}),
       };
     });
 

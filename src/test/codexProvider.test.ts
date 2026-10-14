@@ -223,6 +223,35 @@ function calendarWitnessIndex(prefixEvents = 0): CodexIndexV1 {
   return index;
 }
 
+test('provider reuses only an immutable equal current census, independently of unchanged worker hints', async (t) => {
+  const index = calendarWitnessIndex();
+  const responses = Array.from({ length: 5 }, () => ({ ...workerResult(index), failedFiles: 0, bodyReads: 0, indexChanged: false }));
+  const client = new FakeClient(responses);
+  const provider = new CodexProvider({ enabled: true, codexHome: '/synthetic-not-read',
+    indexPath: '/synthetic-not-read/index', salt: 'public-fixture', timeZone: 'UTC' }, () => client);
+  t.mock.method(provider, 'isAvailable', async () => true);
+  t.mock.method((provider as any).sessionTitleCache, 'load', async () => new Map());
+  const first = (await provider.refresh()).snapshot;
+  const warm = (await provider.refresh()).snapshot;
+  assert.equal(warm.files, first.files);
+  assert.ok(Object.isFrozen(first.files[0].period!.days));
+  const file = Object.values(index.files)[0];
+  file.offset--; // No body-read/indexChanged hint, and display totals still equal.
+  const stale = (await provider.refresh()).snapshot;
+  assert.notEqual(stale.files, first.files);
+  assert.equal(stale.files[0].achievementPeriodWitness, undefined);
+  assert.equal(first.files[0].achievementPeriodWitness!.offset, 100);
+  file.offset++;
+  provider.setAchievementHourProofEnabled(false);
+  const off = (await provider.refresh()).snapshot;
+  assert.equal(Object.isFrozen(off.files), false, 'OFF adds no immutable achievement capture');
+  provider.setAchievementHourProofEnabled(true);
+  const enabled = (await provider.refresh()).snapshot;
+  assert.notEqual(enabled.files, off.files);
+  assert.ok(Object.isFrozen(enabled.files));
+  await provider.dispose();
+});
+
 test('calendar witness comes from a verified settled source, survives warm zero-body refresh, and stays runtime-only', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-provider-calendar-witness-'));
   try {

@@ -13821,7 +13821,7 @@ export class UsageWebviewProvider {
       .achievement-filter-toolbar { color: var(--vscode-descriptionForeground); }
       .achievement-filter-control { display: flex; align-items: center; gap: 7px; padding: 4px 8px;
         background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; min-width: 0; }
-      .achievement-filter-control label { display: flex; align-items: center; gap: 6px; font-size: .85rem; }
+      .achievement-filter-control label { display: flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--vscode-foreground); }
       .achievement-filter-control select { min-height: 28px; }
       #achievementShownCount { margin-inline-start: auto; font-size: .85rem; }
       #achievementShowcaseEditor { border-block-end: 1px solid var(--vscode-panel-border); padding-bottom: 8px; }
