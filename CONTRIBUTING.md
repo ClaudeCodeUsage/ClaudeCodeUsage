@@ -57,6 +57,31 @@ a default-profile `code --install-extension` or modify the daily installation.
 - If your change affects user-facing behaviour, update `CHANGELOG.md` and the
   relevant parts of `README.md`.
 
+### Merge strategy and progress commits
+
+The project defaults to **Squash and merge**: each reviewed PR adds one commit
+to `main`, including multi-stage features and version work. A normal merge or
+rebase merge requires an explicit maintainer exception for that PR.
+Keep meaningful local stage commits until the PR is merged for verification and
+rollback; this default does not require pre-squashing progress commits before
+review. Do not rewrite published history or shared branches to apply it.
+
+Merge the contributor's original PR and verify the squash commit author and all
+applicable `Co-authored-by` trailers. Never copy another contributor's PR into a
+maintainer PR and close the original as superseded. If changes are needed,
+prefer an author update, or update the original PR branch with explicit
+authorization. Keep truthful credit on each Release change entry, as described
+in [Release-note attribution](#release-note-attribution).
+See [the repository Git policy](AGENTS.md#git-and-release-discipline).
+
+中文审阅：本项目默认 Squash and merge，每个已审阅 PR 向 `main` 合入一个提交，
+多阶段功能和版本开发也适用。只有维护者针对该 PR 明确指定时，才例外采用普通 merge
+或 rebase merge。本地有意义的阶段提交保留至 PR 合并，供验证和回滚，不要求在审阅前
+提前 squash；不得为应用此规则重写已发布历史或共享分支。合并贡献者的原始 PR，
+核对 squash commit 作者及所有适用的 `Co-authored-by` trailer；不得把他人 PR
+复制进维护者 PR 后以 superseded 为由关闭原 PR。需要修改时，优先请作者更新，
+或经明确授权在原 PR 分支修改。Release 每条变更均保留真实贡献者 credit。
+
 ## Tests
 
 Tests run in three layers:
@@ -123,7 +148,7 @@ tags:
    clear). A maintainer applies the matching label when merging — that label sets
    the version bump (`minor` → minor, `breaking` or `major` → major; ordinary
    `feature` / `fix` / docs and unlabeled PRs → patch).
-2. **A maintainer merges it.** [Release Drafter](https://github.com/release-drafter/release-drafter)
+2. **A maintainer squash-merges it by default.** [Release Drafter](https://github.com/release-drafter/release-drafter)
    then adds your change to a continuously-updated **draft GitHub Release** and
    recomputes the next version.
 3. **To ship, a maintainer reviews that draft and clicks Publish.** That creates
@@ -134,8 +159,10 @@ tags:
    can recover either registry without changing the release tag. Older releases
    that have no asset yet are rebuilt once from their exact tag and repaired.
 
-Because changes ship by **merging** your PR — not by re-applying it — your commit
-authorship and the PR's *merged* status are preserved.
+Changes ship through your original PR, preserving its *merged* status. The default
+squash produces a new commit rather than preserving each branch commit SHA; the
+maintainer verifies its author and applicable `Co-authored-by` trailers and retains
+truthful per-entry Release credit.
 
 ### Release-note attribution
 

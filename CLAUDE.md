@@ -3,6 +3,10 @@
 Compatibility entry point for Claude Code. `AGENTS.md` is the canonical repository policy;
 read and follow it before changing this repository. The
 faithful maintainer review copy is `AGENTS.zh-CN.md`.
+For PR integration, follow its [Git and release discipline](AGENTS.md#git-and-release-discipline):
+default to Squash and merge, one commit per PR on `main`, while retaining local
+stage commits until merge for verification and rollback. Normal or rebase merges
+require an explicit maintainer exception; preserve original PRs and truthful credit.
 Use its task-scoped documentation routes rather than loading every historical
 plan. Verify the actual checkout/branch and current local handoff before a
 version-specific task; a source manifest version is not proof of publication.

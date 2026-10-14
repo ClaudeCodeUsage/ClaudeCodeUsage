@@ -207,22 +207,27 @@ anchors. A static assertion of the first render is not acceptance evidence.
 - Tracked files default to mode `100644` and LF endings. Use `100755` only for a
   real directly executed program, register it in the repository policy test,
   and verify modes with `git ls-files --stage` before committing.
-- Keep commits focused. For reviewed multi-stage features, performance work and
-  version development, prefer a normal merge commit into `main`, preserving
-  meaningful implementation, test and fix commits and their original SHAs.
-- Use squash merge for a single small logical fix when its branch contains many
-  trial or fixup commits. Choose based on the actual commit history, not only the
-  PR title. Preserve meaningful commit chains when preparing a PR; do not first
-  collapse a multi-stage change into one publication commit.
+- This project defaults to **Squash and merge**: each reviewed PR contributes
+  one commit to `main`, including multi-stage features, performance work and
+  version development. A normal merge or rebase merge is an exception only when
+  explicitly specified by the maintainer for that PR.
+- Local progress commits are separate from the PR merge strategy. Preserve
+  meaningful implementation, test and fix commits until the PR is merged so
+  stages remain available for verification and rollback; do not pre-squash them
+  merely to prepare a PR. Preserving their original SHAs in `main` is not the default.
 - Commit at meaningful, verifiable milestones, not per file, agent turn or
   contribution-graph target. Keep a logical change with its regression tests and
   necessary documentation together. Fold trivial formatting, wording and immediate
   fixups into related unpublished work; retain separate commits for independently
-  useful fixes or evidence-backed milestones. Before a PR, consolidate noisy
-  unpublished checkpoints while preserving meaningful stages and attribution;
-  do not rewrite shared history without explicit authorization.
-- Leave previously squashed history unchanged. Do not reconstruct or re-merge
-  old commits merely to restore contribution-graph counts.
+  useful fixes or evidence-backed milestones until merge. Do not rewrite published
+  history or shared branches to apply this default. Leave previously squashed
+  history unchanged; do not reconstruct or re-merge old commits merely to restore
+  contribution-graph counts.
+- Preserve the original PR and truthful authorship when squashing: verify the
+  squash commit author and all applicable `Co-authored-by` trailers. Keep real
+  contributor credit on each Release change entry; an aggregate contributor list
+  is not a substitute. Squashing must not relabel another author's work as the
+  maintainer's or an assistant's.
 - Never copy changes from a contributor pull request into a maintainer PR and
   close the contributor PR as superseded. To preserve attribution, merge the
   contributor's original pull request, or—with explicit authorization—update that
