@@ -8,7 +8,7 @@ import type { UsageData } from '../types';
 
 const date = '2026-10-12';
 const range: ApiHeatmapDailyRange = {
-  startDateISO: date, endDateISO: date, timezone: '+08:00',
+  startDateISO: date, endDateISO: date, timezone: 'Asia/Shanghai',
   provider: 'both', metric: 'apiEquivalent', showAmounts: true,
 };
 type Model = UsageData['modelBreakdown'][string];
@@ -148,11 +148,39 @@ test('canonical range validation uses supplied dates/zone, never an implicit clo
     { startDateISO: '2026-10-13' }, { startDateISO: '2025-01-01' }, { timezone: '/Users/private' },
   ]) assert.throws(() => buildApiHeatmapDaily([], [], { ...range, ...change }));
   const config = normalizeApiHeatmapConfig({ endDateISO: date, range: '30d', provider: 'both',
-    metric: 'apiEquivalent', showAmounts: true, timezone: '-03:30' });
+    metric: 'apiEquivalent', showAmounts: true, timezone: range.timezone });
+  assert.equal(config.timezone, 'Asia/Shanghai');
   const output = buildApiHeatmapDaily([claude()], [codex()], config);
   assert.equal(Object.keys(output).length, 30);
   assert.equal(output[date]?.claude?.amountUSD, 12.345);
   assert.ok(Object.keys(output).every(key => key >= config.startDateISO && key <= config.endDateISO));
+});
+
+test('daily fixed-offset validation follows runtime support without rebucketing or repricing', () => {
+  const expected = buildApiHeatmapDaily([claude()], [codex()], range);
+  const unreadable = new Proxy([], { get() { throw new Error('invalid zone must reject before source access'); } });
+  for (const timezone of ['+08:00', '+0530', '-03:30']) {
+    let supported = false;
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: timezone });
+      supported = true;
+    } catch (error) {
+      assert.ok(error instanceof RangeError);
+    }
+    if (supported) {
+      assert.deepEqual(buildApiHeatmapDaily([claude()], [codex()], { ...range, timezone }), expected,
+        `${timezone}: supplied civil-date buckets and prices must stay identical`);
+    } else {
+      assert.throws(() => buildApiHeatmapDaily(unreadable, unreadable, { ...range, timezone }), RangeError,
+        `${timezone}: unsupported offsets must not silently use the system zone`);
+    }
+  }
+  for (const timezone of ['+99:99', '+24:00', '+08:60', 'UTC+08:00', '<script>', '/Users/private']) {
+    assert.throws(() => buildApiHeatmapDaily(unreadable, unreadable, { ...range, timezone }), RangeError);
+  }
+  for (const timezone of ['', '   ']) {
+    assert.throws(() => buildApiHeatmapDaily(unreadable, unreadable, { ...range, timezone }), /zone must be supplied/);
+  }
 });
 
 test('canonical upper-year ranges stop on the supplied end day without stepping outside the date contract', () => {

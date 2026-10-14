@@ -369,24 +369,44 @@ test('an unpriced zero-token observation does not invent one unit of unknown usa
   assert.doesNotMatch(artifact.svg,/0\/1/);
 });
 
-test('supported fixed-offset timezone labels agree with app validation and date-key bucketing', () => {
+test('fixed-offset labels follow runtime support; unsupported zones normalize to UTC', () => {
   for (const [zone, timestamp, expectedDay] of [
     ['+08:00', '2026-06-30T18:00:00Z', '2026-07-01'],
     ['+0530', '2026-06-30T20:00:00Z', '2026-07-01'],
     ['-03:30', '2026-06-30T02:00:00Z', '2026-06-29'],
-    ['Etc/GMT-8', '2026-06-30T18:00:00Z', '2026-07-01'],
   ]) {
-    assert.equal(I18n.isValidTimeZone(zone), true, `${zone}: supported by this app runtime`);
-    assert.equal(dayKeyInZone(new Date(timestamp), zone), expectedDay);
+    // Probe Intl independently: Node 20 rejects offset identifiers accepted by newer engines.
+    let runtimeZone: string | undefined;
+    try {
+      runtimeZone = new Intl.DateTimeFormat('en', { timeZone: zone }).resolvedOptions().timeZone;
+    } catch (error) {
+      assert.ok(error instanceof RangeError);
+    }
+    assert.equal(I18n.isValidTimeZone(zone), runtimeZone !== undefined, `${zone}: app and runtime must agree`);
     const artifact = buildApiHeatmapArtifact({}, { ...options, timezone: zone, endDateISO: expectedDay });
-    assert.equal(artifact.config.timezone, resolveTimeZone(zone));
-    assert.notEqual(artifact.config.timezone, 'UTC');
+    assert.equal(artifact.config.timezone, runtimeZone ?? 'UTC');
+    if (runtimeZone !== undefined) {
+      assert.equal(dayKeyInZone(new Date(timestamp), zone), expectedDay);
+      assert.equal(artifact.config.timezone, resolveTimeZone(zone));
+      assert.notEqual(artifact.config.timezone, 'UTC');
+    } else {
+      assert.equal(dayKeyInZone(new Date(timestamp), artifact.config.timezone), timestamp.slice(0, 10));
+      assert.equal(artifact.config.timezone, 'UTC', 'unsupported input must not fall back to the system zone');
+      assert.ok(!artifact.svg.includes(zone));
+    }
+    assert.equal(normalizeApiHeatmapConfig({ ...options, timezone: ` ${zone} ` }).timezone, runtimeZone ?? 'UTC');
     assert.ok(artifact.svg.includes(artifact.config.timezone));
     assert.deepEqual(normalizeApiHeatmapConfig(artifact.config), artifact.config);
   }
+  // These IANA zones retain the +08:00 civil-day boundary on every supported runtime.
+  for (const zone of ['Asia/Shanghai', 'Etc/GMT-8']) {
+    assert.equal(I18n.isValidTimeZone(zone), true);
+    assert.equal(dayKeyInZone(new Date('2026-06-30T18:00:00Z'), zone), '2026-07-01');
+    assert.equal(normalizeApiHeatmapConfig({ ...options, timezone: zone }).timezone, resolveTimeZone(zone));
+  }
   assert.equal(normalizeApiHeatmapConfig({ ...options, timezone: '' }).timezone, resolveTimeZone(''));
-  assert.equal(normalizeApiHeatmapConfig({ ...options, timezone: ' +08:00 ' }).timezone, resolveTimeZone('+08:00'));
-  for (const zone of ['+99:99', 'UTC+08:00', '<script>', '/Users/secret']) {
+  for (const zone of ['+99:99', '+24:00', '+08:60', 'UTC+08:00', '<script>', '/Users/secret']) {
+    assert.equal(I18n.isValidTimeZone(zone), false);
     assert.equal(normalizeApiHeatmapConfig({ ...options, timezone: zone }).timezone, 'UTC');
   }
 });
