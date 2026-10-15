@@ -3,8 +3,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: 📖 Setup & troubleshooting (README)
-    url: https://github.com/jack21/ClaudeCodeUsage/blob/main/README.md
-    about: Configuration, how costs are calculated, proxies, history retention, and the AI advice feature — most setup questions are answered here.
+    url: https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/blob/main/README.md
+    about: Claude Code and Codex setup, token and quota meanings, local history, privacy, sharing and optional advice.
   - name: 🛍️ Marketplace Q&A
     url: https://marketplace.visualstudio.com/items?itemName=GrowthJack.claude-code-usage&ssr=false#qna
     about: General questions are also welcome on the VS Code Marketplace Q&A tab.

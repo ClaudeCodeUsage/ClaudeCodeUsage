@@ -6,9 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to file a bug. Token and cost numbers depend on details that vary a lot between setups (proxy, model vendor, OS), so the more of the fields below you can fill in, the faster this gets fixed.
+        Report Claude Code or Codex issues here. Include the installed version, affected provider and where the problem appears; leave unrelated optional fields blank. API-equivalent estimates are not bills or official subscription balances.
 
-        💡 **Run this first:** the `Claude Code Usage: Show Diagnostic Logs` command (open the Command Palette and type "diagnostic") prints per-refresh stats — files scanned, records kept vs. rejected and why, and every model name it saw. That output resolves most usage and pricing reports on its own, so please paste it into the "Diagnostic logs" field below.
+        If useful, run **Show Diagnostic Logs** from the Command Palette and share only relevant, redacted lines below. Do not upload conversation logs (including `.jsonl` or `.jsonl.zst`), credentials, account details, session IDs or personal paths. Check screenshots and profiles for private information too.
   - type: checkboxes
     id: preflight
     attributes:
@@ -21,12 +21,36 @@ body:
           required: true
         - label: I read the README's Troubleshooting section (proxies, history retention, the AI advice feature).
           required: false
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Affected provider
+      options:
+        - Claude Code
+        - Codex
+        - Both providers
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it happen? (optional)
+      options:
+        - Status bar / quota
+        - Usage dashboard / history
+        - Achievements / recalibration
+        - Sharing / export
+        - AI advice
+        - Refresh / CPU / memory / crash
+        - Settings / installation
+        - Other / not sure
   - type: textarea
     id: what-happened
     attributes:
       label: What happened?
-      description: Describe the behaviour you actually saw. For wrong numbers, say what the extension showed and where (status bar, or which dashboard tab).
-      placeholder: The status bar showed $0.00 all day even though I ran several sessions.
+      description: Describe what you saw. For wrong totals, include the provider, date range and whether indexing was complete; do not paste source logs.
+      placeholder: Codex All time shows less history after an update, although indexing reports complete.
     validations:
       required: true
   - type: textarea
@@ -42,29 +66,30 @@ body:
       label: Steps to reproduce
       description: The exact steps to trigger it. "I can't reliably reproduce it" is a valid answer — if so, describe when it tends to happen.
       placeholder: |
-        1. Open the dashboard (Claude Code Usage: Open Dashboard)
-        2. Switch to the Sessions tab
+        1. Run Show Usage Details from the Command Palette
+        2. Select the provider and affected tab
         3. …
   - type: input
     id: ext-version
     attributes:
       label: Extension version
-      description: Marketplace page, or the Extensions sidebar entry for "Claude Code Usage".
-      placeholder: e.g. 2.0.2
+      description: The installed version in the Extensions sidebar, not just the latest Marketplace version. Mention a test VSIX if applicable.
+      placeholder: e.g. 2.5.0
     validations:
       required: true
   - type: input
     id: cc-version
     attributes:
-      label: Claude Code version
-      description: Output of `claude --version`, if you use Claude Code.
-      placeholder: e.g. 2.1.160
+      label: Provider client and version (optional)
+      description: >-
+        Claude Code: use claude --version. Codex: name the desktop app, CLI or VS Code extension and its installed version. This is separate from the Claude Code Usage version above.
+      placeholder: Provider client name and installed version
   - type: input
     id: vscode-version
     attributes:
       label: VS Code version
       description: Help → About (Code → About on macOS).
-      placeholder: e.g. 1.96.0
+      placeholder: Installed version; mention Insiders if applicable
   - type: dropdown
     id: os
     attributes:
@@ -74,22 +99,23 @@ body:
         - macOS
         - Linux
         - Remote / containerised (SSH, devcontainer, WSL, Codespaces)
+        - Not sure
     validations:
       required: true
   - type: input
     id: proxy
     attributes:
-      label: Model / proxy setup
-      description: How Claude Code reaches a model. This strongly affects token and pricing data, so please be specific.
-      placeholder: e.g. native Anthropic · CC Switch + DeepSeek · LiteLLM proxy · Amazon Bedrock
+      label: Model / connection setup (optional)
+      description: Name the model and connection type if relevant. Omit private endpoint URLs, account identifiers and keys.
+      placeholder: e.g. native Anthropic / Bedrock / proxy; Codex app / CLI / extension
   - type: textarea
     id: diagnostics
     attributes:
-      label: Diagnostic logs
-      description: Paste the output of the diagnostic-logs command described above. This is the single most useful thing for usage and pricing bugs.
+      label: Diagnostic logs (optional, redacted)
+      description: Relevant anonymous `refresh:` lines or error categories from Show Diagnostic Logs, if available. Remove private details; do not paste the entire output channel or attach source logs. You can submit without diagnostics.
       render: text
   - type: textarea
     id: context
     attributes:
       label: Anything else?
-      description: Screenshots, your theme name (for rendering bugs), or any other context.
+      description: For UI bugs, include theme, approximate width/zoom and a redacted screenshot. For remote setups, say where the extension runs. For performance issues, approximate history size and a redacted CPU profile may help; do not upload conversation content.

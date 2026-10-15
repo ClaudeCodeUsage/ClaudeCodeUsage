@@ -6,7 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the idea! One thing up front so we share the same picture of scope: this extension is intentionally **Claude-only, lightweight, and focused on token attribution and AI-assisted usage improvement**. Multi-provider dashboards and full billing reconciliation are deliberately out of scope. Requests that sharpen token insight, attribution, or the advice experience are the best fit and the most likely to ship.
+        Suggestions for Claude Code, Codex and shared features are welcome. The project is local-first, lightweight and focused on truthful usage, quota observations and optional advice—not full billing reconciliation. Explain the user need and current workaround; a feature request does not need an implementation plan.
+
+        Do not include conversation logs, credentials, account details or personal paths. Redact screenshots and examples before posting.
   - type: checkboxes
     id: preflight
     attributes:
@@ -14,8 +16,17 @@ body:
       options:
         - label: I searched [existing issues](../../issues?q=is%3Aissue) and didn't find this request.
           required: true
-        - label: This fits the project's scope (Claude-only, lightweight, token-attribution focused).
+        - label: This fits the local-first Claude Code / Codex usage-tracking scope.
           required: false
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider or scope (optional)
+      options:
+        - Claude Code
+        - Codex
+        - Both / shared feature
+        - Not sure / general
   - type: textarea
     id: problem
     attributes:
@@ -28,7 +39,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: What would you like the extension to do? A rough sketch is fine.
+      description: What should change for the user? Mention the relevant view or control, sensible defaults and unavailable-data behavior if relevant. A short description is enough.
     validations:
       required: true
   - type: textarea
@@ -40,4 +51,4 @@ body:
     id: context
     attributes:
       label: Anything else?
-      description: Mock-ups, links, or examples that make the request concrete.
+      description: Sketches and examples are optional; issue reporters are not required to generate design images. For a new visual system, design comparison and maintainer approval happen before implementation through the contributor workflow. Redact private details.

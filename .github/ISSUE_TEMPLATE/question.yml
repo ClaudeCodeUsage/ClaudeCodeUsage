@@ -6,7 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Happy to help! Two things answer most questions on the spot: the README's **Configuration** and **Troubleshooting** sections cover proxies, how costs are calculated, history retention, and the AI advice feature; and the `Claude Code Usage: Show Diagnostic Logs` command shows exactly what the extension is reading from your logs.
+        Ask about Claude Code, Codex or shared features here. The README's Configuration and Troubleshooting sections cover setup, token meanings, API-equivalent estimates, quota observations and local history.
+
+        Do not post conversation logs, credentials, account details, session IDs or personal paths. If diagnostics help, use only relevant, redacted lines from **Show Diagnostic Logs**; a diagnostic dump is not required.
   - type: checkboxes
     id: preflight
     attributes:
@@ -14,6 +16,15 @@ body:
       options:
         - label: I checked the README (Configuration + Troubleshooting) and searched [existing issues](../../issues?q=is%3Aissue).
           required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider or scope (optional)
+      options:
+        - Claude Code
+        - Codex
+        - Both / shared feature
+        - Not sure / general
   - type: textarea
     id: question
     attributes:
@@ -25,9 +36,9 @@ body:
     id: tried
     attributes:
       label: What have you tried?
-      description: Steps you've already taken and what you saw. Diagnostic-log output helps a lot for any "the numbers look wrong" question.
+      description: Steps you took and the result. For number differences, include the date range and indexing status; use only redacted diagnostics if relevant.
   - type: textarea
     id: context
     attributes:
       label: Context
-      description: Extension version, VS Code version, OS, and your model/proxy setup (native Anthropic, CC Switch + DeepSeek, a proxy, …) — whatever seems relevant.
+      description: Installed Claude Code Usage and provider-client versions, VS Code version, OS or remote setup, and the relevant view—only what helps explain the question. No secrets or raw logs.

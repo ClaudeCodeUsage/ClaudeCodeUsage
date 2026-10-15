@@ -1823,6 +1823,45 @@ test('pull request checklist names the actual eight UI locales', () => {
   assert.match(template, /all nine README files/);
 });
 
+test('issue templates route Claude and Codex reports with privacy-safe evidence', () => {
+  for (const name of ['bug_report', 'feature_request', 'question']) {
+    const form = repoFile(`.github/ISSUE_TEMPLATE/${name}.yml`);
+    assert.match(form, /id: provider/);
+    assert.match(form, /Claude/);
+    assert.match(form, /Codex/);
+    assert.match(form, /Not sure/);
+    assert.match(form, /credentials/);
+    assert.match(form, /conversation logs/);
+    assert.doesNotMatch(form, /Claude-only|Multi-provider dashboards.*out of scope|every model name/i);
+  }
+  const bug = repoFile('.github/ISSUE_TEMPLATE/bug_report.yml');
+  assert.match(bug, /Diagnostic logs \(optional, redacted\)/);
+  assert.match(bug, /anonymous `refresh:`/);
+  assert.match(bug, /\.jsonl\.zst/);
+  assert.doesNotMatch(bug, /Open Dashboard|please paste it|every model name/i);
+  const feature = repoFile('.github/ISSUE_TEMPLATE/feature_request.yml');
+  assert.match(feature, /Sketches.*optional/i);
+  assert.match(feature, /not required to generate/i);
+  const config = repoFile('.github/ISSUE_TEMPLATE/config.yml');
+  assert.match(config, /https:\/\/github\.com\/ClaudeCodeUsage\/ClaudeCodeUsage\/blob\/main\/README\.md/);
+  assert.doesNotMatch(config, /github\.com\/jack21\//);
+  assert.match(config, /blank_issues_enabled: true/);
+  assert.match(repoFile('.github/TEMPLATES.zh-CN.md'), /原始对话|原始日志/);
+});
+
+test('pull request template matches release labels and conditional review gates', () => {
+  const template = repoFile('.github/PULL_REQUEST_TEMPLATE.md');
+  assert.doesNotMatch(template, /`feature` \(minor\)|future.*automated triage/i);
+  assert.match(template, /ordinary[\s\S]*patch[\s\S]*`minor`/i);
+  assert.match(template, /Squash and merge/);
+  assert.match(template, /skip-changelog/);
+  assert.match(template, /imagegen[\s\S]*2–3[\s\S]*approval/i);
+  assert.match(template, /not run[\s\S]*reason/i);
+  assert.match(template, /isolated[\s\S]*state/i);
+  assert.match(template, /user-visible outcome/i);
+  assert.match(template, /maintainer approval[\s\S]*dependencies/i);
+});
+
 test('changelog records the V2.2.2 energy patch after the released V2.2.1 baseline', () => {
   const changelog = repoFile('CHANGELOG.md');
   assert.match(changelog, /^## \[2\.2\.2\] — Unreleased$/m);
