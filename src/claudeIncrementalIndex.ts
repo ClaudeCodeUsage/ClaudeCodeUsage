@@ -2877,25 +2877,41 @@ export async function updateClaudeUsageIndex(
       }
     }
     if (removedOwnedUuids.size > 0) {
-      const plannedIds = new Set(plans.map((plan) => plan.fileId));
       const deletedIds = new Set(deletions.map((file) => file.fileId));
       for (const entry of currentEntries) {
         const fileId = stableFileId(entry);
-        if (plannedIds.has(fileId) || deletedIds.has(fileId)) continue;
+        if (deletedIds.has(fileId)) continue;
         const prior = previous.files.get(fileId);
         if (!prior) continue;
+        const canRestoreOwnership = [...prior.analysisAllUuids]
+          .some((uuid) => removedOwnedUuids.has(uuid));
+        if (!canRestoreOwnership) continue;
+        const plannedIndex = plans.findIndex((plan) => plan.fileId === fileId);
+        if (plannedIndex >= 0) {
+          const planned = plans[plannedIndex];
+          // A tail read never sees a suppressed duplicate sitting in the
+          // prefix. Promote that append so the claimant is replayed in full;
+          // a plan that already re-reads the body needs nothing more.
+          if (planned.kind !== 'append') continue;
+          analysisRebases.delete(fileId);
+          plans[plannedIndex] = {
+            kind: 'rebuild',
+            analysisReason: 'ownership',
+            entry,
+            fileId,
+            prior: planned.prior ?? prior,
+          };
+          changed.rebuild += 1;
+          continue;
+        }
         const candidate = analysisRebases.get(fileId) ?? prior;
         if (candidate.analysisLastTimestampMs !== undefined &&
           candidate.analysisLastTimestampMs < analysisCutoffMs &&
           !candidate.analysisHasUnboundedTimestamp) {
           continue;
         }
-        const canRestoreOwnership = [...prior.analysisAllUuids]
-          .some((uuid) => removedOwnedUuids.has(uuid));
-        if (!canRestoreOwnership) continue;
         analysisRebases.delete(fileId);
         plans.push({ kind: 'rebuild', analysisReason: 'ownership', entry, fileId, prior });
-        plannedIds.add(fileId);
         changed.rebuild += 1;
       }
     }

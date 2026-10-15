@@ -2824,6 +2824,68 @@ test('a rewrite that drops an owned uuid re-reads the twin that also carries it'
   }
 });
 
+test('rewriting an owner while appending its claimant replays that claimant', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-rewrite-append-owner-'));
+    roots.push(root);
+    const project = path.join(root, 'projects', '-fixture-rewrite-append-owner');
+    await mkdir(project, { recursive: true });
+    const owner = path.join(project, 'session-owner.jsonl');
+    const claimant = path.join(project, 'session-claimant.jsonl');
+    const bystander = path.join(project, 'session-bystander.jsonl');
+    await writeFile(owner, [
+      promptLine('shared prompt', '2026-08-21T08:00:00.000Z'),
+      usageLine('owner', 10, 4, { timestamp: '2026-08-21T08:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(claimant, [
+      promptLine('shared prompt', '2026-08-21T09:00:00.000Z'),
+      usageLine('claimant', 20, 8, { timestamp: '2026-08-21T09:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(bystander, `${usageLine('bystander', 4, 1, { timestamp: '2026-08-21T11:00:00.000Z' })}\n`, 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    deepFreeze(cold.index);
+    deepFreeze(cold.contentAnalysis);
+
+    // Same first timestamp, so the order probe has nothing to say. The shared
+    // uuid leaves the owner and has to be replayed from the claimant's prefix.
+    await writeFile(owner, `${usageLine('owner-kept', 10, 4, { timestamp: '2026-08-21T08:00:00.000Z' })}\n`, 'utf8');
+    await appendFile(claimant, `${usageLine('claimant-tail', 3, 1, { timestamp: '2026-08-21T09:02:00.000Z' })}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.bodyReads, 2, 'the rewritten owner and the appended claimant');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+
+    const followUp = await updateClaudeUsageIndex(warm.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.equal(followUp.diagnostics.bodyReads, 0, 'the restored owner stays restored');
+    const followFull = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(followUp.contentAnalysis, followFull.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('a failed body read keeps the previous index and visible snapshot atomic', async () => {
   const { root, first } = await fixture();
   const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
