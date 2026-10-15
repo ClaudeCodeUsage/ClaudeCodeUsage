@@ -57,6 +57,19 @@ a default-profile `code --install-extension` or modify the daily installation.
 - If your change affects user-facing behaviour, update `CHANGELOG.md` and the
   relevant parts of `README.md`.
 
+### New visual features
+
+For a new visual system or substantial redesign, follow the
+[design-before-implementation gate](AGENTS.md#new-visual-systems-design-before-implementation):
+compare 2–3 distinct imagegen mockups, obtain maintainer approval, then turn the
+selected direction into testable criteria and implement with red-green TDD.
+Generated mockups are design references, not proof of native behavior or accessibility.
+Small copy/spacing fixes within an approved design do not restart this process.
+
+中文审阅：全新视觉系统或大幅重设计，先用 imagegen 生成 2–3 个实质不同方案，
+由维护者比选定稿，再转为可测试的验收条件并按 red-green TDD 实现。设计图不是
+原生行为或无障碍的证明；已定稿设计内的小文案／间距修补无需重新启动此流程。
+
 ### Merge strategy and progress commits
 
 The project defaults to **Squash and merge**: each reviewed PR adds one commit

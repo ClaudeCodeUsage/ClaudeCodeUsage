@@ -890,6 +890,22 @@ test('AGENTS links a faithful Simplified-Chinese review copy', () => {
   assert.match(chinese, /推送、创建 PR、合并或发布 Release/);
 });
 
+test('new visual systems require compared mockups and approval before implementation', () => {
+  const english = repoFile('AGENTS.md'), chinese = repoFile('AGENTS.zh-CN.md');
+  assert.match(english, /New visual systems: design before implementation/);
+  assert.match(english, /imagegen[\s\S]*2–3[\s\S]*distinct/i);
+  assert.match(english, /maintainer[\s\S]*approve[\s\S]*before production UI implementation/i);
+  assert.match(english, /approved design[\s\S]*red-green TDD/i);
+  assert.match(english, /mockups are not[\s\S]*acceptance evidence/i);
+  assert.match(english, /Small copy[\s\S]*spacing fixes[\s\S]*do not/i);
+  assert.match(chinese, /全新可视化：先定稿，再实现/);
+  assert.match(chinese, /imagegen[\s\S]*2–3[\s\S]*不同/);
+  assert.match(chinese, /维护者[\s\S]*明确确认[\s\S]*生产 UI 实现/);
+  assert.match(chinese, /已批准设计[\s\S]*red-green TDD/);
+  assert.match(chinese, /设计图不是[\s\S]*验收证据/);
+  assert.match(repoFile('CONTRIBUTING.md'), /AGENTS\.md#new-visual-systems-design-before-implementation/);
+});
+
 test('AGENTS allow only the guarded Codex session-index title lookup', () => {
   const agents = repoFile('AGENTS.md');
   const chinese = repoFile('AGENTS.zh-CN.md');
