@@ -912,7 +912,7 @@ exports.renderHarness = async function renderHarness({
       provider.achievementRecordLoading = fixture === 'achievement-review-loading';
       provider.achievementRecordLoadFailed = fixture === 'achievement-review-failure';
     }
-    if (fixture === 'achievement-management-history' || fixture === 'achievement-management-full') {
+    if (fixture === 'achievement-management-history' || fixture === 'achievement-management-full' || fixture === 'achievement-management-history-recorded') {
       const {parseAchievementRecordStore}=require('../../../out/achievementRecordStore.js');
       const full=fixture==='achievement-management-full';
       const used=full?[56_000_000_000,4_000_000_000]:[100_000_000,1_000_000_000];
@@ -928,7 +928,9 @@ exports.renderHarness = async function renderHarness({
         ['sonnet-main','sonnet-main-silver'];
       provider.achievementRecordState=parseAchievementRecordStore({schemaVersion:2,catalogVersion:2,generation:1,
         sequence:ids.length,lastNoticeAt:0,pinRevision:0,showcaseMode:'manual',legacyBoundary:null,legacyRecords:[],pins:[],
-        records:ids.map((id,i)=>({id,seq:i+1,ruleVersion:1,origin:'history',unread:false,recordedDay:null,timeZone:null})),
+        records:ids.map((id,i)=>({id,seq:i+1,ruleVersion:1,origin:fixture==='achievement-management-history-recorded'?'usage':'history',
+          unread:false,recordedDay:fixture==='achievement-management-history-recorded'?'2026-07-20':null,
+          timeZone:fixture==='achievement-management-history-recorded'?timeZone:null})),
         auxiliary:{activity:{schemaVersion:2,settingKeys:[],features:[]},hours:{schemaVersion:3,maxStreak:0},calendarPeak:null}});
       provider.achievementGrants=new Set(ids);
     }

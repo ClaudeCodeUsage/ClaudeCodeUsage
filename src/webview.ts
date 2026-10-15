@@ -5811,39 +5811,45 @@ export class UsageWebviewProvider {
       const notes=compactAchievementLevelNotes(levelEntries.map(entry=>achievementConditionFor(I18n.getLocale(),entry.id)));
       const commonUnit=levelEntries.every(entry=>unitFor(entry.id)===unitFor(levelEntries[0].id))?unitFor(levelEntries[0].id):undefined;
       const dated=(entry:AchievementResult):string=>{
-        if(!isEarned(entry))return '<small class="achievement-level-status">'+this.escapeHtml(copy.locked)+'</small>';
+        if(!isEarned(entry))return proofReady&&next&&entry.id===nextResult.id?
+          '<small class="achievement-level-status" data-level-status="next">'+this.escapeHtml(copy.locked)+'</small>':'';
         const record=this.achievementRecordState?.records.find(row=>row.id===entry.id);
         const proof=this.achievementHistoryAnnotations[entry.id];
         const usable=evidenceFor(entry)==='ready'&&proof&&proof.ruleVersion===achievementRuleVersion(entry.id)&&
           (!isAchievementMoneyId(entry.id)||!record?.referencePricebook||record.referencePricebook===proof.pricebookVersion);
+        const verifiedLabel=usable?management.verifiedDay+': '+proof.day+' ('+proof.timeZone+')'+
+          (record?.recordedDay?' · '+management.firstRecorded+': '+record.recordedDay+' ('+(record.timeZone??'')+')':''):'';
         const shown=usable?'<small class="achievement-level-date" data-date-source="retained-logs" data-date-scope="'+proof.scope+'" title="'+
-          this.escapeHtml(management.dateNote)+'">'+
-          this.escapeHtml(management.verifiedDay)+': <time datetime="'+proof.day+'" title="'+this.escapeHtml(proof.timeZone)+'">'+proof.day+'</time>'+
+          this.escapeHtml(verifiedLabel)+'"><time datetime="'+proof.day+'" aria-label="'+this.escapeHtml(verifiedLabel)+'">'+proof.day+'</time>'+
           '</small>':'';
-        const recorded=record?.recordedDay?'<small class="achievement-level-date" data-date-source="first-recorded">'+
+        const recorded=record?.recordedDay?'<small class="achievement-level-date achievement-level-date-recorded" data-date-source="first-recorded">'+
           this.escapeHtml(management.firstRecorded)+': <time datetime="'+record.recordedDay+'" title="'+
           this.escapeHtml(record.timeZone??'')+'">'+record.recordedDay+'</time></small>':'';
-        return '<small class="achievement-level-status">'+this.escapeHtml(copy.earned)+'</small>'+
-          (shown||recorded?shown+recorded:'<small class="achievement-level-date" data-date-source="unknown" title="'+
+        return '<small class="achievement-level-status" data-level-status="earned">'+this.escapeHtml(copy.earned)+'</small>'+
+          (shown||recorded?shown||recorded:'<small class="achievement-level-date" data-date-source="unknown" title="'+
             this.escapeHtml(management.dateUnavailable)+'" aria-label="'+this.escapeHtml(management.unknownDay+'. '+management.dateUnavailable)+'">'+
             this.escapeHtml(management.unknownDay)+'</small>');
       };
       const sharedDetails='<p class="achievement-common-conditions">'+this.escapeHtml(management.sharedConditions+': '+
         [commonUnit,notes.shared].filter(Boolean).join(' · '))+'</p>';
-      const levelRules = levelEntries.map((entry, index) =>
-        '<li data-achievement-level="' + entry.id + '"><strong>' +
-          this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span>' +
+      const levelRules = levelEntries.map((entry, index) => {
+        const metadata=dated(entry);
+        return '<li data-achievement-level="' + entry.id + '"><strong class="achievement-level-name" data-rank="'+
+          (series?tierOrder[index]:'milestone')+'">' +
+          this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span class="achievement-level-value">' +
           this.escapeHtml(compactValue(entry.id,entry.target) + (commonUnit?'':' '+unitFor(entry.id))) + '</span>' +
           (notes.perLevel[index] ? '<small>' + this.escapeHtml(notes.perLevel[index]!) + '</small>' : '') +
-          dated(entry)+'</li>').join('');
+          (metadata?'<div class="achievement-level-meta">'+metadata+'</div>':'')+'</li>';
+      }).join('');
       const milestoneRules = milestones.length ? '<h5>' + this.escapeHtml(copy.milestone) +
         '</h5><ul class="achievement-level-rules achievement-milestones">' + milestones.map(entry => {
+          const metadata=dated(entry);
           const src = webview?.asWebviewUri && this.context.extensionPath
             ? webview.asWebviewUri(vscode.Uri.file(achievementImagePath(entry.id))).toString() : achievementImageDataUrl(entry.id);
           return '<li data-achievement-milestone="' + entry.id + '" data-achievement-level="' + entry.id + '">' +
             '<img src="' + this.escapeHtml(src) + '" alt="" loading="lazy"><strong>' + this.escapeHtml(copy.titles[entry.id]) +
-            '</strong><small>' + this.escapeHtml(isEarned(entry) ? copy.earned : copy.locked) + '</small><span>' +
-            this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span>'+dated(entry)+'</li>';
+            '</strong><span>' + this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span>'+
+            (metadata?'<div class="achievement-level-meta">'+metadata+'</div>':'')+'</li>';
         }).join('') + '</ul>' : '';
       // Saved allowlisted facts only. A historical grant or queued action cannot
       // reconstruct individual steps or pretend a cancelled export succeeded.
@@ -6083,7 +6089,7 @@ export class UsageWebviewProvider {
       this.escapeHtml((cumulativeLowerBound || this.achievementCalendarLowerBounds.size > 0 ||
         this.achievementMoneyFacts.codex?.coverage.completedMondayWeekPeak.scopeLowerBound
         ? copy.lowerBoundNote + ' ' : '') + copy.lowerBoundDetails) +
-      '</p><p class="achievement-date-note">'+this.escapeHtml(management.dateNote)+'</p>'+this.renderAchievementMoneyReferences()+'</details>' +
+      '</p><p class="achievement-date-note"><strong>'+this.escapeHtml(management.verifiedDay)+': </strong>'+this.escapeHtml(management.dateNote)+'</p>'+this.renderAchievementMoneyReferences()+'</details>' +
       '<p class="achievement-count">' +
       '<span>' + this.escapeHtml(countLabel(copy.seriesCount, seriesCount, visibleCards.length)) + '</span> · ' +
       '<span>' + this.escapeHtml(countLabel(copy.levelCount, earnedCount, visibleResults.length)) + '</span></p>' +
@@ -14041,9 +14047,9 @@ export class UsageWebviewProvider {
       .achievement-filter-control select { min-height: 28px; }
       .achievement-batch-actions { display: flex; flex-wrap: wrap; gap: 6px; }
       .achievement-common-conditions { margin: 6px 0 10px; color: var(--vscode-foreground); line-height: 1.5; overflow-wrap: anywhere; }
-      .achievement-level-rules .achievement-level-date { display: block; color: var(--vscode-foreground); line-height: 1.5; font-size: .85rem; overflow-wrap: anywhere; }
+      .achievement-level-rules .achievement-level-date { color: var(--vscode-descriptionForeground); line-height: 1.45; font-size: .78rem; overflow-wrap: anywhere; margin-inline-start: auto; text-align: end; }
       .achievement-level-date time { white-space: nowrap; }
-      .achievement-level-rules .achievement-level-status { display: inline-block; font-weight: 500; color: var(--vscode-foreground); }
+      .achievement-level-rules .achievement-level-status { font-size: .78rem; line-height: 1.45; font-weight: 500; color: var(--vscode-descriptionForeground); }
       .achievement-current-value { display: block; margin-top: 3px; color: var(--vscode-foreground); font-size: .9rem; }
       #achievementCalibrationStatus:empty { display: none; }
       #achievementCalibrationStatus { margin: 6px 0; color: var(--vscode-foreground); overflow-wrap: anywhere; }
@@ -14099,14 +14105,25 @@ export class UsageWebviewProvider {
       .achievement-progress-track { display: block; width: 100%; max-width: 108px; height: 3px; background: var(--vscode-panel-border); overflow: hidden; }
       .achievement-progress-track > span { display: block; height: 100%; background: var(--achievement-accent); }
       .achievement-card-detail h5 { margin: 12px 0 6px; font-size: .8rem; }
-      .achievement-level-rules { min-width: 0; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-      .achievement-level-rules li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding-block: 8px; font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
-      .achievement-level-rules li + li { border-top: 1px solid var(--vscode-panel-border); padding-top: 12px; }
+      .achievement-level-rules { min-width: 0; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      .achievement-level-rules li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: 4px 8px; padding-block: 6px; font-size: .8rem; line-height: 1.45; overflow-wrap: anywhere; }
+      .achievement-level-rules li + li { border-top: 1px solid var(--vscode-panel-border); padding-top: 8px; }
       .achievement-level-rules li > strong { color: var(--vscode-foreground); font-size: .85rem; }
       .achievement-level-rules li span { color: var(--vscode-descriptionForeground); }
+      .achievement-level-rules .achievement-level-value { justify-self: end; text-align: end; white-space: nowrap; color: var(--vscode-foreground); font-weight: 700; font-size: .85rem; font-variant-numeric: tabular-nums; }
+      .achievement-level-rules li > small, .achievement-level-meta { grid-column: 1 / -1; min-width: 0; }
+      .achievement-level-meta { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 3px 6px; }
+      .achievement-level-rules .achievement-level-name { color: var(--vscode-foreground); color: color-mix(in srgb,var(--achievement-level-accent,var(--vscode-editor-foreground)) 40%,var(--vscode-editor-foreground)); }
+      .achievement-level-name[data-rank="bronze"] { --achievement-level-accent: var(--vscode-charts-orange); }
+      .achievement-level-name[data-rank="silver"] { color: var(--vscode-descriptionForeground); }
+      .achievement-level-name[data-rank="gold"] { --achievement-level-accent: var(--vscode-charts-yellow); }
+      .achievement-level-name[data-rank="platinum"] { --achievement-level-accent: var(--vscode-charts-blue); }
+      .achievement-level-name[data-rank="legendary"] { --achievement-level-accent: var(--vscode-charts-purple); }
+      .vscode-high-contrast .achievement-level-rules .achievement-level-name, .vscode-high-contrast-light .achievement-level-rules .achievement-level-name { color: var(--vscode-foreground); }
       .achievement-milestones li { grid-template-columns: 40px minmax(0, 1fr); column-gap: 8px; }
       .achievement-milestones img { grid-row: 1 / span 3; width: 40px; height: 40px; object-fit: contain; }
       .achievement-milestones strong, .achievement-milestones small, .achievement-milestones span { grid-column: 2; }
+      .achievement-milestones .achievement-level-meta { grid-column: 2; }
       .achievement-feature-journey { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
       .achievement-feature-journey li { min-width: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 6px; font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
       .achievement-step-marker { grid-row: 1 / span 2; }

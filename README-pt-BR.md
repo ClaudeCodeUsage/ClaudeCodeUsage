@@ -69,6 +69,17 @@ conquista; os cartões preservam escopo e cobertura de preços sem repetir notas
 Cartões completos mostram o
 valor atual sem corte; evidências antigas ou ausentes não são substituídas pela meta.
 
+Nas linhas expandidas, o nome usa cores do tema por nível (cor de primeiro plano em
+alto contraste), com o limite em negrito e alinhado à direita no mesmo cabeçalho.
+Só o nível seguinte ao maior conquistado mostra “Em andamento” quando a comprovação
+está pronta; níveis posteriores, cartões completos e comprovação pendente não mostram
+esse rótulo. Datas verificadas nos logs preservados aparecem apenas em ISO; o significado
+é explicado uma vez em “Base dos dados” e a origem permanece em title/ARIA. Quando ambas
+as datas existem, só a verificada fica visível; o primeiro registro permanece em title/ARIA.
+Se houver apenas o primeiro registro, seu rótulo explícito permanece; datas desconhecidas
+continuam desconhecidas. A mudança visual não altera concessões, regras, cálculos de datas
+nem registros salvos.
+
 **Tarefas raiz independentes** conta raízes Codex com vínculo verificável e uso positivo
 de um modelo reconhecido (entrada ou saída). A raiz e suas subtarefas contam uma única
 vez; não é uma contagem de tarefas concluídas. IDs e limites das regras existentes permanecem iguais.

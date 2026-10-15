@@ -290,6 +290,16 @@ price/basis notes. Legacy IDs,
 pins and pricebooks remain unchanged. Even a fully earned card shows the uncapped
 current statistic; stale or missing evidence is not replaced by its target.
 
+Compact expanded rows use per-rank theme colors (foreground fallback in high
+contrast) and bold, right-aligned thresholds on the same header row. “In progress”
+appears only on the next rank above the highest earned when proof is ready, never
+on later ranks, fully earned cards or pending proof. Verified retained-log dates
+appear as bare ISO dates; Evidence details explains their source once, while
+title/ARIA retains provenance. If both dates exist, only the verified date is visible
+and first-recorded details remain in title/ARIA; first-recorded-only dates retain
+their explicit label and unknown dates remain unknown. This display precedence
+does not mutate awards, rules, date calculations, catalog, records or storage.
+
 The `root-portfolio` display name is Independent root tasks. Its existing aggregate
 counts verifiable Codex root ownership with recognized positive model usage (input
 or output), counting a root and its children once. It does not prove task completion,

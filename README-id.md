@@ -75,6 +75,17 @@ Kartu dengan semua tingkat
 tercapai menampilkan statistik saat ini tanpa dipotong; bukti usang atau hilang
 tidak diganti dengan nilai target.
 
+Baris tingkat yang dibuka memakai warna tema per tingkat untuk nama (warna latar depan
+pada kontras tinggi), dengan ambang tebal dan rata kanan pada baris judul yang sama.
+Hanya tingkat tepat setelah tingkat tertinggi yang diraih menampilkan “Berlangsung” saat
+bukti siap; tingkat selanjutnya, kartu yang seluruh tingkatnya diraih, dan bukti tertunda
+tidak menampilkan label itu. Tanggal terverifikasi dari log tersimpan tampil sebagai tanggal
+ISO saja; maknanya dijelaskan sekali di “Dasar data” dan asalnya tetap ada dalam title/ARIA.
+Jika kedua tanggal tersedia, hanya tanggal terverifikasi yang terlihat; rincian pencatatan
+pertama tetap di title/ARIA. Jika hanya tanggal pencatatan pertama tersedia, label eksplisitnya
+tetap tampil; tanggal tidak diketahui tetap demikian. Perubahan tampilan ini tidak mengubah
+pemberian lencana, aturan, perhitungan tanggal, atau catatan tersimpan.
+
 **Tugas utama independen** menghitung kepemilikan akar Codex yang dapat diverifikasi
 dengan penggunaan positif model yang dikenali (input atau output). Tugas utama dan
 turunannya dihitung sekali, bukan sebagai tugas selesai. ID dan ambang aturan lama tetap sama.

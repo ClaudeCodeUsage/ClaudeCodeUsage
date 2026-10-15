@@ -392,6 +392,16 @@ price/basis notes are removed while scope and pricing coverage remain. The curre
 statistic remains uncapped even at the highest rank. Missing/stale evidence stays
 unavailable rather than being replaced by a target or a saved award.
 
+Expanded rank rows render names with per-rank theme tokens (foreground fallback in
+high contrast) and bold, right-aligned thresholds on the same header row. Only the
+next rank above the highest earned renders “In progress” when proof is ready;
+later ranks, fully earned cards and pending proof omit it. Verified retained-log
+dates render as bare ISO dates, with source interpretation once in Evidence details
+and provenance in title/ARIA. If both dates exist, only the verified date is visible
+and first-recorded details remain in title/ARIA; a first-recorded date alone retains
+its explicit label, and unknown stays unknown. These are renderer-only changes:
+award rules, date calculations, catalog and persisted records are unchanged.
+
 `root-portfolio` retains its IDs, thresholds and saved awards under the localized
 name Independent root tasks / 独立主任务. `achievements.ts` builds `modelsByRoot` only
 from verified root ownership and recognized model buckets with positive input

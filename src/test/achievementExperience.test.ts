@@ -167,7 +167,7 @@ test('all displayed level requirements carry a unit or a qualified condition', a
     for (const [, id, body] of rules) {
       const parent=articles.find(article=>article.includes('data-achievement-level="'+id+'"'))!;
       const common=parent.match(/achievement-common-conditions[^>]*>([^<]*)<\/p>/)?.[1]??'';
-      const requirement = body.match(/<span>([^<]+)<\/span>/)?.[1];
+      const requirement = body.match(/<span(?: class="achievement-level-value")?>([^<]+)<\/span>/)?.[1];
       assert.ok(requirement, `${id}: missing level requirement`);
       assert.ok(!/^\s*[\d.,]+\s*$/.test(requirement)||/\S/.test(common),id+': unit may be shared, never absent');
       const condition = achievementConditionFor('en', id);

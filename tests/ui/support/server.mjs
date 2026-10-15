@@ -70,6 +70,7 @@ const server = createServer(async (request, response) => {
       'achievement-proof-stale',
       'achievement-review-next-rank',
       'achievement-management-history',
+      'achievement-management-history-recorded',
       'achievement-management-full',
       'achievement-long-term-gold',
       'achievement-long-term-platinum',

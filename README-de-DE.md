@@ -73,6 +73,17 @@ ohne wiederholte Preis-/Berechnungsgrundlagen. Vollständig erreichte
 Karten zeigen den ungekürzten aktuellen Wert; veraltete oder fehlende Belege werden
 nicht durch einen Zielwert ersetzt.
 
+Ausgeklappte Rangzeilen färben den Rangnamen mit rangspezifischen Theme-Farben
+(Vordergrundfarbe bei hohem Kontrast); der Schwellenwert steht fett und rechtsbündig
+in derselben Kopfzeile. Nur der nächste Rang über dem höchsten erreichten zeigt bei
+bereitem Nachweis „In Arbeit“; spätere Ränge, vollständig erreichte Karten und ausstehende
+Nachweise zeigen dieses Label nicht. Verifizierte Daten aus erhaltenen Logs erscheinen
+als reine ISO-Daten; ihre Bedeutung wird einmal unter „Datengrundlage“ erklärt, die Herkunft
+bleibt in title/ARIA. Liegen beide Daten vor, ist nur das verifizierte sichtbar; die erste
+Erfassung bleibt in title/ARIA. Alleinstehende Ersterfassungsdaten behalten ihr ausdrückliches
+Label, unbekannte Daten bleiben unbekannt. Auszeichnungen, Regeln, Datumsberechnungen und
+gespeicherte Datensätze ändern sich dadurch nicht.
+
 **Unabhängige Hauptaufgaben** zählt verifizierbare Codex-Wurzelzuordnungen mit
 erkannter positiver Modellnutzung (Eingabe oder Ausgabe). Haupt- und Unteraufgaben
 zählen zusammen einmal, nicht als abgeschlossene Aufgaben. Regel-IDs und Schwellen bleiben gleich.

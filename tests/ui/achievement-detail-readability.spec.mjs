@@ -11,7 +11,7 @@ for(const locale of ['en','zh-CN'])for(const theme of ['light','dark','highContr
   const rows=card.locator('.achievement-level-rules > li');
   expect(await rows.count()).toBeGreaterThanOrEqual(3);
   const separated=await rows.evaluateAll(rows=>rows.every((row,index)=>!index||
-    row.getBoundingClientRect().top-rows[index-1].getBoundingClientRect().bottom>=10));
+    row.getBoundingClientRect().top-rows[index-1].getBoundingClientRect().bottom>=8));
   expect(separated).toBe(true);
   await card.locator('[data-achievement-reference]').click();
   const reference=page.locator('#achievementMoneyReference');

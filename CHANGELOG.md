@@ -18,6 +18,22 @@ are deferred to the next version; neither is implemented in this candidate.
 
 ### Added — 2.5.0
 
+- **Compact expanded achievement rows** — grade names use per-rank theme tokens
+  (foreground fallback in high contrast), with bold, right-aligned thresholds on
+  the same header row. Only the next rank above the highest earned shows “In progress”
+  when proof is ready; later ranks, fully earned cards and pending proof omit it.
+  Verified retained-log dates display as bare ISO dates, with source interpretation
+  once in Evidence details and provenance in title/ARIA. When both dates exist,
+  only the verified date is visible; first-recorded details remain in title/ARIA.
+  First-recorded-only dates keep an explicit label; unknown stays unknown. Awards,
+  rules, date calculations, catalog and stored records are unchanged.
+  中文：展开等级行按各等级主题 token 显示名称（高对比回退到前景色），门槛在同一标题行
+  加粗、右对齐。仅证据就绪时，最高已获等级的下一等级显示「进行中」；后续等级、满级及
+  证据待定均不显示。已核验保留日志日期仅显示 ISO 日期，来源含义在「数据依据」解释一次，
+  title／ARIA 保留来源说明。两种日期同时存在时仅显示已核验日期，首次记录详情留在
+  title／ARIA；仅有首次记录日期时保留明确标签，未知仍为未知。授奖、规则、日期计算、
+  目录及已存记录不变。
+
 - **Five weekly API-equivalent ranks per provider** — Claude and Codex each retain
   Bronze $100, Silver $500 and Gold $2,500, and add Platinum $10,000 and Legendary
   $25,000. The candidate uses these recommended new thresholds; they are not a

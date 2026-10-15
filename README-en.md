@@ -75,6 +75,16 @@ historical books retain their exact award associations there; cards keep scope
 and pricing coverage without repeated price/basis notes. Fully earned cards show the uncapped current statistic;
 stale or missing evidence is never replaced with a target value.
 
+Expanded rank rows use per-rank theme colors for the grade name (foreground fallback
+in high contrast), with a bold, right-aligned threshold on the same header row.
+Only the next rank above the highest earned shows “In progress” when proof is ready;
+later ranks, fully earned cards and pending proof show no such label. Verified
+retained-log dates appear as bare ISO dates, with their meaning explained once in
+Evidence details and provenance retained in title/ARIA text. When both dates exist,
+only the verified date is visible; first-recorded details remain in title/ARIA text.
+A first-recorded date alone keeps its explicit label; unknown dates stay unknown.
+This presentation change leaves awards, rules, date calculations and saved records intact.
+
 **Independent root tasks** counts verifiable Codex root ownership with recognized
 positive model usage (input or output). A root and its children count once; this is
 not a count of completed tasks. Existing rule IDs and thresholds are unchanged.

@@ -2517,7 +2517,7 @@ test('a retained high-level grant displays its actual tier without inventing mis
     assert.match(card, /data-achievement-proof="pending"/);
     assert.doesNotMatch(card, /<progress/);
     assert.match(card, /Shared conditions: processed tokens/);
-    assert.match(card, /data-achievement-level="trillion-token-club"[\s\S]*?<span>1T<\/span>/);
+    assert.match(card, /data-achievement-level="trillion-token-club"[\s\S]*?<span class="achievement-level-value">1T<\/span>/);
     assert.match(card, /achievement-tier-marker complete">IV<\/span>/);
     assert.match(card, /achievement-tier-marker next">V<\/span>/);
     assert.doesNotMatch(card, /achievement-tier-marker complete">I<\/span>/);
