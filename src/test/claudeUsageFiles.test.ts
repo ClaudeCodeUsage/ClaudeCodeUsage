@@ -59,32 +59,73 @@ test('manifest scanning stats files concurrently and keeps discovery order', asy
   }
   let inFlight = 0;
   let maxInFlight = 0;
-  const started = performance.now();
-  const manifest = await scanUsageManifest([root], {
+  const pending: Array<() => void> = [];
+  const manifestPromise = scanUsageManifest([root], {
     readdir: (dir: string) => readdir(dir, { withFileTypes: true }),
-    stat: async (filePath: string) => {
+    stat: (filePath: string) => new Promise((resolve) => {
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      try {
-        return await stat(filePath);
-      } finally {
+      pending.push(() => {
         inFlight -= 1;
-      }
-    },
+        resolve(stat(filePath));
+      });
+    }),
   });
-  assert.ok(maxInFlight > 1, 'stats overlap instead of running one by one');
-  // The wall-clock bound is secondary evidence only: half the sequential sum
-  // still proves fan-out, with a wide margin over the ~150 ms a fanned-out
-  // run needs, so a loaded CI host cannot flake it.
-  assert.ok(
-    performance.now() - started < (names.length * 50) / 2,
-    'twenty 50 ms stats finish at least twice as fast as the sequential sum',
-  );
+  const waitFor = async (ready: () => boolean): Promise<void> => {
+    for (let attempt = 0; attempt < 50 && !ready(); attempt += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.ok(ready(), 'the scan did not reach the expected in-flight state');
+  };
+  await waitFor(() => pending.length === 8);
+  assert.equal(maxInFlight, 8, 'the eight-worker ceiling is reached, not exceeded');
+  // Releasing one worker must admit exactly one more, and never past the ceiling.
+  pending.pop()!();
+  await waitFor(() => pending.length === 8);
+  assert.equal(maxInFlight, 8);
+  let settled = false;
+  const manifest = manifestPromise.finally(() => { settled = true; });
+  while (!settled) {
+    if (pending.length === 0) {
+      await new Promise((resolve) => setImmediate(resolve));
+      continue;
+    }
+    // Reverse of start order, so a completion-order leak cannot pass as discovery order.
+    pending.pop()!();
+  }
   assert.deepEqual(
-    [...manifest.entries.keys()],
+    [...(await manifest).entries.keys()],
     names.map((name) => path.join(project, name)),
   );
+});
+
+test('a fatal stat stops scheduling files that have not started', async () => {
+  const { root, file } = await fixture();
+  const project = path.dirname(file);
+  const names = Array.from({ length: 40 }, (_, index) => `session-${String(index).padStart(2, '0')}.jsonl`);
+  for (const name of names) {
+    await writeFile(path.join(project, name), '{"timestamp":"2026-01-01T00:00:00.000Z"}\n');
+  }
+  let started = 0;
+  const blockers: Array<() => void> = [];
+  const scan = scanUsageManifest([root], {
+    readdir: (dir: string) => readdir(dir, { withFileTypes: true }),
+    stat: async () => {
+      const call = started;
+      started += 1;
+      if (call === 0) {
+        throw Object.assign(new Error('denied'), { code: 'EACCES' });
+      }
+      await new Promise<void>((resolve) => blockers.push(resolve));
+      return stat(file);
+    },
+  });
+  await assert.rejects(scan, (error: NodeJS.ErrnoException) => error.code === 'EACCES');
+  const startedAtRejection = started;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(startedAtRejection <= 8, `scheduled ${startedAtRejection} stats after a fatal error`);
+  assert.equal(started, startedAtRejection, 'no stat starts after the scan has rejected');
+  for (const release of blockers) release();
 });
 
 test('manifest diff reports changed, reused, and removed without exposing them in counters', async () => {
