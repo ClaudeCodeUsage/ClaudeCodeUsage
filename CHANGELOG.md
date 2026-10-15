@@ -6,6 +6,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
+### Changed
+- **Manifest scans stat files concurrently (#99)** — every refresh statted the
+  whole history one file at a time; through the Windows filter stack that is
+  the difference between a stalled and an invisible refresh when the system is
+  busy. Results stay in discovery order.
+
 ## [2.5.0] — 2026-10-15
 
 Version 2.5.0 combines local achievements and Codex compressed-log compatibility.
@@ -537,10 +543,6 @@ are deferred to the next version; neither is implemented in 2.5.0.
   when Custom is selected.
 
 ### Changed
-- **Manifest scans stat files concurrently (#99)** — every refresh statted the
-  whole history one file at a time; through the Windows filter stack that is
-  the difference between a stalled and an invisible refresh when the system is
-  busy. Results stay in discovery order.
 - **Codex graduates from Beta** — after the shared interaction, accessibility,
   performance, localization, package, and installed-extension gates passed,
   current UI and documentation now present Codex as a first-class provider.
