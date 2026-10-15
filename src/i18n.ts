@@ -84,15 +84,15 @@ function apiAchievementTitles(locale: SupportedLanguage): Record<AchievementMone
     id:['Total ekuivalen API','Ekuivalen API mingguan','Ekuivalen API per sesi','Ekuivalen API per tugas'],
   };
   const levels:Record<SupportedLanguage,readonly string[]> = {
-    en:['Bronze','Silver','Gold','Platinum'], 'zh-CN':['铜','银','金','铂金'],
-    'zh-TW':['銅','銀','金','鉑金'], 'de-DE':['Bronze','Silber','Gold','Platin'],
-    ja:['ブロンズ','シルバー','ゴールド','プラチナ'],ko:['브론즈','실버','골드','플래티넘'],
-    'pt-BR':['Bronze','Prata','Ouro','Platina'],id:['Perunggu','Perak','Emas','Platina'],
+    en:['Bronze','Silver','Gold','Platinum','Legendary'], 'zh-CN':['铜','银','金','铂金','传奇'],
+    'zh-TW':['銅','銀','金','鉑金','傳奇'], 'de-DE':['Bronze','Silber','Gold','Platin','Legendär'],
+    ja:['ブロンズ','シルバー','ゴールド','プラチナ','レジェンド'],ko:['브론즈','실버','골드','플래티넘','전설'],
+    'pt-BR':['Bronze','Prata','Ouro','Platina','Lendário'],id:['Perunggu','Perak','Emas','Platina','Legendaris'],
   };
   return Object.fromEntries(API_ACHIEVEMENT_DEFINITIONS.map(row=>{
     const theme=row.scope==='cumulative' ? 0 : row.scope==='completedMondayWeekPeak' ? 1 : row.group==='claude' ? 2 : 3;
     const parts=row.id.split('-');
-    const rank=['bronze','silver','gold','platinum'].indexOf(parts[parts.length-1]);
+    const rank=['bronze','silver','gold','platinum','legendary'].indexOf(parts[parts.length-1]);
     return [row.id,(row.group==='claude' ? 'Claude' : 'Codex')+' '+themes[locale][theme]+' · '+levels[locale][rank]];
   })) as Record<AchievementMoneyId,string>;
 }
@@ -267,7 +267,7 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       cacheCreationTokens: 'cache-creation tokens',
       encounter: 'model used',
       models: 'qualified multi-model tasks',
-      roots: 'verified sessions',
+      roots: 'independent root tasks',
       childSessions: 'qualified subagents',
       efforts: 'qualified effort tiers',
       days: 'active days',
@@ -313,8 +313,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'fable-sessions-bronze': 'Fable sessions · Bronze', 'fable-sessions-silver': 'Fable sessions · Silver',
       'fable-sessions-gold': 'Fable sessions · Gold',
       'agent-conductor-silver': 'Agent conductor · Silver', 'agent-conductor-gold': 'Agent conductor · Gold',
-      'root-portfolio-bronze': 'Verified tasks · Bronze', 'root-portfolio-silver': 'Verified tasks · Silver',
-      'root-portfolio-gold': 'Verified tasks · Gold',
+      'root-portfolio-bronze': 'Independent root tasks · Bronze', 'root-portfolio-silver': 'Independent root tasks · Silver',
+      'root-portfolio-gold': 'Independent root tasks · Gold',
       'claude-output-bronze': 'Claude output · Bronze', 'claude-output-silver': 'Claude output · Silver',
       'claude-output-gold': 'Claude output · Gold',
       'claude-output-sessions-bronze': 'Output sessions · Bronze', 'claude-output-sessions-silver': 'Output sessions · Silver',
@@ -422,7 +422,7 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       cacheCreationTokens: '缓存写入 Token',
       encounter: '种模型已使用',
       models: '个合格多模型任务',
-      roots: '个可确认会话',
+      roots: '个独立主任务',
       childSessions: '个合格子智能体',
       efforts: '个合格推理档位',
       days: '个活跃日',
@@ -468,8 +468,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'fable-sessions-bronze': 'Fable 输出会话·铜', 'fable-sessions-silver': 'Fable 输出会话·银',
       'fable-sessions-gold': 'Fable 输出会话·金',
       'agent-conductor-silver': '智能体编排者·银', 'agent-conductor-gold': '智能体编排者·金',
-      'root-portfolio-bronze': '可确认任务·铜', 'root-portfolio-silver': '可确认任务·银',
-      'root-portfolio-gold': '可确认任务·金',
+      'root-portfolio-bronze': '独立主任务·铜', 'root-portfolio-silver': '独立主任务·银',
+      'root-portfolio-gold': '独立主任务·金',
       'claude-output-bronze': 'Claude 输出·铜', 'claude-output-silver': 'Claude 输出·银',
       'claude-output-gold': 'Claude 输出·金',
       'claude-output-sessions-bronze': '输出会话·铜', 'claude-output-sessions-silver': '输出会话·银',
@@ -576,7 +576,7 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       cacheCreationTokens: '快取寫入 Token',
       encounter: '種模型已使用',
       models: '個合格多模型任務',
-      roots: '個已確認工作階段',
+      roots: '個獨立主任務',
       childSessions: '個合格子代理',
       efforts: '個合格推理檔位',
       days: '個活躍日',
@@ -622,8 +622,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'fable-sessions-bronze': 'Fable 輸出工作階段・銅', 'fable-sessions-silver': 'Fable 輸出工作階段・銀',
       'fable-sessions-gold': 'Fable 輸出工作階段・金',
       'agent-conductor-silver': '代理編排者・銀', 'agent-conductor-gold': '代理編排者・金',
-      'root-portfolio-bronze': '已確認任務・銅', 'root-portfolio-silver': '已確認任務・銀',
-      'root-portfolio-gold': '已確認任務・金',
+      'root-portfolio-bronze': '獨立主任務・銅', 'root-portfolio-silver': '獨立主任務・銀',
+      'root-portfolio-gold': '獨立主任務・金',
       'claude-output-bronze': 'Claude 輸出・銅', 'claude-output-silver': 'Claude 輸出・銀',
       'claude-output-gold': 'Claude 輸出・金',
       'claude-output-sessions-bronze': '輸出工作階段・銅', 'claude-output-sessions-silver': '輸出工作階段・銀',
@@ -730,7 +730,7 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       cacheCreationTokens: 'Cache-Schreib-Token',
       encounter: 'Modell genutzt',
       models: 'qualifizierte Mehrmodell-Aufgaben',
-      roots: 'bestätigte Sitzungen',
+      roots: 'unabhängige Hauptaufgaben',
       childSessions: 'qualifizierte Unteragenten',
       efforts: 'qualifizierte Denkstufen',
       days: 'aktive Tage',
@@ -776,8 +776,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'fable-sessions-bronze': 'Fable-Sitzungen · Bronze', 'fable-sessions-silver': 'Fable-Sitzungen · Silber',
       'fable-sessions-gold': 'Fable-Sitzungen · Gold',
       'agent-conductor-silver': 'Agenten-Koordinator · Silber', 'agent-conductor-gold': 'Agenten-Koordinator · Gold',
-      'root-portfolio-bronze': 'Bestätigte Aufgaben · Bronze', 'root-portfolio-silver': 'Bestätigte Aufgaben · Silber',
-      'root-portfolio-gold': 'Bestätigte Aufgaben · Gold',
+      'root-portfolio-bronze': 'Unabhängige Hauptaufgaben · Bronze', 'root-portfolio-silver': 'Unabhängige Hauptaufgaben · Silber',
+      'root-portfolio-gold': 'Unabhängige Hauptaufgaben · Gold',
       'claude-output-bronze': 'Claude-Ausgabe · Bronze', 'claude-output-silver': 'Claude-Ausgabe · Silber',
       'claude-output-gold': 'Claude-Ausgabe · Gold',
       'claude-output-sessions-bronze': 'Ausgabesitzungen · Bronze', 'claude-output-sessions-silver': 'Ausgabesitzungen · Silber',
@@ -884,7 +884,7 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       cacheCreationTokens: 'キャッシュ書き込みトークン',
       encounter: 'モデルを使用',
       models: '件の条件を満たす複数モデルのタスク',
-      roots: '確認済みセッション',
+      roots: '独立したメインタスク',
       childSessions: '件の条件を満たす子エージェント',
       efforts: '段階の条件を満たす推論レベル',
       days: '活動日',
@@ -930,8 +930,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'fable-sessions-bronze': 'Fable 出力セッション · ブロンズ', 'fable-sessions-silver': 'Fable 出力セッション · シルバー',
       'fable-sessions-gold': 'Fable 出力セッション · ゴールド',
       'agent-conductor-silver': 'エージェント統括 · シルバー', 'agent-conductor-gold': 'エージェント統括 · ゴールド',
-      'root-portfolio-bronze': '確認済みタスク · ブロンズ', 'root-portfolio-silver': '確認済みタスク · シルバー',
-      'root-portfolio-gold': '確認済みタスク · ゴールド',
+      'root-portfolio-bronze': '独立メインタスク · ブロンズ', 'root-portfolio-silver': '独立メインタスク · シルバー',
+      'root-portfolio-gold': '独立メインタスク · ゴールド',
       'claude-output-bronze': 'Claude 出力 · ブロンズ', 'claude-output-silver': 'Claude 出力 · シルバー',
       'claude-output-gold': 'Claude 出力 · ゴールド',
       'claude-output-sessions-bronze': '出力セッション · ブロンズ', 'claude-output-sessions-silver': '出力セッション · シルバー',
@@ -1038,7 +1038,7 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       cacheCreationTokens: '캐시 쓰기 토큰',
       encounter: '개 모델 사용',
       models: '개 조건을 충족한 다중 모델 작업',
-      roots: '확인된 세션',
+      roots: '독립 주 작업',
       childSessions: '개 조건을 충족한 하위 에이전트',
       efforts: '개 조건을 충족한 추론 단계',
       days: '개 활동일',
@@ -1084,8 +1084,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'fable-sessions-bronze': 'Fable 출력 세션 · 브론즈', 'fable-sessions-silver': 'Fable 출력 세션 · 실버',
       'fable-sessions-gold': 'Fable 출력 세션 · 골드',
       'agent-conductor-silver': '에이전트 조율자 · 실버', 'agent-conductor-gold': '에이전트 조율자 · 골드',
-      'root-portfolio-bronze': '확인된 작업 · 브론즈', 'root-portfolio-silver': '확인된 작업 · 실버',
-      'root-portfolio-gold': '확인된 작업 · 골드',
+      'root-portfolio-bronze': '독립 주 작업 · 브론즈', 'root-portfolio-silver': '독립 주 작업 · 실버',
+      'root-portfolio-gold': '독립 주 작업 · 골드',
       'claude-output-bronze': 'Claude 출력 · 브론즈', 'claude-output-silver': 'Claude 출력 · 실버',
       'claude-output-gold': 'Claude 출력 · 골드',
       'claude-output-sessions-bronze': '출력 세션 · 브론즈', 'claude-output-sessions-silver': '출력 세션 · 실버',
@@ -1192,7 +1192,7 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       cacheCreationTokens: 'tokens de criação de cache',
       encounter: 'modelo usado',
       models: 'tarefas multimodelo qualificadas',
-      roots: 'sessões verificadas',
+      roots: 'tarefas raiz independentes',
       childSessions: 'subagentes qualificados',
       efforts: 'níveis de esforço qualificados',
       days: 'dias ativos',
@@ -1238,8 +1238,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'fable-sessions-bronze': 'Sessões Fable · Bronze', 'fable-sessions-silver': 'Sessões Fable · Prata',
       'fable-sessions-gold': 'Sessões Fable · Ouro',
       'agent-conductor-silver': 'Coordenador de agentes · Prata', 'agent-conductor-gold': 'Coordenador de agentes · Ouro',
-      'root-portfolio-bronze': 'Tarefas verificadas · Bronze', 'root-portfolio-silver': 'Tarefas verificadas · Prata',
-      'root-portfolio-gold': 'Tarefas verificadas · Ouro',
+      'root-portfolio-bronze': 'Tarefas raiz independentes · Bronze', 'root-portfolio-silver': 'Tarefas raiz independentes · Prata',
+      'root-portfolio-gold': 'Tarefas raiz independentes · Ouro',
       'claude-output-bronze': 'Saída Claude · Bronze', 'claude-output-silver': 'Saída Claude · Prata',
       'claude-output-gold': 'Saída Claude · Ouro',
       'claude-output-sessions-bronze': 'Sessões com saída · Bronze', 'claude-output-sessions-silver': 'Sessões com saída · Prata',
@@ -1346,7 +1346,7 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       cacheCreationTokens: 'token pembuatan cache',
       encounter: 'model digunakan',
       models: 'tugas multimodel yang memenuhi syarat',
-      roots: 'sesi terverifikasi',
+      roots: 'tugas utama independen',
       childSessions: 'subagen yang memenuhi syarat',
       efforts: 'tingkat upaya yang memenuhi syarat',
       days: 'hari aktif',
@@ -1392,8 +1392,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'fable-sessions-bronze': 'Sesi Fable · Perunggu', 'fable-sessions-silver': 'Sesi Fable · Perak',
       'fable-sessions-gold': 'Sesi Fable · Emas',
       'agent-conductor-silver': 'Koordinator agen · Perak', 'agent-conductor-gold': 'Koordinator agen · Emas',
-      'root-portfolio-bronze': 'Tugas terverifikasi · Perunggu', 'root-portfolio-silver': 'Tugas terverifikasi · Perak',
-      'root-portfolio-gold': 'Tugas terverifikasi · Emas',
+      'root-portfolio-bronze': 'Tugas utama independen · Perunggu', 'root-portfolio-silver': 'Tugas utama independen · Perak',
+      'root-portfolio-gold': 'Tugas utama independen · Emas',
       'claude-output-bronze': 'Keluaran Claude · Perunggu', 'claude-output-silver': 'Keluaran Claude · Perak',
       'claude-output-gold': 'Keluaran Claude · Emas',
       'claude-output-sessions-bronze': 'Sesi keluaran · Perunggu', 'claude-output-sessions-silver': 'Sesi keluaran · Perak',
@@ -2679,11 +2679,11 @@ function providerTranslations(
 
 const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
   en: providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex', compare: 'Compare' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: 'Share & compare' },
     {},
   ),
   'de-DE': providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex', compare: 'Vergleichen' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: 'Teilen & vergleichen' },
     {
       ...TASK8_CODEX_COPY['de-DE'],
       accountSnapshotLastObserved:
@@ -2699,7 +2699,7 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY['de-DE'],
   ),
   'zh-TW': providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex', compare: '比較' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: '分享與比較' },
     {
       ...TASK8_CODEX_COPY['zh-TW'],
       accountSnapshotLastObserved:
@@ -2715,7 +2715,7 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY['zh-TW'],
   ),
   'zh-CN': providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex', compare: '对比' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: '分享与对比' },
     {
       ...TASK8_CODEX_COPY['zh-CN'],
       accountSnapshotLastObserved:
@@ -2731,7 +2731,7 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY['zh-CN'],
   ),
   ja: providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex', compare: '比較' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: '共有と比較' },
     {
       ...TASK8_CODEX_COPY.ja,
       accountSnapshotLastObserved:
@@ -2747,7 +2747,7 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY.ja,
   ),
   ko: providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex', compare: '비교' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: '공유 및 비교' },
     {
       ...TASK8_CODEX_COPY.ko,
       accountSnapshotLastObserved:
@@ -2763,7 +2763,7 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY.ko,
   ),
   'pt-BR': providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex', compare: 'Comparar' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: 'Compartilhar e comparar' },
     {
       ...TASK8_CODEX_COPY['pt-BR'],
       accountSnapshotLastObserved:
@@ -2779,7 +2779,7 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
     TASK5_CODEX_COPY['pt-BR'],
   ),
   id: providerTranslations(
-    { claude: 'Claude', codexBeta: 'Codex', compare: 'Bandingkan' },
+    { claude: 'Claude', codexBeta: 'Codex', compare: 'Bagikan & bandingkan' },
     {
       ...TASK8_CODEX_COPY.id,
       accountSnapshotLastObserved:

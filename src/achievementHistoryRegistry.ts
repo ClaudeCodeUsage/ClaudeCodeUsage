@@ -136,6 +136,8 @@ export const HISTORY_DATE_REGISTRATIONS:readonly Readonly<HistoryRegistration>[]
  Object.freeze({"id":"claude-api-week-bronze","counter":"claude-api-week","target":100000000,"group":"claude","ruleVersion":1,"series":"claude-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
  Object.freeze({"id":"claude-api-week-silver","counter":"claude-api-week","target":500000000,"group":"claude","ruleVersion":1,"series":"claude-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
  Object.freeze({"id":"claude-api-week-gold","counter":"claude-api-week","target":2500000000,"group":"claude","ruleVersion":1,"series":"claude-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
+ Object.freeze({"id":"claude-api-week-platinum","counter":"claude-api-week","target":10000000000,"group":"claude","ruleVersion":1,"series":"claude-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
+ Object.freeze({"id":"claude-api-week-legendary","counter":"claude-api-week","target":25000000000,"group":"claude","ruleVersion":1,"series":"claude-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
  Object.freeze({"id":"codex-api-total-bronze","counter":"codex-api-total","target":100000000,"group":"codex","ruleVersion":1,"series":"codex-api-total","baseId":null,"scope":"cumulative"}),
  Object.freeze({"id":"codex-api-total-silver","counter":"codex-api-total","target":1000000000,"group":"codex","ruleVersion":1,"series":"codex-api-total","baseId":null,"scope":"cumulative"}),
  Object.freeze({"id":"codex-api-total-gold","counter":"codex-api-total","target":10000000000,"group":"codex","ruleVersion":1,"series":"codex-api-total","baseId":null,"scope":"cumulative"}),
@@ -143,6 +145,8 @@ export const HISTORY_DATE_REGISTRATIONS:readonly Readonly<HistoryRegistration>[]
  Object.freeze({"id":"codex-api-week-bronze","counter":"codex-api-week","target":100000000,"group":"codex","ruleVersion":1,"series":"codex-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
  Object.freeze({"id":"codex-api-week-silver","counter":"codex-api-week","target":500000000,"group":"codex","ruleVersion":1,"series":"codex-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
  Object.freeze({"id":"codex-api-week-gold","counter":"codex-api-week","target":2500000000,"group":"codex","ruleVersion":1,"series":"codex-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
+ Object.freeze({"id":"codex-api-week-platinum","counter":"codex-api-week","target":10000000000,"group":"codex","ruleVersion":1,"series":"codex-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
+ Object.freeze({"id":"codex-api-week-legendary","counter":"codex-api-week","target":25000000000,"group":"codex","ruleVersion":1,"series":"codex-api-week","baseId":null,"scope":"completedMondayWeekPeak"}),
 ]);
 const registered=new Map(HISTORY_DATE_REGISTRATIONS.map(r=>[r.id,r]));
 export function matchesAchievementHistoryRegistration(id:string,counter:string,actual:HistoryRuleShape):boolean {

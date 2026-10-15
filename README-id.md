@@ -67,10 +67,26 @@ Tanggal sesi memakai kelayakan lengkap yang sama dengan indeks kanonis; log yang
 Buka semua / Tutup semua hanya menyimpan keadaan buka kartu dalam status UI lokal
 yang sudah ada, tanpa mengubah sumber atau pemberian lencana. Tingkat memakai
 Perunggu / Perak / Emas; ID lama, sematan, dan daftar harga referensi tetap sama.
-Syarat dan satuan yang persis sama ditampilkan sekali; catatan nilai uang hanya
-digabung jika daftar harga saat pemberian juga sama. Kartu dengan semua tingkat
+Syarat dan satuan yang persis sama ditampilkan sekali. Bagian referensi nilai uang bersama
+menampilkan daftar harga saat ini/tanggal untuk setiap penyedia aktif serta keterangan bahwa
+nilainya bukan tagihan. Daftar harga historis yang berbeda tetap dikaitkan dengan penghargaan
+yang tepat; kartu mempertahankan cakupan penggunaan/harga tanpa mengulang catatan harga/dasar pemberian.
+Kartu dengan semua tingkat
 tercapai menampilkan statistik saat ini tanpa dipotong; bukti usang atau hilang
 tidak diganti dengan nilai target.
+
+**Tugas utama independen** menghitung kepemilikan akar Codex yang dapat diverifikasi
+dengan penggunaan positif model yang dikenali (input atau output). Tugas utama dan
+turunannya dihitung sekali, bukan sebagai tugas selesai. ID dan ambang aturan lama tetap sama.
+
+Navigasi dan judul halaman menjadi **Bagikan & bandingkan**. Pilihan lencana memiliki
+lebar seragam dan baris tingkat terpisah. Perbaikan ikon kotak centang memakai sumber
+daya lokal yang sama dengan CSP Webview utama. SVG ekspor memuat
+[tautan repositori publik tetap](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage), dengan
+pembungkusan teks dan jarak untuk label panjang. Pratinjau/ekspor tidak menambah permintaan
+jaringan otomatis atau metadata pribadi; pilihan eksplisit dan SVG yang telah diterima tetap
+tidak berubah. Penyatuan/pemolesan visual halaman berbagi secara menyeluruh dan arsip
+penggunaan tahan lama ditunda ke versi berikutnya; keduanya belum diterapkan dalam kandidat ini.
 
 Tanggal tiap tingkat hanya diturunkan dalam memori dan berarti tanggal paling awal
 yang dapat diverifikasi dari log tersimpan, bukan riwayat lengkap akun. Tanggal
@@ -148,12 +164,15 @@ Log agen yang diletakkan sejajar tanpa sesi induk yang terbukti dari jalur tidak
 dihitung sebagai bukti pencapaian berbasis sesi. Token, harga, agregat harian dan
 baris sesi tetap sama; atribusi agen bersarang serta lencana tersimpan dipertahankan.
 
-Galeri 2.5.0 memuat 50 tema, 174 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
+Galeri 2.5.0 memuat 50 tema, 178 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
 output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
 
 Lima belas seri Claude/aktivitas menambah Platina dan Legendaris, tanpa mengubah tiga target awal, bukti, atau gambar. Hari aktif, output, dan sesi mendukung kemajuan dalam tiga hari kerja terpusat per pekan, tanpa Codex atau belanja tambahan. Tingkat hari berturut-turut tidak ditambah.
 
-Ada 20 syarat nilai uang dalam enam tema terpisah Claude/Codex: subtotal kumulatif yang memiliki harga, minggu kalender yang telah berakhir dan dimulai pada Senin, serta penggunaan tunggal.
+Ada 24 syarat nilai uang dalam enam tema terpisah Claude/Codex: subtotal kumulatif yang memiliki harga, minggu kalender yang telah berakhir dan dimulai pada Senin, serta penggunaan tunggal.
+Kedua seri mingguan memiliki lima tingkat: Perunggu USD 100, Perak USD 500, Emas USD 2.500,
+Platina USD 10.000, dan Legendaris USD 25.000. Hanya dua tingkat terakhir tiap penyedia yang baru;
+ID/ambang lama, syarat minggu yang telah berakhir, dan dasar harga referensi tetap tidak berubah.
 Minggu mengikuti zona waktu data saat ini; penggunaan tunggal berarti satu sesi Claude atau satu pohon tugas Codex yang terverifikasi.
 Harga referensi USD tetap dengan versi memerlukan model yang dikenal secara tepat dan tarif komponen lengkap, termasuk TTL cache Claude.
 Model tak dikenal tetap tanpa harga; bagian terverifikasi membuktikan batas bawah, bukan tagihan, kualitas atau pendapatan. Hanya tonggak uang kumulatif dari tambahan baru terverifikasi dengan referensi sama menyimpan status belum dibaca dan hari pertama tercatat. Riwayat, minggu selesai dan sesi/tugas tunggal tetap senyap dengan tanggal tak diketahui. Bukti Token/uang terpisah dan memakai satu kelompok notifikasi; gagal simpan tidak menampilkan tanggal optimistis.

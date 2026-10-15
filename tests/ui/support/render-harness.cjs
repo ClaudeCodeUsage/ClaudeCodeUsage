@@ -1,14 +1,23 @@
 'use strict';
 
 const Module = require('node:module');
+const path = require('node:path');
 const { freezeClock } = require('./frozen-clock.cjs');
 const originalLoad = Module._load;
 
 let latestHarnessPanel;
 
-function createHarnessPanel() {
+function createHarnessPanel(nativeResources = false) {
   const webview = {
     html: '',
+    ...(nativeResources ? {
+      cspSource: "'self'",
+      asWebviewUri: (uri) => {
+        const route = achievementResourceRoutes.get(uri.fsPath);
+        if (!route) throw new Error('Harness resource is not a packaged achievement icon');
+        return { toString: () => route };
+      },
+    } : {}),
     onDidReceiveMessage: () => ({ dispose: () => undefined }),
     postMessage: async () => true,
   };
@@ -69,6 +78,16 @@ const {
 } = require('./advice-effectiveness-fixture.cjs');
 
 Module._load = originalLoad;
+
+// Synthetic equivalent of VS Code resource authorization, not native URI
+// acceptance. No request-controlled path ever reaches filesystem I/O.
+const { ACHIEVEMENT_IMAGE_FILES } = require('../../../out/achievementIcons.js');
+const extensionPath = path.resolve(__dirname, '../../..');
+const achievementResourceRoutes = new Map([...new Set(Object.values(ACHIEVEMENT_IMAGE_FILES))]
+  .map(filename => [path.join(extensionPath, 'assets', 'achievements', filename),
+    '/__achievement_icons__/' + filename]));
+exports.achievementResourceFiles = new Map([...achievementResourceRoutes]
+  .map(([filename, route]) => [route, filename]));
 
 // Resolve Light+/Dark+ overrides against VS Code's registered color defaults.
 // Font variables use VS Code's macOS defaults. input.border is registered with
@@ -333,7 +352,7 @@ function addClaudeData(provider, { fixture = 'default', enableContent = false } 
   const now = new Date(CODEX_WEBVIEW_NOW);
   const completedWeeklyFixture = fixture === 'weekly-claude-completed';
   const completedResetAt = CODEX_WEBVIEW_NOW - 24 * 60 * 60_000;
-  const combinedHeatmapRecords = fixture === 'combined-heatmap' || fixture.startsWith('achievement-theme-')
+  const combinedHeatmapRecords = fixture === 'combined-heatmap' || fixture === 'achievement-share-resources' || fixture.startsWith('achievement-theme-')
     ? [
         {
           timestamp: '2026-07-19T10:00:00.000Z',
@@ -580,7 +599,9 @@ exports.renderHarness = async function renderHarness({
   commandAfterReset = false,
   quotaPace = false,
   quotaPaceState = 'fresh',
+  nativeResources = false,
 } = {}) {
+  vscodeHost.window.createWebviewPanel = () => createHarnessPanel(nativeResources);
   I18n.setLanguage(locale);
   I18n.setTimezone(timeZone);
   I18n.setDecimalPlaces(2);
@@ -630,7 +651,8 @@ exports.renderHarness = async function renderHarness({
           ? { ...row, usedPercent: 29, resetsAt: CODEX_WEBVIEW_NOW + 3 * QUOTA_PACE_WEEK_MS / 4 }
           : row) };
     }
-    const provider = new UsageWebviewProvider({ globalState: memoryGlobalState() });
+    const provider = new UsageWebviewProvider({ globalState: memoryGlobalState(),
+      ...(nativeResources ? { extensionPath } : {}) });
     // The real extension loads globalState asynchronously before enabling any
     // consent or feedback control. Let that same path settle in the harness.
     await new Promise((resolve) => setImmediate(resolve));
@@ -757,6 +779,23 @@ exports.renderHarness = async function renderHarness({
       provider.updateQuotaPace(paceSnapshot, usage);
     }
 
+    if (fixture === 'achievement-share-resources') {
+      // More than nine independently earned choices, including unselected
+      // thumbnails. Synthetic retained awards; no filesystem record store.
+      const { parseAchievementRecordStore } = require('../../../out/achievementRecordStore.js');
+      const { achievementRuleVersion } = require('../../../out/achievementRuleVersions.js');
+      const ids = ['local-share-export', 'local-advice-feedback', 'settings-explorer-bronze',
+        'hundred-million-club', 'sonnet-main', 'opus-cannon', 'haiku-worker',
+        'streak-machine', 'dual-provider-day', 'active-day-streak', 'model-rainbow'];
+      provider.achievementRecordState = parseAchievementRecordStore({ schemaVersion: 2, catalogVersion: 2,
+        generation: 1, sequence: ids.length, lastNoticeAt: 0, pinRevision: 0, showcaseMode: 'automatic',
+        legacyBoundary: null, legacyRecords: [], pins: [],
+        records: ids.map((id, index) => ({ id, seq: index + 1, ruleVersion: achievementRuleVersion(id),
+          origin: 'history', unread: false, recordedDay: null, timeZone: null })),
+        auxiliary: { activity: { schemaVersion: 2, settingKeys: [], features: [] },
+          hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null } });
+      provider.achievementGrants = new Set(ids);
+    }
     if (fixture === 'combined-heatmap') {
       // Sharing protocol tests need one explicitly saved award. Their tiny
       // heatmap usage is no longer enough for output-qualified model rainbow.
@@ -924,6 +963,7 @@ exports.renderHarness = async function renderHarness({
       return provider.renderCodexMonthDailyDetail(codexMonth, rows);
     }
 
+    if (nativeResources && !commandTemplate) provider.panel = createHarnessPanel(true);
     latestHarnessPanel = undefined;
     if (commandTemplate) {
       provider.showSharingWorkspace(commandTemplate);

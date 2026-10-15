@@ -107,7 +107,7 @@ test('copy covers exactly eight public locales and the current rule and artwork 
   const legacyIds = ACHIEVEMENT_DEFINITIONS.filter(row => isLegacyAchievementId(row.id)).map(row => row.id);
   const moneyIds = API_ACHIEVEMENT_DEFINITIONS.map(row => row.id);
   assert.equal(legacyIds.length, 124, 'the V1 allowlist stays frozen');
-  assert.equal(moneyIds.length, 20);
+  assert.equal(moneyIds.length, 24);
   assert.deepEqual(ACHIEVEMENT_DEFINITIONS.map(row => row.id).sort(),
     [...legacyIds, ...moneyIds, ...LONG_TERM_ACHIEVEMENT_DEFINITIONS.map(row=>row.id)].sort());
   const seriesFor = new Map(Object.entries(ACHIEVEMENT_SERIES).flatMap(([key, ids]) => ids.map(id => [id, key] as const)));

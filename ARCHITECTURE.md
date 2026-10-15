@@ -46,7 +46,8 @@ part of version 2.5.0.
   structural optimization guidance. Known models also receive a clearly
   qualified API-equivalent cost estimate; it is never a bill or subscription
   charge, and unknown models remain unpriced.
-- Compare: side-by-side compatible metrics only. It never sums provider cost,
+- Share & compare (internal provider key `compare`): the navigation/page label for
+  sharing and side-by-side compatible metrics. It never sums provider cost,
   quota, or tokens into a misleading combined total.
 
 Full invoice reconciliation, driving either coding agent, background telemetry,
@@ -366,7 +367,7 @@ credentials or make a network call to refresh it.
 
 ### Local achievements (2.5.0)
 
-Historical dates use a frozen 134-rule registration manifest. Each handler verifies
+Historical dates use a frozen 138-rule registration manifest. Each handler verifies
 the exact ID, counter, target, group, rule version, series, base ID and monetary
 scope; adding a rule or changing its interpretation cannot silently inherit a date.
 The module-level signature covers actual and registered metadata.
@@ -382,10 +383,33 @@ Gallery-wide expand/collapse changes only card entries in existing `openDetails`
 local UI persistence; it does not select sources, grant awards or acknowledge unread
 records. Bronze/Silver/Gold are localized display labels, including 铜／银／金 and
 銅／銀／金. Legacy IDs, pins, reference pricebooks and thresholds are unchanged.
-Conditions and units are consolidated only when exactly equal across levels;
-monetary explanations additionally require the same awarded pricebook. The current
+Conditions and units are consolidated only when exactly equal across levels.
+`webview.ts` renders one shared achievement money-reference disclosure with the
+current book/date per enabled provider and one non-billing note. Saved different
+historical `referencePricebook` values are grouped with the exact associated award
+titles/ranks; current book selection never rewrites those associations. Per-card
+price/basis notes are removed while scope and pricing coverage remain. The current
 statistic remains uncapped even at the highest rank. Missing/stale evidence stays
 unavailable rather than being replaced by a target or a saved award.
+
+`root-portfolio` retains its IDs, thresholds and saved awards under the localized
+name Independent root tasks / 独立主任务. `achievements.ts` builds `modelsByRoot` only
+from verified root ownership and recognized model buckets with positive input
+**or** output. `verifiedRootCount` counts each root tree once, including eligible
+children, without asserting task completion or reading task content.
+
+The Share & compare label changes neither the `compare` provider key nor navigation
+state ownership. Achievement sharing only adds basic equal-width checkbox options
+with a separate rank line. The local-icon repair uses the same
+`webview.cspSource` as the main dashboard CSP for bundled `asWebviewUri` resources;
+it adds no remote image permission. `achievementShare.ts` embeds the fixed public
+`https://github.com/ClaudeCodeUsage/ClaudeCodeUsage` anchor with no input-derived
+destination, resource fetch, telemetry or personal metadata. Headings, footers and
+rank/threshold labels wrap with reserved spacing in the existing grid; output
+remains deterministic with bundled image data and the immutable preview/export seal.
+Broad sharing-page visual unification/beautification and a durable usage archive
+are deferred to the next version and are not implemented in this candidate.
+Integration/browser/package checks are ongoing, not native/F5 acceptance evidence.
 
 Per-level historical dates are derived annotations with `schemaVersion: 1`, bound
 to `ruleVersion`, data timezone and actual catalog shape. Cache reuse also depends
@@ -435,13 +459,13 @@ them as unsaved. End-to-end validation of this path is still in progress; this
 contract is not evidence of a passed gate. No storage schema, source parser,
 dependency or package-version change is introduced by these presentation features.
 
-The gallery has 50 display themes and 174 award conditions. `enableAchievements` defaults
+The gallery has 50 display themes and 178 award conditions. `enableAchievements` defaults
 on, but an existing opt-out wins; a once-only non-modal upgrade announcement offers
 view/disable actions without opening the gallery automatically. Historical grants
 establish a quiet baseline. Subsequent eligible in-panel notices have no sound or
 focus change; night and 24/48-hour output badges remain silent.
 
-Twenty API-equivalent conditions belong to six separate Claude/Codex cumulative,
+Twenty-four API-equivalent conditions belong to six separate Claude/Codex cumulative,
 completed-week and single-session/task themes. `achievementMoney.ts` freezes
 `api-reference-2026-10-{backend}-v1`, dated 2026-10-09; exact decimal components
 sum before flooring to microUSD. Exact models and complete rates, including known
@@ -452,6 +476,17 @@ verified Codex task tree. Historical recognition is quiet. Cumulative monetary
 crossings now use verified live append receipts; completed-week and single-session/
 task monetary scopes still reconcile quietly with unknown dates. Dashboard pricing/
 display currency does not alter these rules.
+
+Both `claude-api-week` and `codex-api-week` now contain five ranks: Bronze $100,
+Silver $500, Gold $2,500, Platinum $10,000 and Legendary $25,000. Only the four
+Platinum/Legendary IDs are added; the existing three IDs/targets, series ownership,
+artwork, completed-week boundary and frozen-price provenance remain unchanged.
+Their four explicit history registrations bring the manifest to 138 entries; a
+supported log-derived annotation is still separate from a saved first-record date.
+Legacy envelopes reject the new IDs, and the pre-expansion reader fails closed
+without rewriting or clearing either envelope. Schema/catalog versions and the
+65,536-byte cap stay unchanged; the reported maximum-envelope fixture is 37,374
+bytes. These synthetic checks do not establish native/F5 acceptance.
 
 `achievementModels.ts` keeps non-monetary collaboration/rainbow recognition
 independent of `achievementMoney.ts`'s fixed pricing aliases. Claude family labels
@@ -542,7 +577,7 @@ No consecutive-day tiers or scanners are added. Family days now share the activi
 topic, so one automatic slot need not suppress an independently earned model-volume
 badge. Historical IDs and v1 series-pin vocabulary stay frozen, independent of live
 series membership. Additive IDs cannot be imported as v1 proof; current v2 accepts
-old 144-record envelopes and up to 174 current records under the unchanged 64 KiB cap. An
+old 144-record envelopes and up to 178 current records under the unchanged 64 KiB cap. An
 old binary may reject unfamiliar IDs but must not overwrite the canonical envelope.
 Higher output/cache tiers use the same causal native-tail checks; session/calendar
 reconciliation remains quiet with unknown dates. Explicit share choices never
@@ -768,7 +803,7 @@ This adds neither storage fields nor timestamps and is not cross-host coordinati
 
 `achievementRecordStore.ts` now owns the canonical `achievements-v2.json` award
 envelope in extension global storage, separately from those runtime latches.
-It validates at most 174 current unique rule IDs, monotonic sequence/generation, reason
+It validates at most 178 current unique rule IDs, monotonic sequence/generation, reason
 enums and optional first-record day/zone within 64 KiB. Audited old grants seed
 only a missing canonical file. The v1 file is read-only migration input outside
 explicit clearing. Versioned migration archives saved awards from the 21 changed

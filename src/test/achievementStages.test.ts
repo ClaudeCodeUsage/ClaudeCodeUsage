@@ -52,11 +52,11 @@ test('Claude first-tier stages show positive evidenced progress without creating
 
 test('six monetary series expose only integer 2×/5× stages strictly between formal awards', () => {
   const before = JSON.stringify({ definitions: ACHIEVEMENT_DEFINITIONS, series: ACHIEVEMENT_SERIES });
-  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 20);
+  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 24);
   assert.equal(Object.keys(API_ACHIEVEMENT_SERIES).length, 6);
   const expectedByScope = {
     cumulative: [200, 500, 2_000, 5_000, 20_000, 50_000],
-    completedMondayWeekPeak: [200, 1_000, 2_000],
+    completedMondayWeekPeak: [200, 1_000, 2_000, 5_000, 20_000],
     maxSessionTask: [20, 50, 200, 500],
   };
   for (const [series, ids] of Object.entries(API_ACHIEVEMENT_SERIES)) {

@@ -12,7 +12,55 @@ history recovery and full-suite validation remain in progress.
 中文：2.5.0 测试候选合并待发布成就系统与 Codex 压缩日志兼容，尚未发布；集成、
 完整本机历史恢复及全量测试验证仍在进行。
 
+Broad sharing-page visual unification/beautification and a durable usage archive
+are deferred to the next version; neither is implemented in this candidate.
+中文：分享页整体视觉统一／美化与持久用量归档推迟至下一版本，本候选未实现这两项。
+
 ### Added — 2.5.0
+
+- **Five weekly API-equivalent ranks per provider** — Claude and Codex each retain
+  Bronze $100, Silver $500 and Gold $2,500, and add Platinum $10,000 and Legendary
+  $25,000. The candidate uses these recommended new thresholds; they are not a
+  separate release. Four new IDs bring the catalog to 178 rules, including 24
+  monetary conditions, with 50 themes unchanged and 138 explicit date registrations.
+  Completed Monday-start weeks, configured timezone, frozen reference prices and
+  provider-specific provenance retain their existing requirements. Old IDs,
+  thresholds, awards and artwork remain intact; legacy envelopes cannot grant the
+  new ranks, and an older reader rejects unknown ranks without rewriting or clearing
+  either envelope. This does not add live weekly-award receipts or a usage archive.
+  中文：Claude／Codex 的周 API 等价金额各保留铜 $100、银 $500、金 $2,500，新增铂金
+  $10,000、传奇 $25,000，合为五级；本候选采用这组建议门槛，不另拆版本。四个新 ID
+  将目录增至 178 项规则，其中金额条件 24 项；主题仍为 50 个，显式日期注册增至 138 项。
+  仍须设置时区内已结束的周一自然周、固定参考价及各供应商来源证明。旧 ID、门槛、授奖
+  和图案不变；旧封套不能授予新等级，旧读取器遇未知等级拒绝操作，不改写或清除任一封套。
+  不新增周奖章实时收据或用量归档。
+
+- **Shared achievement money reference** — show the current book/date once per
+  enabled provider with a shared non-billing explanation. Different historical
+  books retain exact award associations. Cards retain scope and pricing coverage
+  while repeated price/basis notes are removed; saved award provenance is unchanged.
+  中文：金额参考说明集中显示各已启用供应商的当前价表／日期及非账单提示；不同历史价表
+  保留与具体奖项的准确关联。卡片保留范围和计价覆盖率，移除重复价表／依据说明，不改已存授奖来源。
+- **Independent root tasks** — rename `root-portfolio` in all eight locales
+  (独立主任务 in Simplified Chinese). Count verifiable root ownership with recognized
+  positive model usage, input **or** output; a root and its children count once.
+  This does not establish task completion. Existing IDs, thresholds and awards remain unchanged.
+  中文：`root-portfolio` 八语名称明确为独立主任务；要求根归属可核验且已识别模型的输入或输出
+  有正用量，主任务及子任务合计一次，不表示任务已完成；既有 ID、门槛与授奖不变。
+- **Share & compare: bounded sharing fixes** — rename the navigation/page label
+  (分享与对比), align badge choices at equal width with a separate rank line, and
+  add the fixed public `https://github.com/ClaudeCodeUsage/ClaudeCodeUsage` link to
+  exported SVGs. Long headings, footers and rank/threshold labels use wrapping and
+  spacing safeguards. The checkbox-icon repair uses the main webview's
+  `webview.cspSource`, rather than an additional remote image source. Preview/export
+  adds no automatic network request or personal metadata; explicit selection and
+  the immutable accepted-preview/export contract remain intact. Integration and
+  browser/package checks are ongoing; this entry does not claim native/F5 acceptance.
+  中文：导航／页标题改为「分享与对比」，徽章选项仅做等宽对齐与等级单列，导出 SVG 加入
+  固定公开仓库链接；长标题、页脚及等级／门槛通过换行和间距避免重叠。勾选图标
+  修复沿用主 Webview 的 `webview.cspSource`，不新增远程图片来源。预览／导出不新增自动
+  网络请求或个人元数据，主动选择及不可变预览／导出约定不变。集成、浏览器和打包验证
+  仍在进行，本文不表示原生／F5 验收通过。
 
 - **Compressed Codex history** — discover `.jsonl` and `.jsonl.zst` only under
   `sessions` / `archived_sessions`, retaining the regular-file and no-symlink
@@ -39,20 +87,21 @@ history recovery and full-suite validation remain in progress.
   历史压缩文件可在硬上限内超出 soft budget。此项仍在集成验证中。
 
 - **Date compatibility and calibration transaction boundaries** — explicitly register
-  134 rule shapes, including counter/series/base/scope, instead of dating future IDs
+  138 rule shapes, including counter/series/base/scope, instead of dating future IDs
   by series membership. Canonical uncapped session admission excludes output-only
   non-sessions; weak cache keys are retired on source/evidence changes. Changed logs
   require recalibration. Independently verified native usage keeps its first-recorded
   receipt when calibration is cancelled or fails; historical reconciliation stays
   quiet and partial saves are not reported as total failure or full completion.
-  中文：134 项日期规则显式注册，完整匹配计数器／系列／基础／范围，未知新 ID 不自动继承。
+  中文：138 项日期规则显式注册，完整匹配计数器／系列／基础／范围，未知新 ID 不自动继承。
   会话沿用规范完整准入，弱键缓存随来源／证据退役，日志变化后重新校准。真实已核验增量
   的首次记录不因校准取消或失败而丢失；历史补认静默，部分保存单独报告。
 
 - **Gallery management and log-date annotations** — expand/collapse reuses card
   `openDetails` local UI state only. Localized Bronze/Silver/Gold labels preserve
-  legacy IDs, pins and pricebooks. Exactly matching conditions/units and same-award-
-  pricebook explanations appear once; fully earned cards retain uncapped current
+  legacy IDs, pins and pricebooks. Exactly matching conditions/units appear once;
+  the shared money-reference section retains current and historical award bases.
+  Fully earned cards retain uncapped current
   statistics, never a target substituted for stale evidence. Per-level dates use
   a runtime-only v1 annotation bound to rule version, timezone, catalog shape and
   source/pricing context, without changing v2 `recordedDay`, unknown dates or unread
@@ -80,7 +129,7 @@ history recovery and full-suite validation remain in progress.
   persistent store, storage schema, source parser, dependency or package version.
   **End-to-end validation remains in progress; this entry does not claim acceptance.**
   中文：图鉴展开状态沿用本地 UI 存储，铜／银／金短名不改 ID、固定项或价表；完全相同
-  条件／单位及同一已授奖价表说明集中一次，满级保留未截断当前统计，过期证据不冒充目标值。
+  条件／单位集中一次，金额参考区保留当前及历史授奖依据；满级保留未截断当前统计，过期证据不冒充目标值。
   逐级日期仅为绑定规则版本、时区、目录及来源／计价上下文的运行期 v1 注释，不改 v2
   原日期与未读，不承诺完整账户历史。自动日归约复用物化数据与严格完整日期文件；
   活跃计数／连续活跃含当天正活动，合格家族日须闭日后加一天，四周窗口按首个正活动日
@@ -106,7 +155,7 @@ history recovery and full-suite validation remain in progress.
   Claude and concentrated weekly patterns without buying models or using Codex.
   No consecutive-day tiers are added. Locale-native titles, current progress,
   explicit sharing and quiet historical reconciliation retain their contracts.
-  Frozen v1 IDs/pin keys and v2 canonical records stay compatible; up to 174 current
+  Frozen v1 IDs/pin keys and v2 canonical records stay compatible; up to 178 current
   records remain bounded by 64 KiB. Old labels cannot authorize new high ranks.
 
 - **Provider/metric heatmap sharing** — Claude / Codex / Both × Tokens /
@@ -177,7 +226,7 @@ history recovery and full-suite validation remain in progress.
   to that theme's summary when its button disappears. Surviving controls retain
   focus normally; no refresh, read acknowledgement or new preference is added.
 - **Growing themes without duplicate cards** — the current default gallery has 50 theme
-  cards, 174 rules and 52 artwork groups, including six API resource themes. The fourteen-day and
+  cards, 178 rules and 52 artwork groups, including six API resource themes. The fourteen-day and
   first shared-day milestones live inside their growing themes, not as extra
   tiers. Old disclosure links and pins still work; duplicate old pins can be
   removed separately. Recent views collapse themes but preserve exact records,
@@ -252,7 +301,7 @@ history recovery and full-suite validation remain in progress.
   the next formal tier; long Token ladders include display-only 1/2/5 stage targets.
   These are not extra awards, notifications or sharing choices, and do not change
   any formal threshold. Pending/outdated proof never fabricates stage progress.
-- **Tiered local achievements** — 50 icon-first themes and 174 award conditions,
+- **Tiered local achievements** — 50 icon-first themes and 178 award conditions,
   with distinct bundled artwork per series, shared by its colored tiers. Token-led Claude Sonnet/Opus/Haiku/Fable and Codex
   Astra/Sol/Luna progression, output/cache, model/effort and agent experiences,
   calendar activity, weekly peaks, completed four-week averages, and a few safe

@@ -117,7 +117,7 @@ test('every tiered family has unique known IDs, one evidence group, and rising t
   const definitions = new Map(ACHIEVEMENT_DEFINITIONS.map((entry) => [entry.id, entry]));
   const seen = new Set<string>();
   for (const [series, ids] of Object.entries(ACHIEVEMENT_SERIES)) {
-    assert.equal(ids.length, series === 'cumulative-volume' || LONG_TERM_ACHIEVEMENT_DEFINITIONS.some(row=>row.series===series) ? 5 :
+    assert.equal(ids.length, series === 'cumulative-volume' || series === 'claude-api-week' || series === 'codex-api-week' || LONG_TERM_ACHIEVEMENT_DEFINITIONS.some(row=>row.series===series) ? 5 :
       series === 'claude-api-total' || series === 'codex-api-total' ? 4 : 3, series);
     const tiers = ids.map((id) => {
       assert.equal(seen.has(id), false, `${id} appears in two series`);

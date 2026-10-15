@@ -77,12 +77,23 @@ recovery and full-suite acceptance remain to be verified for this candidate.
 
 ## What is never cached
 
-Long-term ranks add only public catalog IDs to the existing envelope: at most 174
+Long-term and weekly monetary ranks add only public catalog IDs to the existing envelope: at most 178
 current records within the unchanged 64 KiB total cap, including auxiliary evidence
 and retained old-rule records. No usage/cost value or source identity is stored per rank.
 Old 144-record v2 envelopes and pins retain provenance;
 new IDs cannot be accepted in v1 or inferred from an old rank. Downgrade readers
 may fail closed without overwriting unknown current records.
+
+The two weekly API-equivalent series each have five levels: Bronze $100, Silver
+$500, Gold $2,500, Platinum $10,000 and Legendary $25,000. Only the last two ranks
+per provider are new; old IDs, thresholds and saved provenance are unchanged.
+The catalog now has 24 monetary conditions within 178 rules and 50 themes. Weekly
+evidence still requires a completed Monday-start week in the configured timezone
+and the existing frozen reference-price basis. No live weekly receipt, extra
+usage history or storage schema is introduced. The four new IDs are rejected by
+legacy-envelope parsing; a pre-expansion reader fails closed without rewriting
+or clearing either envelope. The reported maximum-envelope fixture is 37,374 bytes
+against the unchanged 65,536-byte cap; this is synthetic validation, not native acceptance.
 
 The compact achievement overview adds no stored fields or source reads. A bounded
 runtime set of positive combined-calendar lower-bound rule IDs reuses validated
@@ -259,7 +270,7 @@ copy without changing compact bar text or custom quota formats.
 
 ## Local achievements (2.5.0)
 
-The historical-date manifest explicitly registers 134 current rules; registration
+The historical-date manifest explicitly registers 138 current rules; registration
 alone never proves that retained logs can date a level. Unknown IDs or changed
 counter/threshold/version/ownership/base/scope remain undated. Manual session
 dates follow canonical uncapped admission; weak cache keys retain no second
@@ -270,10 +281,26 @@ historical reconciliation does not consume it. Partial saves have a separate res
 
 Gallery management reuses existing card `openDetails` local UI persistence.
 Expand/collapse does not touch sources, awards or unread state. Localized
-Bronze/Silver/Gold labels and exact shared conditions/units add no stored field;
-monetary explanations are shared only for the same awarded pricebook. Legacy IDs,
+Bronze/Silver/Gold labels and exact shared conditions/units add no stored field.
+One shared money-reference section shows each enabled provider's current book/date
+and the non-billing explanation. Different historical books keep their exact award
+associations from saved `referencePricebook` values; presentation does not relabel
+or rewrite awards. Cards retain scope and pricing coverage without repeated
+price/basis notes. Legacy IDs,
 pins and pricebooks remain unchanged. Even a fully earned card shows the uncapped
 current statistic; stale or missing evidence is not replaced by its target.
+
+The `root-portfolio` display name is Independent root tasks. Its existing aggregate
+counts verifiable Codex root ownership with recognized positive model usage (input
+or output), counting a root and its children once. It does not prove task completion,
+read task content or add persisted identities. IDs, thresholds and saved awards are unchanged.
+
+The navigation/page label Share & compare, basic equal-width badge choices and
+separate rank line add no data category. The checkbox-icon repair permits
+the same bundled local resource source (`webview.cspSource`) as the main webview
+CSP, without enabling remote images. Broad sharing-page visual unification/beautification
+and a durable usage archive are deferred to the next version; this candidate adds
+neither. Current derived caches are not a promised durable usage archive.
 
 Log-derived per-level dates are runtime-only annotations (`schemaVersion: 1`),
 bound to `ruleVersion`, timezone, catalog shape and current source/pricing context.
@@ -442,7 +469,7 @@ replacement, reset, disable or panel close releases the retained artifact.
 The extension-owned ledger contains only the following validated fields:
 
 - `globalStorage/achievements-v2.json`: the canonical award envelope, at most
-  64 KiB and one current record for each of 174 public rule IDs. Fields are schema/catalog/rule
+  64 KiB and one current record for each of 178 public rule IDs. Fields are schema/catalog/rule
   version, monotonic clear generation/record sequence, four reason enums
   (`existing`, `history`, `usage`, `activity`), unread boolean, optional first-record
   calendar day and timezone, at most six ordered public series pins, automatic/manual
@@ -609,8 +636,13 @@ partial dates cannot be counted as proven zero-use dates.
 
 Badges cover local history, which may include shared accounts and multiple sign-ins.
 They do not certify identity, skill, productivity, subscription allowance or bills.
-Badge sharing exports only selected public rule labels, tier markers, bundled icons
-and caveats, not source paths, account data or logs. Choose up to nine earned badges
+Badge sharing exports only selected public rule labels, tier markers, bundled icons,
+caveats and the fixed public repository link
+`https://github.com/ClaudeCodeUsage/ClaudeCodeUsage`, not source paths, account data
+or logs. The SVG hyperlink contains no user-supplied URL or tracking parameters;
+preview/export does not fetch it. It adds no automatic network request, external
+image dependency or personal metadata. Long labels wrap with reserved spacing;
+the accepted immutable preview/export seal remains unchanged. Choose up to nine earned badges
 and accept a local preview before export; no automatic export, sign-in or upload.
 
 ## Clear and migration behavior

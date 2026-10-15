@@ -65,10 +65,27 @@ Sitzungsdaten verwenden dieselbe vollständige Zulassung wie der kanonische Inde
 Alle ausklappen / einklappen speichert nur den Aufklappzustand der Karten im
 bestehenden lokalen UI-Zustand; Quellen und Auszeichnungen bleiben unberührt.
 Die Ränge heißen Bronze / Silber / Gold; IDs, Pins und Referenzpreislisten bleiben
-gleich. Exakt gleiche Bedingungen und Einheiten erscheinen einmal, Geldhinweise
-nur bei derselben zur Auszeichnung gehörenden Preisliste. Vollständig erreichte
+gleich. Exakt gleiche Bedingungen und Einheiten erscheinen einmal. Ein gemeinsamer
+Geldreferenzbereich nennt je aktiviertem Anbieter die aktuelle Preisliste samt Datum
+und den Hinweis, dass dies keine Rechnung ist. Abweichende historische Preislisten
+bleiben den genauen Auszeichnungen zugeordnet; Karten behalten Umfang und Preisabdeckung
+ohne wiederholte Preis-/Berechnungsgrundlagen. Vollständig erreichte
 Karten zeigen den ungekürzten aktuellen Wert; veraltete oder fehlende Belege werden
 nicht durch einen Zielwert ersetzt.
+
+**Unabhängige Hauptaufgaben** zählt verifizierbare Codex-Wurzelzuordnungen mit
+erkannter positiver Modellnutzung (Eingabe oder Ausgabe). Haupt- und Unteraufgaben
+zählen zusammen einmal, nicht als abgeschlossene Aufgaben. Regel-IDs und Schwellen bleiben gleich.
+
+Navigation und Seitentitel heißen **Teilen & vergleichen**. Abzeichenauswahlfelder
+haben gleiche Breite und eine eigene Rangzeile. Die Symbolkorrektur
+nutzt dieselbe lokale Ressourcenquelle wie die Haupt-Webview-CSP. Exportierte SVGs
+enthalten den festen öffentlichen [Repository-Link](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)
+und umbrechende lange Beschriftungen. Vorschau/Export ergänzen weder automatische
+Netzwerkanfragen noch persönliche Metadaten; ausdrückliche Auswahl und unveränderliche
+bestätigte SVGs bleiben erhalten. Die umfassende visuelle Vereinheitlichung/Verschönerung
+der Freigabeseite und ein dauerhaftes Nutzungsarchiv sind auf die nächste Version
+verschoben und in diesem Kandidaten nicht implementiert.
 
 Datumsangaben je Stufe entstehen nur im Arbeitsspeicher und bezeichnen das früheste
 aus erhaltenen Logs belegbare Datum, nicht den vollständigen Kontoverlauf. Gespeicherte
@@ -148,13 +165,16 @@ Flach abgelegte Agentenlogs ohne durch den Pfad belegte Elternsitzung zählen ni
 als Nachweis für sitzungsbezogene Erfolge. Token, Preise, Tagessummen und sichtbare
 Sitzungen bleiben unverändert; verschachtelte Zuordnung und gespeicherte Abzeichen bleiben erhalten.
 
-Die Galerie in 2.5.0 bietet 50 Themenkarten, 174 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
+Die Galerie in 2.5.0 bietet 50 Themenkarten, 178 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
 Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
 
 15 Claude-/Aktivitätsserien erhalten Platin und Legendär; die ersten drei Schwellen und Nachweise bleiben unverändert, die Motive werden weiterverwendet. Aktivitätstage, Ausgabe und Sitzungen ermöglichen Fortschritt bei drei konzentrierten Tagen pro Woche, ohne Codex oder höhere Ausgaben. Serien aufeinanderfolgender Tage werden nicht erweitert.
 
-Davon betreffen 20 Bedingungen sechs getrennte Claude-/Codex-API-Äquivalent-Themen: bepreiste Gesamtsummen,
+Davon betreffen 24 Bedingungen sechs getrennte Claude-/Codex-API-Äquivalent-Themen: bepreiste Gesamtsummen,
 abgeschlossene Wochen ab Montag in der aktuellen Datenzeitzone und eine Claude-Sitzung bzw. ein verifizierter Codex-Aufgabenbaum.
+Beide Wochenserien haben fünf Ränge: Bronze 100 USD, Silber 500 USD, Gold 2.500 USD,
+Platin 10.000 USD und Legendär 25.000 USD. Nur die letzten beiden je Anbieter sind neu;
+alte IDs/Schwellen, abgeschlossene Wochen und die festen Referenzpreisgrundlagen bleiben unverändert.
 Feste USD-Referenzpreise mit Versionsangabe verlangen bekannte exakte Modelle und vollständige Komponentenpreise einschließlich Claude-Cache-TTL.
 Unbekannte Modelle bleiben unbepreist; belegte Teilmengen zeigen eine Untergrenze. Die Beträge sind keine Rechnung, Qualitätswertung oder Einkommensangabe.
 Geldhistorie bleibt still. Nur kumulative Geldmeilensteine speichern bei verifizierten neuen Anhängen unter derselben Preisreferenz ungelesene Erstaufnahmetage; Wochen- und Einzelaufgabenwerte bleiben still mit unbekanntem Datum. Token-/Geldnachweise sind unabhängig und teilen einen Hinweisbatch; fehlgeschlagenes Speichern erzeugt kein Datum. Modell-/Team-/Effort-/Regenbogenregeln verbinden Ausgabe, wiederholte Nutzung und Umfang.

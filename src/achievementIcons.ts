@@ -4,7 +4,7 @@ import type { AchievementId } from './achievements';
 import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievementMoneyCatalog';
 import { LONG_TERM_ACHIEVEMENT_DEFINITIONS, type LongTermAchievementId } from './achievementLongTerm';
 const apiImageFiles = Object.fromEntries(API_ACHIEVEMENT_DEFINITIONS.map(row=>
-  [row.id,row.id.replace(/-(bronze|silver|gold|platinum)$/,'-v242-v2.png')])) as Record<AchievementMoneyId,string>;
+  [row.id,row.id.replace(/-(bronze|silver|gold|platinum|legendary)$/,'-v242-v2.png')])) as Record<AchievementMoneyId,string>;
 
 /** Only bundled artwork can appear in the gallery or exported SVG. */
 const BASE_ACHIEVEMENT_IMAGE_FILES: Record<Exclude<AchievementId,LongTermAchievementId>, string> = {

@@ -62,9 +62,25 @@ As datas das sessões usam a mesma admissão completa do índice canônico; logs
 Expandir tudo / Recolher tudo salva apenas a abertura dos cartões no estado local
 de interface existente, sem alterar fontes ou concessões. Os níveis são Bronze /
 Prata / Ouro; IDs, itens fixados e tabelas de referência permanecem iguais.
-Condições e unidades exatamente iguais aparecem uma vez; notas monetárias só são
-compartilhadas sob a mesma tabela usada na concessão. Cartões completos mostram o
+Condições e unidades exatamente iguais aparecem uma vez. Uma seção comum de referência
+monetária mostra a tabela atual e sua data por provedor ativo, além do aviso de que não
+se trata de uma fatura. Tabelas históricas diferentes mantêm a associação exata com cada
+conquista; os cartões preservam escopo e cobertura de preços sem repetir notas de preço/base.
+Cartões completos mostram o
 valor atual sem corte; evidências antigas ou ausentes não são substituídas pela meta.
+
+**Tarefas raiz independentes** conta raízes Codex com vínculo verificável e uso positivo
+de um modelo reconhecido (entrada ou saída). A raiz e suas subtarefas contam uma única
+vez; não é uma contagem de tarefas concluídas. IDs e limites das regras existentes permanecem iguais.
+
+A navegação e o título da página passam a ser **Compartilhar e comparar**. As opções de
+emblemas têm largura igual e o nível em linha separada. A correção dos ícones
+de seleção usa a mesma origem local permitida pela CSP do Webview principal. O SVG
+exportado inclui o [link público fixo do repositório](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage)
+e quebra rótulos longos para evitar sobreposição. Prévia/exportação não adiciona pedidos
+automáticos de rede nem metadados pessoais e preserva a seleção explícita e o SVG aceito
+imutável. A unificação visual/embelezamento amplo da página e um arquivo durável de uso
+ficam para a próxima versão; nenhum dos dois está implementado neste candidato.
 
 As datas por nível são derivadas apenas na memória e indicam a data mais antiga
 verificável nos logs preservados, não o histórico completo da conta. Não substituem
@@ -141,12 +157,15 @@ Logs de agentes no mesmo diretório, sem sessão-pai comprovada pelo caminho, n�
 contam como evidência para conquistas de sessão. Tokens, preços, totais diários e
 linhas de sessão visíveis não mudam; a atribuição aninhada e os emblemas salvos são preservados.
 
-A galeria da versão 2.5.0 tem 50 temas, 174 condições de desbloqueio e 52 grupos de arte: tokens por modelo, saída/cache,
+A galeria da versão 2.5.0 tem 50 temas, 178 condições de desbloqueio e 52 grupos de arte: tokens por modelo, saída/cache,
 atividade, recordes semanais e algumas ações deliberadas no plugin.
 
 Quinze séries de Claude/atividade recebem Platina e Lendário, preservando as três metas iniciais, evidências e arte. Dias ativos, saída e sessões permitem progresso com três dias concentrados por semana, sem Codex ou maior gasto. As séries de dias consecutivos não são ampliadas.
 
-São 20 condições monetárias em seis temas separados de Claude/Codex: subtotal acumulado com preço conhecido, semanas encerradas que começam na segunda-feira e uso individual.
+São 24 condições monetárias em seis temas separados de Claude/Codex: subtotal acumulado com preço conhecido, semanas encerradas que começam na segunda-feira e uso individual.
+As duas séries semanais têm cinco níveis: Bronze US$ 100, Prata US$ 500, Ouro US$ 2.500,
+Platina US$ 10.000 e Lendário US$ 25.000. Só os dois últimos por provedor são novos;
+IDs/limites antigos, exigência de semana encerrada e base de preços de referência fixos permanecem iguais.
 As semanas usam o fuso atual dos dados; uso individual é uma sessão Claude ou uma árvore de tarefa Codex verificada.
 Preços de referência fixos em USD, com versão, exigem modelos exatos conhecidos e todas as tarifas dos componentes, incluindo TTL do cache Claude.
 Modelos desconhecidos ficam sem preço; parcelas verificadas comprovam um limite inferior, não uma fatura, qualidade ou renda. Só marcos monetários cumulativos de novos acréscimos verificados, com a mesma referência, salvam estado não lido e primeiro dia registrado. Histórico, semanas e sessões/tarefas individuais continuam silenciosos com datas desconhecidas; provas de Token/dinheiro são independentes e compartilham um lote de aviso, sem datas otimistas se a gravação falhar.

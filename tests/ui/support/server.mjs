@@ -1,8 +1,15 @@
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
+import { lstatSync, readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
-const { renderHarness } = require('./render-harness.cjs');
+const { renderHarness, achievementResourceFiles } = require('./render-harness.cjs');
+// Read only the packaged catalog at startup; requests select cached bytes by
+// exact route, never a path, URL parameter, directory listing or user source.
+const achievementResources = new Map([...achievementResourceFiles].map(([route, filename]) => {
+  if (!lstatSync(filename).isFile()) throw new Error('Expected a regular packaged achievement icon');
+  return [route, readFileSync(filename)];
+}));
 const locales = new Set(['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']);
 const uiTestPort = Number(process.env.CCU_UI_TEST_PORT ?? 4173);
 
@@ -15,6 +22,13 @@ const server = createServer(async (request, response) => {
       return;
     }
     if (url.pathname !== '/') {
+      const image = achievementResources.get(url.pathname);
+      if (image) {
+        response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff' });
+        response.end(image);
+        return;
+      }
       response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
       response.end('not found');
       return;
@@ -49,6 +63,7 @@ const server = createServer(async (request, response) => {
       'session-timezone-boundaries',
       'local-currency',
       'achievement-token-stages',
+      'achievement-share-resources',
       'achievement-calendar-subset',
       'achievement-review-loading',
       'achievement-review-failure',
@@ -132,6 +147,7 @@ const server = createServer(async (request, response) => {
       commandAfterReset,
       quotaPace,
       quotaPaceState,
+      nativeResources: url.searchParams.get('nativeResources') === 'true',
     });
     response.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',

@@ -51,12 +51,24 @@ test('condition API follows locale fallback and leaves unrelated achievements un
   assert.equal(new Set(ids).size, 21);
   for (const id of ids) assert.equal(achievementConditionFor('unsupported', id), achievementConditionFor('en', id));
   for (const locale of [...Object.keys(markers), 'unsupported', 'constructor', '__proto__']) {
-    for (const id of ['root-portfolio-bronze', 'cache-wizard', 'three-family-day'] as const) {
+    for (const id of ['cache-wizard', 'three-family-day'] as const) {
       assert.equal(achievementConditionFor(locale, id), undefined);
     }
     assert.equal(achievementConditionFor(locale, 'constructor' as AchievementId), undefined);
     assert.equal(achievementConditionFor(locale, 'toString' as AchievementId), undefined);
   }
+});
+
+test('root task description explains shared counting and never equates usage with completed work', () => {
+  for(const locale of Object.keys(markers)){
+    const bronze=achievementConditionFor(locale,'root-portfolio-bronze');
+    assert.ok(bronze&&bronze.length>40);
+    for(const id of ['root-portfolio-silver','root-portfolio-gold'] as const)
+      assert.equal(achievementConditionFor(locale,id),bronze);
+  }
+  const chinese=achievementConditionFor('zh-CN','root-portfolio-bronze')!;
+  assert.match(chinese,/已识别模型用量/);assert.match(chinese,/只计一次/);assert.match(chinese,/不表示任务完成/);
+  assert.equal(achievementConditionFor('unsupported','root-portfolio-bronze'),achievementConditionFor('en','root-portfolio-bronze'));
 });
 
 test('appearance helper covers eight locales with nonempty controls and the six-pin placeholder', () => {
@@ -150,7 +162,9 @@ for (const locale of Object.keys(markers) as Array<keyof typeof markers>) {
       assert.match(copy.units[key], m.qualified, key);
       assert.doesNotMatch(copy.units[key], /\d/, 'qualification amounts belong to conditions');
     }
-    assert.match(copy.units.roots, m.verified, 'root portfolio keeps its verified-session unit');
+    const rootUnits={en:/root tasks/,'de-DE':/Hauptaufgaben/,'zh-CN':/独立主任务/,'zh-TW':/獨立主任務/,
+      ja:/メインタスク/,ko:/주 작업/,'pt-BR':/tarefas raiz/,id:/tugas utama/};
+    assert.match(copy.units.roots, rootUnits[locale], 'count independent root tasks, not completed tasks or all child sessions');
     assert.doesNotMatch(copy.units.roots, m.qualified, 'do not apply team/model qualification to root portfolio');
     const stems = teamIds.map((id, tier) => {
       assert.ok(copy.titles[id].endsWith(copy.levels[tier]), id);

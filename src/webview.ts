@@ -73,6 +73,7 @@ import {
 import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename } from './shareCard';
 import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
 import { AchievementSharePreview, highestEarnedAchievements, renderAchievementShareSvg, selectShareAchievements } from './achievementShare';
+import { getAchievementMoneyPricebook } from './achievementMoney';
 import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import { nextAchievementStage } from './achievementStages';
@@ -4115,13 +4116,13 @@ export class UsageWebviewProvider {
   }
 
   private getAlternateProviderContent(): string {
-    const title = I18n.t.providers.codex.compareTitle;
+    const title = I18n.t.providers.compare;
     return `
       <!DOCTYPE html>
       <html lang="${this.escapeHtml(I18n.getLocale())}">
       <head>
         <meta charset="UTF-8">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: ${this.panel?.webview.cspSource ?? ''};">
         <title>${this.escapeHtml(title)}</title>
         <style>${this.getStyles()}</style>
       </head>
@@ -5613,10 +5614,10 @@ export class UsageWebviewProvider {
         this.escapeHtml(copy.money + ': ' + amount) + '</p><p>' + this.escapeHtml(copy.coverage + ': ' +
           Math.floor(row.pricingCoverage*100) + '%') + '</p></article>';
     }).join('');
-    const reference = achievementMoneyCopyFor(locale).reference;
     return '<section class="achievement-effort-statistics"><h5>' + this.escapeHtml(copy.title) + '</h5><p>' +
       this.escapeHtml(copy.criteria + ': ' + badge.levels[tier]) + '</p><div class="achievement-effort-rows">' + rows +
-      '</div><p>' + this.escapeHtml(reference + ': ' + data.pricingVersion + ' · ' + data.referenceDate) + '</p><p>' +
+      '</div><button class="btn-secondary btn-small achievement-reference-link" data-achievement-reference onclick="openAchievementReference(this)">'+
+      achievementUiIcon('info')+this.escapeHtml(achievementMoneyCopyFor(locale).reference)+'</button><p>' +
       this.escapeHtml(copy.note) + '</p></section>';
   }
 
@@ -5799,7 +5800,7 @@ export class UsageWebviewProvider {
         ? '<span class="achievement-current-progress" title="' + this.escapeHtml(copy.nextTarget + ': ' + bound +
           exactProgress + ' ' + unitFor(result.id)) + '">' + this.escapeHtml(bound + formatted) + '</span>' +
           (stage === undefined ? '' : '<span class="achievement-stage-target" title="' +
-            this.escapeHtml(copy.nextStage + ': ' + integer(stage) + ' ' + unitFor(result.id)) + '">' +
+            this.escapeHtml(copy.nextStage + ': ' + integerValue(nextResult.id,stage) + ' ' + unitFor(result.id)) + '">' +
             this.escapeHtml(copy.nextStage + ' · ' + compactValue(nextResult.id,stage)) + '</span>')
         : !proofReady?this.escapeHtml(proofLabel):fullRank&&current!==undefined?
           '<span>'+this.escapeHtml(copy.complete)+'</span><span class="achievement-current-value" title="'+
@@ -5809,8 +5810,6 @@ export class UsageWebviewProvider {
       const levelEntries=tiers??[result];
       const notes=compactAchievementLevelNotes(levelEntries.map(entry=>achievementConditionFor(I18n.getLocale(),entry.id)));
       const commonUnit=levelEntries.every(entry=>unitFor(entry.id)===unitFor(levelEntries[0].id))?unitFor(levelEntries[0].id):undefined;
-      const earnedBooks=[...new Set(levelEntries.map(entry=>this.achievementRecordState?.records.find(row=>row.id===entry.id)?.referencePricebook).filter(Boolean))];
-      const sharedBook=earnedBooks.length===1?earnedBooks[0]:undefined;
       const dated=(entry:AchievementResult):string=>{
         if(!isEarned(entry))return '<small class="achievement-level-status">'+this.escapeHtml(copy.locked)+'</small>';
         const record=this.achievementRecordState?.records.find(row=>row.id===entry.id);
@@ -5830,17 +5829,13 @@ export class UsageWebviewProvider {
             this.escapeHtml(management.unknownDay)+'</small>');
       };
       const sharedDetails='<p class="achievement-common-conditions">'+this.escapeHtml(management.sharedConditions+': '+
-        [commonUnit,notes.shared].filter(Boolean).join(' · '))+'</p>'+
-        (sharedBook?'<p class="table-hint achievement-earned-reference">'+this.escapeHtml(moneyCopy.earnedReference+': '+sharedBook)+'</p>':'');
+        [commonUnit,notes.shared].filter(Boolean).join(' · '))+'</p>';
       const levelRules = levelEntries.map((entry, index) =>
         '<li data-achievement-level="' + entry.id + '"><strong>' +
           this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span>' +
           this.escapeHtml(compactValue(entry.id,entry.target) + (commonUnit?'':' '+unitFor(entry.id))) + '</span>' +
           (notes.perLevel[index] ? '<small>' + this.escapeHtml(notes.perLevel[index]!) + '</small>' : '') +
-          dated(entry)+
-          (!sharedBook&&isAchievementMoneyId(entry.id) && this.achievementRecordState?.records.find(row=>row.id===entry.id)?.referencePricebook
-            ? '<small class="achievement-earned-reference">' + this.escapeHtml(moneyCopy.earnedReference + ': ' +
-              this.achievementRecordState.records.find(row=>row.id===entry.id)!.referencePricebook) + '</small>' : '') + '</li>').join('');
+          dated(entry)+'</li>').join('');
       const milestoneRules = milestones.length ? '<h5>' + this.escapeHtml(copy.milestone) +
         '</h5><ul class="achievement-level-rules achievement-milestones">' + milestones.map(entry => {
           const src = webview?.asWebviewUri && this.context.extensionPath
@@ -5863,11 +5858,11 @@ export class UsageWebviewProvider {
       const statistics = this.achievementStatisticsSection(key);
       const monetaryDetails = monetary ? '<p class="table-hint achievement-money-scope">' +
         this.escapeHtml(moneyCopy[monetary.scope==='cumulative' ? 'total' : monetary.scope==='completedMondayWeekPeak' ? 'week' : monetary.group==='claude' ? 'session' : 'task']) +
-        '</p><p class="table-hint achievement-money-reference">' + this.escapeHtml(moneyCopy.reference + ': ' +
-          (moneyProof?.pricebookVersion ?? '—') + ' · 2026-10-09') + '</p>' +
+        '</p>' +
         (quality?.pricingCoverage === undefined ? '' : '<p class="table-hint achievement-money-coverage">' +
           this.escapeHtml(moneyCopy.coverage.replace('{percent}',integer(Math.floor(quality.pricingCoverage*100)))) + '</p>') +
-        '<p class="table-hint">' + this.escapeHtml(moneyCopy.note) + '</p>' : '';
+        '<button id="achievement-reference-'+key+'" class="btn-secondary btn-small achievement-reference-link" data-achievement-reference onclick="openAchievementReference(this)">'+
+          achievementUiIcon('info')+this.escapeHtml(moneyCopy.reference)+'</button>' : '';
       const statisticsButton = statistics ? '<button id="achievement-statistics-' + key +
         '" class="btn-secondary btn-small" data-achievement-statistics="' + key +
         '" data-statistics-section="' + statistics + '" onclick="openAchievementStatistics(this)">' +
@@ -6088,7 +6083,7 @@ export class UsageWebviewProvider {
       this.escapeHtml((cumulativeLowerBound || this.achievementCalendarLowerBounds.size > 0 ||
         this.achievementMoneyFacts.codex?.coverage.completedMondayWeekPeak.scopeLowerBound
         ? copy.lowerBoundNote + ' ' : '') + copy.lowerBoundDetails) +
-      '</p><p class="achievement-date-note">'+this.escapeHtml(management.dateNote)+'</p></details>' +
+      '</p><p class="achievement-date-note">'+this.escapeHtml(management.dateNote)+'</p>'+this.renderAchievementMoneyReferences()+'</details>' +
       '<p class="achievement-count">' +
       '<span>' + this.escapeHtml(countLabel(copy.seriesCount, seriesCount, visibleCards.length)) + '</span> · ' +
       '<span>' + this.escapeHtml(countLabel(copy.levelCount, earnedCount, visibleResults.length)) + '</span></p>' +
@@ -6116,6 +6111,37 @@ export class UsageWebviewProvider {
           visibleCards.filter((entry) => entry.result.group === group)
             .map(card).join('') +
           '</div></section>').join('') + '</section>';
+  }
+
+  /** One common disclosure; historical books keep their exact award association. */
+  private renderAchievementMoneyReferences(): string {
+    const copy=achievementMoneyCopyFor(I18n.getLocale()),names=achievementCopyFor(I18n.getLocale());
+    const history:string[]=[],current:string[]=[];
+    for(const provider of ['claude','codex'] as const){
+      if(!this.providerAvailability[provider])continue;
+      const facts=this.achievementMoneyFacts[provider];
+      const backend=provider==='codex'?'openai':facts?.backend==='aws-bedrock-in-region'||
+        (!facts?.backend&&this.setting<string>('pricingBackend','anthropic')==='aws-bedrock-in-region')
+        ?'aws-bedrock-in-region':'anthropic';
+      const book=getAchievementMoneyPricebook(backend);
+      const version=facts?.pricebookVersion??book.version;
+      const providerName=names.groups[provider];
+      current.push('<div data-reference-provider="'+provider+'"><dt>'+this.escapeHtml(providerName)+
+        '</dt><dd><code>'+this.escapeHtml(version)+'</code>'+(version===book.version?
+        ' <time datetime="'+book.referenceDate+'">'+book.referenceDate+'</time>':'')+'</dd></div>');
+      const prior=new Map<string,string[]>();
+      for(const row of this.achievementRecordState?.records??[]){
+        if(!isAchievementMoneyId(row.id)||!row.id.startsWith(provider+'-')||!row.referencePricebook||row.referencePricebook===version)continue;
+        const titles=prior.get(row.referencePricebook)??[];titles.push(names.titles[row.id]);prior.set(row.referencePricebook,titles);
+      }
+      for(const [basis,titles]of prior)history.push('<li data-earned-reference><strong>'+this.escapeHtml(providerName)+
+        '</strong><code>'+this.escapeHtml(basis)+'</code><span>'+this.escapeHtml(titles.join(' / '))+'</span></li>');
+    }
+    if(!current.length)return '';
+    return '<section id="achievementMoneyReference" class="achievement-money-references" tabindex="-1" aria-labelledby="achievementMoneyReferenceHeading">'+
+      '<h3 id="achievementMoneyReferenceHeading">'+this.escapeHtml(copy.reference)+'</h3><p>'+this.escapeHtml(copy.note)+
+      '</p><dl class="achievement-reference-list">'+current.join('')+'</dl>'+(history.length?
+      '<h4>'+this.escapeHtml(copy.earnedReference)+'</h4><ul class="achievement-reference-history">'+history.join('')+'</ul>':'')+'</section>';
   }
 
   private earnedAchievements(): AchievementResult[] {
@@ -6151,10 +6177,16 @@ export class UsageWebviewProvider {
     const preview = accepted?.svg ?? '';
     const iconSrc = (id: AchievementId): string => this.panel?.webview?.asWebviewUri && this.context.extensionPath
       ? this.panel.webview.asWebviewUri(vscode.Uri.file(achievementImagePath(id))).toString() : achievementImageDataUrl(id);
-    const choices = results.map((result) => '<label class="sc-check"><input type="checkbox" class="achievement-share-choice" value="' +
-      result.id + '"' + (chosen.includes(result.id) ? ' checked' : '') +
-      ' onchange="previewAchievementShare(this)"><img class="achievement-share-choice-icon" src="' +
-      this.escapeHtml(iconSrc(result.id)) + '" alt="" loading="lazy"><span>' + this.escapeHtml(copy.titles[result.id]) + '</span></label>').join('');
+    const choices = results.map((result) => {
+      const series=Object.values(ACHIEVEMENT_SERIES).find(ids=>ids.includes(result.id));
+      const rank=series?copy.levels[series.indexOf(result.id)]:copy.milestone;
+      const title=achievementTitleWithoutRank(copy.titles[result.id],rank);
+      return '<label class="sc-check achievement-share-option"><input type="checkbox" class="achievement-share-choice" value="' +
+        result.id + '" aria-label="'+this.escapeHtml(copy.titles[result.id])+'"'+(chosen.includes(result.id) ? ' checked' : '') +
+        ' onchange="previewAchievementShare(this)"><img class="achievement-share-choice-icon" src="' +
+        this.escapeHtml(iconSrc(result.id)) + '" alt="" loading="lazy"><span class="achievement-share-option-text"><span class="achievement-share-option-name">'+
+        this.escapeHtml(title)+'</span><small>'+this.escapeHtml(rank)+'</small></span></label>';
+    }).join('');
     return '<section class="sharing-presentation achievement-share-presentation" data-sharing-presentation="achievements"' +
       (selected === 'achievements' ? '' : ' hidden') + ' aria-labelledby="achievementShareHeading">' +
       '<h3 id="achievementShareHeading" class="sharing-presentation-title">' + this.escapeHtml(copy.shareTitle) + '</h3>' +
@@ -6163,7 +6195,7 @@ export class UsageWebviewProvider {
       '<div id="achievementSharePreview" class="sharing-artifact-preview achievement-share-preview" role="region" tabindex="0" aria-label="' +
       this.escapeHtml(copy.shareTitle) + '" data-preview-id="' + this.escapeHtml(accepted?.previewId ?? '') + '">' +
       (preview || '<p class="table-hint">' + this.escapeHtml(results.length ? copy.shareSelect : copy.shareEmpty) + '</p>') + '</div>' +
-      '<div class="sharing-controls-panel"><fieldset class="sc-checks"><legend>' + this.escapeHtml(copy.shareChoose) +
+      '<div class="sharing-controls-panel"><fieldset class="sc-checks achievement-share-options"><legend>' + this.escapeHtml(copy.shareChoose) +
       ' <span id="achievementShareCount" aria-live="polite">' + chosen.length + '/9</span></legend>' + choices +
       '</fieldset><p id="achievementShareLimit" class="table-hint" role="status"></p>' +
       '<p id="achievementShareStatus" class="table-hint" role="status"></p><div class="share-actions">' +
@@ -13979,6 +14011,19 @@ export class UsageWebviewProvider {
       .achievement-evidence-note > summary { cursor: pointer; }
       .achievement-evidence-note > summary > svg, #achievementShowcaseEditorSummary > svg { margin-inline: 5px 6px; }
       .achievement-evidence-note > p { margin-top: 6px; }
+      .achievement-money-references { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--vscode-panel-border); color: var(--vscode-foreground); }
+      .achievement-money-references h3, .achievement-money-references h4 { font-size: .9rem; margin: 0 0 8px; }
+      .achievement-money-references p { margin: 0 0 10px; }
+      .achievement-money-references:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 3px; }
+      .achievement-reference-list { display: grid; gap: 10px; margin: 0 0 12px; }
+      .achievement-reference-list > div { display: grid; grid-template-columns: minmax(0,76px) minmax(0,1fr); gap: 8px; }
+      .achievement-reference-list dt { font-weight: 600; }
+      .achievement-reference-list dd { margin: 0; min-width: 0; }
+      .achievement-reference-list code, .achievement-reference-history code { overflow-wrap: anywhere; }
+      .achievement-reference-list time { margin-inline-start: 8px; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+      .achievement-reference-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+      .achievement-reference-history li { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+      .achievement-reference-link { display: inline-flex; gap: 5px; align-items: center; white-space: normal; margin-top: 4px; }
       .achievement-proof-status { color: var(--vscode-descriptionForeground); font-size: .8rem; }
       .achievement-proof-note { background: var(--vscode-editorWidget-background); padding: 8px; border-radius: 5px;
         font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
@@ -14054,8 +14099,10 @@ export class UsageWebviewProvider {
       .achievement-progress-track { display: block; width: 100%; max-width: 108px; height: 3px; background: var(--vscode-panel-border); overflow: hidden; }
       .achievement-progress-track > span { display: block; height: 100%; background: var(--achievement-accent); }
       .achievement-card-detail h5 { margin: 12px 0 6px; font-size: .8rem; }
-      .achievement-level-rules { min-width: 0; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-      .achievement-level-rules li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
+      .achievement-level-rules { min-width: 0; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+      .achievement-level-rules li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding-block: 8px; font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
+      .achievement-level-rules li + li { border-top: 1px solid var(--vscode-panel-border); padding-top: 12px; }
+      .achievement-level-rules li > strong { color: var(--vscode-foreground); font-size: .85rem; }
       .achievement-level-rules li span { color: var(--vscode-descriptionForeground); }
       .achievement-milestones li { grid-template-columns: 40px minmax(0, 1fr); column-gap: 8px; }
       .achievement-milestones img { grid-row: 1 / span 3; width: 40px; height: 40px; object-fit: contain; }
@@ -14067,6 +14114,14 @@ export class UsageWebviewProvider {
       .achievement-share-choice-icon { flex: none; width: 32px; height: 32px; object-fit: contain; }
       .achievement-share-presentation .sc-check { min-width: 0; }
       .achievement-share-presentation .sc-check span { overflow-wrap: anywhere; }
+      .achievement-share-presentation .achievement-share-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,230px),1fr)); gap: 8px; }
+      .achievement-share-presentation .achievement-share-option { display: grid; grid-template-columns: 16px 36px minmax(0,1fr); align-items: center; gap: 10px; min-height: 64px; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; }
+      .achievement-share-option:has(input:checked) { border-color: var(--vscode-focusBorder); }
+      .achievement-share-option:focus-within { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+      .achievement-share-option input { margin: 0; }
+      .achievement-share-option-text { display: grid; gap: 3px; min-width: 0; }
+      .achievement-share-option-name { font-weight: 500; line-height: 1.4; }
+      .achievement-share-option-text small { font-size: 11px; color: var(--vscode-descriptionForeground); }
       .achievement-card[data-achievement-series].earned .achievement-rank { border-color: var(--achievement-tier-color); color: var(--achievement-tier-label-color); }
       .achievement-tier-pips { display: flex; align-items: center; justify-content: center; gap: 6px; height: 10px; }
       .achievement-tier-pip { width: 5px; height: 5px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 50%; opacity: .65; }
@@ -14765,6 +14820,16 @@ function backFromAchievementStatistics() {
   ccuWriteUiState('achievementStatisticsReturn', undefined);
   restoreAchievementStatisticsReturn(); restorePersistedDetails();
   entry.button.focus({ preventScroll: true }); restoreScrollPosition();
+}
+function openAchievementReference(button) {
+  var root = button && button.closest('.achievement-collection');
+  var reference = root && root.querySelector('#achievementMoneyReference');
+  var disclosure = reference && reference.closest('details');
+  if (!reference || !disclosure) { return; }
+  disclosure.open = true;
+  savePersistedDetails();
+  reference.focus({ preventScroll: true });
+  reference.scrollIntoView({ block: 'center' });
 }
 function openAchievementDetail(key) {
   var card = Array.from(document.querySelectorAll('.achievement-card')).find(function(card) {

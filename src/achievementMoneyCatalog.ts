@@ -10,6 +10,8 @@ export const API_ACHIEVEMENT_DEFINITIONS = [
   {id:'claude-api-week-bronze',group:'claude',target:100_000_000,scope:'completedMondayWeekPeak'},
   {id:'claude-api-week-silver',group:'claude',target:500_000_000,scope:'completedMondayWeekPeak'},
   {id:'claude-api-week-gold',group:'claude',target:2_500_000_000,scope:'completedMondayWeekPeak'},
+  {id:'claude-api-week-platinum',group:'claude',target:10_000_000_000,scope:'completedMondayWeekPeak'},
+  {id:'claude-api-week-legendary',group:'claude',target:25_000_000_000,scope:'completedMondayWeekPeak'},
   {id:'claude-api-session-bronze',group:'claude',target:10_000_000,scope:'maxSessionTask'},
   {id:'claude-api-session-silver',group:'claude',target:100_000_000,scope:'maxSessionTask'},
   {id:'claude-api-session-gold',group:'claude',target:1_000_000_000,scope:'maxSessionTask'},
@@ -20,6 +22,8 @@ export const API_ACHIEVEMENT_DEFINITIONS = [
   {id:'codex-api-week-bronze',group:'codex',target:100_000_000,scope:'completedMondayWeekPeak'},
   {id:'codex-api-week-silver',group:'codex',target:500_000_000,scope:'completedMondayWeekPeak'},
   {id:'codex-api-week-gold',group:'codex',target:2_500_000_000,scope:'completedMondayWeekPeak'},
+  {id:'codex-api-week-platinum',group:'codex',target:10_000_000_000,scope:'completedMondayWeekPeak'},
+  {id:'codex-api-week-legendary',group:'codex',target:25_000_000_000,scope:'completedMondayWeekPeak'},
   {id:'codex-api-task-bronze',group:'codex',target:10_000_000,scope:'maxSessionTask'},
   {id:'codex-api-task-silver',group:'codex',target:100_000_000,scope:'maxSessionTask'},
   {id:'codex-api-task-gold',group:'codex',target:1_000_000_000,scope:'maxSessionTask'},
@@ -42,6 +46,6 @@ export function achievementMoneyProgress(facts: AchievementMoneyFacts | undefine
   return Object.fromEntries(API_ACHIEVEMENT_DEFINITIONS.map(row=>[row.id,value(row)])) as Record<AchievementMoneyId,number>;
 }
 export const API_ACHIEVEMENT_SERIES: Record<string,readonly AchievementMoneyId[]> = Object.fromEntries(
-  [...new Set(API_ACHIEVEMENT_DEFINITIONS.map(row=>row.id.replace(/-(bronze|silver|gold|platinum)$/,'')))].map(key=>
+  [...new Set(API_ACHIEVEMENT_DEFINITIONS.map(row=>row.id.replace(/-(bronze|silver|gold|platinum|legendary)$/,'')))].map(key=>
     [key,API_ACHIEVEMENT_DEFINITIONS.filter(row=>row.id.startsWith(key+'-')).map(row=>row.id)]),
 );

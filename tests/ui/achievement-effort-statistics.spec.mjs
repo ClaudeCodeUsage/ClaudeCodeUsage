@@ -84,8 +84,10 @@ async function structure(page, locale = 'en') {
   await expect(stats(page).locator('[data-effort-progress]')).toHaveCount(18);
   await expect(stats(page).locator('[data-effort-joint-progress]')).toHaveCount(6);
   await expect(stats(page)).toContainText('USD');
-  await expect(stats(page)).toContainText('api-reference-2026-10-openai-v1');
-  await expect(stats(page)).toContainText('2026-10-09');
+  await expect(stats(page)).not.toContainText('api-reference-2026-10-openai-v1');
+  await expect(stats(page).locator('[data-achievement-reference]')).toHaveCount(1);
+  await expect(page.locator('#achievementMoneyReference [data-reference-provider="codex"]')).toContainText('api-reference-2026-10-openai-v1');
+  await expect(page.locator('#achievementMoneyReference [data-reference-provider="codex"]')).toContainText('2026-10-09');
   expect(await stats(page).innerHTML()).not.toMatch(/private-effort|private-custom-model|sessionKey|parentSessionKey|gpt-6/);
   // This fixture publishes current statistics, not durable earned grants.
   await expect(card(page)).toHaveAttribute('data-achievement-earned', 'false');

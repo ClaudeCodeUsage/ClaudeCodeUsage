@@ -70,7 +70,9 @@ function oldV1(ids: readonly AchievementId[] = [], pins: string[] = []): Achieve
       hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null } };
 }
 const history = (id: AchievementId): AchievementRecordDraft => ({ id, origin: 'history', recordedDay: null, timeZone: null });
-const frozenOldIds = () => definitions.filter(row => isLegacyAchievementId(row.id) || isAchievementMoneyId(row.id)).map(row => row.id);
+const weeklyExpansionIds = new Set(['claude-api-week-platinum','claude-api-week-legendary','codex-api-week-platinum','codex-api-week-legendary']);
+const frozenOldIds = () => definitions.filter(row => !weeklyExpansionIds.has(row.id) &&
+  (isLegacyAchievementId(row.id) || isAchievementMoneyId(row.id))).map(row => row.id);
 const reference = (id: AchievementId) => getAchievementMoneyPricebook(id.startsWith('codex-') ? 'openai' : 'aws-bedrock-in-region').version;
 
 test('every frozen v1 series pin survives expanded tier membership and migrates unchanged', async () => {
@@ -161,9 +163,9 @@ test('an existing 144-rule v2 canonical envelope wins over stale legacy drafts w
   }));
 });
 
-test('the full 174-rule catalog and largest feasible archived/auxiliary envelope fit the unchanged 64 KiB limit', async t => {
+test('the full 178-rule catalog and largest feasible archived/auxiliary envelope fit the unchanged 64 KiB limit', async t => {
   await expanded(async api => fixture(async (legacy, current) => {
-    assert.equal(definitions.length, 174);
+    assert.equal(definitions.length, 178);
     assert.equal(frozenOldIds().length, 144);
     assert.equal(highIds.length, 30);
     assert.equal(new Set(LONG_TERM_ACHIEVEMENT_DEFINITIONS.map(row => row.series)).size, 15);
@@ -187,13 +189,13 @@ test('the full 174-rule catalog and largest feasible archived/auxiliary envelope
           timeZone: stamp.timeZone, providers: 3, peakFourWeekAverage: maximum } } };
     // Only the 21 changed legacy IDs can actually be archived: 48 is a cap, not 48 inventable records.
     assert.equal(archived.length, 21);
-    assert.equal(dense.records.length, 174);
+    assert.equal(dense.records.length, 178);
     assert.equal(dense.records.length, ACHIEVEMENT_DEFINITIONS.length);
     assert.equal(dense.records.filter(row => highIds.includes(row.id)).length, 30);
     assert.equal(dense.auxiliary.activity.settingKeys.length, 29);
     assert.equal(dense.auxiliary.activity.features.length, 4);
     const serialized = JSON.stringify(api.parseAchievementRecordStore(dense));
-    t.diagnostic(`174 current records + 21 archived records + maximal feasible auxiliary proof: ${Buffer.byteLength(serialized)} / 65,536 bytes`);
+    t.diagnostic(`178 current records + 21 archived records + maximal feasible auxiliary proof: ${Buffer.byteLength(serialized)} / 65,536 bytes`);
     assert.ok(Buffer.byteLength(serialized) <= api.ACHIEVEMENT_RECORD_BYTE_LIMIT);
     assert.equal(api.ACHIEVEMENT_RECORD_BYTE_LIMIT, 65_536);
     await writeFile(current, serialized);

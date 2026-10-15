@@ -156,7 +156,11 @@ test('money UI: partial priced proof displays ≥ USD and coverage, with dollar 
     const rule = html.match(/<li data-achievement-level="claude-api-total-bronze">[\s\S]*?<\/li>/)?.[0];
     assert.ok(rule); assert.match(visibleText(rule), /(?:US\$|\$)\s*100\b/);
     assert.doesNotMatch(visibleText(rule), /tokens|100M|100,000,000/i);
-    assert.ok(text.includes(money.pricebookVersion!));
+    const stage=html.match(/class="achievement-stage-target" title="([^"]+)"/);
+    assert.ok(stage);assert.match(stage[1],/\$200 USD/);
+    assert.doesNotMatch(stage[1],/200,000,000/,'display dollars, not microUSD, in the stage tooltip');
+    assert.ok(!text.includes(money.pricebookVersion!), 'card uses the shared reference disclosure');
+    assert.ok(host.renderAchievementData().includes(money.pricebookVersion!));
   });
 });
 
@@ -184,7 +188,7 @@ test('money UI: a positive submicro amount is not displayed as a real zero', asy
   });
 });
 
-test('money UI: current progress and immutable earned levels show their own reference books', async () => {
+test('money UI: shared reference section preserves current and historical books without repeating card text', async () => {
   await owner(async (host, file) => {
     const models = model(25_000_000);
     deliver(host, models, scopes(models)); await settle(host);
@@ -194,15 +198,19 @@ test('money UI: current progress and immutable earned levels show their own refe
     const currentBook = getAchievementMoneyPricebook('aws-bedrock-in-region').version;
     deliver(host, models, scopes(models, 'aws-bedrock-in-region')); await settle(host);
     const html = card(host, 'claude-api-total');
-    const reference = html.match(/<p class="table-hint achievement-money-reference">[\s\S]*?<\/p>/)?.[0];
+    assert.doesNotMatch(html, /api-reference-|Baseline reference estimate|Awarded using/);
+    assert.match(html, /data-achievement-reference/);
+    const all = host.renderAchievementData();
+    const reference = all.match(/<section id="achievementMoneyReference"[\s\S]*?<\/section>/)?.[0];
     assert.ok(reference); assert.ok(reference.includes(currentBook));
-    assert.ok(!reference.includes(originalBook));
+    assert.equal((reference.match(new RegExp(currentBook, 'g')) ?? []).length, 1);
     const bronze = html.match(/<li data-achievement-level="claude-api-total-bronze">[\s\S]*?<\/li>/)?.[0];
     assert.ok(bronze);
-    const earnedReference=html.match(/<p class="table-hint achievement-earned-reference">[\s\S]*?<\/p>/)?.[0];
+    const earnedReference=reference.match(/<li[^>]*data-earned-reference[^>]*>[\s\S]*?<\/li>/)?.[0];
     assert.ok(earnedReference,'shared earned reference is visible');
     assert.ok(earnedReference.includes(originalBook),'one shared earned reference retains the immutable book');
     assert.ok(!earnedReference.includes(currentBook),'current repricing cannot replace the earned book');
+    assert.equal((all.match(/Baseline reference estimate/g) ?? []).length, 1);
     assert.equal((await moneyRecords(file)).find(row => row.id === earned.id)?.referencePricebook, originalBook);
   });
 });

@@ -27,7 +27,8 @@ test('real effort renderer explains six named tiers, three joint progress metric
       const html=p.renderAchievementEffortStatistics(tier);
       assert.equal((html.match(/data-effort-statistics-row=/g)||[]).length,6);
       for(const effort of ['low','medium','high','xhigh','max','ultra']) assert.ok(html.includes('data-effort-statistics-row="'+effort+'"'));
-      assert.match(html,/USD/);assert.match(html,/api-reference-2026-10-openai-v1/);assert.match(html,/2026-10-09/);
+      assert.match(html,/USD/);assert.doesNotMatch(html,/api-reference-2026-10-openai-v1/);
+      assert.match(html,/data-achievement-reference/);
       assert.equal((html.match(/data-effort-progress=/g)||[]).length,18);
       assert.equal((html.match(/data-effort-joint-progress=/g)||[]).length,6);
       assert.doesNotMatch(html,/private-root|sessionKey|<script>/);

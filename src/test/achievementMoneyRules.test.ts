@@ -17,9 +17,9 @@ const amount = (microUsd:number,provider='claude') => ({provider,backend:provide
   coverage:{cumulative:{status:'complete'},completedMondayWeekPeak:{status:'complete'},maxSessionTask:{status:'complete'}}});
 const row = (facts:any,id:string) => evaluateAchievements(facts).find(r=>r.id===id);
 
-test('six provider-specific API themes have twenty award conditions, thresholds expressed as integer microUSD',()=>{
+test('six provider-specific API themes have twenty-four award conditions, thresholds expressed as integer microUSD',()=>{
   const defs=ACHIEVEMENT_DEFINITIONS.filter(r=>/^(claude|codex)-api-/.test(r.id));
-  assert.equal(defs.length,20);
+  assert.equal(defs.length,24);
   assert.equal(Object.keys(ACHIEVEMENT_SERIES).filter(key=>/^(claude|codex)-api-/.test(key)).length,6);
   for (const def of defs) {
     const provider=def.group as 'claude'|'codex';

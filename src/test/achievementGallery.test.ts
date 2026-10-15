@@ -44,7 +44,7 @@ test('gallery gives every current rule exactly one detail position in its displa
   assert.equal(JSON.stringify([ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES]), before);
 });
 
-test('money rules own exactly twenty detail positions in six themes with four API-total tiers only', () => {
+test('money rules own twenty-four detail positions in six themes with four total and five weekly tiers', () => {
   const moneyThemes = ACHIEVEMENT_GALLERY.filter(entry => Object.hasOwnProperty.call(API_ACHIEVEMENT_SERIES, entry.key));
   assert.equal(moneyThemes.length, 6);
   assert.deepEqual(moneyThemes.map(entry => entry.key).sort(), [
@@ -52,11 +52,12 @@ test('money rules own exactly twenty detail positions in six themes with four AP
     'codex-api-task', 'codex-api-total', 'codex-api-week',
   ]);
   const ids = moneyThemes.flatMap(entry => [...entry.levelIds, ...entry.milestoneIds]);
-  assert.equal(ids.length, 20);
-  assert.equal(new Set(ids).size, 20);
+  assert.equal(ids.length, 24);
+  assert.equal(new Set(ids).size, 24);
   assert.deepEqual(ids.sort(), API_ACHIEVEMENT_DEFINITIONS.map(rule => rule.id).sort());
   for (const entry of moneyThemes) {
-    const tiers = entry.key.endsWith('-total') ? ['bronze', 'silver', 'gold', 'platinum'] : ['bronze', 'silver', 'gold'];
+    const tiers = entry.key.endsWith('-week') ? ['bronze', 'silver', 'gold', 'platinum', 'legendary'] :
+      entry.key.endsWith('-total') ? ['bronze', 'silver', 'gold', 'platinum'] : ['bronze', 'silver', 'gold'];
     assert.deepEqual(entry.levelIds, tiers.map(tier => `${entry.key}-${tier}`));
     assert.deepEqual(entry.milestoneIds, []);
   }

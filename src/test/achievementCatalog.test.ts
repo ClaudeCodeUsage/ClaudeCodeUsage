@@ -57,8 +57,8 @@ test('review targets and all tier icons come directly from the production catalo
   assert.equal(JSON.stringify(ACHIEVEMENT_DEFINITIONS), definitionsBefore);
 });
 
-test('review catalog includes exactly twenty monetary conditions in six provider-specific themes', () => {
-  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 20);
+test('review catalog includes twenty-four monetary conditions in six provider-specific themes', () => {
+  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 24);
   assert.equal(Object.keys(API_ACHIEVEMENT_SERIES).length, 6);
   for (const locale of ['zh-CN', 'en']) {
     const catalog = achievementCatalog(locale);
@@ -68,8 +68,8 @@ test('review catalog includes exactly twenty monetary conditions in six provider
       API_ACHIEVEMENT_DEFINITIONS.map(rule => rule.id));
     for (const provider of ['claude', 'codex']) {
       const cards = monetary.filter((card: any) => card.group === provider);
-      assert.deepEqual(cards.map((card: any) => card.levels.length), [4, 3, 3]);
-      assert.equal(cards.reduce((sum: number, card: any) => sum + card.levels.length, 0), 10);
+      assert.deepEqual(cards.map((card: any) => card.levels.length), [4, 5, 3]);
+      assert.equal(cards.reduce((sum: number, card: any) => sum + card.levels.length, 0), 12);
     }
     for (const card of monetary) {
       assert.match(card.metric, /USD/);
@@ -95,7 +95,7 @@ test('review catalog includes exactly twenty monetary conditions in six provider
 test('API badges select six versioned coin or pouch emblems without changing award identities', () => {
   const images = new Set<string>();
   for (const rule of API_ACHIEVEMENT_DEFINITIONS) {
-    const expected = rule.id.replace(/-(bronze|silver|gold|platinum)$/, '-v242-v2.png');
+    const expected = rule.id.replace(/-(bronze|silver|gold|platinum|legendary)$/, '-v242-v2.png');
     assert.equal(ACHIEVEMENT_IMAGE_FILES[rule.id], expected);
     const bytes = Buffer.from(achievementImageDataUrl(rule.id).split(',')[1], 'base64');
     assert.equal(bytes.readUInt32BE(16), 256);
@@ -103,7 +103,7 @@ test('API badges select six versioned coin or pouch emblems without changing awa
     images.add(expected);
   }
   assert.equal(images.size, 6);
-  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 20);
+  assert.equal(API_ACHIEVEMENT_DEFINITIONS.length, 24);
 });
 
 test('monetary review displays floored USD while retaining exact production microUSD targets', () => {

@@ -69,9 +69,24 @@ Session dates use the same uncapped admission as the canonical index; changed lo
 Expand all / Collapse all saves only card disclosure state in the existing local UI
 state; it does not change sources or awards. Ranks use localized Bronze / Silver /
 Gold labels without changing IDs, pins or reference pricebooks. Identical conditions
-and units are shown once across levels; monetary notes are shared only under the
-same awarded pricebook. Fully earned cards show the uncapped current statistic;
+and units are shown once across levels. One shared money-reference section shows
+each enabled provider's current book/date and the non-billing note. Different
+historical books retain their exact award associations there; cards keep scope
+and pricing coverage without repeated price/basis notes. Fully earned cards show the uncapped current statistic;
 stale or missing evidence is never replaced with a target value.
+
+**Independent root tasks** counts verifiable Codex root ownership with recognized
+positive model usage (input or output). A root and its children count once; this is
+not a count of completed tasks. Existing rule IDs and thresholds are unchanged.
+
+The navigation and page label is **Share & compare**. Badge choices use equal-width
+alignment and a separate rank line. The checkbox-icon repair uses the same
+local-resource source as the main webview CSP. Exported badge SVGs include the fixed
+public [repository link](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage), with
+wrapping/spacing for long labels. Preview/export adds no automatic network request
+or personal metadata and retains the accepted immutable SVG and explicit selection.
+Broad sharing-page visual unification/beautification and a durable usage archive
+are deferred to the next version; neither is implemented by this candidate.
 
 Per-level log dates are derived in memory and mean the earliest date verifiable
 from retained logs, not complete account history. They do not replace saved
@@ -152,8 +167,8 @@ Flat agent logs without a path-proven parent do not count toward session-based
 achievements. Their Token totals, pricing, daily aggregates and visible session
 rows stay unchanged; nested-agent ownership and saved awards are retained.
 
-The 2.5.0 icon-first gallery groups **50 themes and 174 award conditions** into bronze,
-silver and gold tiers, with platinum/legendary cumulative milestones. Expand a card
+The 2.5.0 icon-first gallery groups **50 themes and 178 award conditions** into bronze,
+silver and gold tiers, with platinum/legendary sustained-use and weekly-money ranks. Expand a card
 for every level's rule; the next target is visible on the card. Series and unlocked
 levels are counted separately. Local All / Next level / Earned filters survive reload,
 and tier upgrades keep the disclosure open. Claude Sonnet/Opus/Haiku/Fable and Codex
@@ -179,9 +194,12 @@ Calendar-week peaks use **500M / 2B / 10B**; the highest average across four
 completed weeks uses **500M / 2B / 5B**. Weeks start Monday in the configured
 timezone. Unfinished weeks and incomplete coverage cannot certify a four-week average.
 
-API-equivalent milestones add 20 conditions across six separate Claude/Codex
+API-equivalent milestones add 24 conditions across six separate Claude/Codex
 themes: cumulative priced subtotals, completed Monday-start weeks in the current
-data timezone, and one Claude session or one verified Codex task tree. Fixed USD
+data timezone, and one Claude session or one verified Codex task tree.
+Both weekly series have five ranks: Bronze $100, Silver $500, Gold $2,500,
+Platinum $10,000 and Legendary $25,000. Only the last two per provider are new;
+old IDs/thresholds, completed-week requirements and frozen-price provenance remain unchanged. Fixed USD
 reference prices (`api-reference-2026-10-{backend}-v1`, dated 2026-10-09) require
 exact known models and complete component rates, including Claude's known
 5-minute/1-hour cache-write TTL. Codex counts uncached input, cached input and
