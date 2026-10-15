@@ -269,6 +269,13 @@ anchors. A static assertion of the first render is not acceptance evidence.
 - Do not bump `package.json` or create release tags manually. Release Drafter
   prepares a draft; publishing that reviewed draft creates the tag, and the
   publish workflow stamps the package version from it.
+- Release notes focus on user-visible outcomes, necessary compatibility/action
+  notes and factual limitations. Do not list merge strategies, one-off acceptance
+  requests, test counts, agent/reviewer settings or routine achievement rank and
+  threshold tuning as standalone highlights. Keep internal planning and proof in
+  the PR and task handoff; do not turn the maintainer's implementation checklist
+  into public release prose. Explain technical details only when users need them
+  to use the change safely, and retain truthful per-entry contributor credit.
 
 ## GitHub text attribution
 

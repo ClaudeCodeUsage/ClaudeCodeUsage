@@ -906,6 +906,16 @@ test('new visual systems require compared mockups and approval before implementa
   assert.match(repoFile('CONTRIBUTING.md'), /AGENTS\.md#new-visual-systems-design-before-implementation/);
 });
 
+test('public release notes focus on user outcomes rather than internal requests', () => {
+  const english = repoFile('AGENTS.md'), chinese = repoFile('AGENTS.zh-CN.md');
+  assert.match(english, /Release notes focus on user-visible outcomes/);
+  assert.match(english, /merge strateg[\s\S]*test counts[\s\S]*rank[\s\S]*threshold/i);
+  assert.match(english, /internal[\s\S]*PR[\s\S]*handoff/i);
+  assert.match(chinese, /Release 说明聚焦用户可感知的变化/);
+  assert.match(chinese, /合并策略[\s\S]*测试数量[\s\S]*档位[\s\S]*门槛/);
+  assert.match(repoFile('CONTRIBUTING.md'), /Do not turn internal implementation requests into release highlights/);
+});
+
 test('AGENTS allow only the guarded Codex session-index title lookup', () => {
   const agents = repoFile('AGENTS.md');
   const chinese = repoFile('AGENTS.zh-CN.md');

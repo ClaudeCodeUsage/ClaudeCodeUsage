@@ -179,6 +179,17 @@ truthful per-entry Release credit.
 
 ### Release-note attribution
 
+Release notes describe what changed for users, not how the team was instructed
+to implement or merge it. Do not turn internal implementation requests into release highlights:
+merge strategy, acceptance checklists, test counts, agent settings and routine
+achievement-rank/threshold adjustments belong in PRs or task records, not release
+prose. Keep necessary compatibility instructions, honest limitations and the
+per-entry contributor credit below.
+
+中文审阅：发版说明写用户感知到什么变化，不写内部如何要求实现或合并。合并方式、
+验收清单、测试数量、智能体设置和普通成就档位／门槛调整不作为独立发布亮点；
+这些细节留在 PR 或任务记录。必要兼容说明、事实边界和逐项贡献者署名仍须保留。
+
 The draft release already puts `@PR-author` **on each change entry**. When a
 maintainer edits the draft before publishing, keep that per-entry attribution
 beside the specific change; a single Contributors list at the bottom is not a
