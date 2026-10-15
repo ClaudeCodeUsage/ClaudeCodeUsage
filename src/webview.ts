@@ -3,6 +3,9 @@ import { ClaudeDataLoader } from './dataLoader';
 import type { ClaudeUsageRecord } from './types';
 import {achievementTitleWithoutRank} from './achievementTitles';
 import {achievementUiIcon} from './achievementUiIcons';
+import {compactAchievementLevelNotes,achievementCurrentValue} from './achievementDetailPresentation';
+import {achievementHistoryDates,achievementHistoryCatalogSignature,claudeAchievementHistoryEvidence,
+  claudeAchievementSessionHistory,type AchievementHistoryDate} from './achievementHistoryDates';
 import type { ClaudeAchievementUsageDelta } from './claudeIncrementalIndex';
 import { I18n, achievementCopyFor, achievementAppearanceCopyFor, achievementEffortCopyFor, weeklyQuotaPaceCopy, achievementRecordStatusCopyFor, achievementEvidenceHintCopyFor } from './i18n';
 import {CODEX_ACHIEVEMENT_EFFORTS,EFFORT_STATISTICS_PRICEBOOK_VERSION} from './achievementEffortStatistics';
@@ -75,7 +78,7 @@ import { formatAchievementCompact, formatAchievementInteger } from './achievemen
 import { nextAchievementStage } from './achievementStages';
 import { ACHIEVEMENT_GALLERY, achievementGalleryKey, achievementStatisticsDestination } from './achievementGallery';
 import { AchievementOverviewSelection, AchievementUnreadBatch, selectAchievementOverview, retainAchievementOverview, projectAchievementRecords, selectUnreadAchievementBatch, modelRainbowNextEligibility } from './achievementOverview';
-import { achievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
+import { achievementEvidenceDomain, AchievementEvidenceDomain, AchievementEvidenceState, AchievementEvidenceStates,
   AchievementNoticeBaseline, copyClaudeUsageDelta, codexTailAchievementCrossings, claudeTailAchievementCrossings } from './achievementEvidence';
 import { CodexAchievementUsageWindow, CodexAchievementUsageDelta, copyCodexUsageWindow,
   copyCodexUsageDelta } from './providers/codex/codexAchievementOrigin';
@@ -1021,6 +1024,9 @@ export interface ClaudeAchievementSnapshot {
   days: { date: string; data: UsageData }[];
   sessions: SessionUsage[];
   sessionEvidence: ClaudeSessionAchievementEvidence;
+  /** Replayable, uncapped, canonical rows; evaluated only by explicit calibration.
+   * Host-only references, never serialized or retained in an export. */
+  sessionHistoryEligibility?:()=>Iterable<{sessionId:string;data:{messageCount:number;totalCost:number};_unownedAgentSession?:true}>;
   records: ClaudeUsageRecord[];
   timeZone: string;
   money?: AchievementMoneyScopes;
@@ -1100,6 +1106,17 @@ export class UsageWebviewProvider {
   // Display-only positive proofs from independently validated provider calendars.
   // Keep the combined notice latch closed until the complete domain recovers.
   private achievementCalendarLowerBounds = new Set<AchievementId>();
+  private achievementHistoryAnnotations:Readonly<Partial<Record<AchievementId,AchievementHistoryDate>>> = {};
+  private achievementHistoryCache?: {claude:AchievementDayEvidence;codex:CodexAchievementSignals['historyDayEvidence'];
+    days:UsageWebviewProvider['dailyDataForEveryDay'];sessions?:ReturnType<typeof claudeAchievementSessionHistory>;
+    zone:string;day:string;enabled:string;catalog:string;backend:string};
+  private calibratedSessionHistory?: WeakMap<ClaudeUsageRecord[],{zone:string;days:ReturnType<typeof claudeAchievementSessionHistory>}>;
+  private achievementCalibrationPending=false;
+  private achievementCalibrationFailed=false;
+  private achievementCalibrationCommitting=false;
+  private achievementCalibrationGuard?:()=>boolean;
+  private achievementCalibrationCompleted=false;
+  private achievementCalibrationPartial=false;
   private achievementOverviewSelection?: AchievementOverviewSelection;
   private achievementOverviewProvider?: 'claude' | 'codex' | 'compare';
   private achievementOverviewPinsSignature?: string;
@@ -2481,6 +2498,11 @@ export class UsageWebviewProvider {
           this.achievementOverviewSelection = undefined;
           vscode.commands.executeCommand('claudeCodeUsage.refresh');
           break;
+        case 'recalibrateAchievements':
+          if(message.documentId===this.dashboardDocumentId&&this.setting<boolean>('enableAchievements',true)){
+            await vscode.commands.executeCommand('claudeCodeUsage.recalibrateAchievements');
+          }
+          break;
         case 'openSettings':
           vscode.commands.executeCommand('claudeCodeUsage.openSettings');
           break;
@@ -3288,6 +3310,7 @@ export class UsageWebviewProvider {
   /** Non-rendering revocation: stale display data is useful but is not new award proof. */
   invalidateAchievementEvidence(provider: SettingProvider): void {
     if (provider === 'claude') {
+      this.calibratedSessionHistory=undefined;this.achievementHistoryCache=undefined;this.achievementHistoryAnnotations={};
       this.claudeUsageObservationEpoch += 1;
       this.claudeAchievementObservation = undefined;
       this.claudeAchievementObservedThrough = undefined;
@@ -4325,34 +4348,35 @@ export class UsageWebviewProvider {
       : { processed: 0, lowerBound: this.providerAvailability.codex };
   }
 
-  async beginClaudeAchievementObservation(current: () => boolean): Promise<{
+  async beginClaudeAchievementObservation(current: () => boolean, sourceCurrent:()=>boolean=current): Promise<{
     readonly window?: { readonly after: number; readonly through: number };
   } | undefined> {
     const epoch = this.achievementPersistenceEpoch, evidenceEpoch = this.claudeUsageObservationEpoch;
     const timeZone = resolveTimeZone(I18n.getTimezone());
     const enabled = this.setting<boolean>('enableAchievements', true);
-    const guard = () => current() && epoch === this.achievementPersistenceEpoch &&
+    const guard = () => sourceCurrent() && epoch === this.achievementPersistenceEpoch &&
       evidenceEpoch === this.claudeUsageObservationEpoch && resolveTimeZone(I18n.getTimezone()) === timeZone &&
       !this.clearingAchievements && this.setting<boolean>('enableAchievements', true);
+    const admit=()=>current()&&guard();
     this.claudeAchievementObservation = undefined;
-    if (!enabled || !guard()) {
+    if (!enabled || !admit()) {
       this.claudeAchievementObservedThrough = undefined;
       if (!enabled) this.usageAchievementReceipts.clear();
       return undefined;
     }
     this.ensureAchievementRecords();
     await this.achievementWrite.catch(() => undefined);
-    if (!guard()) return undefined;
+    if (!admit()) return undefined;
     let state: AchievementRecordStore | undefined;
     try {
       if (this.achievementRecordRepository && this.achievementRecordState) {
-        state = await this.achievementRecordRepository.initialize([], guard);
-        if (!guard() || state.generation !== this.achievementRecordState.generation) return undefined;
+        state = await this.achievementRecordRepository.initialize([], admit);
+        if (!admit() || state.generation !== this.achievementRecordState.generation) return undefined;
         this.achievementRecordState = state;
         this.achievementGrants = new Set(state.records.map(row => row.id));
       }
     } catch { /* Provenance failure never blocks ordinary usage refresh. */ }
-    if (!guard()) return undefined;
+    if (!admit()) return undefined;
     const before = this.achievementResults(), through = Date.now(), after = this.claudeAchievementObservedThrough;
     const window = state && this.acceptedClaudeAchievement && !this.revokedAchievementEvidence.has('claude') &&
       after !== undefined && Number.isSafeInteger(after) && after >= 0 &&
@@ -4395,33 +4419,34 @@ export class UsageWebviewProvider {
   /** Read the canonical receipt fence before the producer's observation window.
    * This does not render, read logs, or add a watcher/timer. Failed receipt reads
    * withhold live provenance, but never prevent the ordinary usage refresh. */
-  async beginCodexAchievementObservation(current: () => boolean): Promise<{ readonly window?: CodexAchievementUsageWindow } | undefined> {
+  async beginCodexAchievementObservation(current: () => boolean, sourceCurrent:()=>boolean=current): Promise<{ readonly window?: CodexAchievementUsageWindow } | undefined> {
     const epoch = this.achievementPersistenceEpoch, evidenceEpoch = this.codexUsageObservationEpoch;
     const timeZone = resolveTimeZone(I18n.getTimezone());
     const enabled = this.setting<boolean>('enableAchievements', true);
-    const guard = () => current() && epoch === this.achievementPersistenceEpoch &&
+    const guard = () => sourceCurrent() && epoch === this.achievementPersistenceEpoch &&
       evidenceEpoch === this.codexUsageObservationEpoch && resolveTimeZone(I18n.getTimezone()) === timeZone &&
       !this.clearingAchievements &&
       this.setting<boolean>('enableAchievements', true);
+    const admit=()=>current()&&guard();
     this.codexAchievementObservation = undefined;
-    if (!enabled || !guard()) {
+    if (!enabled || !admit()) {
       this.codexAchievementObservedThrough = undefined;
       if (!enabled) this.usageAchievementReceipts.clear();
       return undefined;
     }
     this.ensureAchievementRecords();
     await this.achievementWrite.catch(() => undefined);
-    if (!guard()) return undefined;
+    if (!admit()) return undefined;
     let state: AchievementRecordStore | undefined;
     try {
       if (this.achievementRecordRepository && this.achievementRecordState) {
-        state = await this.achievementRecordRepository.initialize([], guard);
-        if (!guard() || state.generation !== this.achievementRecordState.generation) return undefined;
+        state = await this.achievementRecordRepository.initialize([], admit);
+        if (!admit() || state.generation !== this.achievementRecordState.generation) return undefined;
         this.achievementRecordState = state;
         this.achievementGrants = new Set(state.records.map(row => row.id));
       }
     } catch { /* Ordinary refresh continues, with no live origin. */ }
-    if (!guard()) return undefined;
+    if (!admit()) return undefined;
     const before = this.achievementResults();
     const through = Date.now();
     const window = state && this.acceptedCodexAchievement && !this.revokedAchievementEvidence.has('codex') &&
@@ -4487,6 +4512,9 @@ export class UsageWebviewProvider {
   }
 
   private queueUsageAchievementReceipts(): void {
+    // A local calibration may discover real, producer-proven activity. Stage it
+    // during the operation, but never consume its live date as historical data.
+    if(this.achievementCalibrationPending&&!this.achievementCalibrationCommitting)return;
     for (const receipt of new Set(this.usageAchievementReceipts.values())) {
       const releaseRetired = () => {
         if (receipt.guard()) return;
@@ -4534,6 +4562,9 @@ export class UsageWebviewProvider {
 
   /** Opt-out/source disposal fences old proof even if OFF→ON is rapid. */
   retireAchievementUsageObservations(): void {
+    this.calibratedSessionHistory=undefined;
+    this.achievementHistoryCache=undefined;
+    this.achievementHistoryAnnotations={};
     this.usageAchievementEvidenceEpoch += 1;
     this.claudeUsageObservationEpoch += 1;
     this.claudeAchievementObservation = undefined;
@@ -4634,6 +4665,84 @@ export class UsageWebviewProvider {
     }
   }
 
+  /** Explicit recalibration uses the current accepted source, never edits log or receipt dates. */
+  setAchievementCalibrationState(pending:boolean,failed=false):void{
+    this.achievementCalibrationPending=pending;
+    this.achievementCalibrationFailed=failed;
+    if(pending){this.achievementOverviewSelection=undefined;this.achievementCalibrationCompleted=false;this.achievementCalibrationPartial=false;}
+    if(!pending)this.queueUsageAchievementReceipts();
+    void this.panel?.webview.postMessage({command:'achievementCalibrationState',
+      documentId:this.dashboardDocumentId,pending,failed,
+      text:pending?I18n.achievementManagement.recalibrating:failed?I18n.achievementManagement.recalibrationFailed:
+        this.achievementCalibrationPartial?I18n.achievementManagement.recalibratedPartial:
+        this.achievementCalibrationCompleted?I18n.achievementManagement.recalibrated:''});
+  }
+  async recalibrateAchievementsFromCurrentData(current:()=>boolean=()=>true):Promise<boolean|'partial'>{
+    if(!current())throw new Error('achievement-calibration:retired');
+    if(!this.setting<boolean>('enableAchievements',true)||this.clearingAchievements)throw new Error('achievement-calibration:disabled');
+    this.ensureAchievementRecords();
+    await this.achievementWrite;
+    if(!current())throw new Error('achievement-calibration:retired');
+    if(this.achievementRecordLoadFailed||(this.achievementRecordRepository&&!this.achievementRecordState)){
+      throw new Error('achievement-calibration:records');
+    }
+    const epoch=this.achievementPersistenceEpoch;
+    const evidenceEpoch=this.usageAchievementEvidenceEpoch;
+    const zone=resolveTimeZone(I18n.getTimezone());
+    const records=this.acceptedClaudeAchievement?.records??this.allRecords;
+    // This explicit operation alone may reduce the uncapped materialized Claude
+    // sessions. Ordinary warm rendering never re-aggregates the record corpus.
+    const previousHistory=this.calibratedSessionHistory;
+    const eligibleRows=this.acceptedClaudeAchievement?.sessionHistoryEligibility?.();
+    if(!this.revokedAchievementEvidence.has('claude')&&this.acceptedClaudeAchievement?.allTime&&eligibleRows){
+      const eligible=new Set([...eligibleRows].filter(row=>!row._unownedAgentSession&&
+        (row.data.messageCount>0||row.data.totalCost>0)).map(row=>row.sessionId));
+      this.calibratedSessionHistory=new WeakMap([[records,{zone,days:claudeAchievementSessionHistory(records,zone,Date.now(),eligible)}]]);
+    }
+    this.achievementHistoryCache=undefined;
+    this.achievementCalibrationCommitting=true;
+    this.achievementCalibrationGuard=current;
+    let committed=false;
+    try{
+      this.queueUsageAchievementReceipts();
+      await this.achievementWrite;
+      // Native activity receipts are independent facts; UI cancellation must
+      // not erase them. Historical reconciliation still requires a live guard.
+      if(!current())throw new Error('achievement-calibration:retired');
+      const previousGrants=new Set(this.achievementGrants);
+      const expected=this.achievementResults().filter(row=>row.unlocked).map(row=>row.id);
+      await this.achievementWrite;
+      const additions=expected.filter(id=>!previousGrants.has(id));
+      committed=additions.some(id=>this.achievementGrants.has(id));
+      const complete=expected.every(id=>this.achievementGrants.has(id));
+      const sourceLive=epoch===this.achievementPersistenceEpoch&&evidenceEpoch===this.usageAchievementEvidenceEpoch&&
+        zone===resolveTimeZone(I18n.getTimezone())&&this.setting<boolean>('enableAchievements',true)&&!this.clearingAchievements;
+      if(!sourceLive){
+        if(!committed)throw new Error('achievement-calibration:retired');
+        // Storage already committed under a valid guard. A later source/clear
+        // event retires current proof, not the historical fact of that commit.
+        this.achievementCalibrationPartial=true;this.achievementCalibrationCompleted=false;
+        this.calibratedSessionHistory=undefined;this.achievementHistoryCache=undefined;
+        return 'partial';
+      }
+      if(!committed&&(!current()||epoch!==this.achievementPersistenceEpoch||evidenceEpoch!==this.usageAchievementEvidenceEpoch||
+        zone!==resolveTimeZone(I18n.getTimezone())||!this.setting<boolean>('enableAchievements',true)||this.clearingAchievements||
+        this.achievementRecordLoadFailed||expected.some(id=>!this.achievementGrants.has(id)))){
+        throw new Error('achievement-calibration:retired');
+      }
+      // Only a successfully committed history reconciliation establishes the next quiet baseline.
+      if(epoch===this.achievementPersistenceEpoch&&evidenceEpoch===this.usageAchievementEvidenceEpoch)this.achievementNoticeBaseline.reset();
+      this.achievementCalibrationPartial=!complete;
+      this.achievementCalibrationCompleted=complete;
+    }catch(error){
+      this.calibratedSessionHistory=epoch===this.achievementPersistenceEpoch&&evidenceEpoch===this.usageAchievementEvidenceEpoch?
+        previousHistory:undefined;
+      this.achievementHistoryCache=undefined;throw error;
+    }finally{this.achievementCalibrationCommitting=false;this.achievementCalibrationGuard=undefined;}
+    this.lastHtml='';
+    if(this.panel)this.updateWebview();
+    return this.achievementCalibrationPartial?'partial':true;
+  }
   private achievementResults(): AchievementResult[] {
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true)) {
       this.claudeAchievementObservedThrough = undefined;
@@ -4645,6 +4754,7 @@ export class UsageWebviewProvider {
       this.achievementNoticeBaseline.reset();
       this.achievementEvidenceStates = undefined;
       this.achievementCalendarLowerBounds.clear();
+      this.achievementHistoryCache=undefined;this.achievementHistoryAnnotations={};this.calibratedSessionHistory=undefined;
       this.observedPluginAchievementIds.clear();
       this.pendingAchievementRecordActions.clear();
       this.achievementNoticeInFlight = undefined;
@@ -4736,7 +4846,7 @@ export class UsageWebviewProvider {
     const retainedPeak = readCalendarPeakEvidence(this.achievementCalendarPeak, peakContext, peakComplete);
     const calendarFacts = { ...calendar, peakFourWeekAverage: Math.max(calendar.peakFourWeekAverage, retainedPeak) };
     const peak = calendar.peakFourWeekAverage;
-    if (peakComplete && peak > retainedPeak && this.context.globalState) {
+    if (!this.achievementCalibrationPending && peakComplete && peak > retainedPeak && this.context.globalState) {
       const epoch = this.achievementPersistenceEpoch;
       const evidenceEpoch = this.usageAchievementEvidenceEpoch;
       this.achievementCalendarWrite = this.achievementCalendarWrite.catch(() => undefined).then(async () => {
@@ -4813,11 +4923,28 @@ export class UsageWebviewProvider {
       hours: combinedStale ? 'stale' : hasProvider && claudeComplete && hourMigrationSettled ? 'ready' : 'pending',
       plugin: 'ready',
     };
-    const notifyDomains = this.achievementNoticeBaseline.accept(this.achievementEvidenceStates);
+    const notifyDomains = this.achievementCalibrationPending ? new Set<AchievementEvidenceDomain>() :
+      this.achievementNoticeBaseline.accept(this.achievementEvidenceStates);
     this.achievementMoneyFacts = {
       claude:claude ? (this.acceptedClaudeAchievement ? this.acceptedClaudeAchievement.money : this.claudeAchievementMoney) : undefined,
       codex:codexSubsetTrusted ? codexSignals.money : undefined,
     };
+    const historyProof=codexSubsetTrusted?codexSignals.historyDayEvidence:undefined;
+    const sessionHistory=this.calibratedSessionHistory?.get(this.acceptedClaudeAchievement?.records??this.allRecords);
+    const historySessions=sessionHistory?.zone===timeZone?sessionHistory.days:undefined;
+    const backend=(this.achievementMoneyFacts.claude?.backend??getPricingBackend())==='aws-bedrock-in-region'?'aws-bedrock-in-region':'anthropic';
+    const enabled=Number(!!claude)+':'+Number(availability.codex);
+    const catalog=achievementHistoryCatalogSignature(),hc=this.achievementHistoryCache;
+    if(!hc||hc.claude!==claudeProof||hc.codex!==historyProof||hc.days!==claudeDays||hc.sessions!==historySessions||
+      hc.zone!==timeZone||hc.day!==asOfDay||hc.enabled!==enabled||hc.catalog!==catalog||hc.backend!==backend){
+      this.achievementHistoryAnnotations=achievementHistoryDates({timeZone,asOfDay,
+        enabled:{claude:!!claude,codex:availability.codex},
+        claude:claudeAchievementHistoryEvidence(claudeProof,claudeDays,backend),
+        codex:historyProof??{complete:!availability.codex,days:[],timeZone},
+        ...(historySessions?{claudeSessions:historySessions}:{})});
+      this.achievementHistoryCache={claude:claudeProof,codex:historyProof,days:claudeDays,sessions:historySessions,
+        zone:timeZone,day:asOfDay,enabled,catalog,backend};
+    }
     const results = evaluateAchievements({
       money:this.achievementMoneyFacts,
       claudeTokens,
@@ -4855,7 +4982,7 @@ export class UsageWebviewProvider {
     // Calibration silences the first reconciliation, not future levels for
     // the entire Extension Host lifetime. Retire only a ready, quiet domain's
     // usage rechecks; explicit local-action provenance is handled separately.
-    for (const result of results) {
+    for (const result of this.achievementCalibrationPending ? [] : results) {
       const domain = achievementEvidenceDomain(result);
       if (domain !== 'plugin' && this.achievementEvidenceStates[domain] === 'ready' && !notifyDomains.has(domain)) {
         this.silentAchievementRechecks.delete(result.id);
@@ -4863,7 +4990,7 @@ export class UsageWebviewProvider {
     }
     // Each proof domain establishes its own quiet history baseline. A pending
     // calendar/hour migration cannot silence independently verified Tokens.
-    if (newlyEarned.length > 0 && this.context.globalState) {
+    if ((!this.achievementCalibrationPending || this.achievementCalibrationCommitting) && newlyEarned.length > 0 && this.context.globalState) {
       const ids = newlyEarned.map((result) => result.id);
       const referencePricebooks = new Map(ids.filter(isAchievementMoneyId).map(id=>[id,
         this.achievementMoneyFacts[id.startsWith('claude-') ? 'claude' : 'codex']?.pricebookVersion]));
@@ -4877,9 +5004,9 @@ export class UsageWebviewProvider {
       };
       // Imported plugin ledgers are history too. Only a committed action that
       // actually crosses a catalog target can enable a plugin notice.
-      const noticeIds = newlyEarned.filter(result => result.group === 'plugin'
+      const noticeIds = newlyEarned.filter(result => !this.achievementCalibrationPending && (result.group === 'plugin'
         ? this.observedPluginAchievementIds.has(result.id)
-        : notifyDomains.has(achievementEvidenceDomain(result)))
+        : notifyDomains.has(achievementEvidenceDomain(result))))
         .map(result => result.id);
       const epoch = this.achievementPersistenceEpoch;
       const evidenceEpoch = this.usageAchievementEvidenceEpoch;
@@ -4887,7 +5014,7 @@ export class UsageWebviewProvider {
       for (const id of ids) this.pendingAchievementGrants.add(id);
       this.achievementWrite = this.achievementWrite.catch(() => undefined).then(async () => {
         try {
-          if (epoch !== this.achievementPersistenceEpoch ||
+          if ((this.achievementCalibrationGuard&&!this.achievementCalibrationGuard())||epoch !== this.achievementPersistenceEpoch ||
               !this.setting<boolean>('enableAchievements', true)) return;
           const validIds = ids.filter(id => (this.isPluginAchievement(id) ||
             evidenceEpoch === this.usageAchievementEvidenceEpoch) && moneyStillEligible(id));
@@ -4907,7 +5034,7 @@ export class UsageWebviewProvider {
                 return { id, origin: local ? 'activity' as const : 'history' as const,
                   ...(isAchievementMoneyId(id) ? {referencePricebook:referencePricebooks.get(id)} : {}),
                   recordedDay: local ? recordedDay : null, timeZone: local ? timeZone : null };
-              }), () => epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
+              }), () => (!this.achievementCalibrationGuard||this.achievementCalibrationGuard())&&epoch === this.achievementPersistenceEpoch && !this.clearingAchievements &&
                 this.setting<boolean>('enableAchievements', true) &&
                 validIds.every(id => (this.isPluginAchievement(id) || evidenceEpoch === this.usageAchievementEvidenceEpoch) && moneyStillEligible(id)));
             this.achievementRecordState = append.store;
@@ -4933,7 +5060,7 @@ export class UsageWebviewProvider {
           this.dispatchAchievementNotice();
         } catch (error) {
           // No optimistic grant or notice survives a failed durable write.
-          this.achievementNoticeBaseline.reset();
+          if(!this.achievementCalibrationPending)this.achievementNoticeBaseline.reset();
           if ((error as Error)?.message === 'achievement-record:generation') {
             this.clearingAchievements = true;
             this.pendingAchievementNotice.clear();
@@ -4953,6 +5080,7 @@ export class UsageWebviewProvider {
   }
 
   private dispatchAchievementNotice(): void {
+    if(this.achievementCalibrationPending)return;
     if (this.clearingAchievements || !this.setting<boolean>('enableAchievements', true) ||
         !this.setting<boolean>('showAchievementNotices', true) ||
         !this.panel?.visible || !this.achievementWindowFocused) {
@@ -5327,7 +5455,7 @@ export class UsageWebviewProvider {
       nightOutputPeak(combined.filter((hour) => hour >= cutoff), timeZone);
     this.achievementHourCache = { records, codex, timeZone, asOfUtcHour, streak, nightPeak };
     const next = updateHourEvidence(this.achievementHourEvidence, streak);
-    if (next !== this.achievementHourEvidence) {
+    if (!this.achievementCalibrationPending && next !== this.achievementHourEvidence) {
       const epoch = this.achievementPersistenceEpoch;
       const evidenceEpoch = this.usageAchievementEvidenceEpoch;
       this.achievementHourWrite = this.achievementHourWrite.catch(() => undefined)
@@ -5505,7 +5633,7 @@ export class UsageWebviewProvider {
     };
     const compactValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : compact(value);
     const integerValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : integer(value);
-    const results = this.achievementResults();
+    const results = this.achievementResults(),management=I18n.achievementManagement;
     const recordState = !this.setting<boolean>('enableAchievements',true) ? 'disabled' :
       this.clearingAchievements ? 'changed' : this.achievementRecordLoadFailed ? 'unavailable' :
       this.achievementRecordRepository && !this.achievementRecordState ? 'loading' : undefined;
@@ -5618,9 +5746,13 @@ export class UsageWebviewProvider {
       const proofHint=achievementEvidenceHintCopyFor(I18n.getLocale())[proofHintKind];
       // A retained award controls the earned rank, never the current numeric
       // subtotal after retention/source changes. Keep those facts separate.
+      const fullRank=series?!hasNextTier:isEarned(result);
+      const current=achievementCurrentValue(nextResult,proofReady);
       const progress = Math.min(nextResult.target, nextResult.progress);
-      const formatted = compactValue(nextResult.id,progress) + ' / ' + compactValue(nextResult.id,nextResult.target);
-      const exactProgress = integerValue(nextResult.id,progress) + ' / ' + integerValue(nextResult.id,nextResult.target);
+      const formatted = fullRank&&current!==undefined?compactValue(nextResult.id,current):
+        compactValue(nextResult.id,progress) + ' / ' + compactValue(nextResult.id,nextResult.target);
+      const exactProgress = fullRank&&current!==undefined?integerValue(nextResult.id,current):
+        integerValue(nextResult.id,progress) + ' / ' + integerValue(nextResult.id,nextResult.target);
       const cumulativeVolume = ['hundred-million-club',
         'billion-token-club', 'ten-billion-token-club', 'hundred-billion-token-club', 'trillion-token-club']
         .includes(result.id);
@@ -5669,14 +5801,44 @@ export class UsageWebviewProvider {
           (stage === undefined ? '' : '<span class="achievement-stage-target" title="' +
             this.escapeHtml(copy.nextStage + ': ' + integer(stage) + ' ' + unitFor(result.id)) + '">' +
             this.escapeHtml(copy.nextStage + ' · ' + compactValue(nextResult.id,stage)) + '</span>')
-        : this.escapeHtml(!proofReady ? proofLabel : next ? copy.milestone : copy.complete);
-      const levelRules = (tiers ?? [result]).map((entry, index) =>
+        : !proofReady?this.escapeHtml(proofLabel):fullRank&&current!==undefined?
+          '<span>'+this.escapeHtml(copy.complete)+'</span><span class="achievement-current-value" title="'+
+          this.escapeHtml(management.currentValue+': '+bound+exactProgress+' '+unitFor(nextResult.id))+'">'+
+          this.escapeHtml(management.currentValue+': '+bound+formatted)+'</span>':
+          this.escapeHtml(next ? copy.milestone : copy.complete);
+      const levelEntries=tiers??[result];
+      const notes=compactAchievementLevelNotes(levelEntries.map(entry=>achievementConditionFor(I18n.getLocale(),entry.id)));
+      const commonUnit=levelEntries.every(entry=>unitFor(entry.id)===unitFor(levelEntries[0].id))?unitFor(levelEntries[0].id):undefined;
+      const earnedBooks=[...new Set(levelEntries.map(entry=>this.achievementRecordState?.records.find(row=>row.id===entry.id)?.referencePricebook).filter(Boolean))];
+      const sharedBook=earnedBooks.length===1?earnedBooks[0]:undefined;
+      const dated=(entry:AchievementResult):string=>{
+        if(!isEarned(entry))return '<small class="achievement-level-status">'+this.escapeHtml(copy.locked)+'</small>';
+        const record=this.achievementRecordState?.records.find(row=>row.id===entry.id);
+        const proof=this.achievementHistoryAnnotations[entry.id];
+        const usable=evidenceFor(entry)==='ready'&&proof&&proof.ruleVersion===achievementRuleVersion(entry.id)&&
+          (!isAchievementMoneyId(entry.id)||!record?.referencePricebook||record.referencePricebook===proof.pricebookVersion);
+        const shown=usable?'<small class="achievement-level-date" data-date-source="retained-logs" data-date-scope="'+proof.scope+'" title="'+
+          this.escapeHtml(management.dateNote)+'">'+
+          this.escapeHtml(management.verifiedDay)+': <time datetime="'+proof.day+'" title="'+this.escapeHtml(proof.timeZone)+'">'+proof.day+'</time>'+
+          '</small>':'';
+        const recorded=record?.recordedDay?'<small class="achievement-level-date" data-date-source="first-recorded">'+
+          this.escapeHtml(management.firstRecorded)+': <time datetime="'+record.recordedDay+'" title="'+
+          this.escapeHtml(record.timeZone??'')+'">'+record.recordedDay+'</time></small>':'';
+        return '<small class="achievement-level-status">'+this.escapeHtml(copy.earned)+'</small>'+
+          (shown||recorded?shown+recorded:'<small class="achievement-level-date" data-date-source="unknown" title="'+
+            this.escapeHtml(management.dateUnavailable)+'" aria-label="'+this.escapeHtml(management.unknownDay+'. '+management.dateUnavailable)+'">'+
+            this.escapeHtml(management.unknownDay)+'</small>');
+      };
+      const sharedDetails='<p class="achievement-common-conditions">'+this.escapeHtml(management.sharedConditions+': '+
+        [commonUnit,notes.shared].filter(Boolean).join(' · '))+'</p>'+
+        (sharedBook?'<p class="table-hint achievement-earned-reference">'+this.escapeHtml(moneyCopy.earnedReference+': '+sharedBook)+'</p>':'');
+      const levelRules = levelEntries.map((entry, index) =>
         '<li data-achievement-level="' + entry.id + '"><strong>' +
           this.escapeHtml(series ? copy.levels[index] : copy.milestone) + '</strong><span>' +
-          this.escapeHtml(compactValue(entry.id,entry.target) + ' ' + unitFor(entry.id)) + '</span>' +
-          (achievementConditionFor(I18n.getLocale(), entry.id) ? '<small>' +
-            this.escapeHtml(achievementConditionFor(I18n.getLocale(), entry.id)!) + '</small>' : '') +
-          (isAchievementMoneyId(entry.id) && this.achievementRecordState?.records.find(row=>row.id===entry.id)?.referencePricebook
+          this.escapeHtml(compactValue(entry.id,entry.target) + (commonUnit?'':' '+unitFor(entry.id))) + '</span>' +
+          (notes.perLevel[index] ? '<small>' + this.escapeHtml(notes.perLevel[index]!) + '</small>' : '') +
+          dated(entry)+
+          (!sharedBook&&isAchievementMoneyId(entry.id) && this.achievementRecordState?.records.find(row=>row.id===entry.id)?.referencePricebook
             ? '<small class="achievement-earned-reference">' + this.escapeHtml(moneyCopy.earnedReference + ': ' +
               this.achievementRecordState.records.find(row=>row.id===entry.id)!.referencePricebook) + '</small>' : '') + '</li>').join('');
       const milestoneRules = milestones.length ? '<h5>' + this.escapeHtml(copy.milestone) +
@@ -5686,7 +5848,7 @@ export class UsageWebviewProvider {
           return '<li data-achievement-milestone="' + entry.id + '" data-achievement-level="' + entry.id + '">' +
             '<img src="' + this.escapeHtml(src) + '" alt="" loading="lazy"><strong>' + this.escapeHtml(copy.titles[entry.id]) +
             '</strong><small>' + this.escapeHtml(isEarned(entry) ? copy.earned : copy.locked) + '</small><span>' +
-            this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span></li>';
+            this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span>'+dated(entry)+'</li>';
         }).join('') + '</ul>' : '';
       // Saved allowlisted facts only. A historical grant or queued action cannot
       // reconstruct individual steps or pretend a cancelled export succeeded.
@@ -5733,7 +5895,7 @@ export class UsageWebviewProvider {
         (proofReady ?
         '<label class="achievement-progress-label" for="achievement-progress-' + result.id +
         '" title="' + this.escapeHtml(bound + exactProgress + ' ' + unitFor(result.id)) + '">' +
-        this.escapeHtml((series && earnedTiers > 0 && hasNextTier ? copy.nextTarget + ': ' : '') + bound +
+        this.escapeHtml((fullRank?management.currentValue+': ':series && earnedTiers > 0 && hasNextTier ? copy.nextTarget + ': ' : '') + bound +
           formatted + ' ' + unitFor(result.id)) + '</label>' +
         '<progress id="achievement-progress-' + result.id + '" max="' + nextResult.target +
         '" value="' + progress + '" aria-valuetext="' + this.escapeHtml(bound + exactProgress +
@@ -5741,7 +5903,7 @@ export class UsageWebviewProvider {
           '<p class="achievement-proof-status">' + this.escapeHtml(proofLabel) + '</p><p class="achievement-proof-note" data-proof-explanation="'+proofHintKind+'">' +
             achievementUiIcon('info') + this.escapeHtml(proofHint) + '</p>') +
         '<h5>' + this.escapeHtml(copy.allLevels) + '</h5>' +
-        '<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + monetaryDetails +
+        sharedDetails+'<ol class="achievement-level-rules">' + levelRules + '</ol>' + milestoneRules + journey + monetaryDetails +
         (key === 'effort-breadth' ? this.renderAchievementEffortStatistics(nextTierIndex) : '') +
         statisticsButton + '</div></details></article>';
     };
@@ -5910,7 +6072,11 @@ export class UsageWebviewProvider {
       '</label><select id="achievementSize" onchange="setAchievementSize(this.value, true)">' +
       (['small','medium','large'] as const).map(value => '<option value="' + value + '"' +
         (value === 'medium' ? ' selected' : '') + '>' + this.escapeHtml(appearance[value]) + '</option>').join('') +
-      '</select></div><span id="achievementShownCount" role="status"></span></div>';
+      '</select></div><span id="achievementShownCount" role="status"></span>'+
+      '<div class="achievement-batch-actions"><button id="achievementExpandAll" class="btn-secondary btn-small achievement-action" onclick="setAchievementDisclosures(this,true)">'+
+      achievementUiIcon('expand')+this.escapeHtml(management.expandAll)+'</button>'+
+      '<button id="achievementCollapseAll" class="btn-secondary btn-small achievement-action" onclick="setAchievementDisclosures(this,false)">'+
+      achievementUiIcon('collapse')+this.escapeHtml(management.collapseAll)+'</button></div></div>';
     const earnedCount = visibleResults.filter(isEarned).length;
     const seriesCount = overviewRows.filter(entry => entry.earned).length;
     const countLabel = (template: string, earned: number, total: number): string =>
@@ -5922,7 +6088,7 @@ export class UsageWebviewProvider {
       this.escapeHtml((cumulativeLowerBound || this.achievementCalendarLowerBounds.size > 0 ||
         this.achievementMoneyFacts.codex?.coverage.completedMondayWeekPeak.scopeLowerBound
         ? copy.lowerBoundNote + ' ' : '') + copy.lowerBoundDetails) +
-      '</p></details>' +
+      '</p><p class="achievement-date-note">'+this.escapeHtml(management.dateNote)+'</p></details>' +
       '<p class="achievement-count">' +
       '<span>' + this.escapeHtml(countLabel(copy.seriesCount, seriesCount, visibleCards.length)) + '</span> · ' +
       '<span>' + this.escapeHtml(countLabel(copy.levelCount, earnedCount, visibleResults.length)) + '</span></p>' +
@@ -5931,7 +6097,12 @@ export class UsageWebviewProvider {
         ? '<button class="btn-secondary btn-small achievement-action achievement-action-share" onclick="openAchievementShare()">' + achievementUiIcon('share') +
           this.escapeHtml(copy.shareTitle) + '</button>' : '') +
       '<button class="btn-secondary btn-small achievement-action" onclick="openAchievementSettings()">' + achievementUiIcon('settings') +
-        this.escapeHtml(copy.settingsTitle) + '</button></div></div>' +
+        this.escapeHtml(copy.settingsTitle) + '</button>'+
+      '<button id="achievementRecalibrate" class="btn-secondary btn-small achievement-action" onclick="requestAchievementCalibration(this)"'+
+        (this.achievementCalibrationPending?' disabled aria-busy="true"':'')+'>'+achievementUiIcon('recalibrate')+
+        this.escapeHtml(management.recalibrate)+'</button></div></div>'+
+      '<p id="achievementCalibrationStatus" class="table-hint" role="status">'+this.escapeHtml(this.achievementCalibrationPending?
+        management.recalibrating:this.achievementCalibrationFailed?management.recalibrationFailed:'')+'</p>'+
       '<p id="achievementPinStatus" class="table-hint" role="status"></p>' +
       '<p id="achievementUnreadStatus" class="table-hint" role="status"></p>' +
       filterToolbar +
@@ -13823,6 +13994,14 @@ export class UsageWebviewProvider {
         background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; min-width: 0; }
       .achievement-filter-control label { display: flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--vscode-foreground); }
       .achievement-filter-control select { min-height: 28px; }
+      .achievement-batch-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+      .achievement-common-conditions { margin: 6px 0 10px; color: var(--vscode-foreground); line-height: 1.5; overflow-wrap: anywhere; }
+      .achievement-level-rules .achievement-level-date { display: block; color: var(--vscode-foreground); line-height: 1.5; font-size: .85rem; overflow-wrap: anywhere; }
+      .achievement-level-date time { white-space: nowrap; }
+      .achievement-level-rules .achievement-level-status { display: inline-block; font-weight: 500; color: var(--vscode-foreground); }
+      .achievement-current-value { display: block; margin-top: 3px; color: var(--vscode-foreground); font-size: .9rem; }
+      #achievementCalibrationStatus:empty { display: none; }
+      #achievementCalibrationStatus { margin: 6px 0; color: var(--vscode-foreground); overflow-wrap: anywhere; }
       #achievementShownCount { margin-inline-start: auto; font-size: .85rem; }
       #achievementShowcaseEditor { border-block-end: 1px solid var(--vscode-panel-border); padding-bottom: 8px; }
       #achievementShowcaseEditorSummary { width: fit-content; font-size: .9rem; color: var(--vscode-foreground); }
@@ -14676,6 +14855,22 @@ function openAchievementSettings() {
   showTab('settings');
   var setting = document.getElementById('set_enableAchievements');
   if (setting) { setting.focus(); setting.scrollIntoView({ block: 'center' }); }
+}
+function setAchievementDisclosures(button, open) {
+  var root = button && button.closest('.achievement-collection');
+  if (!root || typeof open !== 'boolean') { return; }
+  // Only gallery cards, including filtered cards. Evidence/history/settings
+  // retain their own disclosure and focus; no host request or grant action.
+  root.querySelectorAll('details.achievement-disclosure[data-persist]').forEach(function(details) {
+    details.open = open;
+  });
+  savePersistedDetails();
+  button.focus({ preventScroll: true });
+}
+function requestAchievementCalibration(button) {
+  if (!button || button.disabled || !button.closest('.achievement-collection')) { return; }
+  button.disabled = true; button.setAttribute('aria-busy', 'true');
+  vscode.postMessage({command:'recalibrateAchievements',documentId:__ccuDocumentId});
 }
 function backToAchievements() {
   try { localStorage.setItem('ccu.activeTab', 'achievements'); } catch (e) {}
@@ -16552,6 +16747,19 @@ document.addEventListener('visibilitychange', function() { if (document.hidden) 
 // Handle messages from extension
 window.addEventListener('message', async function(event) {
   const message = event.data;
+
+  if (message.command === 'achievementCalibrationState') {
+    if (message.documentId !== __ccuDocumentId || typeof message.pending !== 'boolean' || typeof message.failed !== 'boolean') { return; }
+    var calibrationButton = document.getElementById('achievementRecalibrate');
+    var calibrationStatus = document.getElementById('achievementCalibrationStatus');
+    if (calibrationButton) {
+      calibrationButton.disabled = message.pending;
+      if (message.pending) { calibrationButton.setAttribute('aria-busy', 'true'); }
+      else { calibrationButton.removeAttribute('aria-busy'); }
+    }
+    if (calibrationStatus) { calibrationStatus.textContent = typeof message.text === 'string' && message.text.length <= 1024 ? message.text : ''; }
+    return;
+  }
 
   if (message.command === 'weeklyQuotaPace') {
     var pace = document.getElementById('weeklyQuotaPace');

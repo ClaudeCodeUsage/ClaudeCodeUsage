@@ -123,10 +123,12 @@ test('integer-only progress and folded evidence stay keyboard-accessible without
   await page.locator('#tab-achievements').click();
   const disclosure = page.locator('.achievement-evidence-note');
   await expect(disclosure).not.toHaveAttribute('open');
-  await expect(disclosure.locator('p')).toBeHidden();
+  await expect(disclosure.locator('p').first()).toBeHidden();
+  await expect(disclosure.locator('.achievement-date-note')).toBeHidden();
   await disclosure.locator('summary').focus();
   await disclosure.locator('summary').press('Enter');
-  await expect(disclosure.locator('p')).toContainText('first event week');
+  await expect(disclosure.locator('p').first()).toContainText('first event week');
+  await expect(disclosure.locator('.achievement-date-note')).toBeVisible();
   await page.reload();
   await expect(disclosure).toHaveAttribute('open');
   await disclosure.locator('summary').focus();

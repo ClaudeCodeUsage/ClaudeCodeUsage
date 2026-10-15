@@ -55,6 +55,35 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Conquistas locais (2.4.2)
 
+As datas das sessões usam a mesma admissão completa do índice canônico; logs alterados exigem nova calibração. O uso novo verificado mantém seu primeiro registro mesmo após cancelamento. Salvamentos parciais são informados separadamente.
+
+Expandir tudo / Recolher tudo salva apenas a abertura dos cartões no estado local
+de interface existente, sem alterar fontes ou concessões. Os níveis são Bronze /
+Prata / Ouro; IDs, itens fixados e tabelas de referência permanecem iguais.
+Condições e unidades exatamente iguais aparecem uma vez; notas monetárias só são
+compartilhadas sob a mesma tabela usada na concessão. Cartões completos mostram o
+valor atual sem corte; evidências antigas ou ausentes não são substituídas pela meta.
+
+As datas por nível são derivadas apenas na memória e indicam a data mais antiga
+verificável nos logs preservados, não o histórico completo da conta. Não substituem
+o primeiro registro salvo nem o estado não lido. Agregados diários fornecem datas
+suportadas de uso, saída, cache, modelo/família, atividade e semanas. Só a recalibração
+manual também agrega registros Claude já mantidos na memória para sessões com saída,
+sessões Fable e Fable/outra família na mesma sessão; atualizações normais com dados
+já carregados não reagrupam esses registros. Condições sem suporte mantêm a data
+desconhecida ou o primeiro registro salvo.
+
+A recalibração é local, incremental e executa uma operação por vez, sem forçar uma
+varredura completa, apagar emblemas ou fazer chamadas OAuth, de preços, BYOK ou de
+outra rede. Não força concessões; ocupado, inventário atual do índice não aceito ou
+falha não significa sucesso. Histórico parcial verificado mantém limites inferiores
+ou valores desconhecidos; concluir não implica cobertura completa de todos os escopos.
+Cancelar antes do commit histórico não adiciona concessões históricas; após o commit, não desfaz os
+registros salvos nem altera o resultado bem-sucedido. A reconciliação histórica é
+silenciosa. A validação de ponta a ponta ainda
+está em andamento; esta descrição não declara aceite.
+[Limites de datas e armazenamento](LOCAL-DATA.md#local-achievements-242).
+
 O reconhecimento de modelos para colaboração/arco-íris é separado dos preços, mantendo sem preço os modelos reconhecidos sem tarifa; registros monetários preservam os rótulos das tabelas publicadas, e picos apenas do Claude resistem a mudanças independentes de versão do Codex.
 Registros carregando, indisponíveis, alterados e desativados têm estados explícitos em vez de contagens vazias; o uso cumulativo verificado do Claude mostra `≥` enquanto as evidências do Codex ativado não forem verificadas.
 Os próximos objetivos mostram nome e nível de destino, os cartões conquistados mantêm o nível obtido e as exportações SVG mostram cada nível uma única vez.

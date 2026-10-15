@@ -8,6 +8,9 @@ const paths = {
   size:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   display:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M10 9v11"/>',
   info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/>',
+  expand:'<path d="M4 7h16M4 17h16m-9-6 1 1 1-1m-2 2 1-1 1 1M12 2v3m0 14v3"/>',
+  collapse:'<path d="M4 10h16M4 14h16m-9-8 1-1 1 1m-2 12 1 1 1-1M12 2v3m0 14v3"/>',
+  recalibrate:'<path d="M20 8a8 8 0 0 0-13-4L3 8m0-5v5h5M4 16a8 8 0 0 0 13 4l4-4m0 5v-5h-5"/>',
 } as const;
 export function achievementUiIcon(name:keyof typeof paths):string {
   return '<svg class="achievement-ui-icon" data-achievement-ui-icon="'+name+'" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'+paths[name]+'</svg>';

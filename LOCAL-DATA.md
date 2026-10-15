@@ -213,6 +213,58 @@ copy without changing compact bar text or custom quota formats.
 
 ## Local achievements (2.4.2)
 
+The historical-date manifest explicitly registers 134 current rules; registration
+alone never proves that retained logs can date a level. Unknown IDs or changed
+counter/threshold/version/ownership/base/scope remain undated. Manual session
+dates follow canonical uncapped admission; weak cache keys retain no second
+records corpus and source retirement releases the annotations. Changed logs require
+another calibration. Real producer-verified new usage remains an independent
+receipt with its original date/unread contract, even when calibration is cancelled;
+historical reconciliation does not consume it. Partial saves have a separate result.
+
+Gallery management reuses existing card `openDetails` local UI persistence.
+Expand/collapse does not touch sources, awards or unread state. Localized
+Bronze/Silver/Gold labels and exact shared conditions/units add no stored field;
+monetary explanations are shared only for the same awarded pricebook. Legacy IDs,
+pins and pricebooks remain unchanged. Even a fully earned card shows the uncapped
+current statistic; stale or missing evidence is not replaced by its target.
+
+Log-derived per-level dates are runtime-only annotations (`schemaVersion: 1`),
+bound to `ruleVersion`, timezone, catalog shape and current source/pricing context.
+Source changes, OFF, timezone and price changes rebuild or withdraw this derived
+cache. It adds no persistent store and does not alter canonical v2 original
+`recordedDay`, unknown dates, unread state or storage schema. The earliest date
+verifiable from retained logs is not the account's actual complete history and
+remains distinct from when the extension first recorded an award.
+
+Supported volume/output/cache/model/family/activity/weekly dates automatically reuse
+materialized days and strictly verified fully dated Codex files. Active-day counts
+and streaks include today's positive activity and use that day; qualified family/day
+conditions require a closed day and use day + 1. Four-week windows exclude the first
+incomplete week using the first positive activity day, not leading zero-only rows.
+This follows existing rules. Only manual calibration additionally reduces already-held,
+uncapped Claude record memory for output-session, Fable-session and same-session
+Fable/other-family dates. Date reduction uses only materialized numbers or held
+record usage metadata, without extra log-body scans, conversation-content inspection
+or metadata export. Normal incremental refresh may read allowlisted new/changed
+JSONL under existing analysis settings, without forced full rereads, new scanners or
+network access. Ordinary warm updates do not regroup those records for dates. Joint-agent/effort,
+hour/night, single-task money and timestamp-less migrated local-action dates remain
+unknown or retain first-record dates; today is never invented as a replacement.
+
+Calibration is local-only, single-flight and incremental, with no forced full scan,
+old-award clearing, OAuth/quota, online pricing, BYOK or other network call. A pending
+guard pauses historical grants and baseline advancement while real native receipts are staged; the guarded
+commit reconciles history quietly without new notices or forced grants. Busy work,
+an unaccepted current index census, failure or pre-commit cancellation is not success.
+Verified partial history retains lower bounds or unknowns; completion does not mean
+all award scopes are fully covered. Cancellation before the historical commit adds no historical awards;
+after a valid atomic commit, saved records remain and late cancellation must not
+misreport the completed commit. End-to-end validation is still in progress.
+Future date handlers require an explicit allowlist and rule-version isolation;
+new scopes default to unknown, and future catalog envelopes remain read-only and
+fail closed. Source parsers, dependencies and package version are unchanged.
+
 Codex achievement reuse compares the rebuilt full file census and independent
 witnesses exactly, then reuses detached, deeply immutable copies for revision and
 calendar/money-projection memoization. Flags or matching totals alone do not prove

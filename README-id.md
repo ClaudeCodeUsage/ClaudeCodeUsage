@@ -60,6 +60,36 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Pencapaian lokal (2.4.2)
 
+Tanggal sesi memakai kelayakan lengkap yang sama dengan indeks kanonis; log yang berubah perlu dikalibrasi ulang. Penggunaan baru yang terverifikasi tetap menyimpan catatan pertama meski kalibrasi dibatalkan. Penyimpanan sebagian dilaporkan terpisah.
+
+Buka semua / Tutup semua hanya menyimpan keadaan buka kartu dalam status UI lokal
+yang sudah ada, tanpa mengubah sumber atau pemberian lencana. Tingkat memakai
+Perunggu / Perak / Emas; ID lama, sematan, dan daftar harga referensi tetap sama.
+Syarat dan satuan yang persis sama ditampilkan sekali; catatan nilai uang hanya
+digabung jika daftar harga saat pemberian juga sama. Kartu dengan semua tingkat
+tercapai menampilkan statistik saat ini tanpa dipotong; bukti usang atau hilang
+tidak diganti dengan nilai target.
+
+Tanggal tiap tingkat hanya diturunkan dalam memori dan berarti tanggal paling awal
+yang dapat diverifikasi dari log tersimpan, bukan riwayat lengkap akun. Tanggal
+pencatatan pertama dan status belum dibaca tetap utuh. Agregat harian menyediakan
+tanggal penggunaan, output, cache, model/keluarga, aktivitas, dan pekan yang didukung.
+Hanya kalibrasi manual yang juga mengagregasi catatan Claude yang sudah ada dalam
+memori untuk sesi dengan output, sesi Fable, serta Fable/keluarga lain dalam satu
+sesi. Penyegaran rutin saat data sudah dimuat tidak mengagregasi ulang catatan itu.
+Syarat yang belum didukung tetap bertanggal tidak diketahui atau memakai catatan pertama.
+
+Kalibrasi berjalan lokal dan inkremental, satu operasi pada satu waktu, tanpa
+memaksa pemindaian penuh, menghapus lencana, atau meminta OAuth, harga, BYOK, maupun
+layanan jaringan lain. Kalibrasi tidak memaksa pemberian lencana; sibuk, keseluruhan
+indeks terkini belum diterima, atau gagal bukan keberhasilan. Riwayat parsial yang
+terverifikasi tetap berupa batas bawah atau tidak diketahui; selesai tidak berarti
+semua cakupan lencana lengkap. Pembatalan sebelum commit riwayat tidak menambah lencana historis;
+setelah commit, catatan tersimpan dan hasil berhasil tidak dibatalkan.
+Rekonsiliasi historis tetap tanpa notifikasi.
+Validasi menyeluruh alur ini masih berlangsung; uraian ini bukan pernyataan penerimaan.
+[Batas tanggal dan penyimpanan](LOCAL-DATA.md#local-achievements-242).
+
 Pengenalan model untuk kolaborasi/pelangi terpisah dari harga, sehingga model yang dikenali tanpa tarif tetap tanpa harga acuan; catatan nilai uang mempertahankan label tabel harga yang telah diterbitkan, dan puncak khusus Claude tetap tersimpan saat versi Codex yang tidak terkait berubah.
 Status catatan sedang dimuat, tidak tersedia, berubah, dan dinonaktifkan ditampilkan secara jelas alih-alih jumlah kosong; penggunaan kumulatif Claude yang terverifikasi menunjukkan `≥` selama bukti Codex yang diaktifkan belum terverifikasi.
 Target berikutnya menampilkan nama dan tingkat target, kartu yang diperoleh mempertahankan tingkatnya, dan ekspor SVG menampilkan setiap tingkat sekali saja.

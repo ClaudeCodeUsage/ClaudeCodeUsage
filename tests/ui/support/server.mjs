@@ -54,6 +54,8 @@ const server = createServer(async (request, response) => {
       'achievement-review-failure',
       'achievement-proof-stale',
       'achievement-review-next-rank',
+      'achievement-management-history',
+      'achievement-management-full',
       'achievement-long-term-gold',
       'achievement-long-term-platinum',
       'achievement-long-term-legendary',

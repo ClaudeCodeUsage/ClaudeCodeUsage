@@ -3,6 +3,7 @@ import { API_ACHIEVEMENT_DEFINITIONS, API_ACHIEVEMENT_SERIES, achievementMoneyPr
   type AchievementMoneyFacts } from './achievementMoneyCatalog';
 import type {AchievementMoneyScopes} from './achievementMoneyScopes';
 import type {AchievementEffortStatistics} from './achievementEffortStatistics';
+import type {AchievementHistoryInput} from './achievementHistoryDates';
 import type { ProviderTokenCounts } from './providers/providerTypes';
 import type { AchievementActivity } from './achievementActivity';
 import { SAFE_EXPLORATION_FEATURES } from './achievementActivity';
@@ -31,6 +32,8 @@ export interface CodexAchievementSignals {
   /** One reconciled, nonnegative file total per session; cumulative only. */
   processedLowerBound?: number;
   dayEvidence?: AchievementDayEvidence;
+  /** Runtime numeric dating proof; never an award or persisted index field. */
+  historyDayEvidence?: AchievementHistoryInput['codex'];
   tokenEvidence?: AchievementTokenEvidence;
   /** Distinct, lineage-verified roots with actual usage at each effort tier. */
   effortRootCounts?: Partial<Record<EffortTier, number>>;

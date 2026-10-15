@@ -6,6 +6,7 @@ import { codexAchievementCalendarProjection, codexAchievementTokenEvidence } fro
 import { codexAchievementMoneyScopes } from '../achievementMoneyScopes';
 import { codexAchievementEffortStatistics } from '../achievementEffortStatistics';
 import { codexModelSignals } from '../achievements';
+import {codexAchievementHistoryEvidence} from '../achievementHistoryDates';
 import type { CodexFileAggregate } from '../providers/codex/codexIndex';
 import { CODEX_PERIOD_LINEAGE_VERSION } from '../providers/codex/codexPeriodIndex';
 
@@ -34,6 +35,7 @@ test('20k files x 3 days: changed, unchanged and legitimate append achievement w
     signals.effortStatistics = codexAchievementEffortStatistics(files);
     signals.tokenEvidence = codexAchievementTokenEvidence(files, true);
     signals.dayEvidence = codexAchievementCalendarProjection(files, 'UTC', true).evidence;
+    signals.historyDayEvidence = codexAchievementHistoryEvidence(files,'UTC',true,true);
     signals.money = codexAchievementMoneyScopes({ files, complete: true, calendarComplete: true,
       dayEvidence: signals.dayEvidence, backend: 'openai', asOfDay: '2026-08-03' });
     return { revision, signals };

@@ -151,7 +151,7 @@ test('mobile review sheets explicitly show catalog conditions, not personal unlo
     assert.match(html, /图鉴审阅，非个人解锁记录/);
     assert.doesNotMatch(html, /<script|https?:|fetch\(|setInterval\(|已获得|<progress/);
     assert.match(html, /data:image\/png;base64,/);
-    assert.match(html, /普通/);
+    assert.match(html, /铜/);
   }
 });
 

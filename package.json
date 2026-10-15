@@ -81,6 +81,11 @@
     },
     "commands": [
       {
+        "command": "claudeCodeUsage.recalibrateAchievements",
+        "title": "Recalibrate Local Achievements",
+        "category": "Claude Code Usage"
+      },
+      {
         "command": "claudeCodeUsage.refresh",
         "title": "Refresh Usage Data",
         "category": "Claude Code Usage"

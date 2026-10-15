@@ -58,6 +58,36 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Lokale Erfolge (2.4.2)
 
+Sitzungsdaten verwenden dieselbe vollständige Zulassung wie der kanonische Index; geänderte Logs erfordern eine erneute Prüfung. Bestätigte neue Nutzung behält ihren ersten Nachweis auch bei Abbruch. Teilweise gespeicherte Ergebnisse werden gesondert gemeldet.
+
+Alle ausklappen / einklappen speichert nur den Aufklappzustand der Karten im
+bestehenden lokalen UI-Zustand; Quellen und Auszeichnungen bleiben unberührt.
+Die Ränge heißen Bronze / Silber / Gold; IDs, Pins und Referenzpreislisten bleiben
+gleich. Exakt gleiche Bedingungen und Einheiten erscheinen einmal, Geldhinweise
+nur bei derselben zur Auszeichnung gehörenden Preisliste. Vollständig erreichte
+Karten zeigen den ungekürzten aktuellen Wert; veraltete oder fehlende Belege werden
+nicht durch einen Zielwert ersetzt.
+
+Datumsangaben je Stufe entstehen nur im Arbeitsspeicher und bezeichnen das früheste
+aus erhaltenen Logs belegbare Datum, nicht den vollständigen Kontoverlauf. Gespeicherte
+Ersterfassungsdaten und Ungelesen-Markierungen bleiben erhalten. Tagesaggregate liefern
+unterstützte Nutzungs-, Ausgabe-, Cache-, Modell-/Familien-, Aktivitäts- und Wochendaten.
+Nur die manuelle Neuprüfung wertet bereits gehaltene Claude-Datensätze zusätzlich für
+Ausgabesitzungen, Fable-Sitzungen und Fable/andere Familien in derselben Sitzung aus;
+normale warme Aktualisierungen gruppieren diese Datensätze nicht erneut.
+Nicht unterstützte Bedingungen behalten unbekannte Daten oder die erste Erfassung.
+
+Die Neuprüfung läuft lokal und inkrementell, jeweils nur einmal gleichzeitig, ohne
+erzwungenen Vollscan, Abzeichenlöschung oder OAuth-, Preis-, BYOK- und andere
+Netzwerkanfragen. Sie erzwingt keine Auszeichnung. Beschäftigte Vorgänge, ein nicht
+akzeptierter aktueller Indexgesamtbestand oder Fehler gelten nicht als Erfolg.
+Verifizierte Teilhistorien behalten Untergrenzen oder unbekannte Werte; der Abschluss
+bedeutet keine vollständige Abdeckung aller Auszeichnungsbereiche. Ein Abbruch vor dem Commit
+fügt keine historischen Auszeichnungen hinzu; nach dem Commit bleiben gespeicherte Nachweise und
+das erfolgreiche Ergebnis bestehen. Historische Abgleiche bleiben still.
+Die Ende-zu-Ende-Validierung läuft noch; dies ist kein
+Abnahmenachweis. [Datums- und Speichergrenzen](LOCAL-DATA.md#local-achievements-242).
+
 Die Modellerkennung für Zusammenarbeit/Regenbogen ist von der Preisberechnung getrennt, sodass erkannte Modelle ohne Preis unbepreist bleiben; gespeicherte Geldwert-Auszeichnungen behalten veröffentlichte Preisbuchkennungen, und reine Claude-Spitzen bleiben bei unabhängigen Codex-Versionsänderungen erhalten.
 Ladende, nicht verfügbare, geänderte und deaktivierte Aufzeichnungen erhalten klare Statusanzeigen statt leerer Zähler; verifizierte kumulative Claude-Nutzung zeigt `≥`, solange die Nachweise des aktivierten Codex noch nicht verifiziert sind.
 Nächste Ziele zeigen Zielname und Zielrang, erhaltene Karten behalten ihren erreichten Rang, und SVG-Exporte zeigen jeden Rang nur einmal.

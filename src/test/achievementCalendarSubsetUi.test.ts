@@ -46,7 +46,7 @@ test('reliable Claude calendar remains a visible lower bound when Codex dates ar
     const historicalHtml = host.renderAchievementData();
     const historicalCard = historicalHtml.match(/<article[^>]*data-achievement-key="weekly-volume"[\s\S]*?<\/article>/)![0];
     assert.match(historicalCard,/data-achievement-earned="true"/,'retain the historical earned rank');
-    assert.match(historicalCard,/≥600M \/ 10B/,'a saved target is not current lower-bound evidence');
+    assert.match(historicalCard,/achievement-current-value[^>]*>Current value: ≥600M/,'a saved target is not current lower-bound evidence');
     assert.doesNotMatch(historicalCard,/≥10B/);
     host.achievementGrants.delete('weekly-volume-gold');
     const days=Array.from({length:750},(_,i)=>({date:new Date(Date.UTC(2024,0,1+i)).toISOString().slice(0,10),data}));

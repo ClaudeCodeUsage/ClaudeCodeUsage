@@ -198,7 +198,11 @@ test('money UI: current progress and immutable earned levels show their own refe
     assert.ok(reference); assert.ok(reference.includes(currentBook));
     assert.ok(!reference.includes(originalBook));
     const bronze = html.match(/<li data-achievement-level="claude-api-total-bronze">[\s\S]*?<\/li>/)?.[0];
-    assert.ok(bronze); assert.ok(bronze.includes(originalBook));
+    assert.ok(bronze);
+    const earnedReference=html.match(/<p class="table-hint achievement-earned-reference">[\s\S]*?<\/p>/)?.[0];
+    assert.ok(earnedReference,'shared earned reference is visible');
+    assert.ok(earnedReference.includes(originalBook),'one shared earned reference retains the immutable book');
+    assert.ok(!earnedReference.includes(currentBook),'current repricing cannot replace the earned book');
     assert.equal((await moneyRecords(file)).find(row => row.id === earned.id)?.referencePricebook, originalBook);
   });
 });
@@ -328,7 +332,7 @@ test('money UI: exported SVG contains only explicitly selected money ranks and p
     assert.deepEqual([...svg.matchAll(/data-achievement-share-badge="([^"]+)"/g)].map(row => row[1]),
       ['claude-api-total-bronze']);
     const text = visibleText(svg);
-    assert.match(text, /Ordinary/);
+    assert.match(text, /Bronze/);
     assert.doesNotMatch(svg, /123\.456792|123456792|876543\.21|2026-10-05|referencePricebook|pricingBackend|cacheWrite5m/);
     assert.ok(!svg.includes(money.pricebookVersion!));
     const more = model(45_864_198);

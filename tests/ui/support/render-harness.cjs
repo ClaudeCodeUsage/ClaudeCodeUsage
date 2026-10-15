@@ -873,6 +873,26 @@ exports.renderHarness = async function renderHarness({
       provider.achievementRecordLoading = fixture === 'achievement-review-loading';
       provider.achievementRecordLoadFailed = fixture === 'achievement-review-failure';
     }
+    if (fixture === 'achievement-management-history' || fixture === 'achievement-management-full') {
+      const {parseAchievementRecordStore}=require('../../../out/achievementRecordStore.js');
+      const full=fixture==='achievement-management-full';
+      const used=full?[56_000_000_000,4_000_000_000]:[100_000_000,1_000_000_000];
+      const usage=n=>({...claudeUsage(),totalInputTokens:n,totalOutputTokens:0,
+        totalCacheCreationTokens:0,totalCacheReadTokens:0,
+        modelBreakdown:{'claude-sonnet-4-5':{inputTokens:n,outputTokens:0,cacheCreationTokens:0,cacheReadTokens:0,
+          cost:0,count:1,referenceUsage:{inputTokens:n,outputTokens:0,cacheReadTokens:0,cacheCreation5mTokens:0,cacheCreation1hTokens:0}}}});
+      provider.providerAvailability={claude:true,codex:false,codexData:false};
+      provider.allTimeData=usage(used[0]+used[1]);
+      provider.dailyDataForEveryDay=[{date:'2026-06-03',data:usage(used[1])},{date:'2026-06-01',data:usage(used[0])}];
+      provider.sessionBreakdown=[];provider.achievementCalendarTimeZone=timeZone;
+      const ids=full?['sonnet-main','sonnet-main-silver','sonnet-main-gold','sonnet-main-platinum','sonnet-main-legendary']:
+        ['sonnet-main','sonnet-main-silver'];
+      provider.achievementRecordState=parseAchievementRecordStore({schemaVersion:2,catalogVersion:2,generation:1,
+        sequence:ids.length,lastNoticeAt:0,pinRevision:0,showcaseMode:'manual',legacyBoundary:null,legacyRecords:[],pins:[],
+        records:ids.map((id,i)=>({id,seq:i+1,ruleVersion:1,origin:'history',unread:false,recordedDay:null,timeZone:null})),
+        auxiliary:{activity:{schemaVersion:2,settingKeys:[],features:[]},hours:{schemaVersion:3,maxStreak:0},calendarPeak:null}});
+      provider.achievementGrants=new Set(ids);
+    }
     if (fixture === 'achievement-review-next-rank') {
       // A retained historical bronze award with a smaller current subtotal.
       // Use the real record validator, evaluator and renderer; do not replace

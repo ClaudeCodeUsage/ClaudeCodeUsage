@@ -182,6 +182,33 @@ real account or an installed-VSIX capture.*
 
 ## Local achievements (2.4.2)
 
+Session dates use the same uncapped admission as the canonical index; changed logs require recalibration. Verified real usage keeps its native first-recorded receipt even if calibration is cancelled. Partial saves are reported separately.
+
+Expand all / Collapse all saves only card disclosure state in the existing local UI
+state; it does not change sources or awards. Ranks use localized Bronze / Silver /
+Gold labels without changing IDs, pins or reference pricebooks. Identical conditions
+and units are shown once across levels; monetary notes are shared only under the
+same awarded pricebook. Fully earned cards show the uncapped current statistic;
+stale or missing evidence is never replaced with a target value.
+
+Per-level log dates are derived in memory and mean the earliest date verifiable
+from retained logs, not complete account history. They do not replace saved
+first-record dates or unread state. Daily totals supply supported volume, output,
+cache, model/family, activity and weekly dates. Manual recalibration alone also
+reduces already-held Claude records for output-session, Fable-session and
+same-session Fable/other-family dates; ordinary warm refreshes do not regroup those
+records. Unsupported conditions retain unknown dates or their saved first record.
+
+Recalibration is local, incremental and single-flight. It neither forces a full
+scan nor clears badges, and makes no OAuth, pricing, BYOK or other network request.
+It cannot force awards; busy work, an unaccepted current index census or failure is
+not success. Verified partial history retains lower bounds or unknowns; completion
+does not mean every award scope is fully covered. Cancellation
+before the historical commit adds no historical awards; after commit it does not undo saved records or change
+the successful result. Historical reconciliation stays quiet. End-to-end validation is still
+in progress; these descriptions are not an acceptance result. See
+[date and storage boundaries](LOCAL-DATA.md#local-achievements-242).
+
 Collaboration/rainbow model recognition is separate from pricing, so recognized but unpriced labels stay unpriced; retained monetary records keep their published pricebook labels, and Claude-only peaks survive unrelated Codex version changes.
 Loading, unavailable, changed and disabled record states replace empty counts; verified Claude cumulative usage shows `≥` while enabled Codex evidence remains unverified.
 Next targets show the target name and rank, earned cards keep their earned rank, and SVG exports show each rank once.

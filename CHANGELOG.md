@@ -8,6 +8,68 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Added — 2.4.2
 
+- **Date compatibility and calibration transaction boundaries** — explicitly register
+  134 rule shapes, including counter/series/base/scope, instead of dating future IDs
+  by series membership. Canonical uncapped session admission excludes output-only
+  non-sessions; weak cache keys are retired on source/evidence changes. Changed logs
+  require recalibration. Independently verified native usage keeps its first-recorded
+  receipt when calibration is cancelled or fails; historical reconciliation stays
+  quiet and partial saves are not reported as total failure or full completion.
+  中文：134 项日期规则显式注册，完整匹配计数器／系列／基础／范围，未知新 ID 不自动继承。
+  会话沿用规范完整准入，弱键缓存随来源／证据退役，日志变化后重新校准。真实已核验增量
+  的首次记录不因校准取消或失败而丢失；历史补认静默，部分保存单独报告。
+
+- **Gallery management and log-date annotations** — expand/collapse reuses card
+  `openDetails` local UI state only. Localized Bronze/Silver/Gold labels preserve
+  legacy IDs, pins and pricebooks. Exactly matching conditions/units and same-award-
+  pricebook explanations appear once; fully earned cards retain uncapped current
+  statistics, never a target substituted for stale evidence. Per-level dates use
+  a runtime-only v1 annotation bound to rule version, timezone, catalog shape and
+  source/pricing context, without changing v2 `recordedDay`, unknown dates or unread
+  state. Retained logs establish only the earliest verifiable date, not complete
+  account history. Supported daily reductions reuse materialized days and strictly
+  verified fully dated Codex files. Active-day counts/streaks include today's positive
+  activity; qualified family/day dates require closure and use day + 1. Four-week
+  windows exclude the first incomplete week from the first positive activity day.
+  Only manual calibration additionally reduces already-held uncapped Claude record
+  memory for output/Fable/mixed-family session dates; ordinary warm refreshes do not
+  regroup records. Unsupported joint-agent/effort/hour/night/single-task money and
+  timestamp-less migrated actions remain unknown or first-recorded, never dated today
+  by default. Date reduction uses materialized numbers or held-record usage metadata,
+  without extra log-body scans, conversation-content inspection or metadata export.
+  Normal local incremental refresh may read allowlisted new/changed JSONL under
+  existing analysis settings; no forced full reread, new scanner, network request
+  or old-award clearing is added. Pending
+  guards pause historical grants/baselines while native receipts are staged; a valid history commit stays quiet.
+  Cancellation before the historical commit adds no historical awards; cancellation after atomic commit does
+  not undo saved records or misreport them as unsaved. Busy work, an unaccepted
+  current index census, failure or pre-commit cancellation is not success. Verified
+  partial history retains lower bounds or unknowns; completion does not establish
+  full coverage of all award scopes. Explicit date-handler allowlists and rule-version isolation keep new
+  scopes unknown; future catalog envelopes remain read-only and fail closed. No new
+  persistent store, storage schema, source parser, dependency or package version.
+  **End-to-end validation remains in progress; this entry does not claim acceptance.**
+  中文：图鉴展开状态沿用本地 UI 存储，铜／银／金短名不改 ID、固定项或价表；完全相同
+  条件／单位及同一已授奖价表说明集中一次，满级保留未截断当前统计，过期证据不冒充目标值。
+  逐级日期仅为绑定规则版本、时区、目录及来源／计价上下文的运行期 v1 注释，不改 v2
+  原日期与未读，不承诺完整账户历史。自动日归约复用物化数据与严格完整日期文件；
+  活跃计数／连续活跃含当天正活动，合格家族日须闭日后加一天，四周窗口按首个正活动日
+  排除首个不完整周。仅手动校准归约已持有的未截断 Claude 会话记录，普通热更新不重聚合；
+  不支持的联合／小时／单任务金额及缺时迁移操作保持未知或首次记录，不补今天。
+  日期归约仅读物化数值或已持有记录的 usage 元数据，不额外扫描日志正文、不检查对话内容
+  或导出元数据；正常本地增量刷新仍按既有分析设置读取允许的新增／变更 JSONL，
+  不强制全量重读、不新增扫描器或网络、不清旧徽章。
+  pending guard 暂停历史补认及基线推进，真实增量独立暂存；历史提交静默。提交前取消不新增历史奖，提交后不撤销
+  已保存记录或误报未提交；忙碌、当前索引全清单未获接纳、失败及提交前取消不是成功。
+  已核验部分历史保留下界或未知，完成不代表所有授奖范围完整覆盖。未来处理器显式白名单及版本隔离，
+  新范围未知、未来封套只读拒写；不新增持久存储、schema、解析器、依赖或版号。端到端验证未完成。
+
+- **Merge policy** — default to Squash and merge: retain development commits and
+  validation evidence locally, then land one squash commit per PR on `main`.
+  Normal merge is an explicit maintainer exception; published history is not rewritten.
+  中文：默认 Squash and merge；开发阶段保留本地提交与验证证据，每个 PR 最终在 `main`
+  形成一个 squash commit；普通 merge 须维护者显式例外，不追溯改写已发布历史。
+
 - **Claude-heavy long-term ranks** — fifteen existing Claude/sustained-activity
   series gain thirty Platinum/Legendary conditions, preserving the original three
   targets and artwork. Output, sessions and nonconsecutive activity support solo

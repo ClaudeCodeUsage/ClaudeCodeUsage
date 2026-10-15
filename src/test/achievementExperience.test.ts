@@ -152,7 +152,7 @@ test('a retained Legendary award never substitutes its old target for current ve
       progress:rule.id.startsWith('sonnet-main')?100_000_000:0,unlocked:false}));
     const card=provider.renderAchievementData().match(/<article[^>]*data-achievement-key="sonnet-main"[\s\S]*?<\/article>/)[0];
     assert.match(card,/data-achievement-tier="legendary"/);
-    assert.match(card,/100M \/ 50B/,'saved qualification is not the current retained subtotal');
+    assert.match(card,/achievement-current-value[^>]*>Current value: 100M/,'saved qualification is not the current retained subtotal');
     assert.doesNotMatch(card,/50B \/ 50B/);
   });
 });
@@ -163,17 +163,20 @@ test('all displayed level requirements carry a unit or a qualified condition', a
     const rules = [...html.matchAll(/<li[^>]*data-achievement-level="([^"]+)"[^>]*>([\s\S]*?)<\/li>/g)];
     assert.equal(rules.length, ACHIEVEMENT_DEFINITIONS.length);
     assert.deepEqual(rules.map(([, id]) => id).sort(), ACHIEVEMENT_DEFINITIONS.map(row => row.id).sort());
+    const articles=[...html.matchAll(/<article\b[\s\S]*?<\/article>/g)].map(row=>row[0]);
     for (const [, id, body] of rules) {
+      const parent=articles.find(article=>article.includes('data-achievement-level="'+id+'"'))!;
+      const common=parent.match(/achievement-common-conditions[^>]*>([^<]*)<\/p>/)?.[1]??'';
       const requirement = body.match(/<span>([^<]+)<\/span>/)?.[1];
       assert.ok(requirement, `${id}: missing level requirement`);
-      assert.doesNotMatch(requirement, /^\s*[\d.,]+\s*$/, id);
+      assert.ok(!/^\s*[\d.,]+\s*$/.test(requirement)||/\S/.test(common),id+': unit may be shared, never absent');
       const condition = achievementConditionFor('en', id);
       if (condition) {
-        const detail = body.match(/<small>([^<]+)<\/small>/)?.[1];
+        const detail = body.match(/<small>([^<]+)<\/small>/)?.[1]??common;
         assert.ok(detail, `${id}: missing joint condition`);
         assert.doesNotMatch(detail, /^\s*[\d.,]+\s*$/, id);
-        assert.equal(detail, condition.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;').replace(/'/g, '&#39;'), `${id}: complete joint condition`);
+        assert.ok(detail.includes(condition.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;')), id+': complete joint condition');
       }
     }
   });

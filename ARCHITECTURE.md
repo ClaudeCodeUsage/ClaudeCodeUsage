@@ -69,7 +69,8 @@ only the separate publish action can perform that network operation.
 | `achievementMoneyOrigin.ts` | Runtime-only frozen-book increment validation, fixed-field copying/economic bounds and necessary-and-sufficient cumulative crossings; independent of Token origin and never persisted as index proof. |
 | `achievementModels.ts` | Non-monetary model-label recognition for collaboration/rainbow and Claude families, independent of fixed-price aliases; recognition does not establish a remote model's identity or pricing. |
 | `achievementReferenceBooks.ts` | Three explicitly published v1 reference-book labels for reading saved money records, separate from current-book selection and new-write authorization. |
-| `achievementTitles.ts` | Shared public title helper removing only an exact localized rank suffix with a catalog middle-dot separator when rank is displayed separately. |
+| `achievementTitles.ts` | Shared public title helper removing a matching localized rank or its legacy alias only after a catalog middle-dot separator; IDs and pins are unchanged. |
+| `achievementDetailPresentation.ts`, `achievementHistoryDates.ts`, `achievementCalibration.ts` | Exact shared-condition display, runtime-only per-level log-date reduction and guarded local incremental recalibration; no new persistent store or source parser. |
 | `achievementEffortStatistics.ts`, `achievementCollaboration.ts` | Complete-current-census Codex root × effort statistics and existing joint tier criteria; optional `CodexAchievementSignals.effortStatistics` is cached by proof revision and rendered only inside the existing effort-breadth disclosure. |
 | `apiHeatmapDaily.ts`, `pricing.ts#getCurrentEstimatePricing` | Read-only ≤366-date projection with per-projection memoized, in-memory selected-model/component rate admission; preserves current cost scalars, excludes generic unknown-model fallback coverage and adds no network/corpus reads. |
 | `apiHeatmap.ts`, `apiHeatmapCopy.ts` | Whitelisted provider/metric configuration and canonical local SVG/Markdown artifact; Token default, explicit amounts, separate provider monetary panels and eight-locale artifact copy. |
@@ -361,6 +362,75 @@ credentials or make a network call to refresh it.
 
 ### Local achievements (2.4.2)
 
+Historical dates use a frozen 134-rule registration manifest. Each handler verifies
+the exact ID, counter, target, group, rule version, series, base ID and monetary
+scope; adding a rule or changing its interpretation cannot silently inherit a date.
+The module-level signature covers actual and registered metadata.
+Session reconstruction consumes only the canonical uncapped session admission,
+not arbitrary positive-output records. Its cache uses weak record-array keys and
+is explicitly retired on source/evidence changes. Changed logs require recalibration.
+Calibration stages independently verified native activity receipts and preserves
+their first-recorded dates even if the UI operation is cancelled or another source
+fails. Only historical reconciliation stays quiet. Completed, partially saved,
+cancelled and failed outcomes remain distinct.
+
+Gallery-wide expand/collapse changes only card entries in existing `openDetails`
+local UI persistence; it does not select sources, grant awards or acknowledge unread
+records. Bronze/Silver/Gold are localized display labels, including 铜／银／金 and
+銅／銀／金. Legacy IDs, pins, reference pricebooks and thresholds are unchanged.
+Conditions and units are consolidated only when exactly equal across levels;
+monetary explanations additionally require the same awarded pricebook. The current
+statistic remains uncapped even at the highest rank. Missing/stale evidence stays
+unavailable rather than being replaced by a target or a saved award.
+
+Per-level historical dates are derived annotations with `schemaVersion: 1`, bound
+to `ruleVersion`, data timezone and actual catalog shape. Cache reuse also depends
+on current source evidence, enabled providers and pricing context. Source, OFF,
+timezone or price changes rebuild or withdraw annotations. This runtime cache is
+not a new store: canonical v2 `recordedDay`, original unknown dates and unread state
+remain intact. A displayed log date is the earliest verifiable date in retained
+local evidence, including a verified subset; it cannot establish the account's
+actual complete history. A saved first-record date remains a distinct fact.
+
+Automatic date evaluation reuses materialized daily rows for supported volume,
+output, cache, model/family, activity and weekly rules. Codex admits strictly
+verified, fully dated file evidence. Consistent with the existing evaluator,
+active-day counts and streaks include today's positive activity and use that day
+as their date; qualified family/day rules require a closed day and use day + 1.
+Four-week windows exclude the first incomplete week based on the first positive
+activity day, not an earlier zero-only row. These are date projections of existing
+conditions, not rule changes. Only explicit manual recalibration reduces the
+already-held, uncapped Claude record memory for output-session, Fable-session and
+same-session Fable/other-family dates. Date reduction reads only materialized numbers
+or usage metadata in held records, with no extra log-body scan, conversation-content
+inspection or metadata export. Normal local incremental refresh may still read
+allowlisted new/changed JSONL under existing analysis settings; it forces no full
+reread and adds no scanner or network access. Ordinary warm refreshes never regroup
+those records for dates.
+
+Joint-agent/effort conditions, hourly/night conditions, single-task monetary dates
+and migrated local actions without timestamps have no supported historical date
+handler. Keep them unknown or show their original first record; never fill today
+as a substitute. Future rules require an explicit date-handler allowlist and rule
+version isolation; new scopes default to unknown. Future catalog envelopes retain
+the existing read-only, fail-closed behavior rather than being rewritten.
+
+Manual calibration is a local-only single-flight incremental operation. It adds
+no OAuth/quota, online pricing, BYOK or other network request, forced full scan or
+old-award clearing. While pending, a shared guard pauses historical grants and baseline
+advancement while real native receipts are staged. The guarded commit reconciles history quietly, with
+no new-award notices or forced grants. Busy work, an unaccepted current index census,
+failure or pre-commit cancellation cannot be reported as success. The base index
+requires an accepted current manifest and complete indexing; independent calendar,
+pricing or subset coverage may remain partial. Verified partial history retains
+lower bounds or unknowns; completion does not mean all award scopes are fully covered.
+Cancellation before the historical commit adds no historical awards;
+once the atomic commit completes under a valid guard, a committed flag records the
+actual result, and a later cancellation neither undoes saved records nor reports
+them as unsaved. End-to-end validation of this path is still in progress; this
+contract is not evidence of a passed gate. No storage schema, source parser,
+dependency or package-version change is introduced by these presentation features.
+
 The gallery has 50 display themes and 174 award conditions. `enableAchievements` defaults
 on, but an existing opt-out wins; a once-only non-modal upgrade announcement offers
 view/disable actions without opening the gallery automatically. Historical grants
@@ -457,8 +527,9 @@ record projections and the foreground missed-notice summary use the bounded
 canonical envelope below without creating a second award store.
 Next-target overview cards use the target's name, rank label and rank color;
 earned gallery cards keep their earned rank. `achievementTitles.ts` is shared
-with SVG export so an exact localized rank suffix is not repeated beside a
-separate rank label; other title text and unranked milestones remain intact.
+with SVG export so a matching localized rank suffix or its legacy alias after a
+catalog middle dot is not repeated beside a separate rank label; other title text
+and unranked milestones remain intact.
 
 `achievementLongTerm.ts` appends 30 fixed ranks to 15 existing sustained Claude/
 activity series. Their first three IDs, thresholds and evidence remain unchanged;
@@ -664,7 +735,7 @@ joint criteria:
 
 | Existing tier | Processed Tokens per effort | Output Tokens per effort | Qualifying roots per effort |
 |---|---|---|---|
-| Ordinary | 100M | 100K | 5 |
+| Bronze | 100M | 100K | 5 |
 | Silver | 500M | 500K | 10 |
 | Gold | 2B | 2M | 30 |
 
@@ -1462,6 +1533,10 @@ use an explicit opt-in account mapping rather than attaching prices by guess.
 
 ## Release invariants
 
+- Default to **Squash and merge**: keep local development commits and their
+  validation evidence during implementation, then land one squash commit per PR
+  on `main`. A normal merge requires an explicit maintainer exception. Do not
+  rewrite published Git history to retrofit this policy.
 - Strict TypeScript, red-green TDD, full `node:test`, F5 smoke test, and installed
   VSIX smoke test are required in proportion to the change.
 - The canonical CI browser gate uses four isolated shards, one worker per shard

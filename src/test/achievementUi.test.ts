@@ -2516,7 +2516,8 @@ test('a retained high-level grant displays its actual tier without inventing mis
     assert.match(card, /data-achievement-tier="platinum"/);
     assert.match(card, /data-achievement-proof="pending"/);
     assert.doesNotMatch(card, /<progress/);
-    assert.match(card, /1T processed tokens/);
+    assert.match(card, /Shared conditions: processed tokens/);
+    assert.match(card, /data-achievement-level="trillion-token-club"[\s\S]*?<span>1T<\/span>/);
     assert.match(card, /achievement-tier-marker complete">IV<\/span>/);
     assert.match(card, /achievement-tier-marker next">V<\/span>/);
     assert.doesNotMatch(card, /achievement-tier-marker complete">I<\/span>/);
@@ -2538,6 +2539,197 @@ test('one-time identity audit rechecks earlier Codex grants without erasing Clau
   await withProvider(state, async (provider) => {
     assert.deepEqual([...provider.achievementGrants], ['sonnet-main']);
   });
+});
+
+test('manual calibration keeps pending evaluation read-only; successful history commit preserves old dates and unread', async () => {
+  await withAchievementStorage(async directory=>{
+    await withProvider(achievementPersistenceState(),async provider=>{
+      await provider.achievementWrite;
+      provider.achievementResults();await provider.achievementWrite;
+      const repository=provider.achievementRecordRepository;
+      const initial=await repository.append(provider.achievementRecordState.generation,[{
+        id:'hundred-million-club',origin:'usage',recordedDay:'2026-05-01',timeZone:'UTC'}]);
+      provider.achievementRecordState=initial.store;
+      provider.achievementGrants=new Set(initial.store.records.map((r:any)=>r.id));
+      const original=structuredClone(initial.store.records);
+      provider.settings={get:(key:string)=>key==='enableAchievements'};
+      provider.providerAvailability={claude:true,codex:false,codexData:false};
+      provider.achievementCalendarTimeZone='UTC';
+      const day=(n:number)=>({totalInputTokens:n,totalOutputTokens:0,totalCacheCreationTokens:0,totalCacheReadTokens:0,modelBreakdown:{}});
+      provider.allTimeData=day(1_100_000_000);
+      provider.dailyDataForEveryDay=[{date:'2026-06-01',data:day(100_000_000)},{date:'2026-06-03',data:day(1_000_000_000)}];
+      const zone=I18n.getTimezone();I18n.setTimezone('UTC');
+      try{
+        provider.setAchievementCalibrationState(true);
+        provider.achievementResults();await provider.achievementWrite;
+        assert.deepEqual(provider.achievementRecordState.records,original,'pending refresh cannot commit new awards');
+        assert.equal(await provider.recalibrateAchievementsFromCurrentData(()=>true),true);
+        const saved=JSON.parse(await readFile(repository.file,'utf8'));
+        assert.deepEqual(saved.records.find((r:any)=>r.id==='hundred-million-club'),original[0]);
+        const added=saved.records.find((r:any)=>r.id==='billion-token-club');
+        assert.ok(added);assert.equal(added.origin,'history');assert.equal(added.unread,false);
+        assert.equal(added.recordedDay,null);assert.equal(added.timeZone,null);
+        assert.equal(provider.achievementHistoryAnnotations['billion-token-club'].day,'2026-06-03');
+        assert.equal(provider.achievementCalibrationCompleted,true);
+      }finally{provider.setAchievementCalibrationState(false);I18n.setTimezone(zone);}
+    },undefined,directory);
+  });
+});
+test('manual calibration rejects cancelled and failed commits without changing grants or a ready notice baseline', async () => {
+ await withAchievementStorage(async directory=>{
+  await withProvider(achievementPersistenceState(),async provider=>{
+   await provider.achievementWrite;provider.achievementResults();await provider.achievementWrite;
+   const before=structuredClone(provider.achievementRecordState);
+   const baseline=provider.achievementNoticeBaseline;
+   const {ACHIEVEMENT_EVIDENCE_DOMAINS}=require('../achievementEvidence');
+   baseline.accept(Object.fromEntries(ACHIEVEMENT_EVIDENCE_DOMAINS.map((d:string)=>[d,d==='claude-usage'?'ready':'pending'])));
+   provider.settings={get:(key:string)=>key==='enableAchievements'};
+   provider.providerAvailability={claude:true,codex:false,codexData:false};
+   provider.allTimeData={totalInputTokens:1e9,totalOutputTokens:0,totalCacheCreationTokens:0,totalCacheReadTokens:0,modelBreakdown:{}};
+   provider.setAchievementCalibrationState(true);
+   assert.equal(baseline.isReady('claude-usage'),true);
+   await assert.rejects(provider.recalibrateAchievementsFromCurrentData(()=>false),/retired/);
+   assert.deepEqual(provider.achievementRecordState,before);
+   const append=provider.achievementRecordRepository.append;
+   provider.achievementRecordRepository.append=async()=>{throw Error('synthetic-save-failure');};
+   try{
+    await assert.rejects(provider.recalibrateAchievementsFromCurrentData(()=>true),/retired/);
+    assert.deepEqual(provider.achievementRecordState,before);
+    assert.deepEqual([...provider.achievementGrants],before.records.map((r:any)=>r.id));
+    assert.equal(baseline.isReady('claude-usage'),true);
+    assert.equal(provider.achievementCalibrationCompleted,false);
+   }finally{provider.achievementRecordRepository.append=append;provider.setAchievementCalibrationState(false,true);}
+  },undefined,directory);
+ });
+});
+
+for(const ending of ['cancelled','failed']as const)test('calibration '+ending+' preserves a producer-proven native first-recorded receipt',async()=>{
+ await withAchievementStorage(async directory=>{
+  await withProvider(achievementPersistenceState(),async provider=>{
+   await provider.achievementWrite;provider.achievementResults();await provider.achievementWrite;
+   provider.settings={get:(key:string)=>key==='enableAchievements'};
+   provider.providerAvailability={claude:true,codex:false,codexData:false};
+   const zone=I18n.getTimezone();I18n.setTimezone('UTC');
+   const snapshot=(input:number)=>({allTime:{totalInputTokens:input,totalOutputTokens:0,totalCacheCreationTokens:0,totalCacheReadTokens:0,
+     modelBreakdown:{'claude-sonnet-4-5':{inputTokens:input,outputTokens:0,cacheCreationTokens:0,cacheReadTokens:0,cost:0,count:1}}},
+    days:[],sessions:[],sessionEvidence:{outputSessions:0,fableOutputSessions:0,fableMixedFamilySession:false},records:[],timeZone:'UTC'});
+   provider.acceptedClaudeAchievement=snapshot(99_000_000);
+   provider.claudeAchievementObservedThrough=Date.now()-60_000;
+   let taskCurrent=true;
+   try{
+    provider.setAchievementCalibrationState(true);
+    const handle=await provider.beginClaudeAchievementObservation(()=>taskCurrent,()=>true);
+    assert.ok(handle?.window,'calibration must retain real producer observation windows');
+    provider.acceptClaudeAchievementSnapshot(snapshot(100_000_000),handle,{provider:'claude',...handle.window,
+     processed:1_000_000,output:0,cacheRead:0,cacheCreation:0,
+     families:{sonnet:1_000_000,opus:0,haiku:0,fable:0}});
+    await provider.achievementWrite;
+    assert.ok(!provider.achievementGrants.has('sonnet-main'),'receipt is staged while calibration is pending');
+    taskCurrent=false;
+    provider.setAchievementCalibrationState(false,ending==='failed');
+    await provider.achievementWrite;
+    const saved=JSON.parse(await readFile(provider.achievementRecordRepository.file,'utf8'));
+    const record=saved.records.find((r:any)=>r.id==='sonnet-main');
+    assert.ok(record);assert.equal(record.origin,'usage');
+    assert.ok(record.recordedDay);assert.equal(record.timeZone,'UTC');assert.equal(record.unread,true);
+   }finally{I18n.setTimezone(zone);}
+  },undefined,directory);
+ });
+});
+test('a flushed native receipt does not count as a cancelled history calibration commit',async()=>{
+ await withAchievementStorage(async directory=>{
+  await withProvider(achievementPersistenceState(),async provider=>{
+   await provider.achievementWrite;provider.achievementResults();await provider.achievementWrite;
+   provider.settings={get:(key:string)=>key==='enableAchievements'};
+   provider.providerAvailability={claude:true,codex:false,codexData:false};
+   const zone=I18n.getTimezone();I18n.setTimezone('UTC');
+   const snapshot=(input:number)=>({allTime:{totalInputTokens:input,totalOutputTokens:0,totalCacheCreationTokens:0,totalCacheReadTokens:0,
+     modelBreakdown:{'claude-sonnet-4-5':{inputTokens:input,outputTokens:0,cacheCreationTokens:0,cacheReadTokens:0,cost:0,count:1}}},
+    days:[],sessions:[],sessionEvidence:{outputSessions:0,fableOutputSessions:0,fableMixedFamilySession:false},records:[],timeZone:'UTC'});
+   provider.acceptedClaudeAchievement=snapshot(99_000_000);
+   provider.claudeAchievementObservedThrough=Date.now()-60_000;
+   let current=true;
+   const evaluate=provider.achievementResults.bind(provider);
+   try{
+    provider.setAchievementCalibrationState(true);
+    const handle=await provider.beginClaudeAchievementObservation(()=>current,()=>true);
+    assert.ok(handle?.window);
+    provider.acceptClaudeAchievementSnapshot(snapshot(100_000_000),handle,{provider:'claude',...handle.window,
+     processed:1_000_000,output:0,cacheRead:0,cacheCreation:0,families:{sonnet:1_000_000,opus:0,haiku:0,fable:0}});
+    await provider.achievementWrite;
+    provider.acceptedClaudeAchievement=snapshot(1_000_000_000);
+    provider.achievementResults=()=>{const results=evaluate();current=false;return results;};
+    await assert.rejects(provider.recalibrateAchievementsFromCurrentData(()=>current),/retired/);
+    const saved=JSON.parse(await readFile(provider.achievementRecordRepository.file,'utf8'));
+    const native=saved.records.find((r:any)=>r.id==='sonnet-main');
+    assert.ok(native);assert.equal(native.origin,'usage');assert.ok(native.recordedDay);assert.equal(native.unread,true);
+    assert.ok(!saved.records.some((r:any)=>r.id==='billion-token-club'));
+    assert.equal(provider.achievementCalibrationPartial,false);
+    assert.equal(provider.achievementCalibrationCompleted,false);
+   }finally{provider.achievementResults=evaluate;provider.setAchievementCalibrationState(false);I18n.setTimezone(zone);}
+  },undefined,directory);
+ });
+});
+test('partial history save is reported as partial, not failed or wholly complete',async()=>{
+ await withAchievementStorage(async directory=>{
+  await withProvider(achievementPersistenceState(),async provider=>{
+   await provider.achievementWrite;provider.achievementResults();await provider.achievementWrite;
+   provider.settings={get:(key:string)=>key==='enableAchievements'};
+   provider.providerAvailability={claude:true,codex:false,codexData:false};
+   provider.allTimeData={totalInputTokens:100_000_000,totalOutputTokens:0,totalCacheCreationTokens:0,totalCacheReadTokens:0,
+    modelBreakdown:{'claude-sonnet-4-5':{inputTokens:100_000_000,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0}}};
+   const repository=provider.achievementRecordRepository;
+   const {claudeAchievementMoneyScopes}=require('../achievementMoneyScopes');
+   provider.claudeAchievementMoney=claudeAchievementMoneyScopes({backend:'anthropic',asOfDay:'2026-10-14',
+    allTimeModels:{'claude-sonnet-4-5':{inputTokens:100_000_000,outputTokens:0,cacheReadTokens:0,cacheCreationTokens:0,
+     referenceUsage:{inputTokens:100_000_000,outputTokens:0,cacheReadTokens:0,cacheCreation5mTokens:0,cacheCreation1hTokens:0}}}});
+   const evaluate=provider.achievementResults.bind(provider);
+   provider.achievementResults=()=>{
+    const results=evaluate();
+    if(provider.achievementCalibrationCommitting){
+     provider.achievementMoneyFacts.claude={...provider.achievementMoneyFacts.claude,pricebookVersion:'superseded-before-write'};
+    }
+    return results;
+   };
+   provider.setAchievementCalibrationState(true);
+   try{
+    assert.equal(await provider.recalibrateAchievementsFromCurrentData(()=>true),'partial');
+    const saved=JSON.parse(await readFile(repository.file,'utf8'));
+    assert.ok(saved.records.length>0);
+    assert.ok(saved.records.every((r:any)=>!r.id.startsWith('claude-api-')));
+    assert.equal(provider.achievementCalibrationPartial,true);
+    assert.equal(provider.achievementCalibrationCompleted,false);
+   }finally{provider.achievementResults=evaluate;provider.setAchievementCalibrationState(false);}
+  },undefined,directory);
+ });
+});
+test('a committed history write followed by proof retirement is reported as saved partial work',async()=>{
+ await withAchievementStorage(async directory=>{
+  await withProvider(achievementPersistenceState(),async provider=>{
+   await provider.achievementWrite;provider.achievementResults();await provider.achievementWrite;
+   provider.settings={get:(key:string)=>key==='enableAchievements'};
+   provider.providerAvailability={claude:true,codex:false,codexData:false};
+   provider.allTimeData={totalInputTokens:1e9,totalOutputTokens:0,totalCacheCreationTokens:0,totalCacheReadTokens:0,modelBreakdown:{}};
+   const repository=provider.achievementRecordRepository,append=repository.append.bind(repository);
+   repository.append=async(...args:any[])=>{const saved=await append(...args);provider.invalidateAchievementEvidence('codex');return saved;};
+   provider.setAchievementCalibrationState(true);
+   try{
+    assert.equal(await provider.recalibrateAchievementsFromCurrentData(()=>true),'partial');
+    assert.ok(JSON.parse(await readFile(repository.file,'utf8')).records.length>0);
+    assert.equal(provider.achievementCalibrationCompleted,false);
+   }finally{repository.append=append;provider.setAchievementCalibrationState(false);}
+  },undefined,directory);
+ });
+});
+test('source revocation drops session date caches without retaining the old records corpus',async()=>{
+ await withProvider(achievementPersistenceState(),async provider=>{
+  await provider.achievementWrite;
+  const records:any[]=[];provider.calibratedSessionHistory=new WeakMap([[records,{zone:'UTC',days:[]}]]);
+  provider.invalidateAchievementEvidence('claude');
+  assert.equal(provider.calibratedSessionHistory,undefined);
+  provider.calibratedSessionHistory=new WeakMap([[records,{zone:'UTC',days:[]}]]);
+  provider.clearClaudeSource();assert.equal(provider.calibratedSessionHistory,undefined);
+ });
 });
 
 test('installed webview uses local extension asset URIs instead of inlining every PNG', async () => {
