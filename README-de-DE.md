@@ -56,7 +56,7 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 Das Bild nutzt synthetische Daten, nicht das Konto einer Person. Weitere
 Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](README.md).
 
-Der unveröffentlichte Testkandidat 2.5.0 verbindet lokale Erfolge mit Codex-Unterstützung für `.jsonl.zst` in `sessions` und `archived_sessions`. Zstd komprimiert verlustfrei, ohne LLM-Zusammenfassung: kleinere Dateien ändern die protokollierten Tokenzahlen nicht. Das Lesen bleibt lokal, ohne Quelldateien zu ändern oder entpackte Klartextkopien zu speichern; gleichnamige `.jsonl` im selben Ordner haben Vorrang. Natives Zstd (Node 22.15+ / 23.8+) benötigt keine neue Abhängigkeit; nicht unterstützte Hosts melden die Einschränkung und behalten zuletzt verifizierte Summen. Integrationstests laufen noch.
+Version 2.5.0 verbindet lokale Erfolge mit Codex-Unterstützung für `.jsonl.zst` in `sessions` und `archived_sessions`. Zstd komprimiert verlustfrei, ohne LLM-Zusammenfassung: kleinere Dateien ändern die protokollierten Tokenzahlen nicht. Das Lesen bleibt lokal, ohne Quelldateien zu ändern oder entpackte Klartextkopien zu speichern; gleichnamige `.jsonl` im selben Ordner haben Vorrang. Natives Zstd (Node 22.15+ / 23.8+) benötigt keine neue Abhängigkeit; nicht unterstützte Hosts melden die Einschränkung und behalten zuletzt verifizierte Summen.
 
 ## Lokale Erfolge (2.5.0)
 
@@ -96,7 +96,7 @@ und umbrechende lange Beschriftungen. Vorschau/Export ergänzen weder automatisc
 Netzwerkanfragen noch persönliche Metadaten; ausdrückliche Auswahl und unveränderliche
 bestätigte SVGs bleiben erhalten. Die umfassende visuelle Vereinheitlichung/Verschönerung
 der Freigabeseite und ein dauerhaftes Nutzungsarchiv sind auf die nächste Version
-verschoben und in diesem Kandidaten nicht implementiert.
+verschoben und in Version 2.5.0 nicht implementiert.
 
 Datumsangaben je Stufe entstehen nur im Arbeitsspeicher und bezeichnen das früheste
 aus erhaltenen Logs belegbare Datum, nicht den vollständigen Kontoverlauf. Gespeicherte
@@ -115,8 +115,7 @@ Verifizierte Teilhistorien behalten Untergrenzen oder unbekannte Werte; der Absc
 bedeutet keine vollständige Abdeckung aller Auszeichnungsbereiche. Ein Abbruch vor dem Commit
 fügt keine historischen Auszeichnungen hinzu; nach dem Commit bleiben gespeicherte Nachweise und
 das erfolgreiche Ergebnis bestehen. Historische Abgleiche bleiben still.
-Die Ende-zu-Ende-Validierung läuft noch; dies ist kein
-Abnahmenachweis. [Datums- und Speichergrenzen](LOCAL-DATA.md#local-achievements-250).
+[Datums- und Speichergrenzen](LOCAL-DATA.md#local-achievements-250).
 
 Die Modellerkennung für Zusammenarbeit/Regenbogen ist von der Preisberechnung getrennt, sodass erkannte Modelle ohne Preis unbepreist bleiben; gespeicherte Geldwert-Auszeichnungen behalten veröffentlichte Preisbuchkennungen, und reine Claude-Spitzen bleiben bei unabhängigen Codex-Versionsänderungen erhalten.
 Ladende, nicht verfügbare, geänderte und deaktivierte Aufzeichnungen erhalten klare Statusanzeigen statt leerer Zähler; verifizierte kumulative Claude-Nutzung zeigt `≥`, solange die Nachweise des aktivierten Codex noch nicht verifiziert sind.

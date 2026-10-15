@@ -53,7 +53,7 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
 A imagem usa dados sintéticos, não informações de uma conta real. Veja mais
 imagens e detalhes na [página principal completa em inglês](README.md).
 
-O candidato de teste 2.5.0, ainda não publicado, reúne conquistas locais e suporte a `.jsonl.zst` do Codex em `sessions` e `archived_sessions`. Zstd é compressão sem perdas, não um resumo por LLM: arquivos menores preservam a contagem de tokens registrada. A leitura é local, sem alterar os logs nem salvar cópias descompactadas em texto; o `.jsonl` de mesmo nome na mesma pasta tem prioridade. Zstd nativo (Node 22.15+ / 23.8+) não adiciona dependências; hosts incompatíveis informam a limitação e mantêm os últimos totais verificados. Os testes de integração continuam.
+A versão 2.5.0 reúne conquistas locais e suporte a `.jsonl.zst` do Codex em `sessions` e `archived_sessions`. Zstd é compressão sem perdas, não um resumo por LLM: arquivos menores preservam a contagem de tokens registrada. A leitura é local, sem alterar os logs nem salvar cópias descompactadas em texto; o `.jsonl` de mesmo nome na mesma pasta tem prioridade. Zstd nativo (Node 22.15+ / 23.8+) não adiciona dependências; hosts incompatíveis informam a limitação e mantêm os últimos totais verificados.
 
 ## Conquistas locais (2.5.0)
 
@@ -91,7 +91,7 @@ exportado inclui o [link público fixo do repositório](https://github.com/Claud
 e quebra rótulos longos para evitar sobreposição. Prévia/exportação não adiciona pedidos
 automáticos de rede nem metadados pessoais e preserva a seleção explícita e o SVG aceito
 imutável. A unificação visual/embelezamento amplo da página e um arquivo durável de uso
-ficam para a próxima versão; nenhum dos dois está implementado neste candidato.
+ficam para a próxima versão; nenhum dos dois está implementado na versão 2.5.0.
 
 As datas por nível são derivadas apenas na memória e indicam a data mais antiga
 verificável nos logs preservados, não o histórico completo da conta. Não substituem
@@ -109,8 +109,7 @@ falha não significa sucesso. Histórico parcial verificado mantém limites infe
 ou valores desconhecidos; concluir não implica cobertura completa de todos os escopos.
 Cancelar antes do commit histórico não adiciona concessões históricas; após o commit, não desfaz os
 registros salvos nem altera o resultado bem-sucedido. A reconciliação histórica é
-silenciosa. A validação de ponta a ponta ainda
-está em andamento; esta descrição não declara aceite.
+silenciosa.
 [Limites de datas e armazenamento](LOCAL-DATA.md#local-achievements-250).
 
 O reconhecimento de modelos para colaboração/arco-íris é separado dos preços, mantendo sem preço os modelos reconhecidos sem tarifa; registros monetários preservam os rótulos das tabelas publicadas, e picos apenas do Claude resistem a mudanças independentes de versão do Codex.

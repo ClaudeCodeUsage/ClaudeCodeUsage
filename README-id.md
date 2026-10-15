@@ -58,7 +58,7 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - **Harga multi-vendor** — Opus 4.x / Sonnet 4.x / Haiku 4.5 diverifikasi terhadap harga publik Anthropic; tarif referensi untuk OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen dengan fallback berbasis family model. `Refresh Token Pricing` menarik data LiteLLM langsung.
 - **Personalisasi** — bahasa, zona waktu, angka desimal, angka ringkas, pengelompokan proyek, toggle penyegaran otomatis dashboard.
 
-Kandidat uji 2.5.0 yang belum dirilis menggabungkan pencapaian lokal dan dukungan `.jsonl.zst` Codex di `sessions` serta `archived_sessions`. Zstd adalah kompresi tanpa kehilangan data, bukan ringkasan LLM: berkas yang lebih kecil tidak mengubah jumlah token tercatat. Pembacaan tetap lokal tanpa mengubah log sumber atau menyimpan salinan teks hasil dekompresi; `.jsonl` bernama sama dalam folder yang sama diprioritaskan. Zstd bawaan (Node 22.15+ / 23.8+) tidak menambah dependensi; host yang tidak mendukungnya melaporkan keterbatasan dan mempertahankan total terakhir yang terverifikasi. Pengujian integrasi masih berlangsung.
+Versi 2.5.0 menggabungkan pencapaian lokal dan dukungan `.jsonl.zst` Codex di `sessions` serta `archived_sessions`. Zstd adalah kompresi tanpa kehilangan data, bukan ringkasan LLM: berkas yang lebih kecil tidak mengubah jumlah token tercatat. Pembacaan tetap lokal tanpa mengubah log sumber atau menyimpan salinan teks hasil dekompresi; `.jsonl` bernama sama dalam folder yang sama diprioritaskan. Zstd bawaan (Node 22.15+ / 23.8+) tidak menambah dependensi; host yang tidak mendukungnya melaporkan keterbatasan dan mempertahankan total terakhir yang terverifikasi.
 
 ## Pencapaian lokal (2.5.0)
 
@@ -97,7 +97,7 @@ daya lokal yang sama dengan CSP Webview utama. SVG ekspor memuat
 pembungkusan teks dan jarak untuk label panjang. Pratinjau/ekspor tidak menambah permintaan
 jaringan otomatis atau metadata pribadi; pilihan eksplisit dan SVG yang telah diterima tetap
 tidak berubah. Penyatuan/pemolesan visual halaman berbagi secara menyeluruh dan arsip
-penggunaan tahan lama ditunda ke versi berikutnya; keduanya belum diterapkan dalam kandidat ini.
+penggunaan tahan lama ditunda ke versi berikutnya; keduanya belum diterapkan dalam versi 2.5.0.
 
 Tanggal tiap tingkat hanya diturunkan dalam memori dan berarti tanggal paling awal
 yang dapat diverifikasi dari log tersimpan, bukan riwayat lengkap akun. Tanggal
@@ -116,7 +116,6 @@ terverifikasi tetap berupa batas bawah atau tidak diketahui; selesai tidak berar
 semua cakupan lencana lengkap. Pembatalan sebelum commit riwayat tidak menambah lencana historis;
 setelah commit, catatan tersimpan dan hasil berhasil tidak dibatalkan.
 Rekonsiliasi historis tetap tanpa notifikasi.
-Validasi menyeluruh alur ini masih berlangsung; uraian ini bukan pernyataan penerimaan.
 [Batas tanggal dan penyimpanan](LOCAL-DATA.md#local-achievements-250).
 
 Pengenalan model untuk kolaborasi/pelangi terpisah dari harga, sehingga model yang dikenali tanpa tarif tetap tanpa harga acuan; catatan nilai uang mempertahankan label tabel harga yang telah diterbitkan, dan puncak khusus Claude tetap tersimpan saat versi Codex yang tidak terkait berubah.

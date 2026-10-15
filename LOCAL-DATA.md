@@ -5,8 +5,8 @@ only bounded derived state needed for fast refresh and reset-aware estimates,
 and never treats API-equivalent cost as a bill.
 
 This page is the current inventory and versioned data-contract supplement for
-the unreleased 2.5.0 test candidate, combining achievements and compressed-log
-compatibility. Integration validation is ongoing. The
+version 2.5.0, combining achievements and compressed-log
+compatibility. The
 historical v2.3.1 field-level baseline is in
 [`docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md).
 The later compression, sharing, quota-pace and achievement sections here govern their added
@@ -30,7 +30,7 @@ credential, account-separation or explicit-network-consent restrictions.
 | Local achievements (2.5.0) | Verified numeric usage and deliberate allowlisted local actions | A ≤64 KiB award envelope with public IDs, sequence/reason/unread state and optional first-record day/zone; safe setting-key/feature enums (never values), hour-streak maximum and qualified four-week peak | Default on; off stops new grants and extra proof work. Clear all removes exact achievement state and retains only an empty clear fence | None; sharing requires explicit local preview/export, not GitHub authentication |
 | Advice API key | User-provided secret | Secret value in VS Code SecretStorage only | Until the key or all derived data is cleared | Used only as the authorization credential for the explicitly configured endpoint |
 
-## Compressed Codex sources (2.5.0 test candidate)
+## Compressed Codex sources (2.5.0)
 
 Zstd losslessly encodes the original JSONL; it is not an LLM summary and does not
 change recorded token counts. Only the two usage roots above admit `.jsonl.zst`;
@@ -72,8 +72,7 @@ produce false completion. Limits are 4 GiB decoded/replay, 2 GiB physical and a
 within those hard caps. Cold backfills containing compressed sources use at most
 two file-pass workers. Native Node Zstd (22.15+ / 23.8+) adds no dependency.
 Unsupported hosts report the limitation and retain last-good verified totals.
-See [architecture](ARCHITECTURE.md) for the implementation boundary; complete native
-recovery and full-suite acceptance remain to be verified for this candidate.
+See [architecture](ARCHITECTURE.md) for the implementation boundary.
 
 ## What is never cached
 
@@ -309,7 +308,7 @@ The navigation/page label Share & compare, basic equal-width badge choices and
 separate rank line add no data category. The checkbox-icon repair permits
 the same bundled local resource source (`webview.cspSource`) as the main webview
 CSP, without enabling remote images. Broad sharing-page visual unification/beautification
-and a durable usage archive are deferred to the next version; this candidate adds
+and a durable usage archive are deferred to the next version; version 2.5.0 adds
 neither. Current derived caches are not a promised durable usage archive.
 
 Log-derived per-level dates are runtime-only annotations (`schemaVersion: 1`),
@@ -343,7 +342,7 @@ an unaccepted current index census, failure or pre-commit cancellation is not su
 Verified partial history retains lower bounds or unknowns; completion does not mean
 all award scopes are fully covered. Cancellation before the historical commit adds no historical awards;
 after a valid atomic commit, saved records remain and late cancellation must not
-misreport the completed commit. End-to-end validation is still in progress.
+misreport the completed commit.
 Future date handlers require an explicit allowlist and rule-version isolation;
 new scopes default to unknown, and future catalog envelopes remain read-only and
 fail closed. Source parsers, dependencies and package version are unchanged.
@@ -420,7 +419,7 @@ to 56/80/112 px and showcase emblems to 56/72/96 px while preserving text/click 
 Above 960 px, the badge column fits its content up to two overview-card widths
 plus their internal gap; next targets fill the remaining space, with 16 px between
 columns. At 960 px or below they stack directly with a 12 px gap; auxiliary history
-sections follow both. Layout results remain provisional.
+sections follow both.
 Count chips and decorative control icons retain the existing localized labels.
 The pure `achievementUiIcons` module renders known inline SVG paths without
 dependencies, network access or additional asset files. These presentation changes

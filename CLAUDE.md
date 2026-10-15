@@ -11,8 +11,8 @@ Use its task-scoped documentation routes rather than loading every historical
 plan. Verify the actual checkout/branch and current local handoff before a
 version-specific task; a source manifest version is not proof of publication.
 
-The current 2.5.0 test candidate combines local achievements and Codex compressed-log
-compatibility; it is unreleased and integration validation is ongoing. Follow the
+Version 2.5.0 combines local achievements and Codex compressed-log
+compatibility. Follow the
 expanded `.jsonl` / `.jsonl.zst` usage allowlist in `AGENTS.md`; source logs remain read-only.
 
 Claude-specific compatibility notes:

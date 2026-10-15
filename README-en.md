@@ -60,7 +60,7 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 - **Multi-vendor pricing** — Opus 4.x / Sonnet 4.x / Haiku 4.5 verified against Anthropic's public pricing; reference rates for OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen with family-aware fallback. `Refresh Token Pricing` pulls live LiteLLM data.
 - **Personalisation** — language, timezone, decimal places, compact numbers, project grouping, dashboard auto-refresh toggle.
 
-The unreleased 2.5.0 test candidate combines local achievements with Codex `.jsonl.zst` compatibility in `sessions` and `archived_sessions`. Zstd is lossless compression, not an LLM summary: smaller disk files preserve logged token counts. Reads stay local without changing source logs or saving decompressed copies; same-directory, same-basename `.jsonl` takes priority. Native Zstd (Node 22.15+ / 23.8+) adds no dependency; unsupported hosts report the limitation and retain last verified totals. Integration testing is ongoing.
+Version 2.5.0 combines local achievements with Codex `.jsonl.zst` compatibility in `sessions` and `archived_sessions`. Zstd is lossless compression, not an LLM summary: smaller disk files preserve logged token counts. Reads stay local without changing source logs or saving decompressed copies; same-directory, same-basename `.jsonl` takes priority. Native Zstd (Node 22.15+ / 23.8+) adds no dependency; unsupported hosts report the limitation and retain last verified totals.
 
 ## Local achievements (2.5.0)
 
@@ -96,7 +96,7 @@ public [repository link](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage), wi
 wrapping/spacing for long labels. Preview/export adds no automatic network request
 or personal metadata and retains the accepted immutable SVG and explicit selection.
 Broad sharing-page visual unification/beautification and a durable usage archive
-are deferred to the next version; neither is implemented by this candidate.
+are deferred to the next version; neither is implemented in 2.5.0.
 
 Per-level log dates are derived in memory and mean the earliest date verifiable
 from retained logs, not complete account history. They do not replace saved
@@ -112,8 +112,7 @@ It cannot force awards; busy work, an unaccepted current index census or failure
 not success. Verified partial history retains lower bounds or unknowns; completion
 does not mean every award scope is fully covered. Cancellation
 before the historical commit adds no historical awards; after commit it does not undo saved records or change
-the successful result. Historical reconciliation stays quiet. End-to-end validation is still
-in progress; these descriptions are not an acceptance result. See
+the successful result. Historical reconciliation stays quiet. See
 [date and storage boundaries](LOCAL-DATA.md#local-achievements-250).
 
 Collaboration/rainbow model recognition is separate from pricing, so recognized but unpriced labels stay unpriced; retained monetary records keep their published pricebook labels, and Claude-only peaks survive unrelated Codex version changes.

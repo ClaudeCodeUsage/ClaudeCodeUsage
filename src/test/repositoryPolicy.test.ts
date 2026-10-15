@@ -1522,7 +1522,7 @@ test('release history stays scannable and human contributors stay discoverable',
     'Credits should not single out first-time contributors');
   for (const login of [
     'Carl723000', 'jack21', 'Dobidop', 'nickearnshaw', 'mxzinke',
-    'Alfiefe10', 'jackieyangjq', 'rsyuzyov', 'projectronic', 'zeyutang',
+    'Alfiefe10', 'jackyyangjq', 'rsyuzyov', 'projectronic', 'zeyutang',
     'chuccv', 'eduardogomezgvp', 'zhaoxiao9302', 'mkgaskin-ops',
   ]) {
     assert.ok(main.includes(`https://github.com/${login}`), `missing contributor ${login}`);

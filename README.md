@@ -180,7 +180,7 @@ real account or an installed-VSIX capture.*
 
 ---
 
-The unreleased 2.5.0 test candidate combines local achievements with Codex `.jsonl.zst` compatibility in `sessions` and `archived_sessions`. Zstd is lossless compression, not an LLM summary: smaller disk files preserve logged token counts. Reads stay local without changing source logs or saving decompressed copies; same-directory, same-basename `.jsonl` takes priority. Native Zstd (Node 22.15+ / 23.8+) adds no dependency; unsupported hosts report the limitation and retain last verified totals. Integration testing is ongoing.
+Version 2.5.0 combines local achievements with Codex `.jsonl.zst` compatibility in `sessions` and `archived_sessions`. Zstd is lossless compression, not an LLM summary: smaller disk files preserve logged token counts. Reads stay local without changing source logs or saving decompressed copies; same-directory, same-basename `.jsonl` takes priority. Native Zstd (Node 22.15+ / 23.8+) adds no dependency; unsupported hosts report the limitation and retain last verified totals.
 
 ## Local achievements (2.5.0)
 
@@ -216,7 +216,7 @@ public [repository link](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage), wi
 wrapping/spacing for long labels. Preview/export adds no automatic network request
 or personal metadata and retains the accepted immutable SVG and explicit selection.
 Broad sharing-page visual unification/beautification and a durable usage archive
-are deferred to the next version; neither is implemented by this candidate.
+are deferred to the next version; neither is implemented in 2.5.0.
 
 Per-level log dates are derived in memory and mean the earliest date verifiable
 from retained logs, not complete account history. They do not replace saved
@@ -232,8 +232,7 @@ It cannot force awards; busy work, an unaccepted current index census or failure
 not success. Verified partial history retains lower bounds or unknowns; completion
 does not mean every award scope is fully covered. Cancellation
 before the historical commit adds no historical awards; after commit it does not undo saved records or change
-the successful result. Historical reconciliation stays quiet. End-to-end validation is still
-in progress; these descriptions are not an acceptance result. See
+the successful result. Historical reconciliation stays quiet. See
 [date and storage boundaries](LOCAL-DATA.md#local-achievements-250).
 
 Collaboration/rainbow model recognition is separate from pricing, so recognized but unpriced labels stay unpriced; retained monetary records keep their published pricebook labels, and Claude-only peaks survive unrelated Codex version changes.
@@ -1018,7 +1017,7 @@ only date/hour buckets migrate, without restarting primary history.
 Created by [@jack21](https://github.com/jack21) and maintained by
 [@Carl723000](https://github.com/Carl723000), with community PRs, issue reports,
 reviews, and translations. Thank you to everyone who helped shape the project.
-The lists below cover public PR and issue authors through v2.4.0; a linked PR
+The contributor credits below are reconciled for v2.5.0; a linked PR
 is not a claim that every proposed line shipped. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the release-credit convention.
 
@@ -1032,7 +1031,7 @@ is not a claim that every proposed line shipped. See
 - [@e7d](https://github.com/e7d) — [Opus 5 context window](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/81).
 - [@henrique-carvalho-dev](https://github.com/henrique-carvalho-dev) — [Brazilian Portuguese](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/48).
 - [@jack21](https://github.com/jack21) — original project; [Codex adaptation guidance](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/96).
-- [@jackieyangjq](https://github.com/jackieyangjq) — [dashboard date-label performance](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/115).
+- [@jackyyangjq](https://github.com/jackyyangjq) — [dashboard date-label performance](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/115).
 - [@mxzinke](https://github.com/mxzinke) — [model pricing](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/5); [German translation](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/6).
 - [@nickearnshaw](https://github.com/nickearnshaw) — localization; loading/quota fixes; test, CI, and docs foundations ([PRs](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pulls?q=is%3Apr+is%3Amerged+author%3Anickearnshaw)).
 - [@oxsean](https://github.com/oxsean) — [session actions and quota resilience](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/pull/43).
@@ -1058,7 +1057,7 @@ is not a claim that every proposed line shipped. See
 - [@danielboxer](https://github.com/danielboxer) [#26](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/26) · [@lyrzxz](https://github.com/lyrzxz) [#27](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/27) · [@BarisKuzu](https://github.com/BarisKuzu) [#45](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/45), [#87](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/87)
 - [@ekimminau](https://github.com/ekimminau) [#51](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/51) · [@dbookstaber](https://github.com/dbookstaber) [#54](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/54) · [@eduardogomezgvp](https://github.com/eduardogomezgvp) [#55](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/55) · [@chuccv](https://github.com/chuccv) [#70](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/70)
 - [@nsevene](https://github.com/nsevene) [#80](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/80) · [@arhneu](https://github.com/arhneu) [#82](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/82) · [@jcastillooo](https://github.com/jcastillooo) [#84](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/84)
-- [@HoangJN](https://github.com/HoangJN) [#89](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/89) · [@Bozodragon](https://github.com/Bozodragon) [#91](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/91) · [@aaroncvan](https://github.com/aaroncvan) [#94](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/94) · [@mkgaskin-ops](https://github.com/mkgaskin-ops) [#99](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/99)
+- [@HoangJN](https://github.com/HoangJN) [#89](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/89) · [@Bozodragon](https://github.com/Bozodragon) [#91](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/91) · [@aaroncvan](https://github.com/aaroncvan) [#94](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/94) · [@mkgaskin-ops](https://github.com/mkgaskin-ops) [#99](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/99), [#126](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/126)
 - PR authors also reported issues: [@nickearnshaw](https://github.com/nickearnshaw) [#25](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/25), [#33](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/33) · [@oxsean](https://github.com/oxsean) [#40](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/40) · [@projectronic](https://github.com/projectronic) [#74](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/74). The maintainer's own issues are in the [issue history](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues?q=is%3Aissue+author%3ACarl723000).
 
 </details>

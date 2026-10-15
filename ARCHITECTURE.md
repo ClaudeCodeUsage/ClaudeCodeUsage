@@ -7,7 +7,7 @@
 > The bilingual
 > [`v2.3.1 local data contract`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md)
 > is the historical field-level baseline. [`LOCAL-DATA.md`](LOCAL-DATA.md) is
-> the current 2.5.0 test-candidate inventory and versioned supplement for later fields,
+> the current 2.5.0 inventory and versioned supplement for later fields,
 > retention, migration, clearing and exports. Its explicitly later sections
 > supersede only those subjects; unchanged baseline privacy rules still apply.
 
@@ -24,12 +24,11 @@ v2.4 phase 1 consolidates the existing sharing surfaces into one preview-first
 workspace. A presentation selector switches among the combined activity
 heatmap, the legacy Claude Share Card, and the Claude-only token heatmap; the
 full-width export preview always precedes its controls.
-The unreleased 2.5.0 test candidate combines Codex compressed-log compatibility
+Version 2.5.0 combines Codex compressed-log compatibility
 with default-on, local-only tiered achievements
 (`enableAchievements`), a once-only upgrade opt-out, and evidence/performance guards.
 It also integrates provider/metric heatmap sharing, a six-pin manual showcase and
-default-off weekly quota pace. Compression integration and validation are ongoing;
-complete native history recovery and a full test pass are not yet established.
+default-off weekly quota pace.
 This document describes implementation contracts,
 not a release or acceptance record. Native/F5, installed-package and performance
 checks require their own evidence; browser checks do not establish those results.
@@ -418,8 +417,7 @@ destination, resource fetch, telemetry or personal metadata. Headings, footers a
 rank/threshold labels wrap with reserved spacing in the existing grid; output
 remains deterministic with bundled image data and the immutable preview/export seal.
 Broad sharing-page visual unification/beautification and a durable usage archive
-are deferred to the next version and are not implemented in this candidate.
-Integration/browser/package checks are ongoing, not native/F5 acceptance evidence.
+are deferred to the next version and are not implemented in 2.5.0.
 
 Per-level historical dates are derived annotations with `schemaVersion: 1`, bound
 to `ruleVersion`, data timezone and actual catalog shape. Cache reuse also depends
@@ -465,8 +463,7 @@ lower bounds or unknowns; completion does not mean all award scopes are fully co
 Cancellation before the historical commit adds no historical awards;
 once the atomic commit completes under a valid guard, a committed flag records the
 actual result, and a later cancellation neither undoes saved records nor reports
-them as unsaved. End-to-end validation of this path is still in progress; this
-contract is not evidence of a passed gate. No storage schema, source parser,
+them as unsaved. No storage schema, source parser,
 dependency or package-version change is introduced by these presentation features.
 
 The gallery has 50 display themes and 178 award conditions. `enableAchievements` defaults
@@ -1058,7 +1055,7 @@ numeric per-day/model/effort/session aggregates, and the bounded neutral quota
 history described above—never prompt, response, command, tool-argument,
 raw-line, raw-path, account name, credential, or raw provider-label content.
 
-For the 2.5.0 test candidate, `.jsonl.zst` is lossless Zstd storage of the original
+In version 2.5.0, `.jsonl.zst` is lossless Zstd storage of the original
 JSONL, not an LLM summary: a smaller disk file does not change its logged token
 counts. Discovery rejects symlinks and non-regular files. Same-directory,
 same-basename `.jsonl` wins over `.jsonl.zst`; the HMAC file key strips only the
@@ -1115,7 +1112,7 @@ the soft byte budget within codec hard caps, avoiding perpetual deferral. These
 backfills use at most two file-pass workers when compressed sources are present.
 The numeric index remains rebuildable, not a backup: truly removed sources lose
 their contributions; remaining compressed/archived representations are reconciled.
-These are candidate contracts, not evidence of native recovery or acceptance.
+These are implementation contracts, not evidence of native recovery or acceptance.
 
 Advice starts from materialized aggregates rather than rereading JSONL or
 walking retained records. Aggregate-only is the remote default. Prompt samples
@@ -1253,8 +1250,7 @@ Automated checks do not replace the user's subjective appearance review.
 Above 960 px, the shared renderer uses a content-sized badge column capped at
 `2 * --achievement-overview-width + 8px` and a next-target column that fills the
 remaining space, with a 16 px gap. This avoids reserving an empty half-width column
-for one badge. At 960 px or below they stack directly with a 12 px gap. Layout
-results remain provisional. Auxiliary
+for one badge. At 960 px or below they stack directly with a 12 px gap. Auxiliary
 history sections follow both. `achievementUiIcons` supplies decorative inline SVG
 icons beside existing localized share/settings/filter/size/editor/info labels;
 summary counts use compact chips. This presentation change preserves control IDs,

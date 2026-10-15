@@ -6,15 +6,19 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
-The 2.5.0 test candidate combines the pending achievement system and Codex
-compressed-log compatibility. It is not published; integration, complete native
-history recovery and full-suite validation remain in progress.
-中文：2.5.0 测试候选合并待发布成就系统与 Codex 压缩日志兼容，尚未发布；集成、
-完整本机历史恢复及全量测试验证仍在进行。
+## [2.5.0] — 2026-10-15
+
+Version 2.5.0 combines local achievements and Codex compressed-log compatibility.
+The maintainer reported successful testing, accepted the candidate and authorized
+Squash and merge plus publication. This records maintainer acceptance, not an
+agent-performed native/F5 or Linux installed-package pass.
+中文：2.5.0 整合本地成就与 Codex 压缩日志兼容。维护者反馈测试通过、接受候选，
+并明确授权 Squash and merge 及发布；此处记录维护者验收，不声称代理完成原生／F5
+或 Linux 已安装包测试。
 
 Broad sharing-page visual unification/beautification and a durable usage archive
-are deferred to the next version; neither is implemented in this candidate.
-中文：分享页整体视觉统一／美化与持久用量归档推迟至下一版本，本候选未实现这两项。
+are deferred to the next version; neither is implemented in 2.5.0.
+中文：分享页整体视觉统一／美化与持久用量归档推迟至下一版本，2.5.0 未实现这两项。
 
 ### Added — 2.5.0
 
@@ -36,8 +40,7 @@ are deferred to the next version; neither is implemented in this candidate.
 
 - **Five weekly API-equivalent ranks per provider** — Claude and Codex each retain
   Bronze $100, Silver $500 and Gold $2,500, and add Platinum $10,000 and Legendary
-  $25,000. The candidate uses these recommended new thresholds; they are not a
-  separate release. Four new IDs bring the catalog to 178 rules, including 24
+  $25,000. Version 2.5.0 includes these new thresholds. Four new IDs bring the catalog to 178 rules, including 24
   monetary conditions, with 50 themes unchanged and 138 explicit date registrations.
   Completed Monday-start weeks, configured timezone, frozen reference prices and
   provider-specific provenance retain their existing requirements. Old IDs,
@@ -45,7 +48,7 @@ are deferred to the next version; neither is implemented in this candidate.
   new ranks, and an older reader rejects unknown ranks without rewriting or clearing
   either envelope. This does not add live weekly-award receipts or a usage archive.
   中文：Claude／Codex 的周 API 等价金额各保留铜 $100、银 $500、金 $2,500，新增铂金
-  $10,000、传奇 $25,000，合为五级；本候选采用这组建议门槛，不另拆版本。四个新 ID
+  $10,000、传奇 $25,000，合为五级；2.5.0 采用这组新门槛。四个新 ID
   将目录增至 178 项规则，其中金额条件 24 项；主题仍为 50 个，显式日期注册增至 138 项。
   仍须设置时区内已结束的周一自然周、固定参考价及各供应商来源证明。旧 ID、门槛、授奖
   和图案不变；旧封套不能授予新等级，旧读取器遇未知等级拒绝操作，不改写或清除任一封套。
@@ -70,13 +73,11 @@ are deferred to the next version; neither is implemented in this candidate.
   spacing safeguards. The checkbox-icon repair uses the main webview's
   `webview.cspSource`, rather than an additional remote image source. Preview/export
   adds no automatic network request or personal metadata; explicit selection and
-  the immutable accepted-preview/export contract remain intact. Integration and
-  browser/package checks are ongoing; this entry does not claim native/F5 acceptance.
+  the immutable accepted-preview/export contract remain intact.
   中文：导航／页标题改为「分享与对比」，徽章选项仅做等宽对齐与等级单列，导出 SVG 加入
   固定公开仓库链接；长标题、页脚及等级／门槛通过换行和间距避免重叠。勾选图标
   修复沿用主 Webview 的 `webview.cspSource`，不新增远程图片来源。预览／导出不新增自动
-  网络请求或个人元数据，主动选择及不可变预览／导出约定不变。集成、浏览器和打包验证
-  仍在进行，本文不表示原生／F5 验收通过。
+  网络请求或个人元数据，主动选择及不可变预览／导出约定不变。
 
 - **Compressed Codex history** — discover `.jsonl` and `.jsonl.zst` only under
   `sessions` / `archived_sessions`, retaining the regular-file and no-symlink
@@ -100,7 +101,7 @@ are deferred to the next version; neither is implemented in this candidate.
   不生成新活动收据。warm 仅读 header，resume 前缀重放计工作量且可取消。使用原生 Node
   Zstd，不新增依赖；旧宿主明确报错并保留 last-good。仅接受显式大小、无字典的单 frame，
   损坏／额外帧／尾随数据失败；解压及重放各限 4 GiB、物理 2 GiB、window 64 MiB，首个
-  历史压缩文件可在硬上限内超出 soft budget。此项仍在集成验证中。
+  历史压缩文件可在硬上限内超出 soft budget。
 
 - **Date compatibility and calibration transaction boundaries** — explicitly register
   138 rule shapes, including counter/series/base/scope, instead of dating future IDs
@@ -143,7 +144,6 @@ are deferred to the next version; neither is implemented in this candidate.
   full coverage of all award scopes. Explicit date-handler allowlists and rule-version isolation keep new
   scopes unknown; future catalog envelopes remain read-only and fail closed. No new
   persistent store, storage schema, source parser, dependency or package version.
-  **End-to-end validation remains in progress; this entry does not claim acceptance.**
   中文：图鉴展开状态沿用本地 UI 存储，铜／银／金短名不改 ID、固定项或价表；完全相同
   条件／单位集中一次，金额参考区保留当前及历史授奖依据；满级保留未截断当前统计，过期证据不冒充目标值。
   逐级日期仅为绑定规则版本、时区、目录及来源／计价上下文的运行期 v1 注释，不改 v2
@@ -157,7 +157,7 @@ are deferred to the next version; neither is implemented in this candidate.
   pending guard 暂停历史补认及基线推进，真实增量独立暂存；历史提交静默。提交前取消不新增历史奖，提交后不撤销
   已保存记录或误报未提交；忙碌、当前索引全清单未获接纳、失败及提交前取消不是成功。
   已核验部分历史保留下界或未知，完成不代表所有授奖范围完整覆盖。未来处理器显式白名单及版本隔离，
-  新范围未知、未来封套只读拒写；不新增持久存储、schema、解析器、依赖或版号。端到端验证未完成。
+  新范围未知、未来封套只读拒写；不新增持久存储、schema、解析器、依赖或版号。
 
 - **Merge policy** — default to Squash and merge: retain development commits and
   validation evidence locally, then land one squash commit per PR on `main`.
@@ -477,7 +477,9 @@ are deferred to the next version; neither is implemented in this candidate.
   abbreviations floored below the next threshold; exact integer progress remains
   accessible. Duplicate status and tier-title prose is removed; necessary retained-
   log/calendar caveats stay available in an initially collapsed evidence disclosure.
-- **Large Claude group stack overflow** — project, session, branch and workflow
+- **Large Claude group stack overflow** — reported by [@mkgaskin-ops](https://github.com/mkgaskin-ops)
+  in [#126](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/issues/126), fixed by
+  [@Carl723000](https://github.com/Carl723000). Project, session, branch and workflow
   timestamp bounds use a one-pass reducer rather than passing unbounded arrays
   as function arguments. Project merging likewise appends records individually.
   Regression coverage includes 150,000 synthetic records and zero-body-read
