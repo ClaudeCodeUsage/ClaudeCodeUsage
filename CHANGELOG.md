@@ -6,6 +6,17 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
+### Fixed
+- **Deleting a transcript re-read the whole history (#99)** — a removed `.jsonl`
+  forced a full body rebuild of every surviving file. The deletion now drops
+  the file's stored contribution, hands UUIDs it owned to the existing
+  ownership-restoration pass (only a surviving twin that also carries them is
+  re-read, including one that only grew a tail in the same refresh), and
+  rebuilds the materialized analysis in memory. An earlier append that
+  preempts a later owner still falls back to one ordered rebuild. Measured on
+  a 976-file, 1.58 GB corpus: 30 s of re-reading becomes one second and zero
+  body reads for an ordinary delete.
+
 ## [2.5.0] — 2026-10-15
 
 Version 2.5.0 combines local achievements and Codex compressed-log compatibility.
@@ -506,13 +517,6 @@ are deferred to the next version; neither is implemented in 2.5.0.
   dialogs and checks language before accepting an export.
 
 ### Fixed
-- **Deleting a transcript re-read the whole history (#99)** — a removed `.jsonl`
-  forced a full body rebuild of every surviving file. The deletion now drops
-  the file's stored contribution, hands UUIDs it owned to the existing
-  ownership-restoration pass (only a surviving twin that also carries them is
-  re-read), and rebuilds the materialized analysis in memory. Measured on a
-  976-file, 1.58 GB corpus: 30 s of re-reading becomes one second and zero
-  body reads for an ordinary delete.
 - **Source-scoped Codex caches** — different Codex homes, profile salts and
   data timezones sharing VS Code global storage no longer replace one another's
   incremental index. Proven legacy checkpoints are adopted without rereading

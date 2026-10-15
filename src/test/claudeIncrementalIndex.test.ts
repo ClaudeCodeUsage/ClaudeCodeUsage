@@ -2736,6 +2736,124 @@ test('deleting the owner of a duplicated uuid re-reads only the surviving twin',
   }
 });
 
+test('deleting an owner while appending its claimant replays that claimant', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-delete-append-owner-'));
+    roots.push(root);
+    const project = path.join(root, 'projects', '-fixture-delete-append-owner');
+    await mkdir(project, { recursive: true });
+    const owner = path.join(project, 'session-owner.jsonl');
+    const claimant = path.join(project, 'session-claimant.jsonl');
+    const bystander = path.join(project, 'session-bystander.jsonl');
+    await writeFile(owner, [
+      promptLine('shared prompt', '2026-08-21T08:00:00.000Z'),
+      usageLine('owner', 10, 4, { timestamp: '2026-08-21T08:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(claimant, [
+      promptLine('shared prompt', '2026-08-21T09:00:00.000Z'),
+      usageLine('claimant', 20, 8, { timestamp: '2026-08-21T09:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(bystander, `${usageLine('bystander', 4, 1, { timestamp: '2026-08-21T11:00:00.000Z' })}\n`, 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    deepFreeze(cold.index);
+    deepFreeze(cold.contentAnalysis);
+
+    await unlink(owner);
+    await appendFile(claimant, `${usageLine('claimant-tail', 3, 1, { timestamp: '2026-08-21T09:02:00.000Z' })}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.bodyReads, 1, 'only the appended claimant is re-read');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+
+    const followUp = await updateClaudeUsageIndex(warm.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.equal(followUp.diagnostics.bodyReads, 0, 'the restored owner stays restored');
+    const followFull = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(followUp.contentAnalysis, followFull.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('an unrelated deletion does not hide an earlier append preempting a later owner', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-delete-preempt-'));
+    roots.push(root);
+    const project = path.join(root, 'projects', '-fixture-delete-preempt');
+    await mkdir(project, { recursive: true });
+    const unrelated = path.join(project, 'session-a.jsonl');
+    const earlier = path.join(project, 'session-b.jsonl');
+    const laterOwner = path.join(project, 'session-c.jsonl');
+    await writeFile(unrelated, `${usageLine('unrelated', 1, 1, { timestamp: '2026-08-21T07:00:00.000Z' })}\n`, 'utf8');
+    await writeFile(earlier, `${usageLine('earlier', 5, 1, { timestamp: '2026-08-21T08:00:00.000Z' })}\n`, 'utf8');
+    await writeFile(laterOwner, [
+      promptLine('preempted prompt', '2026-08-21T10:00:00.000Z'),
+      usageLine('later', 7, 1, { timestamp: '2026-08-21T10:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    deepFreeze(cold.index);
+    deepFreeze(cold.contentAnalysis);
+
+    await unlink(unrelated);
+    await appendFile(earlier, `${promptLine('preempted prompt', '2026-08-21T08:30:00.000Z')}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    // The probe reads the appended tail, then the fallback re-reads both
+    // survivors. The count is not the contract; agreement with the full loader is.
+    assert.ok(warm.diagnostics.bodyReads > 0 && warm.diagnostics.bodyReads <= 3);
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+
+    const followUp = await updateClaudeUsageIndex(warm.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.equal(followUp.diagnostics.bodyReads, 0);
+    const followFull = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(followUp.contentAnalysis, followFull.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test('a failed body read keeps the previous index and visible snapshot atomic', async () => {
   const { root, first } = await fixture();
   const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
