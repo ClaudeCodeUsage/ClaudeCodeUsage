@@ -436,8 +436,8 @@ const WHATS_NEW: ReleaseAnnouncementCatalog<LocalizedReleaseAnnouncement> = {
     version: '2.3.2',
     body: () => I18n.t.releaseAnnouncement.v232,
   },
-  '2.4.2': {
-    version: '2.4.2',
+  '2.5.0': {
+    version: '2.5.0',
     body: () => achievementCopyFor(I18n.getLocale()).upgradeOn,
   },
 };
@@ -561,6 +561,7 @@ export class ClaudeCodeUsageExtension {
   private codexAvailable = false;
   private codexHasData = false;
   private codexRefreshing = false;
+  private codexCompressionRuntimeWarned = false;
   private codexProgress: CodexIndexProgress | null = null;
   private codexProgressLastRenderedAt = 0;
   /** In-memory source ownership only; never written as a raw path. */
@@ -870,7 +871,7 @@ export class ClaudeCodeUsageExtension {
     if (!announcement) {
       return;
     }
-    if (version === '2.4.2' && this.getConfiguration().enableAchievements !== false) {
+    if (version === '2.5.0' && this.getConfiguration().enableAchievements !== false) {
       const copy = achievementCopyFor(I18n.getLocale());
       void Promise.resolve(vscode.window.showInformationMessage(
         `Claude Code Usage ${version}: ${copy.upgradeOn}`, copy.openAchievements, copy.disableAchievements,
@@ -899,7 +900,7 @@ export class ClaudeCodeUsageExtension {
       return;
     }
     const open = I18n.t.popup.title; // "Show details" entry point label
-    const body = version === '2.4.2' ? achievementCopyFor(I18n.getLocale()).upgradeOff : announcement.body();
+    const body = version === '2.5.0' ? achievementCopyFor(I18n.getLocale()).upgradeOff : announcement.body();
     void vscode.window.showInformationMessage(`Claude Code Usage ${version}: ${body}`, open).then((pick) => {
       if (pick === open) {
         vscode.commands.executeCommand('claudeCodeUsage.showDetails');
@@ -3460,6 +3461,10 @@ export class ClaudeCodeUsageExtension {
         if (!ownsProducedResult()) {
           return;
         }
+        if (result.diagnostic?.errorCode === 'zstd-unsupported' && !this.codexCompressionRuntimeWarned) {
+          this.codexCompressionRuntimeWarned = true;
+          void vscode.window.showWarningMessage(I18n.codexCompressionRuntimeUnsupported);
+        }
         if (result.outcome === 'unavailable') {
           this.codexAvailable = Boolean(this.codexView);
           if (this.codexView || trigger === 'manual') this.recordRefreshState('codex', true, trigger);
@@ -4354,7 +4359,7 @@ export class ClaudeCodeUsageExtension {
           (_event, filename) => {
             if (this.disposed || activeGeneration !== this.codexWatcherGeneration) return;
             this.markWatcherHealthy('codex');
-            if (!filename || !String(filename).endsWith('.jsonl')) {
+            if (!filename || !/\.jsonl(?:\.zst)?$/.test(String(filename))) {
               return;
             }
             const delaySeconds = this.getConfiguration().codexFileWatchSeconds;

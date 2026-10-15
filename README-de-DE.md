@@ -56,7 +56,9 @@ jeweils passender Bedeutung an. Sie ist **kein Abrechnungswerkzeug**.
 Das Bild nutzt synthetische Daten, nicht das Konto einer Person. Weitere
 Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](README.md).
 
-## Lokale Erfolge (2.4.2)
+Der unveröffentlichte Testkandidat 2.5.0 verbindet lokale Erfolge mit Codex-Unterstützung für `.jsonl.zst` in `sessions` und `archived_sessions`. Zstd komprimiert verlustfrei, ohne LLM-Zusammenfassung: kleinere Dateien ändern die protokollierten Tokenzahlen nicht. Das Lesen bleibt lokal, ohne Quelldateien zu ändern oder entpackte Klartextkopien zu speichern; gleichnamige `.jsonl` im selben Ordner haben Vorrang. Natives Zstd (Node 22.15+ / 23.8+) benötigt keine neue Abhängigkeit; nicht unterstützte Hosts melden die Einschränkung und behalten zuletzt verifizierte Summen. Integrationstests laufen noch.
+
+## Lokale Erfolge (2.5.0)
 
 Sitzungsdaten verwenden dieselbe vollständige Zulassung wie der kanonische Index; geänderte Logs erfordern eine erneute Prüfung. Bestätigte neue Nutzung behält ihren ersten Nachweis auch bei Abbruch. Teilweise gespeicherte Ergebnisse werden gesondert gemeldet.
 
@@ -86,7 +88,7 @@ bedeutet keine vollständige Abdeckung aller Auszeichnungsbereiche. Ein Abbruch 
 fügt keine historischen Auszeichnungen hinzu; nach dem Commit bleiben gespeicherte Nachweise und
 das erfolgreiche Ergebnis bestehen. Historische Abgleiche bleiben still.
 Die Ende-zu-Ende-Validierung läuft noch; dies ist kein
-Abnahmenachweis. [Datums- und Speichergrenzen](LOCAL-DATA.md#local-achievements-242).
+Abnahmenachweis. [Datums- und Speichergrenzen](LOCAL-DATA.md#local-achievements-250).
 
 Die Modellerkennung für Zusammenarbeit/Regenbogen ist von der Preisberechnung getrennt, sodass erkannte Modelle ohne Preis unbepreist bleiben; gespeicherte Geldwert-Auszeichnungen behalten veröffentlichte Preisbuchkennungen, und reine Claude-Spitzen bleiben bei unabhängigen Codex-Versionsänderungen erhalten.
 Ladende, nicht verfügbare, geänderte und deaktivierte Aufzeichnungen erhalten klare Statusanzeigen statt leerer Zähler; verifizierte kumulative Claude-Nutzung zeigt `≥`, solange die Nachweise des aktivierten Codex noch nicht verifiziert sind.
@@ -146,7 +148,7 @@ Flach abgelegte Agentenlogs ohne durch den Pfad belegte Elternsitzung zählen ni
 als Nachweis für sitzungsbezogene Erfolge. Token, Preise, Tagessummen und sichtbare
 Sitzungen bleiben unverändert; verschachtelte Zuordnung und gespeicherte Abzeichen bleiben erhalten.
 
-Die Galerie in 2.4.2 bietet 50 Themenkarten, 174 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
+Die Galerie in 2.5.0 bietet 50 Themenkarten, 174 Freischaltbedingungen und 52 Motivgruppen: Modell-Token, Ausgabe/Cache,
 Aktivität, Wochenrekorde und einige bewusst genutzte Plugin-Funktionen.
 
 15 Claude-/Aktivitätsserien erhalten Platin und Legendär; die ersten drei Schwellen und Nachweise bleiben unverändert, die Motive werden weiterverwendet. Aktivitätstage, Ausgabe und Sitzungen ermöglichen Fortschritt bei drei konzentrierten Tagen pro Woche, ohne Codex oder höhere Ausgaben. Serien aufeinanderfolgender Tage werden nicht erweitert.
@@ -175,7 +177,7 @@ Leichte Inline-SVG-Symbole ergänzen die vorhandenen übersetzten Beschriftungen
 Über 960 px passt sich die Abzeichenspalte dem Inhalt an, begrenzt auf zwei Übersichtskartenbreiten plus deren inneren Abstand. Die Zielspalte füllt den verbleibenden Platz; der Spaltenabstand beträgt 16 px. Bei höchstens 960 px stehen beide direkt untereinander mit 12 px Abstand. Ergänzende Verlaufsbereiche folgen beiden.
 Größenwahl vor der Übersicht: Sammlung 56 / 80 / 112 px, Schaukasten 56 / 72 / 96 px; Pinfehler stehen beim Steuerelement, der Tastaturfokus bleibt stabil.
 Der USD-Effort-Teilbetrag zählt nicht zur Qualifikation. Leere und unbepreiste Werte werden gekennzeichnet, Teilbeträge als Untergrenze; ungültige oder überlaufende Beträge bleiben unverfügbar.
-Details: [Englisch](README-en.md#heatmap-sharing-and-weekly-quota-pace-242).
+Details: [Englisch](README-en.md#heatmap-sharing-and-weekly-quota-pace-250).
 Jede Serie hat ein eigenes Motiv, ihre Stufen teilen es mit Stufenfarben. Zahlen sind ganzzahlig; Datengrenzen sind aufklappbar.
 Fehlende oder veraltete Nachweise werden statt Nullfortschritt angezeigt und vom nächsten Ziel ausgeschlossen; erworbene Abzeichen bleiben gespeichert.
 Geschlossene Karten zeigen den aktuellen Fortschritt zur nächsten Stufe; Zwischenziele auf langen Token-Leitern sind keine zusätzlichen Abzeichen, Hinweise oder Exportoptionen.
@@ -200,7 +202,7 @@ Spätere Hinweise bleiben kurz im Dashboard, ohne Ton oder Fokuswechsel.
 Bis zu neun gewählte Abzeichen lassen sich nach Vorschau als genau dieses SVG exportieren;
 veraltete Antworten erlauben keinen Export. Direkte Wege führen zurück zur Galerie und zur Abschaltoption,
 ohne GitHub-Anmeldung. Die Daten können mehrere Anmeldungen enthalten und
-belegen keine persönliche Produktivität. [Speicherung und Löschen](LOCAL-DATA.md#local-achievements-242).
+belegen keine persönliche Produktivität. [Speicherung und Löschen](LOCAL-DATA.md#local-achievements-250).
 
 ## Daten richtig lesen
 

@@ -43,6 +43,7 @@ import {
   codexPeriodFitsAggregate,
 } from './codexPeriodIndex';
 import { parseJsonObject, stringField } from './codexSchema';
+import { CodexZstdError, type CodexZstdErrorCode } from './codexZstd';
 import {
   CodexManifest,
   CodexPersistedManifest,
@@ -131,6 +132,14 @@ export interface CodexFileAggregate {
 export interface CodexFileContribution {
   fileKey: string;
   sourceArea?: CodexSourceArea;
+  /** size/offset remain decoded-byte coordinates; these describe on-disk bytes. */
+  compression?: 'zstd';
+  storageSize?: number;
+  storageCtimeMs?: number;
+  /** Present only after the exact physical representation reached verified EOF. */
+  compressionVerified?: true;
+  /** A deterministic failure of this exact physical representation, never usage. */
+  compressionFailure?: { version: 1; code: CodexTerminalCompressionFailureCode };
   size: number;
   mtimeMs: number;
   dev?: number;
@@ -171,7 +180,8 @@ export interface CodexHourProofMigrationState extends CodexJsonlCursor {
 export function isCodexUsageContributionCurrent(
   contribution: CodexFileContribution,
 ): boolean {
-  return !contribution.qualityFlags.includes('stale-reset-required');
+  return !contribution.compressionFailure && !contribution.qualityFlags.includes('stale-reset-required') &&
+    (contribution.compression !== 'zstd' || contribution.compressionVerified === true);
 }
 
 export interface CodexLineageReconciliationState extends CodexJsonlCursor {
@@ -410,7 +420,32 @@ export type CodexFilePassOutcome =
       bytesRead: number;
       achievementUsageDelta?: CodexAchievementUsageDelta;
     }
-  | { taskId: string; ok: false };
+  | { taskId: string; ok: false; failureCode?: CodexZstdErrorCode };
+
+const terminalCompressionCodes = [
+  'malformed', 'truncated', 'trailing-data', 'size-mismatch', 'decode-failed', 'size-limit',
+  'unknown-size', 'dictionary', 'reserved',
+] as const satisfies readonly CodexZstdErrorCode[];
+type CodexTerminalCompressionFailureCode = typeof terminalCompressionCodes[number];
+
+/** Fixed enum copying at the worker boundary; never copy Error/message/stack. */
+function copyFilePassFailureCode(value: unknown): CodexZstdErrorCode | undefined {
+  switch (value) {
+    case 'malformed': case 'truncated': case 'trailing-data': case 'size-mismatch':
+    case 'decode-failed': case 'size-limit': case 'unknown-size': case 'dictionary': case 'reserved':
+    case 'codec-unavailable': case 'replay-limit': case 'invalid-range': case 'invalid-options':
+    case 'io-error': case 'aborted': case 'source-changed': return value;
+    default: return undefined;
+  }
+}
+
+export function codexFilePassFailureCode(error: unknown): CodexZstdErrorCode | undefined {
+  return error instanceof CodexZstdError ? copyFilePassFailureCode(error.code) : undefined;
+}
+
+function terminalCompressionCode(value: unknown): CodexTerminalCompressionFailureCode | undefined {
+  return terminalCompressionCodes.find(code => code === value);
+}
 
 export type CodexFilePassBatchRunner = (
   tasks: readonly CodexFilePassTask[],
@@ -914,6 +949,8 @@ function previousManifest(index: CodexIndexV3): CodexPersistedManifest {
               mtimeMs: file.mtimeMs,
               dev: file.dev,
               ino: file.ino,
+              ...(file.compression === 'zstd' ? { compression: file.compression,
+                storageSize: file.storageSize, storageCtimeMs: file.storageCtimeMs } : {}),
             },
           ]]
         : [],
@@ -934,6 +971,7 @@ function contributionFor(
     mtimeMs: 0,
     dev: entry.dev,
     ino: entry.ino,
+    ...compressedSourceMetadata(entry),
     offset: 0,
     discardingOversizedLine: false,
     parserState,
@@ -961,6 +999,68 @@ interface CodexFilePassResult {
   bytesRead: number;
 }
 
+function compressedSourceMetadata(entry: CodexRuntimeManifestEntry):
+  Pick<CodexFileContribution, 'compression' | 'storageSize' | 'storageCtimeMs'> {
+  return entry.compression === 'zstd' ? { compression: 'zstd', storageSize: entry.storageSize,
+    storageCtimeMs: entry.storageCtimeMs } : {};
+}
+
+function validCompressionFingerprint(row: Record<string, unknown>): boolean {
+  return row.compression === 'zstd' &&
+    typeof row.size === 'number' && Number.isSafeInteger(row.size) && row.size >= 0 &&
+    typeof row.storageSize === 'number' && Number.isSafeInteger(row.storageSize) && row.storageSize > 0 &&
+    typeof row.mtimeMs === 'number' && Number.isFinite(row.mtimeMs) &&
+    typeof row.storageCtimeMs === 'number' && Number.isFinite(row.storageCtimeMs) && row.storageCtimeMs > 0 &&
+    [row.dev, row.ino].every(value => value === undefined ||
+      typeof value === 'number' && Number.isFinite(value) && value >= 0);
+}
+
+function hasCurrentCompressionFailure(contribution: CodexFileContribution | undefined,
+  entry: CodexRuntimeManifestEntry): boolean {
+  return !!contribution && contribution.compressionFailure?.version === 1 &&
+    terminalCompressionCode(contribution.compressionFailure.code) !== undefined &&
+    contribution.compression === 'zstd' && entry.compression === 'zstd' &&
+    contribution.fileKey === entry.fileKey && contribution.size === entry.size &&
+    contribution.storageSize === entry.storageSize && contribution.mtimeMs === entry.mtimeMs &&
+    contribution.storageCtimeMs === entry.storageCtimeMs &&
+    contribution.dev === entry.dev && contribution.ino === entry.ino;
+}
+
+/** Rebuild a metadata-only empty contribution. Never retain a failed draft's
+ * parser state, tokens, quota observations, lineage or period/hour witnesses. */
+function compressionFailureContribution(
+  entry: Pick<CodexFileContribution, 'fileKey' | 'sourceArea' | 'size' | 'mtimeMs' |
+    'storageSize' | 'storageCtimeMs' | 'dev' | 'ino'>,
+  code: CodexTerminalCompressionFailureCode,
+): CodexFileContribution {
+  // This path is also a persistence sanitizer: construct the neutral state
+  // through the explicit local DTO whitelist, not an opaque imported object.
+  const parserState = sanitizeParserState(undefined, entry.fileKey);
+  return {
+    fileKey: entry.fileKey, sourceArea: entry.sourceArea, compression: 'zstd',
+    size: entry.size, mtimeMs: entry.mtimeMs, storageSize: entry.storageSize,
+    storageCtimeMs: entry.storageCtimeMs, dev: entry.dev, ino: entry.ino,
+    compressionFailure: { version: 1, code }, offset: 0, discardingOversizedLine: false,
+    parserState, aggregate: emptyFileAggregate(entry.fileKey, parserState.role),
+    qualityFlags: ['stale-file', 'stale-reset-required'],
+  };
+}
+
+/** A cancellation after the final decoded chunk can leave an unverified draft.
+ * Revalidate rather than promoting an offset-equals-size claim. */
+function compressedDraftNeedsRestart(contribution: CodexFileContribution | undefined): boolean {
+  return contribution?.compression === 'zstd' && contribution.compressionVerified !== true &&
+    contribution.offset >= contribution.size;
+}
+
+/** Compressed history is an immutable whole-frame task. Permit at most the
+ * first file in a refresh to exceed the soft byte budget (codec hard caps still
+ * apply), otherwise defer it. This avoids replay-prefix budget starvation. */
+function compressedMainPassEnd(entry: CodexRuntimeManifestEntry, start: number, remaining: number, first: boolean): number {
+  if (entry.compression === 'zstd') return entry.size <= remaining || first ? entry.size : start;
+  return Math.min(entry.size, start + remaining);
+}
+
 type ContributionChunkHandler = (
   contribution: CodexFileContribution,
   bytesRead: number,
@@ -974,7 +1074,7 @@ async function updateContribution(
   endExclusive: number,
   onChunk: ContributionChunkHandler,
 ): Promise<CodexFilePassResult> {
-  const usageWindow = copyCodexUsageWindow(options.achievementUsageWindow);
+  const usageWindow = entry.compression === 'zstd' ? undefined : copyCodexUsageWindow(options.achievementUsageWindow);
   let usageDelta = usageWindow ? emptyCodexUsageDelta(usageWindow) : undefined;
   let parserState = contribution.parserState;
   const aggregate = contribution.aggregate;
@@ -1037,6 +1137,8 @@ async function updateContribution(
       mtimeMs: entry.mtimeMs,
       dev: entry.dev,
       ino: entry.ino,
+      ...compressedSourceMetadata(entry),
+      ...(entry.compression === 'zstd' ? { compressionVerified: undefined } : {}),
       offset: cursor.offset,
       discardingOversizedLine: cursor.discardingOversizedLine,
       parserState,
@@ -1167,9 +1269,13 @@ async function updateContribution(
     packPendingLineageFingerprints(lineage);
   }
   const updated = snapshot(scan.cursor);
+  if (entry.compression === 'zstd' && scan.cursor.offset === entry.size && !scan.cursor.discardingOversizedLine) {
+    updated.compressionVerified = true;
+  }
   updated.qualityFlags = uniqueFlags(
     updated.qualityFlags,
     scan.oversizedLines > 0 ? ['oversized-jsonl-line'] : [],
+    scan.finalLineDiscarded ? ['invalid-json'] : [],
   );
   return { contribution: updated, bytesRead: scan.bytesRead,
     ...(usageDelta && usageDelta.processed > 0 ? { achievementUsageDelta: usageDelta } : {}) };
@@ -1953,7 +2059,7 @@ function reconcileLineageContributions(
   };
   for (const fileKey of canonicalFileKeys) {
     const contribution = files[fileKey];
-    if (!contribution?.lineage) {
+    if (!contribution?.lineage || (contribution.compression === 'zstd' && !contribution.compressionVerified)) {
       continue;
     }
     const key = contribution.aggregate.session.sessionKey;
@@ -1969,7 +2075,7 @@ function reconcileLineageContributions(
   }
 
   for (const contribution of Object.values(files)) {
-    if (!contribution.lineage) {
+    if (!contribution.lineage || (contribution.compression === 'zstd' && !contribution.compressionVerified)) {
       continue;
     }
     const childTrace = traceFor(contribution);
@@ -2122,6 +2228,10 @@ function recomputeAggregate(
 function mergeCodexQuotaHistory(index: CodexIndexV3): void {
   const additions: CodexQuotaObservation[] = [];
   for (const contribution of Object.values(index.files)) {
+    // Draft decoded bytes are provisional until the entire physical frame is
+    // verified. The global history outlives files, so premature promotion here
+    // could not be withdrawn by later terminal-frame cleanup.
+    if (contribution.compression === 'zstd' && !isCodexUsageContributionCurrent(contribution)) continue;
     additions.push(...(contribution.quotaHistory ?? []));
     for (const snapshot of [
       ...Object.values(contribution.limits ?? {}),
@@ -2185,6 +2295,7 @@ function coverageFor(
     indexedBytes += parsedBytes;
     if (
       !resetIsStale &&
+      isCodexUsageContributionCurrent(contribution) &&
       !flags.has('stale-file') &&
       contribution.offset >= entry.size &&
       !contribution.discardingOversizedLine &&
@@ -2209,6 +2320,7 @@ function coverageFor(
       const flags = new Set(contribution?.qualityFlags ?? []);
       const mainVerified = Boolean(
         contribution &&
+        isCodexUsageContributionCurrent(contribution) &&
         contribution.offset === entry.size &&
         !contribution.discardingOversizedLine &&
         contribution.lineage?.appliedPrefixEvents ===
@@ -2478,6 +2590,9 @@ function isWarmNoOp(
     return false;
   }
   const totalBytes = manifest.files.reduce((sum, entry) => sum + entry.size, 0);
+  const terminalEntries = manifest.files.filter(entry => hasCurrentCompressionFailure(previous.files[entry.fileKey], entry));
+  const terminalCount = terminalEntries.length;
+  const availableBytes = totalBytes - terminalEntries.reduce((sum, entry) => sum + entry.size, 0);
   const hourlyCoverage = previous.coverage.hourly;
   if (
     (allowHistoricalBackfill && allowAchievementHourProof &&
@@ -2488,19 +2603,21 @@ function isWarmNoOp(
     diff.moved.length > 0 ||
     diff.added.length > 0 ||
     diff.removed.length > 0 ||
-    !previous.coverage.complete ||
+    (!terminalCount && !previous.coverage.complete) ||
     previous.coverage.totalFiles !== manifest.files.length ||
-    previous.coverage.indexedFiles !== manifest.files.length ||
+    previous.coverage.indexedFiles + terminalCount !== manifest.files.length ||
     previous.coverage.totalBytes !== totalBytes ||
-    previous.coverage.indexedBytes !== totalBytes ||
-    !previous.coverage.period.allTime.complete ||
+    previous.coverage.indexedBytes !== availableBytes ||
+    (terminalCount ? previous.coverage.period.allTime.migratedFiles + terminalCount !== previous.coverage.period.allTime.totalFiles
+      : !previous.coverage.period.allTime.complete) ||
     previous.coverage.period.timeZone !== timeZone ||
     previous.coverage.period.asOfDay !== asOfDay ||
-    !hourlyCoverage?.complete ||
+    !hourlyCoverage || (terminalCount ? hourlyCoverage.indexedFiles !== hourlyCoverage.totalFiles : !hourlyCoverage.complete) ||
     hourlyCoverage.timeZone !== timeZone ||
     hourlyCoverage.asOfDay !== asOfDay ||
     hourlyCoverage.windowDays !== CODEX_ROLLING_HOURLY_DAYS ||
-    !previous.coverage.today?.complete ||
+    !previous.coverage.today || (terminalCount ? previous.coverage.today.indexedFiles !== previous.coverage.today.totalFiles
+      : !previous.coverage.today.complete) ||
     previous.coverage.today.timeZone !== timeZone ||
     previous.coverage.today.day !== asOfDay
   ) {
@@ -2511,6 +2628,7 @@ function isWarmNoOp(
   const rollingDays = rollingHourlyDaySet(asOfDay);
   return manifest.files.every((entry) => {
     const contribution = previous.files[entry.fileKey];
+    if (hasCurrentCompressionFailure(contribution, entry)) return true;
     const baseIsCurrent = Boolean(
       contribution &&
       contribution.offset === entry.size &&
@@ -2526,7 +2644,7 @@ function isWarmNoOp(
         contribution.aggregate.period, contribution.lineage?.desiredPrefixEvents ?? 0,
       )) &&
       !contribution.qualityFlags.includes('stale-file') &&
-      !contribution.qualityFlags.includes('stale-reset-required'),
+      isCodexUsageContributionCurrent(contribution),
     );
     if (!baseIsCurrent || !contribution) {
       return false;
@@ -2600,9 +2718,10 @@ export async function updateCodexIndex(
     ),
   };
   const diff = diffCodexManifest(previousManifest(previous), manifest.persistable);
+  const terminalCount = manifest.files.filter(entry => hasCurrentCompressionFailure(previous.files[entry.fileKey], entry)).length;
   const originAppends = new Set(usageWindow ? diff.appended.filter(key => {
     const prior = previous.files[key], entry = manifest.persistable[key];
-    return prior && entry && prior.dev! > 0 && prior.ino! > 0 &&
+    return prior && entry && !prior.compression && !entry.compression && prior.dev! > 0 && prior.ino! > 0 &&
       prior.dev === entry.dev && prior.ino === entry.ino;
   }) : []);
   const originCandidates = new Map<string, CodexAchievementUsageDelta>();
@@ -2612,7 +2731,7 @@ export async function updateCodexIndex(
       index: previous,
       indexChanged: false,
       bodyReads: 0,
-      failedFiles: 0,
+      failedFiles: terminalCount,
       migration: {
         filePasses: 0,
         bytesRead: 0,
@@ -2629,7 +2748,7 @@ export async function updateCodexIndex(
   }
   const entries = new Map(manifest.files.map((entry) => [entry.fileKey, entry]));
   let bodyReads = 0;
-  let failedFiles = 0;
+  let failedFiles = terminalCount;
   let filePasses = 0;
   let bytesRead = 0;
   let cancellationCheckpointed = false;
@@ -2644,6 +2763,12 @@ export async function updateCodexIndex(
   let lastCheckpointAt = scheduling.now();
   let lastCheckpointBytes = 0;
   let reconcileLineageForCheckpoint = true;
+  const recordTerminalFailure = (entry: CodexRuntimeManifestEntry, value: unknown): boolean => {
+    const code = terminalCompressionCode(copyFilePassFailureCode(value));
+    if (entry.compression !== 'zstd' || !code || !validCompressionFingerprint({ ...entry })) return false;
+    index.files[entry.fileKey] = compressionFailureContribution(entry, code);
+    return true;
+  };
   for (const move of diff.moved) {
     const contribution = index.files[move.fromKey];
     const entry = entries.get(move.toKey);
@@ -2666,6 +2791,9 @@ export async function updateCodexIndex(
     }
     if (contribution.todayMigration) {
       contribution.todayMigration.parserState.fileKey = move.toKey;
+    }
+    if (contribution.hourProofMigration) {
+      contribution.hourProofMigration.parserState.fileKey = move.toKey;
     }
     index.files[move.toKey] = contribution;
   }
@@ -2737,6 +2865,14 @@ export async function updateCodexIndex(
   for (const key of diff.replaced) {
     resetFlags.set(key, 'replaced-jsonl');
   }
+  // A known encoding/version replacement withdraws old authority immediately,
+  // including cancellation before its first decoded chunk or checkpoint.
+  for (const key of diff.replaced) {
+    const prior = index.files[key], entry = entries.get(key);
+    if (prior) delete prior.compressionFailure;
+    if (prior && (prior.compression || entry?.compression)) prior.qualityFlags = uniqueFlags(
+      prior.qualityFlags, ['stale-reset-required']);
+  }
   const changedKeys = new Set([
     ...diff.added,
     ...diff.appended,
@@ -2745,12 +2881,14 @@ export async function updateCodexIndex(
   ]);
   for (const entry of manifest.files) {
     const contribution = index.files[entry.fileKey];
+    if (hasCurrentCompressionFailure(contribution, entry)) continue;
     if (
       contribution &&
       (contribution.offset < entry.size ||
         contribution.discardingOversizedLine ||
         contribution.qualityFlags.includes('stale-file') ||
-        contribution.qualityFlags.includes('stale-reset-required'))
+        contribution.qualityFlags.includes('stale-reset-required') ||
+        compressedDraftNeedsRestart(contribution))
     ) {
       changedKeys.add(entry.fileKey);
     }
@@ -2919,7 +3057,7 @@ export async function updateCodexIndex(
             if (proof) originCandidates.set(task.entry.fileKey, proof);
           } else {
             failedFiles += 1;
-            onFailure(task);
+            if (!recordTerminalFailure(task.entry, outcome.failureCode)) onFailure(task);
           }
           dirtySinceCheckpoint = true;
           filePassesSinceCheckpoint += 1;
@@ -2963,7 +3101,7 @@ export async function updateCodexIndex(
       }
       const resetFlag = resetFlags.get(entry.fileKey);
       const prior = index.files[entry.fileKey];
-      const base = resetFlag || !prior ||
+      const base = resetFlag || !prior || compressedDraftNeedsRestart(prior) ||
           prior.qualityFlags.includes('stale-reset-required')
         ? contributionFor(entry, timeZone, resetFlag ? [resetFlag] : [])
         : {
@@ -2973,8 +3111,8 @@ export async function updateCodexIndex(
             ),
           };
       const remainingBytes = budget.maxBytes - bytesRead - reservedBytes;
-      const endExclusive = Math.min(entry.size, base.offset + remainingBytes);
-      if (endExclusive <= base.offset) {
+      const endExclusive = compressedMainPassEnd(entry, base.offset, remainingBytes, filePasses + tasks.length === 0 && bytesRead === 0);
+      if (endExclusive <= base.offset && !(entry.compression === 'zstd' && entry.size === 0)) {
         break;
       }
       const taskId = `main:${entry.fileKey}`;
@@ -2991,7 +3129,7 @@ export async function updateCodexIndex(
       });
       priorByTask.set(taskId, prior);
       resetFlagByTask.set(taskId, resetFlag);
-      reservedBytes += endExclusive - base.offset;
+      reservedBytes += entry.compression === 'zstd' ? endExclusive : endExclusive - base.offset;
     }
     await runParallelTasks(tasks, (task) => {
       const prior = priorByTask.get(task.taskId);
@@ -3016,7 +3154,7 @@ export async function updateCodexIndex(
     await cancelBeforePass();
     const resetFlag = resetFlags.get(entry.fileKey);
     const prior = index.files[entry.fileKey];
-    const base = resetFlag || !prior ||
+    const base = resetFlag || !prior || compressedDraftNeedsRestart(prior) ||
         prior.qualityFlags.includes('stale-reset-required')
       ? contributionFor(entry, timeZone, resetFlag ? [resetFlag] : [])
       : {
@@ -3026,8 +3164,8 @@ export async function updateCodexIndex(
           ),
         };
     const remainingBytes = budget.maxBytes - bytesRead;
-    const endExclusive = Math.min(entry.size, base.offset + remainingBytes);
-    if (endExclusive <= base.offset) {
+    const endExclusive = compressedMainPassEnd(entry, base.offset, remainingBytes, filePasses === 0 && bytesRead === 0);
+    if (endExclusive <= base.offset && !(entry.compression === 'zstd' && entry.size === 0)) {
       break;
     }
     bodyReads += 1;
@@ -3051,7 +3189,11 @@ export async function updateCodexIndex(
         throw error;
       }
       failedFiles += 1;
-      if (prior) {
+      if (recordTerminalFailure(entry, codexFilePassFailureCode(error))) {
+        // Provisional chunks may already have been checkpointed; replace them
+        // with the safe failure record before the next durable stage boundary.
+      } else if (!prior && entry.compression === 'zstd') delete index.files[entry.fileKey];
+      else if (prior) {
         index.files[entry.fileKey] = {
           ...prior,
           qualityFlags: uniqueFlags(
@@ -3183,7 +3325,7 @@ export async function updateCodexIndex(
         throw error;
       }
       failedFiles += 1;
-      index.files[entry.fileKey] = prior;
+      if (!recordTerminalFailure(entry, codexFilePassFailureCode(error))) index.files[entry.fileKey] = prior;
     }
     dirtySinceCheckpoint = true;
     filePassesSinceCheckpoint += 1;
@@ -3312,7 +3454,7 @@ export async function updateCodexIndex(
         throw error;
       }
       failedFiles += 1;
-      index.files[entry.fileKey] = prior;
+      if (!recordTerminalFailure(entry, codexFilePassFailureCode(error))) index.files[entry.fileKey] = prior;
     }
     dirtySinceCheckpoint = true;
     filePassesSinceCheckpoint += 1;
@@ -3458,7 +3600,7 @@ export async function updateCodexIndex(
         throw error;
       }
       failedFiles += 1;
-      index.files[entry.fileKey] = prior;
+      if (!recordTerminalFailure(entry, codexFilePassFailureCode(error))) index.files[entry.fileKey] = prior;
     }
     dirtySinceCheckpoint = true;
     filePassesSinceCheckpoint += 1;
@@ -3476,7 +3618,8 @@ export async function updateCodexIndex(
     ? manifest.files.sort(recentFirst)
     : [];
   const pendingIdentity = identityWork.filter(
-    (entry) => index.files[entry.fileKey]?.identityChecked !== true,
+    (entry) => !hasCurrentCompressionFailure(index.files[entry.fileKey], entry) &&
+      index.files[entry.fileKey]?.identityChecked !== true,
   );
   if (options.filePassBatch && pendingIdentity.length > 1) {
     await cancelBeforePass();
@@ -3507,7 +3650,7 @@ export async function updateCodexIndex(
       reservedBytes += identityBytes;
     }
     await runParallelTasks(tasks, () => undefined);
-  } else for (const entry of identityWork) {
+  } else for (const entry of pendingIdentity) {
     if (!hasBudget()) {
       break;
     }
@@ -3545,6 +3688,7 @@ export async function updateCodexIndex(
         throw error;
       }
       failedFiles += 1;
+      recordTerminalFailure(entry, codexFilePassFailureCode(error));
     }
     dirtySinceCheckpoint = true;
     filePassesSinceCheckpoint += 1;
@@ -3590,7 +3734,7 @@ export async function updateCodexIndex(
       } catch (error) {
         if (error instanceof CodexIndexCancelledError) throw error;
         failedFiles += 1;
-        index.files[entry.fileKey] = prior;
+        if (!recordTerminalFailure(entry, codexFilePassFailureCode(error))) index.files[entry.fileKey] = prior;
       }
       dirtySinceCheckpoint = true;
       filePassesSinceCheckpoint += 1;
@@ -3606,6 +3750,9 @@ export async function updateCodexIndex(
   }
   const historicalHourProof = codexHourProofSnapshot(index);
   const achievementUsageDelta = finalizeCodexUsageDelta(previous, index, originCandidates, usageWindow);
+  const terminalSettled = manifest.files.some(entry => hasCurrentCompressionFailure(index.files[entry.fileKey], entry)) &&
+    isWarmNoOp(index, manifest, diffCodexManifest(previousManifest(index), manifest.persistable),
+      timeZone, asOfDay, allowHistoricalBackfill, options.allowAchievementHourProof !== false);
   return {
     ...(achievementUsageDelta ? { achievementUsageDelta } : {}),
     index,
@@ -3616,11 +3763,11 @@ export async function updateCodexIndex(
       filePasses,
       bytesRead,
       pending:
-        !index.coverage.complete ||
+        !terminalSettled && (!index.coverage.complete ||
         !index.coverage.period.allTime.complete ||
         !index.coverage.hourly?.complete ||
         (options.allowAchievementHourProof !== false && !historicalHourProof.complete &&
-          (historicalHourProof.backfillableFiles ?? 0) > 0),
+          (historicalHourProof.backfillableFiles ?? 0) > 0)),
     },
   };
 }
@@ -4563,6 +4710,18 @@ function sanitizeFileContribution(
 ): CodexFileContribution {
   const contribution = isRecord(value) ? value : {};
   const fileKey = key;
+  const failure = isRecord(contribution.compressionFailure) ? contribution.compressionFailure : undefined;
+  const failureCode = failure?.version === 1 ? terminalCompressionCode(failure.code) : undefined;
+  if (failureCode && validCompressionFingerprint(contribution)) {
+    return compressionFailureContribution({
+      fileKey,
+      sourceArea: contribution.sourceArea === 'sessions' || contribution.sourceArea === 'archive'
+        ? contribution.sourceArea : undefined,
+      size: contribution.size as number, mtimeMs: contribution.mtimeMs as number,
+      storageSize: contribution.storageSize as number, storageCtimeMs: contribution.storageCtimeMs as number,
+      dev: optionalNumber(contribution.dev), ino: optionalNumber(contribution.ino),
+    }, failureCode);
+  }
   const parserState = sanitizeParserState(contribution.parserState, fileKey);
   const safeOffset = offsetOverride ?? Math.max(0, finiteNumber(contribution.offset));
   const limit = sanitizeLimit(contribution.limit);
@@ -4652,6 +4811,16 @@ function sanitizeFileContribution(
     ...(optionalNumber(contribution.ino) !== undefined
       ? { ino: optionalNumber(contribution.ino) }
       : {}),
+    ...(contribution.compression === 'zstd' ? {
+      compression: 'zstd' as const,
+      storageSize: finiteNumber(contribution.storageSize),
+      storageCtimeMs: finiteNumber(contribution.storageCtimeMs),
+      ...(contribution.compressionVerified === true && contribution.compressionFailure === undefined &&
+        typeof contribution.storageSize === 'number' &&
+        Number.isSafeInteger(contribution.storageSize) && contribution.storageSize > 0 &&
+        typeof contribution.storageCtimeMs === 'number' && Number.isFinite(contribution.storageCtimeMs) &&
+        contribution.storageCtimeMs > 0 ? { compressionVerified: true as const } : {}),
+    } : {}),
     offset: safeOffset,
     discardingOversizedLine: discardingOverride ??
       contribution.discardingOversizedLine === true,
@@ -4662,7 +4831,8 @@ function sanitizeFileContribution(
     ...(limit ? { limit } : {}),
     ...(limits ? { limits } : {}),
     ...(quotaHistory.length > 0 ? { quotaHistory } : {}),
-    qualityFlags: sanitizeQualityFlags(contribution.qualityFlags),
+    qualityFlags: uniqueFlags(sanitizeQualityFlags(contribution.qualityFlags),
+      contribution.compression !== undefined && contribution.compression !== 'zstd' ? ['stale-reset-required'] : []),
     ...(typeof contribution.identityChecked === 'boolean'
       ? { identityChecked: contribution.identityChecked }
       : {}),

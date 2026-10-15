@@ -8,10 +8,11 @@ import { ACHIEVEMENT_GALLERY } from '../achievementGallery';
 const root = resolve(__dirname, '../..');
 const read = (file: string): string => readFileSync(resolve(root, file), 'utf8');
 
-test('all nine README editions document the 2.4.2 candidate and its canonical opt-out', () => {
+test('all nine README editions document the 2.5.0 candidate and its canonical opt-out', () => {
   for (const suffix of ['', '-en', '-de-DE', '-zh-CN', '-zh-TW', '-ja', '-ko', '-pt-BR', '-id']) {
     const doc = read(`README${suffix}.md`);
-    assert.match(doc, /2\.4\.2/, `README${suffix}.md must identify the unreleased candidate`);
+    assert.match(doc, /2\.5\.0/, `README${suffix}.md must identify the unreleased candidate`);
+    assert.match(doc, /\.jsonl\.zst/, `README${suffix}.md must identify compressed-log support`);
     assert.match(doc, /enableAchievements/, `README${suffix}.md must show the disable setting`);
   }
   for (const file of ['README.md', 'README-en.md']) {

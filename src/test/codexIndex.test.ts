@@ -938,9 +938,24 @@ test('UTC output proof backfills legacy history, resumes, and keeps warm body re
     assert.equal(codexHourProofSnapshot(partial.index).complete, false);
     await saveCodexIndexAtomic(indexPath, partial.index);
     let resumed = await loadCodexIndex(indexPath, 'UTC');
+    const archive = path.join(root, 'archived_sessions');
+    await mkdir(archive);
+    await rename(filePath, path.join(archive, 'history.jsonl'));
+    const archivedManifest = await scanCodexManifest(root, SALT);
+    const archivedKey = archivedManifest.files[0].fileKey;
+    const moved = await updateCodexIndex(resumed, archivedManifest, {
+      salt: SALT, budget: { maxFilePasses: 0, maxBytes: CODEX_REFRESH_MIN_BYTES },
+    });
+    assert.notEqual(archivedKey, key);
+    assert.equal(moved.index.files[archivedKey].hourProofMigration?.parserState.fileKey, archivedKey);
+    assert.equal(moved.index.files[archivedKey].hourProofMigration?.offset,
+      resumed.files[key].hourProofMigration?.offset);
+    await saveCodexIndexAtomic(indexPath, moved.index);
+    resumed = await loadCodexIndex(indexPath, 'UTC');
+    assert.ok(resumed.files[archivedKey].hourProofMigration, 'archive move keeps the resumable proof');
     let iterations = 0;
     while (!codexHourProofSnapshot(resumed).complete && iterations++ < 20) {
-      resumed = (await updateCodexIndex(resumed, manifest, { salt: SALT, budget })).index;
+      resumed = (await updateCodexIndex(resumed, archivedManifest, { salt: SALT, budget })).index;
     }
     const proof = codexHourProofSnapshot(resumed);
     assert.equal(proof.complete, true);
@@ -948,7 +963,7 @@ test('UTC output proof backfills legacy history, resumes, and keeps warm body re
     await saveCodexIndexAtomic(indexPath, resumed);
     resumed = await loadCodexIndex(indexPath, 'UTC');
     assert.deepEqual(codexHourProofSnapshot(resumed), proof);
-    const warm = await updateCodexIndex(resumed, manifest, { salt: SALT });
+    const warm = await updateCodexIndex(resumed, archivedManifest, { salt: SALT });
     assert.equal(warm.bodyReads, 0);
     assert.equal(warm.indexChanged, false);
   } finally {

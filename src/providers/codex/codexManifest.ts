@@ -1,6 +1,8 @@
 import { createHmac } from 'node:crypto';
-import { lstat, readdir } from 'node:fs/promises';
+import { constants, Stats } from 'node:fs';
+import { lstat, open, readdir } from 'node:fs/promises';
 import * as path from 'node:path';
+import { CODEX_ZSTD_LIMITS, CodexZstdError, inspectCodexZstdHeader } from './codexZstd';
 
 export type CodexSourceArea = 'sessions' | 'archive';
 
@@ -11,6 +13,9 @@ export interface CodexPersistedManifestEntry {
   mtimeMs: number;
   dev?: number;
   ino?: number;
+  compression?: 'zstd';
+  storageSize?: number;
+  storageCtimeMs?: number;
 }
 
 export type CodexPersistedManifest = Record<
@@ -59,7 +64,48 @@ export function pseudonymousFileKey(
   salt: string,
   absolutePath: string,
 ): string {
-  return createHmac('sha256', salt).update(absolutePath).digest('hex');
+  const canonicalPath = absolutePath.endsWith('.jsonl.zst')
+    ? absolutePath.slice(0, -4)
+    : absolutePath;
+  return createHmac('sha256', salt).update(canonicalPath).digest('hex');
+}
+
+function samePhysicalFile(expected: Stats, actual: Stats): boolean {
+  return actual.isFile() && expected.dev === actual.dev && expected.ino === actual.ino &&
+    expected.size === actual.size && expected.mtimeMs === actual.mtimeMs &&
+    expected.ctimeMs === actual.ctimeMs;
+}
+
+async function compressedLogicalSize(absolutePath: string, expected: Stats): Promise<number> {
+  try {
+    // NOFOLLOW prevents a final-component symlink race; NONBLOCK lets fstat reject
+    // a replacement FIFO without hanging. No body decompression occurs here.
+    const handle = await open(absolutePath,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+    try {
+      if (!samePhysicalFile(expected, await handle.stat())) {
+        throw new Error('source-changed');
+      }
+      const header = Buffer.alloc(18);
+      const { bytesRead } = await handle.read(header, 0, header.length, 0);
+      if (bytesRead !== Math.min(expected.size, header.length) ||
+          !samePhysicalFile(expected, await handle.stat())) {
+        throw new Error('source-changed');
+      }
+      const frame = inspectCodexZstdHeader(header.subarray(0, bytesRead));
+      if (frame.decodedSize > CODEX_ZSTD_LIMITS.maxDecodedBytes ||
+          frame.windowSize > CODEX_ZSTD_LIMITS.maxWindowBytes ||
+          expected.size > CODEX_ZSTD_LIMITS.maxCompressedBytes) throw new CodexZstdError('size-limit');
+      return frame.decodedSize;
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    // Native filesystem errors carry paths. Only the codec's safe typed errors
+    // cross this boundary; never return a partial census after a header failure.
+    if (error instanceof CodexZstdError) throw error;
+    throw new Error('Codex compressed source inspection failed');
+  }
 }
 
 function isMissing(error: unknown): boolean {
@@ -90,13 +136,15 @@ async function walkAllowlistedDirectory(
   }
 
   const entries = await readdir(directory, { withFileTypes: true });
+  const candidates: Array<{ absolutePath: string; fileStat: Stats; compressed: boolean }> = [];
   for (const entry of entries) {
     const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       await walkAllowlistedDirectory(absolutePath, sourceArea, salt, output);
       continue;
     }
-    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
+    const compressed = entry.name.endsWith('.jsonl.zst');
+    if (!entry.isFile() || (!entry.name.endsWith('.jsonl') && !compressed)) {
       continue;
     }
     try {
@@ -104,22 +152,33 @@ async function walkAllowlistedDirectory(
       if (!fileStat.isFile()) {
         continue;
       }
-      const fileKey = pseudonymousFileKey(salt, absolutePath);
-      output.push({
-        fileKey,
-        absolutePath,
-        nonPersisted: true,
-        sourceArea,
-        size: fileStat.size,
-        mtimeMs: fileStat.mtimeMs,
-        dev: fileStat.dev > 0 ? fileStat.dev : undefined,
-        ino: fileStat.ino > 0 ? fileStat.ino : undefined,
-      });
+      candidates.push({ absolutePath, fileStat, compressed });
     } catch (error) {
       if (!isMissing(error)) {
         throw error;
       }
     }
+  }
+  // Select from validated regular files before inspecting compressed headers.
+  // Plain wins regardless of readdir order; this is not an equivalence claim.
+  const plainPaths = new Set(candidates.filter(file => !file.compressed).map(file => file.absolutePath));
+  for (const { absolutePath, fileStat, compressed } of candidates) {
+    if (compressed && plainPaths.has(absolutePath.slice(0, -4))) continue;
+    output.push({
+      fileKey: pseudonymousFileKey(salt, absolutePath),
+      absolutePath,
+      nonPersisted: true,
+      sourceArea,
+      size: compressed ? await compressedLogicalSize(absolutePath, fileStat) : fileStat.size,
+      ...(compressed ? {
+        compression: 'zstd' as const,
+        storageSize: fileStat.size,
+        storageCtimeMs: fileStat.ctimeMs,
+      } : {}),
+      mtimeMs: fileStat.mtimeMs,
+      dev: fileStat.dev > 0 ? fileStat.dev : undefined,
+      ino: fileStat.ino > 0 ? fileStat.ino : undefined,
+    });
   }
 }
 
@@ -151,6 +210,11 @@ export async function scanCodexManifest(
       mtimeMs: file.mtimeMs,
       dev: file.dev,
       ino: file.ino,
+      ...(file.compression ? {
+        compression: file.compression,
+        storageSize: file.storageSize,
+        storageCtimeMs: file.storageCtimeMs,
+      } : {}),
     };
   }
   return { files, persistable };
@@ -180,6 +244,18 @@ function stableIdentityChanged(
   return comparable && !stableIdentityMatches(left, right);
 }
 
+function representationChanged(
+  before: CodexPersistedManifestEntry,
+  after: CodexPersistedManifestEntry,
+): boolean {
+  return before.compression !== after.compression ||
+    before.storageSize !== after.storageSize ||
+    before.storageCtimeMs !== after.storageCtimeMs ||
+    // Decoded offsets are never append/truncate evidence for a changed frame.
+    ((before.compression === 'zstd' || after.compression === 'zstd') &&
+      (before.size !== after.size || before.mtimeMs !== after.mtimeMs));
+}
+
 export function diffCodexManifest(
   previous: CodexPersistedManifest,
   current: CodexPersistedManifest,
@@ -204,7 +280,7 @@ export function diffCodexManifest(
       continue;
     }
     consumedPrevious.add(key);
-    if (stableIdentityChanged(before, after)) {
+    if (representationChanged(before, after) || stableIdentityChanged(before, after)) {
       result.replaced.push(key);
     } else if (before.size === after.size && before.mtimeMs === after.mtimeMs) {
       result.unchanged.push(key);
@@ -229,6 +305,11 @@ export function diffCodexManifest(
     if (movedFrom) {
       consumedPrevious.add(movedFrom);
       result.moved.push({ fromKey: movedFrom, toKey: currentKey });
+      // Preserve move identity, but force a rebuild when compressed evidence
+      // changed (including rename's ctime); moving does not prove byte equality.
+      if (representationChanged(previous[movedFrom], after)) {
+        result.replaced.push(currentKey);
+      }
     } else {
       result.added.push(currentKey);
     }

@@ -42,7 +42,7 @@ function harness(state = new Map<string, unknown>([['ccu.lastSeenVersion', '2.4.
   extension.initializationWrites = Promise.resolve();
   extension.initializationWriteFailure = null;
   extension.context = {
-    extension: { packageJSON: { version: '2.4.2' } },
+    extension: { packageJSON: { version: '2.5.0' } },
     globalState: { get: (key: string) => state.get(key), update: async (key: string, value: unknown) => state.set(key, value) },
   };
   extension.settings = {
@@ -61,7 +61,7 @@ async function settle(extension: any) {
   await new Promise<void>(resolve => setImmediate(resolve));
 }
 
-test('2.4.2 upgrade reminds once without forcing a panel and survives reload', async () => {
+test('2.5.0 upgrade reminds once without forcing a panel and survives reload', async () => {
   const { extension, state, opened } = harness();
   extension.maybeAnnounceWhatsNew();
   extension.maybeAnnounceWhatsNew();
@@ -69,7 +69,7 @@ test('2.4.2 upgrade reminds once without forcing a panel and survives reload', a
   assert.equal(notices.length, 1);
   assert.equal(notices[0].actions.length, 2);
   assert.deepEqual(opened, []);
-  assert.equal(state.get('ccu.lastSeenVersion'), '2.4.2');
+  assert.equal(state.get('ccu.lastSeenVersion'), '2.5.0');
   const reloaded = harness(state);
   reloaded.extension.maybeAnnounceWhatsNew();
   await settle(reloaded.extension);
@@ -106,7 +106,7 @@ test('prior OFF is respected, muted notices and fresh installs stay quiet', asyn
     quiet.extension.maybeAnnounceWhatsNew();
     await settle(quiet.extension);
     assert.equal(notices.length, 0);
-    assert.equal(quiet.state.get('ccu.lastSeenVersion'), '2.4.2');
+    assert.equal(quiet.state.get('ccu.lastSeenVersion'), '2.5.0');
   }
 });
 

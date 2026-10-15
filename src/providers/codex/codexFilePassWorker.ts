@@ -4,6 +4,7 @@ import {
   CodexFilePassOutcome,
   CodexFilePassTask,
   runCodexFilePass,
+  codexFilePassFailureCode,
 } from './codexIndex';
 
 export interface CodexFilePassWorkerRequest {
@@ -25,10 +26,11 @@ parentPort?.on('message', async (request: CodexFilePassWorkerRequest) => {
   let outcome: CodexFilePassOutcome;
   try {
     outcome = await runCodexFilePass(request.task);
-  } catch {
+  } catch (error) {
     // File paths and parser errors stay inside the local worker. The
-    // coordinator needs only the pseudonymous task ID and failure state.
-    outcome = { taskId: request.task.taskId, ok: false };
+    // coordinator receives only a fixed codec enum, never native error data.
+    const failureCode = codexFilePassFailureCode(error);
+    outcome = { taskId: request.task.taskId, ok: false, ...(failureCode ? { failureCode } : {}) };
   }
   const response: CodexFilePassWorkerResponse = {
     type: 'outcome',

@@ -72,6 +72,7 @@ function contributionSignature(contribution: CodexFileContribution): string {
 
 function isVerified(contribution: CodexFileContribution): boolean {
   return (
+    (contribution.compression !== 'zstd' || contribution.compressionVerified === true) &&
     contribution.offset === contribution.size &&
     !contribution.discardingOversizedLine
   );

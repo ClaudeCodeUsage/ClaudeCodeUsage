@@ -6,7 +6,37 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
-### Added — 2.4.2
+The 2.5.0 test candidate combines the pending achievement system and Codex
+compressed-log compatibility. It is not published; integration, complete native
+history recovery and full-suite validation remain in progress.
+中文：2.5.0 测试候选合并待发布成就系统与 Codex 压缩日志兼容，尚未发布；集成、
+完整本机历史恢复及全量测试验证仍在进行。
+
+### Added — 2.5.0
+
+- **Compressed Codex history** — discover `.jsonl` and `.jsonl.zst` only under
+  `sessions` / `archived_sessions`, retaining the regular-file and no-symlink
+  boundary. Zstd is lossless compression, not an LLM summary: disk savings do not
+  change logged tokens. Sources stay read-only, with no plaintext copy on disk.
+  Same-directory plain files win with a canonical key that strips `.zst`; cross-area
+  copies still use full-census lineage deduplication. Schema 3 adds compressed-source
+  fingerprints and verified-EOF evidence while preserving decoded size/cursors and
+  old plain entries. Encoding or physical-version changes cause quiet targeted
+  rereads, not new live-usage receipts. Verified unchanged files need only header
+  checks on warm refresh; cancellable resume accounts for prefix replay. Native
+  Node Zstd (22.15+ / 23.8+) adds no dependency; unsupported hosts retain last-good
+  results with an explicit error. Only explicit-size, dictionary-free single frames
+  are accepted; corruption, extra frames and trailing data fail. Hard caps are
+  4 GiB decoded/replay, 2 GiB physical and a 64 MiB window; the first historical
+  compressed file may exceed a soft refresh budget within those caps.
+  中文：仅在 sessions／archived_sessions 读取普通 `.jsonl`／`.jsonl.zst` 文件，拒绝符号链接。
+  Zstd 无损压缩不是 LLM 摘要，磁盘变小不改变 token；不写源、不落地明文。同目录 plain
+  优先，文件键剥离 `.zst`，跨区仍按完整清单 lineage 去重。schema 3 附加物理指纹与 EOF
+  验证标记，保留 decoded 大小／游标和旧 plain 记录；编码／物理版本变化定向静默重读，
+  不生成新活动收据。warm 仅读 header，resume 前缀重放计工作量且可取消。使用原生 Node
+  Zstd，不新增依赖；旧宿主明确报错并保留 last-good。仅接受显式大小、无字典的单 frame，
+  损坏／额外帧／尾随数据失败；解压及重放各限 4 GiB、物理 2 GiB、window 64 MiB，首个
+  历史压缩文件可在硬上限内超出 soft budget。此项仍在集成验证中。
 
 - **Date compatibility and calibration transaction boundaries** — explicitly register
   134 rule shapes, including counter/series/base/scope, instead of dating future IDs
@@ -240,7 +270,7 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   target, with every tier's rule inside a stable disclosure. The settings shortcut
   focuses the existing opt-out without changing it; sharing offers a return path.
 
-### Fixed — 2.4.2
+### Fixed — 2.5.0
 
 - **Codex achievement evidence reuse** — each successful refresh reconstructs the
   full file census and independent witnesses, then compares them exactly with a

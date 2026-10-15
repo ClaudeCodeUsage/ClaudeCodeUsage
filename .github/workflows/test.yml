@@ -36,6 +36,14 @@ jobs:
         run: npm ci
       - name: Run Node tests
         run: npm test
+      - name: Setup Node.js for native Zstd coverage
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Verify native compressed-log compatibility
+        run: |
+          node -e "if (!require('./out/providers/codex/codexZstd').supportsCodexZstd()) throw new Error('Native Zstd is unavailable')"
+          node --test out/test/codexZstd.test.js out/test/codexManifest.test.js out/test/codexCompressed*.test.js
 
   ui_shards:
     name: UI Shard ${{ matrix.shard }}/4

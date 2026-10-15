@@ -88,6 +88,8 @@ export function addCodexOutputHourInPlace(
 }
 
 export interface CodexHourProofFile {
+  compression?: 'zstd';
+  compressionVerified?: true;
   offset: number;
   size: number;
   discardingOversizedLine: boolean;
@@ -122,6 +124,7 @@ export function canonicalCodexOutputHours(
     const file = files[key];
     const proof = sanitizeCodexHourProof(file?.hourProof);
     const eligible = file && proof &&
+      (file.compression !== 'zstd' || file.compressionVerified === true) &&
       file.identityChecked === true &&
       file.offset === file.size && proof.indexedThrough === file.offset &&
       !file.discardingOversizedLine && !file.lineageReconciliation &&

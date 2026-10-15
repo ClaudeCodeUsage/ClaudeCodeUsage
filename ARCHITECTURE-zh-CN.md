@@ -4,7 +4,7 @@
 > provider 行为变化时必须同步更新。英文版见
 > [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 > 双语 [`v2.3.1 本地数据契约`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.zh-CN.md)
-> 是字段级历史基线；[`LOCAL-DATA.zh-CN.md`](LOCAL-DATA.zh-CN.md) 是当前 v2.4／2.4.2
+> 是字段级历史基线；[`LOCAL-DATA.zh-CN.md`](LOCAL-DATA.zh-CN.md) 是当前 2.5.0 测试候选
 > 数据清单与后续字段、保留、迁移、清除、导出的版本化补充。其明确的后续章节只覆盖
 > 对应事项；未变化的基线隐私规则继续适用。
 
@@ -17,10 +17,11 @@ local-first 的建议有效性闭环、唯一的显式 BYOK 请求边界、可�
 Codex 有界的本地每周重置观测历史，以及滚动 30 天的日期→小时投影。
 v2.4 第一阶段把既有分享界面收敛为一个预览优先的工作台。呈现方式选择器可切换
 综合活动热力图、旧版 Claude 分享卡与仅 Claude 的 token 热力图；全宽导出预览始终位于控制项之前。
-2.4.2 增加默认开启的本地分级成就（`enableAchievements`）、
+未发布的 2.5.0 测试候选合并 Codex 压缩日志兼容与默认开启的本地分级成就（`enableAchievements`）、
 一次性升级关闭选项及证据／性能保护。GitHub 联动成就、个人回顾与可视化重设计
-不在 2.4.2 范围。
+不在 2.5.0 范围。
 本版还提供供应商／指标热力图分享、最多六项手动展示柜及默认关闭的周额度节奏。
+压缩兼容仍在集成验证中，尚未建立完整本机历史恢复或全量测试通过的结论。
 本文描述实现契约，不是发布或验收记录。原生／F5、已安装包及性能检查需要各自的
 证据，浏览器检查不能证明这些结果。
 源码守卫只核对源代码契约，不证明界面状态转换已实际执行、原生 Webview 行为或已安装包验收。
@@ -71,6 +72,7 @@ Codex effort 统计及仅累计范围的金额新活动收据已完成接入。
 | `providers/codex/codexSchema.ts` | 最小安全 JSON guard，不展开或返回 message/command/tool body。 |
 | `providers/codex/codexParser.ts` | Codex 精确单次请求解析及 cumulative high-water 回退、伪名 lineage metadata、结构计数、quality flag 和 last-observed limit。 |
 | `providers/codex/codexManifest.ts` | Codex 允许目录发现、HMAC file key、fingerprint 和 manifest diff。 |
+| `providers/codex/codexZstd.ts` / `codexJsonlScanner.ts` | 有界 header 检查与原生单 frame Zstd 解码；共享 scanner 保留 decoded 字节坐标，将可取消的前缀重放计入工作量。 |
 | `providers/codex/codexIndex.ts` | schema-3 的 per-file 数字聚合与重放证据持久化、有界 cold/tail parse、独立 aggregate/period/滚动 30 天小时 coverage 和原子存取。 |
 | `providers/codex/codexLineage.ts` | 打包谱系 fingerprint contract 与仅运行期、迭代／记忆化的主统计深度排序；不增长递归调用栈，不新增持久字段。 |
 | `providers/codex/codexQuotaHistory.ts` | 小型、账户中性的每周重置观测缓存；压缩重复本地样本，不保留凭据、账户名或原始标签。 |
@@ -268,7 +270,7 @@ v2.3.0 不读 Codex credential，也不发网络请求刷新它。
 
 ## 隐私与持久化
 
-### 本地成就（2.4.2）
+### 本地成就（2.5.0）
 
 历史日期采用冻结的 134 项规则注册清单，逐项匹配 ID、计数器、门槛、分组、规则版本、
 系列、基础 ID 和金额范围。新增规则或修改口径不能默默继承日期；模块级签名覆盖实际及
@@ -548,7 +550,7 @@ effort 资格判断。独立模型／effort 边际不能证明交叉归属，不
 旧 globalState 精确账本只含白名单规则 ID、29 个安全设置键与四个本地功能枚举、
 上限为 48 的小时连续输出最大值，以及一个带语境的四周周均数值峰值。不保存设置值、
 账户／来源标识、提示词、凭据、操作时间戳或导出历史。审计及可恢复迁移状态进入
-Clear All 的精确白名单。完整字段与上限见[本地数据说明](LOCAL-DATA.md#local-achievements-242)。
+Clear All 的精确白名单。完整字段与上限见[本地数据说明](LOCAL-DATA.md#local-achievements-250)。
 
 Claude 在 Sessions 页 1,000 行显示上限之前计算会话成就证据。平铺的
 `projects/<project>/agent-*.jsonl` 缺少路径可证明的父会话，仅从会话成就证据中排除，
@@ -691,14 +693,56 @@ AI 密钥初始化在激活前完成一次协议兼容迁移。已有密钥而�
 
 Codex 发现仅限：
 
-- `$CODEX_HOME/sessions/**/*.jsonl`
-- `$CODEX_HOME/archived_sessions/**/*.jsonl`
+- `$CODEX_HOME/sessions/**/*.jsonl` 与 `sessions/**/*.jsonl.zst`
+- `$CODEX_HOME/archived_sessions/**/*.jsonl` 与 `archived_sessions/**/*.jsonl.zst`
 - 默认 `$CODEX_HOME`：`~/.codex`
 
 绝不读取 `auth.json`、SQLite、config secret、keychain、浏览器状态或未知文件。
 Raw path/session/parent ID 只留在本地 worker 的短期内存。磁盘只持久化 machine-salted 伪名 key、
 按 day/model/effort/session 聚合的数字，以及上面所述的有界账户中性额度历史；绝不存 prompt、
 response、command、tool arguments、raw line、raw path、账户名、凭据或原始 provider label。
+
+2.5.0 测试候选中的 `.jsonl.zst` 是原始 JSONL 的无损 Zstd 存储，不是 LLM 摘要；
+磁盘文件变小不会改变日志中的 token 计数。发现阶段拒绝符号链接与非普通文件。
+同目录同 basename 的 `.jsonl` 优先于 `.jsonl.zst`，HMAC 文件键只剥离末尾 `.zst`。
+这是规范来源选择，不声称两份表示字节相同；跨活动／归档区的副本仍通过完整清单的
+lineage 去重。源文件只读，解压明文不落地。
+
+Manifest `size`、parser 游标与 migration offset 继续使用解压后的字节坐标。
+仅压缩记录新增 `compression: 'zstd'`、`storageSize`（物理字节数）与 `storageCtimeMs`；
+`mtimeMs`／`dev`／`ino` 同样描述物理文件。schema 3 以附加字段保留这些指纹及
+`compressionVerified: true` 持久标记，不提升 schema 版号；缺少这些字段的旧记录仍按 plain 处理。
+该标记要求核验帧 EOF，不能仅凭 `offset === size` 建立。编码或物理版本变化须定向重读
+历史，包括同 inode、同大小覆写后恢复 mtime。压缩文件移动且指纹变化时，也将目标键
+标为 replacement；这些历史重整静默进行，不产生新的 live usage receipt。
+
+确定性的正文解码失败以带版本的 `compressionFailure` 允许列表枚举及物理指纹
+替换整份临时贡献，不保留 token、lineage、额度或日历证明。同一失败版本不反复解码
+或写 checkpoint，也不视为 pending 工作，但 `failedFiles` 及未完成覆盖仍明确保留。
+物理指纹／编码变化会作废失败状态；临时 I/O、取消和来源竞争仍可重试。
+未知持久化失败版本须重新验证，不取得权威性。Header 发现错误仍使本轮刷新失败，
+保留上次有效 snapshot。
+逐文件额度观测须在压缩帧验证成功后才合入保留的全局历史，中途 draft checkpoint 不提升该证据。
+
+压缩 frame 的 EOF 核验成功后，没有换行符的有效末条 JSON 记录只解析一次。
+非法尾片段标记 `invalid-json`，超长末行标记 `oversized-jsonl-line`；这几种情况均将
+游标推进到真实 decoded EOF，避免不可追加的尾部反复触发整帧重放。这些 JSONL
+质量标记不豁免 frame 损坏，也不证明用量覆盖完整；active plain 日志的未终止行语义不变。
+
+发现阶段通过只读句柄读取最多 18 字节 header，将 fstat 身份／大小与 lstat 核对，
+并检查读取期间是否发生变化。Codec 只接受显式 Frame Content Size（FCS）、无 dictionary-ID
+字段的单 frame；无效／未知大小、损坏、额外 frame、尾随字节或大小不符明确失败。
+Header 本身不证明正文有效或读取完成。硬上限为解压数据 4 GiB、前缀重放 4 GiB、
+物理数据 2 GiB、window 64 MiB。解码使用 [Node 原生 Zstd API](https://nodejs.org/api/zlib.html#zlibcreatezstddecompressoptions)，
+22.x 从 22.15.0、23.x 从 23.8.0 提供，不新增依赖；以实际扩展宿主能力为准。
+不支持的宿主明确报错并保留上次已验证 snapshot，不冒充完成。
+
+同一物理版本已完整验证时，warm refresh 只核对 metadata／header，正文解压量为零。
+Resume 从 frame 起点重放到 decoded 游标，丢弃的前缀计入工作量且可取消。
+每轮最多允许首个历史压缩文件在 codec 硬上限内超出 soft byte budget，避免永久延后。
+含压缩来源的回填最多使用两个 file-pass worker。数字索引仍是可重建缓存而非备份：
+真正消失的来源会移除贡献，仍存在的压缩／归档表示则重新核对。
+以上是候选契约，不是本机恢复或验收证据。
 
 Advice 只消费已物化聚合，不重读 JSONL，也不重遍历保留的 records。远程默认为
 aggregate-only；prompt sample 与可选 user context 需单独明确同意，并必须原样出现在精确请求预览中。
@@ -927,7 +971,7 @@ Codex 按多 GiB 本地历史设计：
 
 - 发现与解析在 Extension Host 之外的 worker 中执行；
 - recent-first 索引，支持 progress 与 cancel；未完成回填最多使用可用逻辑 CPU 的一半，
-  并把本地 file-pass worker 上限设为 6；索引完成后回到单一低功耗协调路径；
+  并把本地 file-pass worker 上限设为 6（含压缩来源时最多 2 个）；索引完成后回到单一低功耗协调路径；
 - 按顺序应用的 file-pass frontier 将执行中、缓冲中和应用中的结果总数限制在 worker 数的两倍，
   6 个 worker 时最多 12 个。慢文件或 checkpoint 会让空闲 worker 等待，避免保留整批结果；
   顺序、取消与续传行为保持不变；
@@ -1021,7 +1065,7 @@ candidateFullEquivalent = pricedUsedEquivalentThroughObservedAt / usedFraction
 后者的可信账号／窗口规则不变。
 
 维护者于 2026-10-11 明确保留这个现有当前周期估算方式。准确按账号归属计算属于后续
-多账户兼容范围，2.4.2 未实现或承诺该能力。
+多账户兼容范围，2.5.0 未实现或承诺该能力。
 
 v2.3.0 不推断 20、100 或 200 美元的订阅档位。本地 Codex 日志没有可靠的账号与套餐身份，
 后续比较必须采用用户明确选择的 opt-in 账号映射，不能猜测后绑定价格。

@@ -5,10 +5,11 @@ only bounded derived state needed for fast refresh and reset-aware estimates,
 and never treats API-equivalent cost as a bill.
 
 This page is the current inventory and versioned data-contract supplement for
-the v2.4 line, including the capabilities in 2.4.2. The
+the unreleased 2.5.0 test candidate, combining achievements and compressed-log
+compatibility. Integration validation is ongoing. The
 historical v2.3.1 field-level baseline is in
 [`docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md).
-The later sharing, quota-pace and achievement sections here govern their added
+The later compression, sharing, quota-pace and achievement sections here govern their added
 runtime/persistent fields and exact clearing rules, including the canonical v2
 envelope and twelve sharing keys. They do not relax unchanged baseline source-log,
 credential, account-separation or explicit-network-consent restrictions.
@@ -18,16 +19,61 @@ credential, account-separation or explicit-network-consent restrictions.
 | Data class | Source | What is retained by the extension | Retention and clearing | Remote interaction |
 |---|---|---|---|---|
 | Claude usage records | Claude Code's local `projects/**/*.jsonl` | Runtime usage records and an in-memory per-file index; bounded prompt samples only when content analysis is enabled | Released on window reload/exit. Data controls never touch source logs; the separately opt-in Session Actions feature may move one exactly confirmed log to the OS trash (recoverable) | None unless the user separately previews and sends an advice request |
-| Codex usage records | `$CODEX_HOME/sessions/**/*.jsonl` and `archived_sessions/**/*.jsonl` | A versioned incremental index of pseudonymous file keys, offsets, numeric usage, dates, model/effort, and sanitized structural aggregates | Until rebuild, explicit clear, schema replacement, or host removal | None |
+| Codex usage records | `.jsonl` and `.jsonl.zst` regular files recursively under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` | A schema-3 incremental index of pseudonymous file keys, decoded offsets, numeric usage, dates, model/effort, sanitized structural aggregates, and optional compressed-source fingerprints/EOF marker | Until rebuild, explicit clear, schema replacement, or host removal | None |
 | Codex titles | Exactly `$CODEX_HOME/session_index.jsonl` | `id → thread_name` is streamed for runtime display; titles are not written to the index | Runtime only | None |
 | Quota observations | Claude's official quota response or structured Codex rate-limit events | Provider, machine-local anonymous account epoch, observed/reset time, period, used/remaining fraction, anonymous window identity, source, confidence, and quality flags | At most 180 days and 512 observations per provider/account/period after boundary-preserving compaction; clear separately or with all derived data | Claude quota lookup contacts Anthropic when enabled; an expired Claude token is refreshed with Anthropic and written back to its credential source. Codex quota evidence is local |
 | Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy/palette/provider/metric/show-amounts controls, gallery filter/size, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
-| Heatmap artifact (2.4.2) | At most 366 selected materialized civil-day aggregates | One accepted immutable SVG/Markdown artifact, opaque document-bound preview ID, source references and whitelisted config/quality identity | Runtime only; replaced/retired on control, source, pricing or display change, reset or disposal | None; preview/local export adds no source-log reads or network requests |
-| Weekly quota pace (2.4.2) | Existing successful raw quota cache and original observation time | Runtime-only ≤16-window numeric projection, original-response metadata and bounded verified-account/window continuity anchors; default-off shared `showWeeklyQuotaPace` STATE preference | No extra observation store; source/credential invalidation withdraws forecasts and disposal releases runtime state | None added; does not enable quota tracking or request new credentials |
+| Heatmap artifact (2.5.0) | At most 366 selected materialized civil-day aggregates | One accepted immutable SVG/Markdown artifact, opaque document-bound preview ID, source references and whitelisted config/quality identity | Runtime only; replaced/retired on control, source, pricing or display change, reset or disposal | None; preview/local export adds no source-log reads or network requests |
+| Weekly quota pace (2.5.0) | Existing successful raw quota cache and original observation time | Runtime-only ≤16-window numeric projection, original-response metadata and bounded verified-account/window continuity anchors; default-off shared `showWeeklyQuotaPace` STATE preference | No extra observation store; source/credential invalidation withdraws forecasts and disposal releases runtime state | None added; does not enable quota tracking or request new credentials |
 | Share destination | User-entered GitHub target | One versioned `ccu.heatmapDestination.v1` object containing optional `owner/repository/path`; no GitHub credential | Until sharing preferences are reset | Only after an explicit publish action and exact destination confirmation. A successful write is reported even if saving this convenience preference fails |
 | Advice evidence | Derived local aggregates and explicit feedback | Coarse observations, recommendations, ratings, snoozes, comparable-task metrics, coverage, and versions | Bounded local ledger; clear independently | Nothing by default; only the exact previewed request is sent after a separate action |
-| Local achievements (2.4.2) | Verified numeric usage and deliberate allowlisted local actions | A ≤64 KiB award envelope with public IDs, sequence/reason/unread state and optional first-record day/zone; safe setting-key/feature enums (never values), hour-streak maximum and qualified four-week peak | Default on; off stops new grants and extra proof work. Clear all removes exact achievement state and retains only an empty clear fence | None; sharing requires explicit local preview/export, not GitHub authentication |
+| Local achievements (2.5.0) | Verified numeric usage and deliberate allowlisted local actions | A ≤64 KiB award envelope with public IDs, sequence/reason/unread state and optional first-record day/zone; safe setting-key/feature enums (never values), hour-streak maximum and qualified four-week peak | Default on; off stops new grants and extra proof work. Clear all removes exact achievement state and retains only an empty clear fence | None; sharing requires explicit local preview/export, not GitHub authentication |
 | Advice API key | User-provided secret | Secret value in VS Code SecretStorage only | Until the key or all derived data is cleared | Used only as the authorization credential for the explicitly configured endpoint |
+
+## Compressed Codex sources (2.5.0 test candidate)
+
+Zstd losslessly encodes the original JSONL; it is not an LLM summary and does not
+change recorded token counts. Only the two usage roots above admit `.jsonl.zst`;
+symlinks, non-regular files, other roots, credentials and SQLite remain excluded.
+The separate title-only `session_index.jsonl` permission is unchanged. Source files
+are never rewritten and no decompressed plaintext copy is saved.
+
+Schema 3 adds optional `compression: 'zstd'`, `storageSize` (physical bytes),
+`storageCtimeMs` and `compressionVerified: true`. The first three identify the
+compressed representation alongside physical `mtimeMs`/`dev`/`ino`; the last marks
+successful frame-EOF validation for that version. `size`, parser and migration
+offsets remain decoded byte coordinates. Old entries without the new fields remain
+plain. These anonymous numeric/enum/boolean fields live in the existing per-file
+index and follow its rebuild/clear lifecycle; no new store or remote disclosure is added.
+Deterministic decoding failures retain only `compressionFailure: { version: 1, code }`
+and the physical fingerprint. The code is an allowlisted enum, never a native error,
+path or message. Such rows contain no usage or proof, remain incomplete, and are not
+retried until the physical version changes. Transient I/O and source changes remain
+retryable. Unknown failure versions are discarded and revalidated.
+Only verified compressed versions can add observations to the retained quota
+history; a provisional checkpoint or rejected frame cannot seed that store.
+
+This is a rebuildable index, not a historical backup: a source truly removed from
+both allowed roots loses its usage contribution. Compression or an archive move
+is not deletion; its remaining canonical source is reconciled without adding it twice.
+
+Same-directory, same-basename plain JSONL is canonical and the compressed HMAC
+key strips `.zst`; selection does not assert identical contents. Cross-area copies
+still require full-census lineage deduplication. Encoding/physical-version changes
+invalidate old completion evidence and trigger quiet targeted historical rereads,
+including moves with changed ctime; they do not create new live-usage receipts.
+
+Unchanged verified files need at most 18 header bytes each and no body decompression
+on warm refresh. Resume replays the decoded prefix, counts that work and permits
+cancellation. The codec accepts one explicit-size frame without a dictionary-ID
+field; corrupt/unknown-size input, extra frames or trailing data fail rather than
+produce false completion. Limits are 4 GiB decoded/replay, 2 GiB physical and a
+64 MiB window; the first historical compressed file may exceed a soft refresh budget
+within those hard caps. Cold backfills containing compressed sources use at most
+two file-pass workers. Native Node Zstd (22.15+ / 23.8+) adds no dependency.
+Unsupported hosts report the limitation and retain last-good verified totals.
+See [architecture](ARCHITECTURE.md) for the implementation boundary; complete native
+recovery and full-suite acceptance remain to be verified for this candidate.
 
 ## What is never cached
 
@@ -109,7 +155,7 @@ values from the [ECB euro reference rates](https://www.ecb.europa.eu/stats/polic
 The preview-first sharing workspace reuses materialized provider aggregates; it
 does not scan logs again or create another statistics cache. Its remembered
 presentation is one local enum (`ccu.sharing.template`): combined activity
-heatmap, Claude Share Card, Claude token heatmap, or (in 2.4.2)
+heatmap, Claude Share Card, Claude token heatmap, or (in 2.5.0)
 explicitly selected earned badges. `enableShareCard` is the
 only visible on/off setting. The retired `showHeatmap` value remains catalogued
 for bounded clearing and one-release compatibility, but it no longer creates a
@@ -185,7 +231,7 @@ Private repositories use local SVG plus Markdown instead of silently requesting
 broader access. After GitHub accepts the write, success is authoritative and is
 reported before any warning that the atomic destination preference could not be saved.
 
-## Weekly quota pace (2.4.2)
+## Weekly quota pace (2.5.0)
 
 `showWeeklyQuotaPace` defaults false, is shared by both providers and does not
 enable quota tracking. Off exits before source getters, clock/cache/client access
@@ -211,7 +257,7 @@ copy without changing compact bar text or custom quota formats.
 
 <a id="local-achievements-242-candidate"></a>
 
-## Local achievements (2.4.2)
+## Local achievements (2.5.0)
 
 The historical-date manifest explicitly registers 134 current rules; registration
 alone never proves that retained logs can date a level. Unknown IDs or changed

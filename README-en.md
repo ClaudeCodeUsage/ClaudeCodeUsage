@@ -60,7 +60,9 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 - **Multi-vendor pricing** — Opus 4.x / Sonnet 4.x / Haiku 4.5 verified against Anthropic's public pricing; reference rates for OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen with family-aware fallback. `Refresh Token Pricing` pulls live LiteLLM data.
 - **Personalisation** — language, timezone, decimal places, compact numbers, project grouping, dashboard auto-refresh toggle.
 
-## Local achievements (2.4.2)
+The unreleased 2.5.0 test candidate combines local achievements with Codex `.jsonl.zst` compatibility in `sessions` and `archived_sessions`. Zstd is lossless compression, not an LLM summary: smaller disk files preserve logged token counts. Reads stay local without changing source logs or saving decompressed copies; same-directory, same-basename `.jsonl` takes priority. Native Zstd (Node 22.15+ / 23.8+) adds no dependency; unsupported hosts report the limitation and retain last verified totals. Integration testing is ongoing.
+
+## Local achievements (2.5.0)
 
 Session dates use the same uncapped admission as the canonical index; changed logs require recalibration. Verified real usage keeps its native first-recorded receipt even if calibration is cancelled. Partial saves are reported separately.
 
@@ -87,7 +89,7 @@ does not mean every award scope is fully covered. Cancellation
 before the historical commit adds no historical awards; after commit it does not undo saved records or change
 the successful result. Historical reconciliation stays quiet. End-to-end validation is still
 in progress; these descriptions are not an acceptance result. See
-[date and storage boundaries](LOCAL-DATA.md#local-achievements-242).
+[date and storage boundaries](LOCAL-DATA.md#local-achievements-250).
 
 Collaboration/rainbow model recognition is separate from pricing, so recognized but unpriced labels stay unpriced; retained monetary records keep their published pricebook labels, and Claude-only peaks survive unrelated Codex version changes.
 Loading, unavailable, changed and disabled record states replace empty counts; verified Claude cumulative usage shows `≥` while enabled Codex evidence remains unverified.
@@ -150,7 +152,7 @@ Flat agent logs without a path-proven parent do not count toward session-based
 achievements. Their Token totals, pricing, daily aggregates and visible session
 rows stay unchanged; nested-agent ownership and saved awards are retained.
 
-The 2.4.2 icon-first gallery groups **50 themes and 174 award conditions** into ordinary,
+The 2.5.0 icon-first gallery groups **50 themes and 174 award conditions** into bronze,
 silver and gold tiers, with platinum/legendary cumulative milestones. Expand a card
 for every level's rule; the next target is visible on the card. Series and unlocked
 levels are counted separately. Local All / Next level / Earned filters survive reload,
@@ -239,11 +241,11 @@ Badges describe local history, possibly from shared accounts or several sign-ins
 not personal productivity or subscription allowance. Hour streaks mean recorded
 output in each UTC hour, not continuous human work. Safe-setting exploration and
 local feedback never require credentials or network consent. The exact bounded
-award storage and clear controls are in [LOCAL-DATA.md](LOCAL-DATA.md#local-achievements-242).
+award storage and clear controls are in [LOCAL-DATA.md](LOCAL-DATA.md#local-achievements-250).
 
-## Heatmap sharing and weekly quota pace (2.4.2)
+## Heatmap sharing and weekly quota pace (2.5.0)
 
-The 2.4.2 sharing heatmap offers **Claude / Codex / Both**
+The 2.5.0 sharing heatmap offers **Claude / Codex / Both**
 and **Tokens / API-equivalent amount**. Tokens are the default; amounts require
 an explicit choice. Amounts use current daily estimates, not achievement reference
 prices: Claude is estimated, while Codex prices exact known models only. Missing

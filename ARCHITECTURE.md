@@ -7,7 +7,7 @@
 > The bilingual
 > [`v2.3.1 local data contract`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md)
 > is the historical field-level baseline. [`LOCAL-DATA.md`](LOCAL-DATA.md) is
-> the current v2.4/2.4.2 inventory and versioned supplement for later fields,
+> the current 2.5.0 test-candidate inventory and versioned supplement for later fields,
 > retention, migration, clearing and exports. Its explicitly later sections
 > supersede only those subjects; unchanged baseline privacy rules still apply.
 
@@ -24,17 +24,20 @@ v2.4 phase 1 consolidates the existing sharing surfaces into one preview-first
 workspace. A presentation selector switches among the combined activity
 heatmap, the legacy Claude Share Card, and the Claude-only token heatmap; the
 full-width export preview always precedes its controls.
-Version 2.4.2 adds default-on, local-only tiered achievements
+The unreleased 2.5.0 test candidate combines Codex compressed-log compatibility
+with default-on, local-only tiered achievements
 (`enableAchievements`), a once-only upgrade opt-out, and evidence/performance guards.
 It also integrates provider/metric heatmap sharing, a six-pin manual showcase and
-default-off weekly quota pace. This document describes implementation contracts,
+default-off weekly quota pace. Compression integration and validation are ongoing;
+complete native history recovery and a full test pass are not yet established.
+This document describes implementation contracts,
 not a release or acceptance record. Native/F5, installed-package and performance
 checks require their own evidence; browser checks do not establish those results.
 Source-level guards check source contracts; they do not establish executed UI
 transitions, native Webview behavior or installed-package acceptance.
 Codex effort statistics and cumulative-only monetary-origin receipts are integrated.
 GitHub-linked achievements, personal reviews and visualization redesign are not
-part of version 2.4.2.
+part of version 2.5.0.
 
 - Claude: exact local token buckets, model pricing estimates, and Anthropic
   OAuth 5-hour/weekly quota.
@@ -87,6 +90,7 @@ only the separate publish action can perform that network operation.
 | `providers/codex/codexSchema.ts` | Minimal safe JSON guards; never flattens or returns message/command/tool bodies. |
 | `providers/codex/codexParser.ts` | Codex exact-request parsing with cumulative high-water fallback, pseudonymous lineage metadata, structural counters, quality flags, and last-observed limits. |
 | `providers/codex/codexManifest.ts` | Allowlisted Codex directory discovery, HMAC file keys, fingerprints, and manifest diffing. |
+| `providers/codex/codexZstd.ts` / `codexJsonlScanner.ts` | Bounded header inspection and native single-frame Zstd decoding; the shared scanner keeps decoded byte coordinates and counts cancellable prefix replay as work. |
 | `providers/codex/codexIndex.ts` | Schema-3 persistent per-file numeric aggregates and replay evidence, bounded cold/tail parsing, independent aggregate/period/rolling-30-day-hour coverage, and atomic save/load. |
 | `providers/codex/codexLineage.ts` | Packed lineage fingerprint contract and runtime-only iterative, memoized primary depth ordering; no recursive stack growth or new persisted fields. |
 | `providers/codex/codexQuotaHistory.ts` | Small account-neutral weekly reset-observation cache; compacts repeated local samples without retaining credentials, account names, or raw labels. |
@@ -360,7 +364,7 @@ credentials or make a network call to refresh it.
 
 ## Privacy and persistence
 
-### Local achievements (2.4.2)
+### Local achievements (2.5.0)
 
 Historical dates use a frozen 134-rule registration manifest. Each handler verifies
 the exact ID, counter, target, group, rule version, series, base ID and monetary
@@ -930,7 +934,7 @@ and four local-feature enums, a streak maximum capped at 48, and one qualified
 four-week-average numeric maximum. It stores no setting values, account/source
 identifiers, prompts, credentials, timestamps of actions, or export history.
 Audit and recoverable migration state is exact-allowlisted in Clear All.
-See [the complete inventory](LOCAL-DATA.md#local-achievements-242).
+See [the complete inventory](LOCAL-DATA.md#local-achievements-250).
 
 Claude materializes session-achievement evidence before the Sessions tab's
 1,000-row display cap. Flat `projects/<project>/agent-*.jsonl` files have no
@@ -998,8 +1002,8 @@ fingerprints, prefix subtraction or provider Token/cost/limit semantics.
 
 Codex discovery is restricted to:
 
-- `$CODEX_HOME/sessions/**/*.jsonl`
-- `$CODEX_HOME/archived_sessions/**/*.jsonl`
+- `$CODEX_HOME/sessions/**/*.jsonl` and `sessions/**/*.jsonl.zst`
+- `$CODEX_HOME/archived_sessions/**/*.jsonl` and `archived_sessions/**/*.jsonl.zst`
 - default `$CODEX_HOME`: `~/.codex`
 
 It never reads `auth.json`, SQLite databases, config secrets, keychains, browser
@@ -1008,6 +1012,65 @@ worker memory. Disk persistence contains machine-salted pseudonymous keys,
 numeric per-day/model/effort/session aggregates, and the bounded neutral quota
 history described above—never prompt, response, command, tool-argument,
 raw-line, raw-path, account name, credential, or raw provider-label content.
+
+For the 2.5.0 test candidate, `.jsonl.zst` is lossless Zstd storage of the original
+JSONL, not an LLM summary: a smaller disk file does not change its logged token
+counts. Discovery rejects symlinks and non-regular files. Same-directory,
+same-basename `.jsonl` wins over `.jsonl.zst`; the HMAC file key strips only the
+final `.zst`. This canonical source selection makes no byte-equivalence claim.
+Copies across active/archive areas still use the full-census lineage deduplication.
+Sources are read-only and decoded plaintext is never written to disk.
+
+Manifest `size`, parser cursors and migration offsets remain decoded byte
+coordinates. Only compressed entries add `compression: 'zstd'`, `storageSize`
+(physical bytes) and `storageCtimeMs`; `mtimeMs`/`dev`/`ino` also describe the physical
+file. Schema 3 adds these fields and the persisted `compressionVerified: true`
+marker without changing its version; old entries without them remain plain.
+The marker requires verified frame EOF, not merely `offset === size`. Encoding or
+physical-version changes force a targeted historical reread, including a same-inode,
+same-size overwrite with restored mtime. A compressed move with changed fingerprints
+also replaces the destination. Such reconciliation is quiet and creates no new
+live-usage receipt.
+
+For a deterministic body-decoding failure, a versioned `compressionFailure`
+allowlisted code and physical fingerprint replace the entire provisional contribution.
+No tokens, lineage, quota or calendar witnesses survive in that row. An unchanged
+failed version is not decoded or checkpointed again and is not pending work, but
+`failedFiles` and incomplete coverage remain visible. A physical/encoding change
+invalidates the failure state; transient I/O, cancellation and source races remain
+retryable. Unknown persisted failure versions force validation rather than authority.
+Header discovery errors still fail the refresh and preserve the last-good snapshot.
+Per-file quota observations are promoted into retained global history only after
+compressed-frame verification, never from an intermediate draft checkpoint.
+
+After verified compressed-frame EOF, a valid final JSON record without a newline
+is parsed once. An invalid trailing fragment records `invalid-json`; an oversized
+final line records `oversized-jsonl-line`. In each case the cursor advances to the
+actual decoded EOF, so an immutable tail cannot cause repeated whole-frame replay.
+These JSONL quality flags do not excuse frame corruption or establish complete
+usage coverage. Active plain logs keep their existing unterminated-line behavior.
+
+Discovery reads at most 18 header bytes through a read-only handle, checking fstat
+identity/size against lstat and checking for mutation during the read. The codec
+accepts one frame with explicit Frame Content Size (FCS) and no dictionary-ID field.
+Malformed/unknown-size input, damage, extra frames, trailing bytes or size mismatch
+fail explicitly; a header alone never establishes body validity or completion.
+Hard ceilings are 4 GiB decoded data, 4 GiB replay prefix, 2 GiB physical data and a
+64 MiB window. Decoding uses [Node's native Zstd API](https://nodejs.org/api/zlib.html#zlibcreatezstddecompressoptions),
+available from Node 22.15.0 on the 22.x line and 23.8.0 on the 23.x line, with no new
+dependency. Capability is checked in the actual extension host; an unsupported
+host reports the error and retains the last verified snapshot rather than claiming
+completion.
+
+An unchanged, fully verified compressed version needs only metadata/header checks
+on a warm refresh, with zero body decompression. Resume replays from the frame
+start to the decoded cursor; discarded prefix bytes count toward work and remain
+cancellable. At most the first historical compressed file in a refresh may exceed
+the soft byte budget within codec hard caps, avoiding perpetual deferral. These
+backfills use at most two file-pass workers when compressed sources are present.
+The numeric index remains rebuildable, not a backup: truly removed sources lose
+their contributions; remaining compressed/archived representations are reconciled.
+These are candidate contracts, not evidence of native recovery or acceptance.
 
 Advice starts from materialized aggregates rather than rereading JSONL or
 walking retained records. Aggregate-only is the remote default. Prompt samples
@@ -1383,8 +1446,8 @@ Codex history is designed for multi-gigabyte local corpora:
 - discovery and parsing run outside the Extension Host in a worker;
 - files are indexed recent-first with progress and cancellation; an incomplete
   backfill uses up to half of the available logical CPUs, capped at six local
-  file-pass workers, while completed indexes return to the single low-power
-  coordinator path;
+  file-pass workers (at most two if compressed sources are present), while
+  completed indexes return to the single low-power coordinator path;
 - the ordered file-pass apply frontier admits at most twice the worker count
   of in-flight, buffered and applying results together (at most 12 for six
   workers). A slow file/checkpoint backpressures idle workers instead of
@@ -1525,7 +1588,7 @@ of remaining subscription usage. This is not the elapsed-time prediction in
 
 The maintainer's 2026-10-11 decision preserves this existing current-cycle
 estimation behavior. Accurate per-account attribution belongs to future
-multi-account compatibility; it is not implemented or promised by version 2.4.2.
+multi-account compatibility; it is not implemented or promised by version 2.5.0.
 
 v2.3.0 does not infer a $20, $100, or $200 subscription tier. Local Codex logs
 do not expose a reliable account-and-plan identity, so a future comparison must

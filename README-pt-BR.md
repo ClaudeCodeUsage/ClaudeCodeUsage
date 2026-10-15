@@ -53,7 +53,9 @@ dos seus dados. **Não é uma ferramenta de cobrança.**
 A imagem usa dados sintéticos, não informações de uma conta real. Veja mais
 imagens e detalhes na [página principal completa em inglês](README.md).
 
-## Conquistas locais (2.4.2)
+O candidato de teste 2.5.0, ainda não publicado, reúne conquistas locais e suporte a `.jsonl.zst` do Codex em `sessions` e `archived_sessions`. Zstd é compressão sem perdas, não um resumo por LLM: arquivos menores preservam a contagem de tokens registrada. A leitura é local, sem alterar os logs nem salvar cópias descompactadas em texto; o `.jsonl` de mesmo nome na mesma pasta tem prioridade. Zstd nativo (Node 22.15+ / 23.8+) não adiciona dependências; hosts incompatíveis informam a limitação e mantêm os últimos totais verificados. Os testes de integração continuam.
+
+## Conquistas locais (2.5.0)
 
 As datas das sessões usam a mesma admissão completa do índice canônico; logs alterados exigem nova calibração. O uso novo verificado mantém seu primeiro registro mesmo após cancelamento. Salvamentos parciais são informados separadamente.
 
@@ -82,7 +84,7 @@ Cancelar antes do commit histórico não adiciona concessões históricas; após
 registros salvos nem altera o resultado bem-sucedido. A reconciliação histórica é
 silenciosa. A validação de ponta a ponta ainda
 está em andamento; esta descrição não declara aceite.
-[Limites de datas e armazenamento](LOCAL-DATA.md#local-achievements-242).
+[Limites de datas e armazenamento](LOCAL-DATA.md#local-achievements-250).
 
 O reconhecimento de modelos para colaboração/arco-íris é separado dos preços, mantendo sem preço os modelos reconhecidos sem tarifa; registros monetários preservam os rótulos das tabelas publicadas, e picos apenas do Claude resistem a mudanças independentes de versão do Codex.
 Registros carregando, indisponíveis, alterados e desativados têm estados explícitos em vez de contagens vazias; o uso cumulativo verificado do Claude mostra `≥` enquanto as evidências do Codex ativado não forem verificadas.
@@ -139,7 +141,7 @@ Logs de agentes no mesmo diretório, sem sessão-pai comprovada pelo caminho, n�
 contam como evidência para conquistas de sessão. Tokens, preços, totais diários e
 linhas de sessão visíveis não mudam; a atribuição aninhada e os emblemas salvos são preservados.
 
-A galeria da versão 2.4.2 tem 50 temas, 174 condições de desbloqueio e 52 grupos de arte: tokens por modelo, saída/cache,
+A galeria da versão 2.5.0 tem 50 temas, 174 condições de desbloqueio e 52 grupos de arte: tokens por modelo, saída/cache,
 atividade, recordes semanais e algumas ações deliberadas no plugin.
 
 Quinze séries de Claude/atividade recebem Platina e Lendário, preservando as três metas iniciais, evidências e arte. Dias ativos, saída e sessões permitem progresso com três dias concentrados por semana, sem Codex ou maior gasto. As séries de dias consecutivos não são ampliadas.
@@ -168,7 +170,7 @@ O resumo usa cartões horizontais com largura limitada: imagem, nome, nível e p
 Acima de 960 px, a coluna de emblemas se ajusta ao conteúdo, limitada à largura de dois cartões do resumo mais o espaço interno. A coluna de próximos objetivos ocupa o espaço restante, com 16 px entre colunas. Até 960 px, ambas ficam diretamente empilhadas com 12 px de espaço. As seções auxiliares de histórico vêm depois de ambas.
 O seletor de tamanho precede o resumo: ícones da coleção 56 / 80 / 112 px, vitrine 56 / 72 / 96 px, erros de fixação junto aos controles e foco estável.
 O subtotal USD de effort não qualifica a conquista. Valores vazios e sem preço são distintos; valores parciais mostram limite inferior, e valores inválidos ou com overflow ficam indisponíveis.
-[Detalhes em inglês](README-en.md#heatmap-sharing-and-weekly-quota-pace-242).
+[Detalhes em inglês](README-en.md#heatmap-sharing-and-weekly-quota-pace-250).
 Cada série tem arte própria, compartilhada entre seus níveis coloridos. Os números são inteiros; limites dos dados ficam na seção expansível.
 Evidências pendentes ou desatualizadas substituem o progresso zero e ficam fora do próximo alvo; emblemas conquistados são preservados.
 Cartões fechados mostram o progresso até o próximo nível; etapas intermediárias nas longas escalas de tokens não geram prêmios, avisos ou opções de compartilhamento extras.
@@ -193,7 +195,7 @@ ficam silenciosas; novos avisos são breves no painel, sem som ou mudança de fo
 Escolha até nove emblemas e exporte exatamente a prévia SVG; respostas antigas não
 liberam a exportação. Há atalhos para voltar ao catálogo e localizar a opção de desativar, sem login
 GitHub. Históricos com múltiplos logins não comprovam produtividade individual.
-[Armazenamento e limpeza](LOCAL-DATA.md#local-achievements-242).
+[Armazenamento e limpeza](LOCAL-DATA.md#local-achievements-250).
 
 ## Como interpretar os números
 

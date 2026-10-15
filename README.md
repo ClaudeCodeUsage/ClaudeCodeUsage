@@ -180,7 +180,9 @@ real account or an installed-VSIX capture.*
 
 ---
 
-## Local achievements (2.4.2)
+The unreleased 2.5.0 test candidate combines local achievements with Codex `.jsonl.zst` compatibility in `sessions` and `archived_sessions`. Zstd is lossless compression, not an LLM summary: smaller disk files preserve logged token counts. Reads stay local without changing source logs or saving decompressed copies; same-directory, same-basename `.jsonl` takes priority. Native Zstd (Node 22.15+ / 23.8+) adds no dependency; unsupported hosts report the limitation and retain last verified totals. Integration testing is ongoing.
+
+## Local achievements (2.5.0)
 
 Session dates use the same uncapped admission as the canonical index; changed logs require recalibration. Verified real usage keeps its native first-recorded receipt even if calibration is cancelled. Partial saves are reported separately.
 
@@ -207,7 +209,7 @@ does not mean every award scope is fully covered. Cancellation
 before the historical commit adds no historical awards; after commit it does not undo saved records or change
 the successful result. Historical reconciliation stays quiet. End-to-end validation is still
 in progress; these descriptions are not an acceptance result. See
-[date and storage boundaries](LOCAL-DATA.md#local-achievements-242).
+[date and storage boundaries](LOCAL-DATA.md#local-achievements-250).
 
 Collaboration/rainbow model recognition is separate from pricing, so recognized but unpriced labels stay unpriced; retained monetary records keep their published pricebook labels, and Claude-only peaks survive unrelated Codex version changes.
 Loading, unavailable, changed and disabled record states replace empty counts; verified Claude cumulative usage shows `≥` while enabled Codex evidence remains unverified.
@@ -270,10 +272,10 @@ Flat agent logs without a path-proven parent do not count toward session-based
 achievements. Their Token totals, pricing, daily aggregates and visible session
 rows stay unchanged; nested-agent ownership and saved awards are retained.
 
-The 2.4.2 icon-first gallery has **50 display themes and 174 award conditions**,
+The 2.5.0 icon-first gallery has **50 display themes and 174 award conditions**,
 using 52 artwork groups. Fourteen-day and first shared-day
 milestones live inside their growing themes, with distinct award and sharing choices.
-The gallery has ordinary, silver and gold tiers, plus platinum/legendary cumulative milestones.
+The gallery has bronze, silver and gold tiers, plus platinum/legendary cumulative milestones.
 Fifteen sustained Claude/activity series add Platinum and Legendary ranks without changing their first three targets. These use existing verified counters and artwork; concentrated three-day weeks can grow through activity days, output and sessions without requiring Codex or higher spending. Consecutive-day tiers are not extended.
 One card shows each series and its compact next target; expand it for every level's
 rule and evidence. Series and unlocked levels are counted separately. Local All /
@@ -359,11 +361,11 @@ Shared accounts and multiple sign-ins in one local history can contribute to the
 badges; they are not proof of one person's activity. Continuous output means a
 positive-output record in each UTC hour, not continuous human work. Clearing all
 extension-derived data removes the local award ledger, never provider logs.
-See [local storage and clearing](LOCAL-DATA.md#local-achievements-242).
+See [local storage and clearing](LOCAL-DATA.md#local-achievements-250).
 
-## Heatmap sharing and weekly quota pace (2.4.2)
+## Heatmap sharing and weekly quota pace (2.5.0)
 
-The 2.4.2 sharing heatmap offers **Claude / Codex /
+The 2.5.0 sharing heatmap offers **Claude / Codex /
 Both** and **Tokens / API-equivalent amount** controls. Tokens are the default;
 amounts require an explicit choice. Amount mode uses current daily pricing estimates,
 separate from achievements' fixed USD references: Claude is estimated, and Codex
@@ -868,8 +870,8 @@ only date/hour buckets migrate, without restarting primary history.
 
 - All **Claude** token / cost / session analysis runs locally by reading your
   `~/.claude/projects/**/*.jsonl` files.
-- Codex usage records are discovered only from `sessions/**/*.jsonl` and
-  `archived_sessions/**/*.jsonl` below your Codex home. Separately, the extension
+- Codex usage records are discovered only from `.jsonl` and `.jsonl.zst` regular
+  files under `sessions` and `archived_sessions` below your Codex home. Separately, the extension
   streams exactly `$CODEX_HOME/session_index.jsonl` for the `id` → `thread_name`
   mapping used by truthful thread titles. Absolute paths in those titles are
   redacted and the titles remain memory-only. Credentials, databases, and unknown

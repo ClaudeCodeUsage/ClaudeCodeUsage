@@ -58,7 +58,9 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - **Harga multi-vendor** — Opus 4.x / Sonnet 4.x / Haiku 4.5 diverifikasi terhadap harga publik Anthropic; tarif referensi untuk OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen dengan fallback berbasis family model. `Refresh Token Pricing` menarik data LiteLLM langsung.
 - **Personalisasi** — bahasa, zona waktu, angka desimal, angka ringkas, pengelompokan proyek, toggle penyegaran otomatis dashboard.
 
-## Pencapaian lokal (2.4.2)
+Kandidat uji 2.5.0 yang belum dirilis menggabungkan pencapaian lokal dan dukungan `.jsonl.zst` Codex di `sessions` serta `archived_sessions`. Zstd adalah kompresi tanpa kehilangan data, bukan ringkasan LLM: berkas yang lebih kecil tidak mengubah jumlah token tercatat. Pembacaan tetap lokal tanpa mengubah log sumber atau menyimpan salinan teks hasil dekompresi; `.jsonl` bernama sama dalam folder yang sama diprioritaskan. Zstd bawaan (Node 22.15+ / 23.8+) tidak menambah dependensi; host yang tidak mendukungnya melaporkan keterbatasan dan mempertahankan total terakhir yang terverifikasi. Pengujian integrasi masih berlangsung.
+
+## Pencapaian lokal (2.5.0)
 
 Tanggal sesi memakai kelayakan lengkap yang sama dengan indeks kanonis; log yang berubah perlu dikalibrasi ulang. Penggunaan baru yang terverifikasi tetap menyimpan catatan pertama meski kalibrasi dibatalkan. Penyimpanan sebagian dilaporkan terpisah.
 
@@ -88,7 +90,7 @@ semua cakupan lencana lengkap. Pembatalan sebelum commit riwayat tidak menambah 
 setelah commit, catatan tersimpan dan hasil berhasil tidak dibatalkan.
 Rekonsiliasi historis tetap tanpa notifikasi.
 Validasi menyeluruh alur ini masih berlangsung; uraian ini bukan pernyataan penerimaan.
-[Batas tanggal dan penyimpanan](LOCAL-DATA.md#local-achievements-242).
+[Batas tanggal dan penyimpanan](LOCAL-DATA.md#local-achievements-250).
 
 Pengenalan model untuk kolaborasi/pelangi terpisah dari harga, sehingga model yang dikenali tanpa tarif tetap tanpa harga acuan; catatan nilai uang mempertahankan label tabel harga yang telah diterbitkan, dan puncak khusus Claude tetap tersimpan saat versi Codex yang tidak terkait berubah.
 Status catatan sedang dimuat, tidak tersedia, berubah, dan dinonaktifkan ditampilkan secara jelas alih-alih jumlah kosong; penggunaan kumulatif Claude yang terverifikasi menunjukkan `≥` selama bukti Codex yang diaktifkan belum terverifikasi.
@@ -146,7 +148,7 @@ Log agen yang diletakkan sejajar tanpa sesi induk yang terbukti dari jalur tidak
 dihitung sebagai bukti pencapaian berbasis sesi. Token, harga, agregat harian dan
 baris sesi tetap sama; atribusi agen bersarang serta lencana tersimpan dipertahankan.
 
-Galeri 2.4.2 memuat 50 tema, 174 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
+Galeri 2.5.0 memuat 50 tema, 174 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
 output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
 
 Lima belas seri Claude/aktivitas menambah Platina dan Legendaris, tanpa mengubah tiga target awal, bukti, atau gambar. Hari aktif, output, dan sesi mendukung kemajuan dalam tiga hari kerja terpusat per pekan, tanpa Codex atau belanja tambahan. Tingkat hari berturut-turut tidak ditambah.
@@ -175,7 +177,7 @@ Ikon SVG inline ringan menyertai label terjemahan yang ada untuk berbagi, pengat
 Di atas 960 px, kolom lencana mengikuti isi dengan batas dua lebar kartu ringkasan beserta jarak internalnya. Kolom target berikutnya mengisi ruang tersisa, dengan jarak antarkolom 16 px. Pada lebar 960 px atau kurang, keduanya langsung bertumpuk dengan jarak 12 px. Bagian riwayat tambahan berada setelah keduanya.
 Pilihan ukuran mendahului ringkasan: koleksi 56 / 80 / 112 px, etalase 56 / 72 / 96 px; kesalahan semat dekat kontrol dan fokus keyboard tetap stabil.
 Subtotal USD effort bukan syarat pencapaian. Kosong dan tanpa harga dibedakan; nilai parsial menunjukkan batas bawah, sedangkan nilai tidak valid/overflow tidak tersedia.
-[Detail bahasa Inggris](README-en.md#heatmap-sharing-and-weekly-quota-pace-242).
+[Detail bahasa Inggris](README-en.md#heatmap-sharing-and-weekly-quota-pace-250).
 Setiap seri memiliki gambar berbeda, dipakai bersama oleh tingkatnya dengan warna tingkat. Angka hanya bilangan bulat; batas data dapat dibuka.
 Bukti belum lengkap atau kedaluwarsa ditandai, bukan dianggap progres nol, dan dikecualikan dari target berikutnya; lencana yang diperoleh tetap tersimpan.
 Kartu tertutup menampilkan progres menuju tingkat berikutnya; tahap perantara pada tangga token panjang bukan lencana, pemberitahuan, atau pilihan berbagi tambahan.
@@ -200,7 +202,7 @@ Pembukaan historis tetap senyap; pemberitahuan baru singkat di panel tanpa suara
 atau mengambil fokus. Pilih hingga sembilan lencana dan ekspor SVG persis seperti pratinjau;
 balasan lama tidak mengaktifkan ekspor. Ada pintasan kembali ke galeri dan ke pengaturan nonaktif,
 tanpa login GitHub. Riwayat akun bersama/beberapa login bukan bukti produktivitas
-pribadi. [Penyimpanan dan penghapusan](LOCAL-DATA.md#local-achievements-242).
+pribadi. [Penyimpanan dan penghapusan](LOCAL-DATA.md#local-achievements-250).
 
 ## Yang baru di v2.4
 

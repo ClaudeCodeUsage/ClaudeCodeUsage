@@ -65,8 +65,9 @@
 - 绝不上传 prompt、response、原始 JSONL 行、绝对路径、原始 session ID、
   credential 或本地用户名。v2.3.0 新增的诊断也不得记录这些内容；未经过
   明确隐私审阅，不扩大历史诊断输出范围。
-- Codex 只发现 `$CODEX_HOME/sessions/**/*.jsonl` 与
-  `$CODEX_HOME/archived_sessions/**/*.jsonl`（默认 `~/.codex`）。不得为用量
+- Codex 用量发现仅限 `$CODEX_HOME/sessions` 与 `$CODEX_HOME/archived_sessions`
+  下递归的 `.jsonl` 和 `.jsonl.zst` 普通文件（默认 `~/.codex`）；拒绝符号链接与
+  非普通文件。不得为用量
   读取 `auth.json`、SQLite、config secret、keychain、浏览器状态或未知文件。
 - 另允许流式读取 `$CODEX_HOME/session_index.jsonl`，但仅用于恢复真实线程标题所需的
   `id` → `thread_name` 映射。标题中的绝对路径必须遮蔽，标题仅驻留内存且绝不持久化；

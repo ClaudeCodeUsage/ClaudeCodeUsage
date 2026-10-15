@@ -81,7 +81,8 @@ export function addCodexOriginEvent(target: CodexAchievementUsageDelta, event: N
   return addCodexUsageDelta(target, addition);
 }
 function stableContribution(row: CodexFileContribution): boolean {
-  return row.offset === row.size && !row.discardingOversizedLine && row.identityChecked === true &&
+  return (row.compression !== 'zstd' || row.compressionVerified === true) &&
+    row.offset === row.size && !row.discardingOversizedLine && row.identityChecked === true &&
     row.parserState.schemaVersion === 4 && row.parserState.identityLocked === true &&
     !row.lineageReconciliation && !!row.lineage && row.lineage.appliedPrefixEvents === row.lineage.desiredPrefixEvents &&
     !row.qualityFlags.some(flag => ['stale-file', 'stale-reset-required', 'oversized-jsonl-line',
@@ -92,7 +93,8 @@ function stableContribution(row: CodexFileContribution): boolean {
 export function codexOriginBaselineReady(index: CodexIndexV3): boolean {
   return index.coverage.complete && index.coverage.indexedFiles === index.coverage.totalFiles &&
     Object.keys(index.files).length === index.coverage.totalFiles &&
-    Object.values(index.files).every(row => row.offset === row.size && !row.discardingOversizedLine);
+    Object.values(index.files).every(row => (row.compression !== 'zstd' || row.compressionVerified === true) &&
+      row.offset === row.size && !row.discardingOversizedLine);
 }
 function trustedContributions(index: CodexIndexV3): Set<CodexFileContribution> {
   const keys = classifyCodexSessionDuplicates(index.files).canonicalFileKeys;

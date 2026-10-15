@@ -6481,6 +6481,17 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
   }
 };
 
+const CODEX_COMPRESSION_RUNTIME_UNSUPPORTED: Record<SupportedLanguage, string> = {
+  en: 'The current VS Code runtime does not support compressed Codex logs. Please update VS Code. The last verified data is retained.',
+  'de-DE': 'Die aktuelle VS Code-Laufzeit unterstützt keine komprimierten Codex-Protokolle. Aktualisieren Sie VS Code. Die zuletzt geprüften Daten bleiben erhalten.',
+  'zh-CN': '当前 VS Code 运行环境不支持 Codex 压缩日志。请更新 VS Code；保留上次已验证的数据。',
+  'zh-TW': '目前 VS Code 執行環境不支援 Codex 壓縮日誌。請更新 VS Code；保留上次已驗證的資料。',
+  ja: '現在の VS Code 実行環境は Codex の圧縮ログに対応していません。VS Code を更新してください。前回の検証済みデータは保持されます。',
+  ko: '현재 VS Code 실행 환경은 Codex 압축 로그를 지원하지 않습니다. VS Code를 업데이트하세요. 마지막으로 검증된 데이터는 유지됩니다.',
+  'pt-BR': 'O ambiente de execução atual do VS Code não suporta logs compactados do Codex. Atualize o VS Code. Os últimos dados verificados são mantidos.',
+  id: 'Runtime VS Code saat ini tidak mendukung log Codex terkompresi. Perbarui VS Code. Data terakhir yang terverifikasi tetap dipertahankan.',
+};
+
 export class I18n {
   private static currentLanguage: SupportedLanguage = 'en';
   private static currentDecimalPlaces: number = 2;
@@ -6600,6 +6611,10 @@ export class I18n {
 
   static get t(): Translations {
     return translations[this.currentLanguage];
+  }
+
+  static get codexCompressionRuntimeUnsupported(): string {
+    return CODEX_COMPRESSION_RUNTIME_UNSUPPORTED[this.currentLanguage];
   }
 
   static get achievementManagement(): AchievementManagementCopy {

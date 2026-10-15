@@ -1,6 +1,8 @@
 import { createReadStream } from 'node:fs';
 
 import { CodexRuntimeManifestEntry } from './codexManifest';
+import { readCodexZstdRange } from './codexZstd';
+import { parseJsonObject } from './codexSchema';
 
 // Cold rebuilds are dominated by JSON parsing and index bookkeeping rather
 // than raw disk latency. A 1 MiB stream chunk keeps cancellation responsive
@@ -18,6 +20,7 @@ export interface CodexJsonlReader {
     entry: CodexRuntimeManifestEntry,
     start: number,
     endExclusive: number,
+    control?: { onReplayProgress(bytes: number): Promise<void> },
   ): AsyncIterable<Buffer>;
 }
 
@@ -27,6 +30,7 @@ export interface CodexJsonlScanResult {
   reachedEnd: boolean;
   oversizedLines: number;
   finalLineAccepted: boolean;
+  finalLineDiscarded?: true;
 }
 
 export interface CodexJsonlChunkProgress {
@@ -35,7 +39,15 @@ export interface CodexJsonlChunkProgress {
 }
 
 export const defaultCodexJsonlReader: CodexJsonlReader = {
-  async *read(entry, start, endExclusive) {
+  async *read(entry, start, endExclusive, control) {
+    if (entry.compression === 'zstd') {
+      yield* readCodexZstdRange(entry.absolutePath, start, endExclusive, entry.size, {
+        expectedSource: { size: entry.storageSize!, mtimeMs: entry.mtimeMs,
+          ctimeMs: entry.storageCtimeMs, dev: entry.dev, ino: entry.ino },
+        onReplayProgress: control?.onReplayProgress,
+      });
+      return;
+    }
     if (endExclusive <= start) {
       return;
     }
@@ -75,10 +87,16 @@ export async function scanCodexJsonlLines(
   let pendingParts: Buffer[] = [];
   let pendingBytes = 0;
   let bytesRead = 0;
+  let replayedBytes = 0;
   let oversizedLines = 0;
   let finalLineAccepted = false;
 
-  for await (const rawChunk of reader.read(entry, start, end)) {
+  for await (const rawChunk of reader.read(entry, start, end, {
+    onReplayProgress: async bytes => {
+      replayedBytes += bytes;
+      await onChunk?.({ cursor: snapshotCursor(safeOffset, discarding), bytesRead: bytesRead + replayedBytes });
+    },
+  })) {
     if (readPosition >= end) {
       break;
     }
@@ -137,11 +155,13 @@ export async function scanCodexJsonlLines(
 
     await onChunk?.({
       cursor: snapshotCursor(safeOffset, discarding),
-      bytesRead,
+      bytesRead: bytesRead + replayedBytes,
     });
   }
 
-  if (!discarding && pendingBytes > 0 && readPosition >= end && acceptFinalLine) {
+  const compressedEof = entry.compression === 'zstd' && end === entry.size && readPosition >= end;
+  const finalAcceptor = acceptFinalLine ?? (compressedEof ? (line: string) => parseJsonObject(line) !== null : undefined);
+  if (!discarding && pendingBytes > 0 && readPosition >= end && finalAcceptor) {
     let lineBuffer = pendingParts.length === 1
       ? pendingParts[0]
       : Buffer.concat(pendingParts, pendingBytes);
@@ -149,18 +169,29 @@ export async function scanCodexJsonlLines(
       lineBuffer = lineBuffer.subarray(0, lineBuffer.length - 1);
     }
     const line = lineBuffer.toString('utf8');
-    if (acceptFinalLine(line)) {
+    if (finalAcceptor(line)) {
       onLine(line, end);
       safeOffset = end;
       finalLineAccepted = true;
     }
   }
 
+  // A validated compressed frame is immutable, unlike an active plain log.
+  // Adjudicate its last record once; an invalid/oversized fragment cannot wait
+  // for an append that will never arrive and force whole-frame replay forever.
+  const finalLineDiscarded = compressedEof && !discarding && pendingBytes > 0 && !finalLineAccepted;
+  if (compressedEof) {
+    if (discarding) oversizedLines += 1;
+    safeOffset = end;
+    discarding = false;
+  }
+
   return {
     cursor: snapshotCursor(safeOffset, discarding),
-    bytesRead,
+    bytesRead: bytesRead + replayedBytes,
     reachedEnd: readPosition >= end,
     oversizedLines,
     finalLineAccepted,
+    ...(finalLineDiscarded ? { finalLineDiscarded: true as const } : {}),
   };
 }

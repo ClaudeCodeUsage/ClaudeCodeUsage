@@ -81,8 +81,9 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
   session IDs, credentials, or local usernames. New v2.3.0 performance
   diagnostics must not log them either; do not broaden older diagnostic output
   without an explicit privacy review.
-- Codex discovery is allowlisted to `$CODEX_HOME/sessions/**/*.jsonl` and
-  `$CODEX_HOME/archived_sessions/**/*.jsonl` (default `~/.codex`). Never read
+- Codex usage discovery is allowlisted to `.jsonl` and `.jsonl.zst` regular files
+  recursively under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`
+  (default `~/.codex`); reject symlinks and non-regular files. Never read
   `auth.json`, SQLite databases, config secrets, keychains, browser state, or
   unknown files for Codex usage.
 - Additionally, `$CODEX_HOME/session_index.jsonl` may be streamed solely to
