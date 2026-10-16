@@ -17,6 +17,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   a 976-file, 1.58 GB corpus: 30 s of re-reading becomes one second and zero
   body reads for an ordinary delete.
 
+### Changed
+- **Manifest scans stat files concurrently (#99)** — every refresh statted the
+  whole history one file at a time; through the Windows filter stack that is
+  the difference between a stalled and an invisible refresh when the system is
+  busy. Results stay in discovery order.
+
 ## [2.5.0] — 2026-10-15
 
 Version 2.5.0 combines local achievements and Codex compressed-log compatibility.
