@@ -133,6 +133,9 @@ jobs:
   package:
     name: Release Package
     needs: [test, ui]
+    # Explicit status check avoids the skipped UI matrix propagating through
+    # successful docs gates. Cancellation or either failed gate still blocks this job.
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.ui.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:

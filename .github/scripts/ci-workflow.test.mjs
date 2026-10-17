@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 
 const workflow = readFileSync(new URL('../workflows/test.yml', import.meta.url), 'utf8');
 function job(source, id) {
@@ -33,7 +34,8 @@ function check(source) {
   }
   assert.match(gate, /run: node \.github\/scripts\/ci-scope.mjs --gate$/m);
   assert.match(job(source, 'package'), /^    needs: \[test, ui\]$/m);
-  for (const id of ['test', 'package']) assert.doesNotMatch(job(source, id), /^\s+if:/m);
+  assert.match(job(source, 'package'), /^    if: \$\{\{ !cancelled\(\) && needs.test.result == 'success' && needs.ui.result == 'success' \}\}$/m);
+  assert.doesNotMatch(job(source, 'test'), /^\s+if:/m);
 }
 
 test('CI cancels only obsolete same-ref tests, uses verified docs scope and retains stable gates', () => check(workflow));
@@ -52,9 +54,24 @@ test('CI rejects bypassed classification, incomplete shards, cancelled gate mask
     ['UI_REQUIRED: ${{ needs.scope.outputs.ui_required }}', 'UI_REQUIRED: false'],
     ['SHARDS_RESULT: ${{ needs.ui_shards.result }}', 'SHARDS_RESULT: success'],
     ['needs: [test, ui]', 'needs: [test]'],
+    ["!cancelled() && needs.test.result == 'success' && needs.ui.result == 'success'", "always()"],
+    ["!cancelled() && needs.test.result == 'success' && needs.ui.result == 'success'", "needs.test.result == 'success' && needs.ui.result == 'success'"],
     ['run: node .github/scripts/ci-scope.mjs --gate', 'run: true'],
   ]) {
     assert.ok(workflow.includes(before), before);
     assert.throws(() => check(workflow.replace(before, after)), before);
+  }
+});
+
+test('package condition accepts successful docs gates despite skipped UI ancestors, never failed or cancelled runs', () => {
+  const condition = job(workflow, 'package').match(/^    if: \$\{\{ (.+) \}\}$/m)?.[1];
+  assert.ok(condition, 'an explicit status function is required to bypass implicit transitive success()');
+  assert.match(condition, /!cancelled\(\)/);
+  const values = ['success', 'failure', 'cancelled', 'skipped', '', 'unknown'];
+  for (const node of values) for (const ui of values) for (const wasCancelled of [false, true]) {
+    const observed = runInNewContext(condition.replace('cancelled()', 'wasCancelled'), {
+      needs: { test: { result: node }, ui: { result: ui } }, wasCancelled,
+    }, { timeout: 100 });
+    assert.equal(observed, !wasCancelled && node === 'success' && ui === 'success', `${node}/${ui}/${wasCancelled}`);
   }
 });

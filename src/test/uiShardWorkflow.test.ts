@@ -20,4 +20,5 @@ test('canonical UI shards cover the full suite and retain a fail-closed stable g
   assert.ok(aggregate.includes('UI_REQUIRED: $'+'{{ needs.scope.outputs.ui_required }}'));
   assert.ok(aggregate.includes('SHARDS_RESULT: $'+'{{ needs.ui_shards.result }}'));
   assert.match(file,/needs: \[test, ui\]/);
+  assert.ok(file.includes("if: ${{ !cancelled() && needs.test.result == 'success' && needs.ui.result == 'success' }}"));
 });

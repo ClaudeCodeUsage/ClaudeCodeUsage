@@ -2036,7 +2036,7 @@ test('CI has separate Node, browser, and package release gates', () => {
     for (const [name, block] of [['Node', node], ['UI shards', shards], ['UI gate', ui], ['package', packaging]]) {
       assert.doesNotMatch(block, /^\s+continue-on-error:/m, `${name} must propagate failures`);
     }
-    for (const block of [node, packaging]) {
+    for (const block of [node]) {
       assert.doesNotMatch(block, /^\s+if:/m, 'required gates must not be conditional or bypass default success checks');
     }
     assert.deepEqual(shards.match(/^\s+if:[^\n]*$/gm)?.map(line => line.trim()),
@@ -2064,6 +2064,9 @@ test('CI has separate Node, browser, and package release gates', () => {
       assert.ok(ui.includes(`${key}: \${{ ${value} }}`));
     }
     assert.match(packaging, /^    needs:\s*\[test, ui\]\s*$/m);
+    assert.deepEqual(packaging.match(/^\s+if:[^\n]*$/gm)?.map(line => line.trim()), [
+      "if: ${{ !cancelled() && needs.test.result == 'success' && needs.ui.result == 'success' }}",
+    ], 'docs-only matrix skips must not suppress packaging, but cancelled/failed gates must block it');
   };
   assertShardedUiGate(workflow);
   for (const [before, after] of [
