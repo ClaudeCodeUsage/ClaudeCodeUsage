@@ -8,18 +8,28 @@ import { ACHIEVEMENT_GALLERY } from '../achievementGallery';
 const root = resolve(__dirname, '../..');
 const read = (file: string): string => readFileSync(resolve(root, file), 'utf8');
 
-test('all nine README editions document the 2.5.0 candidate and its canonical opt-out', () => {
+test('all nine README editions summarize 2.5 features and link to their detail references', () => {
   for (const suffix of ['', '-en', '-de-DE', '-zh-CN', '-zh-TW', '-ja', '-ko', '-pt-BR', '-id']) {
     const doc = read(`README${suffix}.md`);
-    assert.match(doc, /2\.5\.0/, `README${suffix}.md must identify the unreleased candidate`);
+    assert.match(doc, /^## .*2\.5\b/m, `README${suffix}.md must identify the minor release`);
     assert.match(doc, /\.jsonl\.zst/, `README${suffix}.md must identify compressed-log support`);
     assert.match(doc, /enableAchievements/, `README${suffix}.md must show the disable setting`);
+    assert.match(doc, /\]\(LOCAL-DATA(?:\.zh-CN)?\.md(?:#[^)]*)?\)/,
+      `README${suffix}.md must link to data and privacy boundaries`);
+    assert.match(doc, /\]\(CHANGELOG\.md(?:#[^)]*)?\)/,
+      `README${suffix}.md must link to release details`);
   }
-  for (const file of ['README.md', 'README-en.md']) {
-    assert.match(read(file), new RegExp(`${ACHIEVEMENT_DEFINITIONS.length} (?:award conditions|level conditions|levels)`));
-    assert.match(read(file), new RegExp(`${ACHIEVEMENT_GALLERY.length} (?:display )?themes`));
-    assert.match(read(file), /historical unlocks.*quiet/i);
+});
+
+test('linked detail documents retain achievement catalog facts and quiet historical unlocks', () => {
+  for (const file of ['LOCAL-DATA.md', 'CHANGELOG.md']) {
+    assert.match(read(file), new RegExp(`${ACHIEVEMENT_DEFINITIONS.length} (?:award conditions|rules)`));
+    assert.match(read(file), new RegExp(`${ACHIEVEMENT_GALLERY.length} (?:icon-first )?(?:display )?themes`));
   }
+  assert.match(read('LOCAL-DATA.md'), /historical unlocks.*quiet/i);
+  assert.match(read('LOCAL-DATA.zh-CN.md'), /历史补认先静默保存/);
+  assert.match(read('LOCAL-DATA.md'), /`enableAchievements` defaults to true/);
+  assert.match(read('LOCAL-DATA.zh-CN.md'), /`enableAchievements` 默认开启/);
 });
 
 test('achievement storage and ownership are documented in the privacy inventory and both architecture copies', () => {

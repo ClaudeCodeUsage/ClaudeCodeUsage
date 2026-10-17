@@ -206,7 +206,38 @@ does not execute F5 or accept the installed UI.
 固定版本示例不是“最新稳定版”声明；候选记录实际工具版本、冻结源码和包 hash。
 
 CI uses separate gates, with packaging after both test jobs pass on every PR
-(`.github/workflows/test.yml`). Canonical Linux screenshots may only be updated
+(`.github/workflows/test.yml`). Node Tests (including both dependency audits),
+UI Test and Release Package remain the stable required checks. Only PRs whose
+actual tested-tree diff is verified to contain allowlisted regular documentation
+files may omit browser jobs; unknown ranges, mixed changes, renames involving code,
+symlinks, dependencies, assets, tests and CI changes run the complete UI suite.
+The UI aggregate rejects unknown, failed, cancelled or unexpected skipped results.
+Main pushes always run full UI, so a newer docs commit cannot cancel runtime
+verification and replace it with a documentation exemption.
+
+Four isolated single-worker jobs discover every current Playwright spec, then
+assign whole files exactly once using historical-duration estimates in
+`.github/scripts/ui-timings.json`. The baseline is not a test allowlist: new files
+and new tests receive nonzero weights. Invalid discovery/timings and empty shards
+fail rather than silently passing. Inspect the plan with
+`node .github/scripts/ui-shards.mjs --shard=1/4 --plan`; after compiling, omit
+`--plan` to execute that partition. Refresh timing estimates from a complete
+successful run and retain their provenance/limitations; modeled balance is not
+a measured speedup. No tests, locales, themes, retries or snapshot tolerances are removed.
+Obsolete Test runs are cancelled only within the same PR or main ref; other PRs
+and release workflows remain separate. No auto-merge or publishing is enabled.
+
+中文审阅：Node 测试（含两份依赖审计）、UI 汇总与打包仍是固定门禁。只有 PR 的实际待测
+树差异已确认全部为白名单普通文档时，才可省去浏览器；未知范围、混合改动、涉及代码的
+重命名、符号链接、依赖、资源、测试及 CI 改动均完整测 UI。汇总门禁拒绝未知、失败、取消
+或不符合预期的跳过。main 推送始终完整测 UI，防止新文档提交取消前一轮代码检查后免测。
+四个隔离单 worker 从当前完整清单按历史耗时估算分配文件，每文件恰好一次；新增文件／用例
+具有非零权重，历史数据不是白名单。发现／计时异常或空分片会失败，不删测试、语言、主题、
+重试或截图阈值。`--plan` 只检查分配；实际执行先编译，计时更新保留完整成功来源与局限，
+估算均衡不等于实测加速。过时 Test 仅在同 PR 或 main 引用内取消，不影响其他 PR／发布流程，
+不开启自动合并或发布。
+
+Canonical Linux screenshots may only be updated
 with the exact official container
 `mcr.microsoft.com/playwright:v1.64.1-noble` pinned to the multi-platform digest
 in `test.yml`, with

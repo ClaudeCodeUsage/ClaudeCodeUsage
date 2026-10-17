@@ -2036,9 +2036,12 @@ test('CI has separate Node, browser, and package release gates', () => {
     for (const [name, block] of [['Node', node], ['UI shards', shards], ['UI gate', ui], ['package', packaging]]) {
       assert.doesNotMatch(block, /^\s+continue-on-error:/m, `${name} must propagate failures`);
     }
-    for (const block of [node, shards, packaging]) {
+    for (const block of [node]) {
       assert.doesNotMatch(block, /^\s+if:/m, 'required gates must not be conditional or bypass default success checks');
     }
+    assert.deepEqual(shards.match(/^\s+if:[^\n]*$/gm)?.map(line => line.trim()),
+      ["if: needs.scope.outputs.ui_required == 'true'"]);
+    assert.match(shards, /^    needs: \[scope\]$/m);
     assert.ok(workflowStepValues(node, 'run').some(({ value }) => value === 'npm test'));
     assert.match(shards, /^      fail-fast:\s*false\s*$/m);
     const matrices = [...shards.matchAll(/^      matrix:\s*\n((?:^ {8}[^\n]*\n?)*)/gm)];
@@ -2046,16 +2049,24 @@ test('CI has separate Node, browser, and package release gates', () => {
     assert.equal(matrices[0][1].trim(), 'shard: [1, 2, 3, 4]', 'no missing, duplicate, excluded or extra shards');
     assert.deepEqual(workflowStepValues(shards, 'run').map(({ value }) => value), [
       'npm ci --ignore-scripts',
-      'npm run test:ui -- --fully-parallel --workers=1 --shard=${{ matrix.shard }}/4',
-    ], 'each shard must run the unfiltered full UI suite and propagate its exit status');
+      'npm run compile',
+      'node .github/scripts/ui-shards.mjs --shard=${{ matrix.shard }}/4',
+    ], 'each duration-balanced partition must propagate its exit status without extra filters');
     assert.match(shards, /^      image:\s*mcr\.microsoft\.com\/playwright:v1\.64\.1-noble@sha256:[a-f0-9]{64}\s*$/m);
     assert.match(shards, /^      PLAYWRIGHT_BROWSERS_PATH:\s*\/ms-playwright\s*$/m);
-    assert.match(ui, /^    needs:\s*\[ui_shards\]\s*$/m);
+    assert.match(ui, /^    needs:\s*\[scope, ui_shards\]\s*$/m);
     assert.deepEqual(ui.match(/^\s+if:[^\n]*$/gm)?.map((line) => line.trim()), ['if: always()']);
     assert.deepEqual(workflowStepValues(ui, 'run').map(({ value }) => value), [
-      "test '${{ needs.ui_shards.result }}' = 'success'",
-    ], 'failed, cancelled and skipped shards must fail the stable UI Test gate');
+      'node .github/scripts/ci-scope.mjs --gate',
+    ], 'only verified docs-only scope may omit UI; other missing/failed/cancelled shards fail closed');
+    for (const [key, value] of [['SCOPE_RESULT', 'needs.scope.result'],
+      ['UI_REQUIRED', 'needs.scope.outputs.ui_required'], ['SHARDS_RESULT', 'needs.ui_shards.result']]) {
+      assert.ok(ui.includes(`${key}: \${{ ${value} }}`));
+    }
     assert.match(packaging, /^    needs:\s*\[test, ui\]\s*$/m);
+    assert.deepEqual(packaging.match(/^\s+if:[^\n]*$/gm)?.map(line => line.trim()), [
+      "if: ${{ !cancelled() && needs.test.result == 'success' && needs.ui.result == 'success' }}",
+    ], 'docs-only matrix skips must not suppress packaging, but cancelled/failed gates must block it');
   };
   assertShardedUiGate(workflow);
   for (const [before, after] of [
@@ -2063,13 +2074,13 @@ test('CI has separate Node, browser, and package release gates', () => {
     ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3, 3]'],
     ['shard: [1, 2, 3, 4]', 'shard: [1, 2, 3, 4]\n        exclude: [{ shard: 4 }]'],
     ['--shard=${{ matrix.shard }}/4', '--shard=1/4'],
-    ['--workers=1', '--workers=1 --grep smoke'],
+    ['--shard=${{ matrix.shard }}/4', '--shard=${{ matrix.shard }}/4 --grep smoke'],
     ['--shard=${{ matrix.shard }}/4', '--shard=${{ matrix.shard }}/4 || true'],
     ['  ui_shards:\n', '  ui_shards:\n    continue-on-error: true\n'],
     ['  ui_shards:\n', '  ui_shards:\n    if: false\n'],
-    ['    needs: [ui_shards]', '    needs: [test]'],
+    ['    needs: [scope, ui_shards]', '    needs: [test]'],
     ['    if: always()', '    if: success()'],
-    ["= 'success'", "!= 'failure'"],
+    ['SHARDS_RESULT: $'+'{{ needs.ui_shards.result }}', 'SHARDS_RESULT: success'],
     ['    needs: [test, ui]', '    needs: [test]'],
     ['  package:\n', '  package:\n    if: always()\n'],
   ]) {

@@ -58,185 +58,27 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 - **Harga multi-vendor** — Opus 4.x / Sonnet 4.x / Haiku 4.5 diverifikasi terhadap harga publik Anthropic; tarif referensi untuk OpenAI / Gemini / DeepSeek / Kimi / GLM / Qwen dengan fallback berbasis family model. `Refresh Token Pricing` menarik data LiteLLM langsung.
 - **Personalisasi** — bahasa, zona waktu, angka desimal, angka ringkas, pengelompokan proyek, toggle penyegaran otomatis dashboard.
 
-Versi 2.5.0 menggabungkan pencapaian lokal dan dukungan `.jsonl.zst` Codex di `sessions` serta `archived_sessions`. Zstd adalah kompresi tanpa kehilangan data, bukan ringkasan LLM: berkas yang lebih kecil tidak mengubah jumlah token tercatat. Pembacaan tetap lokal tanpa mengubah log sumber atau menyimpan salinan teks hasil dekompresi; `.jsonl` bernama sama dalam folder yang sama diprioritaskan. Zstd bawaan (Node 22.15+ / 23.8+) tidak menambah dependensi; host yang tidak mendukungnya melaporkan keterbatasan dan mempertahankan total terakhir yang terverifikasi.
+## Yang baru di v2.5
 
-## Pencapaian lokal (2.5.0)
+- **Pencapaian lokal** — lihat lencana, progres, dan target berikutnya. Aktif secara default;
+  nonaktifkan Local achievements di pengaturan (`enableAchievements`). Tanggal berasal dari
+  log tersimpan, bukan seluruh riwayat akun; kalibrasi manual memperbarui tanggal yang didukung.
+- **Kartu pencapaian** — pilih lencana yang diperoleh, periksa pratinjau, lalu ekspor secara
+  eksplisit sebagai SVG lokal. Tanpa login GitHub atau unggahan otomatis.
+- **Berbagi peta panas** — pilih Claude, Codex, atau keduanya, dengan Token atau nilai setara
+  API opsional. Nilai berupa estimasi, bukan tagihan; nilai tiap penyedia ditampilkan terpisah.
+- **Laju kuota mingguan** — prakiraan opsional, nonaktif secara default, berdasarkan pengamatan
+  mingguan yang sudah ada. Memerlukan data baru dan tepercaya; log Codex saat ini belum mendukung prakiraan.
+- **Riwayat Codex terkompresi** — baca `.jsonl.zst` bersama `.jsonl` secara lokal tanpa mengubah
+  log sumber, menyimpan salinan hasil dekompresi, atau menghitung riwayat yang sama dua kali.
 
-Tanggal sesi memakai kelayakan lengkap yang sama dengan indeks kanonis; log yang berubah perlu dikalibrasi ulang. Penggunaan baru yang terverifikasi tetap menyimpan catatan pertama meski kalibrasi dibatalkan. Penyimpanan sebagian dilaporkan terpisah.
-
-Buka semua / Tutup semua hanya menyimpan keadaan buka kartu dalam status UI lokal
-yang sudah ada, tanpa mengubah sumber atau pemberian lencana. Tingkat memakai
-Perunggu / Perak / Emas; ID lama, sematan, dan daftar harga referensi tetap sama.
-Syarat dan satuan yang persis sama ditampilkan sekali. Bagian referensi nilai uang bersama
-menampilkan daftar harga saat ini/tanggal untuk setiap penyedia aktif serta keterangan bahwa
-nilainya bukan tagihan. Daftar harga historis yang berbeda tetap dikaitkan dengan penghargaan
-yang tepat; kartu mempertahankan cakupan penggunaan/harga tanpa mengulang catatan harga/dasar pemberian.
-Kartu dengan semua tingkat
-tercapai menampilkan statistik saat ini tanpa dipotong; bukti usang atau hilang
-tidak diganti dengan nilai target.
-
-Baris tingkat yang dibuka memakai warna tema per tingkat untuk nama (warna latar depan
-pada kontras tinggi), dengan ambang tebal dan rata kanan pada baris judul yang sama.
-Hanya tingkat tepat setelah tingkat tertinggi yang diraih menampilkan “Berlangsung” saat
-bukti siap; tingkat selanjutnya, kartu yang seluruh tingkatnya diraih, dan bukti tertunda
-tidak menampilkan label itu. Tanggal terverifikasi dari log tersimpan tampil sebagai tanggal
-ISO saja; maknanya dijelaskan sekali di “Dasar data” dan asalnya tetap ada dalam title/ARIA.
-Jika kedua tanggal tersedia, hanya tanggal terverifikasi yang terlihat; rincian pencatatan
-pertama tetap di title/ARIA. Jika hanya tanggal pencatatan pertama tersedia, label eksplisitnya
-tetap tampil; tanggal tidak diketahui tetap demikian. Perubahan tampilan ini tidak mengubah
-pemberian lencana, aturan, perhitungan tanggal, atau catatan tersimpan.
-
-**Tugas utama independen** menghitung kepemilikan akar Codex yang dapat diverifikasi
-dengan penggunaan positif model yang dikenali (input atau output). Tugas utama dan
-turunannya dihitung sekali, bukan sebagai tugas selesai. ID dan ambang aturan lama tetap sama.
-
-Navigasi dan judul halaman menjadi **Bagikan & bandingkan**. Pilihan lencana memiliki
-lebar seragam dan baris tingkat terpisah. Perbaikan ikon kotak centang memakai sumber
-daya lokal yang sama dengan CSP Webview utama. SVG ekspor memuat
-[tautan repositori publik tetap](https://github.com/ClaudeCodeUsage/ClaudeCodeUsage), dengan
-pembungkusan teks dan jarak untuk label panjang. Pratinjau/ekspor tidak menambah permintaan
-jaringan otomatis atau metadata pribadi; pilihan eksplisit dan SVG yang telah diterima tetap
-tidak berubah. Penyatuan/pemolesan visual halaman berbagi secara menyeluruh dan arsip
-penggunaan tahan lama ditunda ke versi berikutnya; keduanya belum diterapkan dalam versi 2.5.0.
-
-Tanggal tiap tingkat hanya diturunkan dalam memori dan berarti tanggal paling awal
-yang dapat diverifikasi dari log tersimpan, bukan riwayat lengkap akun. Tanggal
-pencatatan pertama dan status belum dibaca tetap utuh. Agregat harian menyediakan
-tanggal penggunaan, output, cache, model/keluarga, aktivitas, dan pekan yang didukung.
-Hanya kalibrasi manual yang juga mengagregasi catatan Claude yang sudah ada dalam
-memori untuk sesi dengan output, sesi Fable, serta Fable/keluarga lain dalam satu
-sesi. Penyegaran rutin saat data sudah dimuat tidak mengagregasi ulang catatan itu.
-Syarat yang belum didukung tetap bertanggal tidak diketahui atau memakai catatan pertama.
-
-Kalibrasi berjalan lokal dan inkremental, satu operasi pada satu waktu, tanpa
-memaksa pemindaian penuh, menghapus lencana, atau meminta OAuth, harga, BYOK, maupun
-layanan jaringan lain. Kalibrasi tidak memaksa pemberian lencana; sibuk, keseluruhan
-indeks terkini belum diterima, atau gagal bukan keberhasilan. Riwayat parsial yang
-terverifikasi tetap berupa batas bawah atau tidak diketahui; selesai tidak berarti
-semua cakupan lencana lengkap. Pembatalan sebelum commit riwayat tidak menambah lencana historis;
-setelah commit, catatan tersimpan dan hasil berhasil tidak dibatalkan.
-Rekonsiliasi historis tetap tanpa notifikasi.
-[Batas tanggal dan penyimpanan](LOCAL-DATA.md#local-achievements-250).
-
-Pengenalan model untuk kolaborasi/pelangi terpisah dari harga, sehingga model yang dikenali tanpa tarif tetap tanpa harga acuan; catatan nilai uang mempertahankan label tabel harga yang telah diterbitkan, dan puncak khusus Claude tetap tersimpan saat versi Codex yang tidak terkait berubah.
-Status catatan sedang dimuat, tidak tersedia, berubah, dan dinonaktifkan ditampilkan secara jelas alih-alih jumlah kosong; penggunaan kumulatif Claude yang terverifikasi menunjukkan `≥` selama bukti Codex yang diaktifkan belum terverifikasi.
-Target berikutnya menampilkan nama dan tingkat target, kartu yang diperoleh mempertahankan tingkatnya, dan ekspor SVG menampilkan setiap tingkat sekali saja.
-
-Detail lencana membuka statistik model/token saat ini dari penyedia yang sama, dengan kembali dan fokus terjaga.
-Tidak memindai ulang log atau mengganti bukti lintas penyedia/periode lama dengan jumlah saat ini.
-
-Saat melepas sematan lama, fokus keyboard tetap dalam tema tanpa menyegarkan data.
-Detail eksplorasi menampilkan langkah tersimpan: koleksi, pratinjau, dan ekspor lokal yang berhasil.
-Lencana lama tidak mengisi langkah yang hilang; umpan balik dan pengaturan tetap terpisah.
-Ikon tidak memuat angka tetap. Notifikasi baru hanya menggerakkan lencana sekali selama 440 ms;
-teks, gerakan dikurangi, dan kontras tinggi tetap statis, tanpa suara atau perubahan fokus.
-
-Model dalam satu tugas dibedakan dari jumlah tugas multimodel yang terkumpul.
-Fable dalam sesi yang sama memerlukan output Fable dan keluarga Claude lain
-yang dikenali dalam satu sesi, tanpa menyiratkan urutan eksekusi.
-
-Matikan **Tampilkan notifikasi pencapaian** (`showAchievementNotices`) untuk tetap
-menyimpan lencana dan catatan belum dibaca tanpa notifikasi melayang; mengaktifkan kembali tidak memutar ulangnya.
-
-Tingkat Token Claude/Codex baru yang terbukti menyimpan status belum dibaca dan
-hari pencatatan pertama meski pembaruan dasbor dijeda. Aturan mencakup volume
-keluarga model, output, pembacaan cache, pembuatan cache Claude, dan volume kumulatif.
-Impor dan pembangunan ulang manual tetap senyap; nilai referensi API kumulatif kini memiliki bukti sendiri, cakupan penggunaan lain masih memerlukan bukti asal.
-
-Catatan penghargaan hanya lokal, maksimal 64 KiB. Tanggal lama tetap tidak diketahui;
-tindakan baru yang tersimpan mempertahankan status belum dibaca dan hari pencatatan pertama
-meski notifikasi terlewat. Penghargaan tersimpan bertahan setelah mulai ulang dan dibagikan antarjendela.
-Penghargaan dari aturan lama mempertahankan riwayatnya tanpa membuktikan syarat baru. Penghapusan tidak mengubah log sumber penyedia.
-Notifikasi hanya tampil di panel yang terlihat di depan, maksimal sekali per lima
-menit antarjendela dan setelah mulai ulang. Hanya kelompok yang dikonfirmasi tampil
-ditandai dibaca; yang terlewat tetap belum dibaca. Hover atau fokus papan ketik menunda penutupan.
-Penghargaan yang terlewat masuk ringkasan yang awalnya terlipat, maksimal enam
-tingkat tepat per kelompok. Hanya konfirmasi eksplisit setelah penyimpanan lokal
-berhasil yang menandai kelompok itu dibaca; melihat, menyematkan dan berbagi tidak.
-Penghargaan baru dari jendela lain tetap belum dibaca.
-Baru diperoleh menampilkan maksimal tiga seri baru; catatan yang dapat dilipat
-memuat maksimal tiga puluh tingkat dengan tautan aturan. Tanggal adalah pencatatan
-pertama, bukan perkiraan pencapaian asli; tanggal lama tetap tidak diketahui.
-Melihat catatan tidak menandainya sebagai sudah dibaca atau memilihnya untuk dibagikan.
-Ikon semat pada kartu tertutup dan pemilih dengan pencarian mendukung hingga enam tema dengan urutan eksplisit.
-Mode manual hanya menampilkan pilihan pengguna; rekomendasi otomatis maksimal tiga.
-Pilihan dan urutan bertahan setelah mulai ulang, tanpa memilih lencana untuk dibagikan.
-Lencana tersemat yang tersembunyi dapat dilepas melalui daftar lipat tanpa mengaktifkan kembali penyedia.
-
-Berbagi secara eksplisit dapat menyertakan lencana yang sudah diperoleh dan tersimpan dari penyedia nonaktif.
-Galeri dan pilihan sematan baru mengikuti penyedia aktif; lencana tersimpan tidak membuktikan
-progres saat ini atau memberi hak untuk penghargaan baru.
-
-Catatan penggunaan plugin yang diimpor tidak memicu pemberitahuan. Tindakan baru
-yang berhasil disimpan dapat membuka lencana meski dasbor ditutup, tanpa membuka atau menyegarkan panel tersembunyi.
-
-Log agen yang diletakkan sejajar tanpa sesi induk yang terbukti dari jalur tidak
-dihitung sebagai bukti pencapaian berbasis sesi. Token, harga, agregat harian dan
-baris sesi tetap sama; atribusi agen bersarang serta lencana tersimpan dipertahankan.
-
-Galeri 2.5.0 memuat 50 tema, 178 syarat pembukaan, dan 52 kelompok gambar, meliputi token model,
-output/cache, hari aktif, rekor mingguan, dan beberapa tindakan sengaja di plugin.
-
-Lima belas seri Claude/aktivitas menambah Platina dan Legendaris, tanpa mengubah tiga target awal, bukti, atau gambar. Hari aktif, output, dan sesi mendukung kemajuan dalam tiga hari kerja terpusat per pekan, tanpa Codex atau belanja tambahan. Tingkat hari berturut-turut tidak ditambah.
-
-Ada 24 syarat nilai uang dalam enam tema terpisah Claude/Codex: subtotal kumulatif yang memiliki harga, minggu kalender yang telah berakhir dan dimulai pada Senin, serta penggunaan tunggal.
-Kedua seri mingguan memiliki lima tingkat: Perunggu USD 100, Perak USD 500, Emas USD 2.500,
-Platina USD 10.000, dan Legendaris USD 25.000. Hanya dua tingkat terakhir tiap penyedia yang baru;
-ID/ambang lama, syarat minggu yang telah berakhir, dan dasar harga referensi tetap tidak berubah.
-Minggu mengikuti zona waktu data saat ini; penggunaan tunggal berarti satu sesi Claude atau satu pohon tugas Codex yang terverifikasi.
-Harga referensi USD tetap dengan versi memerlukan model yang dikenal secara tepat dan tarif komponen lengkap, termasuk TTL cache Claude.
-Model tak dikenal tetap tanpa harga; bagian terverifikasi membuktikan batas bawah, bukan tagihan, kualitas atau pendapatan. Hanya tonggak uang kumulatif dari tambahan baru terverifikasi dengan referensi sama menyimpan status belum dibaca dan hari pertama tercatat. Riwayat, minggu selesai dan sesi/tugas tunggal tetap senyap dengan tanggal tak diketahui. Bukti Token/uang terpisah dan memakai satu kelompok notifikasi; gagal simpan tidak menampilkan tanggal optimistis.
-Kartu effort Codex yang ada menampilkan enam tingkat ketika dibuka: Token, output, tugas akar, progres gabungan dan subtotal USD referensi tetap/cakupan sebagai informasi. Hanya output positif milik akar × effort itu sendiri yang dihitung, tanpa approval-reviewer. Atribusi model ambigu tidak dibagi proporsional; bukti hilang tetap tak diketahui. Tanpa aturan/preferensi baru atau atribusi effort Claude.
-Model/tim/effort/pelangi memakai syarat gabungan output, pengalaman berulang, dan volume.
-Heatmap berbagi menyediakan Claude / Codex / Keduanya dan Token / Nilai setara API. Token adalah default; nilai uang dipilih secara eksplisit dan memakai estimasi harian terkini, bukan harga referensi pencapaian.
-Claude berupa estimasi, Codex hanya memakai harga model tepat yang dikenal. Harga hilang dan subtotal batas bawah ditandai dengan cakupan; nilai kedua penyedia tidak pernah dijumlahkan.
-Cakupan Claude hanya memeriksa tarif model/komponen terpilih dalam memori. Fallback Sonnet generik untuk model tak dikenal tidak dihitung; tarif hilang tetap tanpa harga, nol eksplisit sah. Biaya tersimpan tidak dihitung ulang; mode Token/nilai tersembunyi tidak mencari tarif atau uang.
-Menyembunyikan nilai mengembalikan warna, teks dan Markdown ke Token serta membatalkan pratinjau lama. Ekspor memakai byte SVG yang diterima, dengan pemeriksaan sebelum/sesudah dialog simpan, tanpa pemindaian log atau jaringan baru.
-**Laju kuota mingguan** (`showWeeklyQuotaPace`) default nonaktif dan memakai observasi yang sudah ada: terpakai 29% saat 25% siklus berlalu memproyeksikan 116%.
-Tidak ada prediksi dalam enam jam pertama, setelah tiga puluh menit tanpa observasi baru, atau setelah reset. Kredensial tidak valid segera menarik prediksi meski dasbor dijeda; pergantian akun/sumber dan penurunan penghitung menunggu pergantian tujuh hari normal yang terverifikasi.
-Log Codex saat ini tidak memverifikasi akun, sehingga prediksi tidak tersedia. Dasbor dan tooltip bilah status berbagi terjemahan; teks bilah dan format khusus tetap sama. Tanpa permintaan, timer atau riwayat baru.
-Jika atribusi akun tidak jelas, nilai total dan belum terpakai setara API untuk siklus
-berjalan tetap berupa estimasi riwayat lokal berkeyakinan rendah, bukan saldo akun.
-Pemisahan akurat per akun ditunda hingga dukungan multiakun mendatang; perkiraan ini
-terpisah dari prediksi laju kuota mingguan.
-
-Ringkasan memakai kartu horizontal dengan lebar terbatas: gambar, nama, tingkat, dan progres tetap berdekatan. Tombol semat berada di dalam kartu, dan target berikutnya memiliki bilah progres tipis. Beberapa lencana tidak lagi tersebar sepanjang layar; tampilan sempit membungkus kartu tanpa mengecilkan teks. Label tingkat emas tetap terbaca pada tema terang dengan aksen emas yang dipertahankan.
-
-Ikon SVG inline ringan menyertai label terjemahan yang ada untuk berbagi, pengaturan, filter, ukuran, editor etalase, dan informasi; jumlah ditampilkan sebagai chip ringkas.
-Di atas 960 px, kolom lencana mengikuti isi dengan batas dua lebar kartu ringkasan beserta jarak internalnya. Kolom target berikutnya mengisi ruang tersisa, dengan jarak antarkolom 16 px. Pada lebar 960 px atau kurang, keduanya langsung bertumpuk dengan jarak 12 px. Bagian riwayat tambahan berada setelah keduanya.
-Pilihan ukuran mendahului ringkasan: koleksi 56 / 80 / 112 px, etalase 56 / 72 / 96 px; kesalahan semat dekat kontrol dan fokus keyboard tetap stabil.
-Subtotal USD effort bukan syarat pencapaian. Kosong dan tanpa harga dibedakan; nilai parsial menunjukkan batas bawah, sedangkan nilai tidak valid/overflow tidak tersedia.
-[Detail bahasa Inggris](README-en.md#heatmap-sharing-and-weekly-quota-pace-250).
-Setiap seri memiliki gambar berbeda, dipakai bersama oleh tingkatnya dengan warna tingkat. Angka hanya bilangan bulat; batas data dapat dibuka.
-Bukti belum lengkap atau kedaluwarsa ditandai, bukan dianggap progres nol, dan dikecualikan dari target berikutnya; lencana yang diperoleh tetap tersimpan.
-Kartu tertutup menampilkan progres menuju tingkat berikutnya; tahap perantara pada tangga token panjang bukan lencana, pemberitahuan, atau pilihan berbagi tambahan.
-Kecil / Sedang / Besar mengubah lencana dan bingkai kartu, menjaga ukuran huruf dan area klik. Target berikutnya maksimal tiga tema, melewati target yang belum terbukti dan model yang belum dipakai.
-Target memerlukan progres positif dengan bukti terkini; urutan tetap selama kunjungan. Klik membuka aturan tanpa membaca log atau otomatis memilih untuk berbagi.
-Setelah indeks terkini lengkap, silsilah Codex tanpa konflik dapat membuktikan tonggak token/agen; cabang yang berkonflik dan keturunannya dikecualikan.
-
-Setelah riwayat lokal terkini terverifikasi dan seluruhnya terindeks, sebagian tanggal yang tepercaya
-dapat menampilkan `≥` untuk progres aktivitas, keluarga model dan Token mingguan. Batas bawah nilai uang
-mingguan hanya memakai berkas terpilih yang terverifikasi dengan seluruh penggunaan bertanggal;
-cakupan harga dan tanggal terpisah. Sebagian tanggal tidak membuktikan riwayat lengkap atau penggunaan
-nol, dan rata-rata empat minggu/puncak tersimpan tetap tertunda hingga cakupan lengkap.
-Cakupan kumulatif/tugas tetap sama, tanpa pembacaan sumber, penyimpanan atau panggilan jaringan tambahan.
-
-Seri dan tingkat dihitung terpisah. Filter lokal bertahan setelah muat ulang;
-target berikutnya tampil di kartu, semua aturan tingkat ada di bagian yang dapat dibuka.
-Aktif secara default; matikan **Local achievements** di ⚙ Settings
-(`enableAchievements`) untuk menghentikan penghargaan baru dan pengisian bukti jam
-tambahan, bukan pelacakan penggunaan biasa. Saat upgrade ada satu pemberitahuan
-non-modal dengan pilihan menonaktifkan; pilihan nonaktif sebelumnya tetap berlaku.
-Pembukaan historis tetap senyap; pemberitahuan baru singkat di panel tanpa suara
-atau mengambil fokus. Pilih hingga sembilan lencana dan ekspor SVG persis seperti pratinjau;
-balasan lama tidak mengaktifkan ekspor. Ada pintasan kembali ke galeri dan ke pengaturan nonaktif,
-tanpa login GitHub. Riwayat akun bersama/beberapa login bukan bukti produktivitas
-pribadi. [Penyimpanan dan penghapusan](LOCAL-DATA.md#local-achievements-250).
+Lihat [catatan perubahan](CHANGELOG.md) dan [data lokal dan privasi](LOCAL-DATA.md)
+untuk batas cakupan tanggal, ekspor, penyimpanan, dan kuota.
 
 ## Yang baru di v2.4
 
-<details open>
-<summary>Perubahan utama rilis terbaru</summary>
+<details>
+<summary>Perubahan utama v2.4</summary>
 
 - **Penyegaran dan pemulihan lebih jelas** — jeda otomatis berlaku pada kedua
   halaman, bukan pengumpulan latar atau status bar. Kegagalan mempertahankan

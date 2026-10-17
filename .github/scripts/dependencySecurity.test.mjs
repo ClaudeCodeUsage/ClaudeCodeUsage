@@ -54,11 +54,15 @@ test('CI keeps the existing required checks and package dependencies', () => {
   assert.match(job(ci, 'ui'), /^    name: UI Test$/m);
   assert.match(job(ci, 'package'), /^    name: Release Package$/m);
   assert.match(job(ci, 'package'), /^    needs: \[test, ui\]$/m);
-  assert.match(job(ci, 'ui'), /^    needs: \[ui_shards\]$/m);
+  assert.match(job(ci, 'package'), /^    if: \$\{\{ !cancelled\(\) && needs.test.result == 'success' && needs.ui.result == 'success' \}\}$/m);
+  assert.match(job(ci, 'ui'), /^    needs: \[scope, ui_shards\]$/m);
   assert.match(job(ci, 'ui'), /^    if: always\(\)$/m);
-  assert.match(job(ci, 'ui'), /test '\$\{\{ needs\.ui_shards\.result \}\}' = 'success'/);
+  assert.match(job(ci, 'ui'), /SHARDS_RESULT: \$\{\{ needs\.ui_shards\.result \}\}/);
+  assert.match(job(ci, 'ui'), /SCOPE_RESULT: \$\{\{ needs\.scope\.result \}\}/);
+  assert.match(job(ci, 'ui'), /UI_REQUIRED: \$\{\{ needs\.scope\.outputs\.ui_required \}\}/);
+  runStep(job(ci, 'ui'), 'node .github/scripts/ci-scope.mjs --gate');
   assert.deepEqual([...active(ci).matchAll(/^  ([\w-]+):\n    name:/gm)].map((m) => m[1]),
-    ['test', 'ui_shards', 'ui', 'package']);
+    ['scope', 'test', 'ui_shards', 'ui', 'package']);
 });
 
 test('Node 24 is primary and Node 22 retains the focused native Zstd guard', () => {
