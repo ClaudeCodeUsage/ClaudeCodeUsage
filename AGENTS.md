@@ -145,11 +145,18 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
 ## Development and tests
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm run compile
 npm test
-npx @vscode/vsce package
+npm ci --prefix .github/build-tools --ignore-scripts
+.github/build-tools/node_modules/.bin/vsce package
 ```
+
+- Use Node 24 for development and primary CI (`.nvmrc`). Keep release tools in
+  the independent `.github/build-tools` lock, install with scripts disabled and
+  invoke its local binaries; never replace these commands with an unpinned
+  download. Audit both locks before release. Do not raise the VS Code API floor
+  or runtime requirements merely to update development tools.
 
 - Product TypeScript tests use `node:test` and live in `src/test/*.test.ts`.
   GitHub automation uses focused ESM tests in `.github/scripts/*.test.mjs`.

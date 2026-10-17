@@ -70,21 +70,29 @@ export async function scanUsageManifest(
     await walkJsonl(path.join(root, 'projects'), paths, io);
   }
   const entries = new Map<string, UsageFileFingerprint>();
-  for (const [discoveryIndex, filePath] of paths.entries()) {
+  // One stat per file, but fanned out: on Windows each stat is a round trip
+  // through the file system filter stack (antivirus included), so a sequential
+  // loop over a large history costs seconds on every single refresh.
+  // mapWithConcurrency keeps the result in discovery order.
+  const fingerprints = await mapWithConcurrency(paths, 8, async (filePath, discoveryIndex) => {
     try {
       const fileStat = await io.stat(filePath);
       const hasStableIdentity = fileStat.dev > 0 && fileStat.ino > 0;
-      entries.set(filePath, {
+      return {
         path: filePath,
         size: fileStat.size,
         mtimeMs: fileStat.mtimeMs,
         discoveryIndex,
         dev: hasStableIdentity ? fileStat.dev : undefined,
         ino: hasStableIdentity ? fileStat.ino : undefined,
-      });
+      };
     } catch (error) {
       if (!isMissingPathError(error)) throw error;
+      return null;
     }
+  });
+  for (const fingerprint of fingerprints) {
+    if (fingerprint) entries.set(fingerprint.path, fingerprint);
   }
   return {
     entries,
@@ -130,10 +138,19 @@ export async function mapWithConcurrency<T, R>(
   }
   const output = new Array<R>(values.length);
   let next = 0;
+  let failed = false;
   const run = async (): Promise<void> => {
-    while (next < values.length) {
+    while (next < values.length && !failed) {
       const index = next++;
-      output[index] = await worker(values[index], index);
+      try {
+        output[index] = await worker(values[index], index);
+      } catch (error) {
+        // A fatal error rejects the scan. Workers already inside a call may
+        // settle, but nothing further is dequeued: the rest of a failed
+        // history must not keep running after the caller has moved on.
+        failed = true;
+        throw error;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(limit, values.length) }, run));

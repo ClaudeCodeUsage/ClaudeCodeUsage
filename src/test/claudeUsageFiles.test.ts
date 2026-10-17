@@ -50,6 +50,88 @@ test('manifest scanning fails closed on permission errors but tolerates stat ENO
   assert.equal(missing.entries.size, 0);
 });
 
+test('manifest scanning stats files concurrently and keeps discovery order', { timeout: 10_000 }, async () => {
+  const { root, file } = await fixture();
+  const project = path.dirname(file);
+  const names = Array.from({ length: 20 }, (_, index) => `session-${String(index).padStart(2, '0')}.jsonl`);
+  for (const name of names) {
+    await writeFile(path.join(project, name), '{"timestamp":"2026-01-01T00:00:00.000Z"}\n');
+  }
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let started = 0;
+  const admissions = new Map<number, () => void>();
+  const waitForStarted = (count: number): Promise<void> => started >= count
+    ? Promise.resolve()
+    : new Promise((resolve) => admissions.set(count, resolve));
+  const pending: Array<() => void> = [];
+  const manifestPromise = scanUsageManifest([root], {
+    readdir: (dir: string) => readdir(dir, { withFileTypes: true }),
+    stat: (filePath: string) => new Promise((resolve) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      pending.push(() => {
+        inFlight -= 1;
+        resolve(stat(filePath));
+      });
+      started += 1;
+      admissions.get(started)?.();
+      admissions.delete(started);
+    }),
+  });
+  // Observe actual worker admission rather than racing a fixed number of
+  // event-loop turns against filesystem completion on a loaded CI runner.
+  await waitForStarted(8);
+  assert.equal(pending.length, 8);
+  assert.equal(maxInFlight, 8, 'the eight-worker ceiling is reached, not exceeded');
+  // Releasing one worker must admit exactly one more, and never past the ceiling.
+  pending.pop()!();
+  await waitForStarted(9);
+  assert.equal(pending.length, 8);
+  assert.equal(maxInFlight, 8);
+  while (pending.length > 0) {
+    const nextAdmission = started + 1;
+    // Reverse of start order, so a completion-order leak cannot pass as discovery order.
+    pending.pop()!();
+    if (started < names.length) await waitForStarted(nextAdmission);
+  }
+  assert.deepEqual(
+    [...(await manifestPromise).entries.keys()],
+    names.map((name) => path.join(project, name)),
+  );
+  assert.equal(started, names.length, 'every discovered file is statted exactly once');
+  assert.equal(maxInFlight, 8, 'the ceiling holds through the entire drain');
+});
+
+test('a fatal stat stops scheduling files that have not started', async () => {
+  const { root, file } = await fixture();
+  const project = path.dirname(file);
+  const names = Array.from({ length: 40 }, (_, index) => `session-${String(index).padStart(2, '0')}.jsonl`);
+  for (const name of names) {
+    await writeFile(path.join(project, name), '{"timestamp":"2026-01-01T00:00:00.000Z"}\n');
+  }
+  let started = 0;
+  const blockers: Array<() => void> = [];
+  const scan = scanUsageManifest([root], {
+    readdir: (dir: string) => readdir(dir, { withFileTypes: true }),
+    stat: async () => {
+      const call = started;
+      started += 1;
+      if (call === 0) {
+        throw Object.assign(new Error('denied'), { code: 'EACCES' });
+      }
+      await new Promise<void>((resolve) => blockers.push(resolve));
+      return stat(file);
+    },
+  });
+  await assert.rejects(scan, (error: NodeJS.ErrnoException) => error.code === 'EACCES');
+  const startedAtRejection = started;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(startedAtRejection <= 8, `scheduled ${startedAtRejection} stats after a fatal error`);
+  assert.equal(started, startedAtRejection, 'no stat starts after the scan has rejected');
+  for (const release of blockers) release();
+});
+
 test('manifest diff reports changed, reused, and removed without exposing them in counters', async () => {
   const { root, file } = await fixture();
   await writeFile(file, '{"timestamp":"2026-01-01T00:00:00.000Z"}\n');

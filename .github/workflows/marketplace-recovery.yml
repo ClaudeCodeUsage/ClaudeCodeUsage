@@ -24,12 +24,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout current release policy
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: '24'
+
+      - name: Install locked release tools
+        run: |
+          npm ci --prefix .github/build-tools --ignore-scripts
+          npm audit --prefix .github/build-tools --ignore-scripts --audit-level=high
 
       - name: Resolve newest stable GitHub Release
         id: release
@@ -63,7 +68,7 @@ jobs:
         id: probe
         run: |
           set +e
-          npx -y @vscode/vsce@4.0.0 show GrowthJack.claude-code-usage --json \
+          .github/build-tools/node_modules/.bin/vsce show GrowthJack.claude-code-usage --json \
             > marketplace-extension.json 2> marketplace-probe.err
           probe_status=$?
           set -e
@@ -110,7 +115,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         run: >-
-          npx -y @vscode/vsce@4.0.0 publish
+          .github/build-tools/node_modules/.bin/vsce publish
           --packagePath claude-code-usage.vsix
           --skip-duplicate
           --pat "$VSCE_PAT"

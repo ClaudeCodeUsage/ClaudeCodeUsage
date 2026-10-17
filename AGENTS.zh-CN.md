@@ -113,11 +113,16 @@
 ## 开发与测试
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm run compile
 npm test
-npx @vscode/vsce package
+npm ci --prefix .github/build-tools --ignore-scripts
+.github/build-tools/node_modules/.bin/vsce package
 ```
+
+- 开发和主要 CI 使用 Node 24（见 `.nvmrc`）。发布工具单独锁定在
+  `.github/build-tools`，禁用安装脚本并调用其本地二进制，不改用未锁定的临时下载。
+  发布前审计两份锁文件；不因更新开发工具而提高 VS Code API 或运行时兼容门槛。
 
 - 产品 TypeScript 测试使用 `node:test`，放在 `src/test/*.test.ts`；GitHub 自动化的
   ESM 测试放在 `.github/scripts/*.test.mjs`。

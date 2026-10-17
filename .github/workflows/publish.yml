@@ -56,7 +56,7 @@ jobs:
       RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ env.RELEASE_TAG }}
           fetch-depth: 0
@@ -73,12 +73,23 @@ jobs:
           test "$HEAD_COMMIT" = "$TAG_COMMIT"
 
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # ovsx 1.2.0 declares Node >=22. Keep the publishing runtime inside
-          # the supported engine contract instead of relying on accidental
-          # compatibility from a shorter-lived CLI code path.
-          node-version: '22'
+          node-version: '24'
+
+      # Historical tags need not contain the new tooling lock. Read it from
+      # this trusted workflow revision and install outside the packaged tree.
+      # Do not expose registry credentials until installation and audit pass.
+      - name: Install locked release tools
+        run: |
+          TOOLING_REF="${{ github.workflow_sha }}"
+          TOOL_DIR="$(mktemp -d "$RUNNER_TEMP/ccu-release-tools.XXXXXX")"
+          git fetch --no-tags --depth=1 origin "$TOOLING_REF"
+          git show "$TOOLING_REF:.github/build-tools/package.json" > "$TOOL_DIR/package.json"
+          git show "$TOOLING_REF:.github/build-tools/package-lock.json" > "$TOOL_DIR/package-lock.json"
+          npm ci --prefix "$TOOL_DIR" --ignore-scripts
+          npm audit --prefix "$TOOL_DIR" --ignore-scripts --audit-level=high
+          echo "CCU_RELEASE_TOOLS=$TOOL_DIR" >> "$GITHUB_ENV"
 
       # A targeted manual retry should deliver the exact package that was
       # already reviewed and attached. Build only when the release has no asset
@@ -100,7 +111,7 @@ jobs:
 
       - name: Install dependencies
         if: github.event_name == 'release' || steps.restore_package.outputs.restored != 'true'
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       # The release tag is the single source of truth for the version. Stamp it
       # into package.json so vsce packages the right number — no human bump, no
@@ -119,14 +130,15 @@ jobs:
 
       - name: Package .vsix
         if: github.event_name == 'release' || steps.restore_package.outputs.restored != 'true'
-        run: npx -y @vscode/vsce@4.0.0 package --out claude-code-usage.vsix
+        run: |
+          "$CCU_RELEASE_TOOLS/node_modules/.bin/vsce" package --out claude-code-usage.vsix
 
       # Some historical release tags predate the package verifier. Load the
       # current workflow's policy only after packaging so policy files can
       # neither be missing on the tag nor leak into the VSIX being checked.
       # A package that no longer meets current safety policy fails closed.
       - name: Checkout current release verification policy
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}
           path: .release-policy
@@ -159,7 +171,7 @@ jobs:
         timeout-minutes: 12
         run: |
           for attempt in 1 2 3; do
-            if npx -y @vscode/vsce@4.0.0 publish --packagePath claude-code-usage.vsix --skip-duplicate --pat "$VSCE_PAT"; then
+            if "$CCU_RELEASE_TOOLS/node_modules/.bin/vsce" publish --packagePath claude-code-usage.vsix --skip-duplicate --pat "$VSCE_PAT"; then
               exit 0
             fi
             if [[ "$attempt" == "3" ]]; then
@@ -177,7 +189,7 @@ jobs:
         timeout-minutes: 12
         run: |
           for attempt in 1 2 3; do
-            if npx -y ovsx@1.2.0 publish claude-code-usage.vsix --skip-duplicate --pat "$OVSX_PAT"; then
+            if "$CCU_RELEASE_TOOLS/node_modules/.bin/ovsx" publish claude-code-usage.vsix --skip-duplicate --pat "$OVSX_PAT"; then
               exit 0
             fi
             if [[ "$attempt" == "3" ]]; then

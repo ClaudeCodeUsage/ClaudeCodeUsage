@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
-const CHECKOUT_SHA = 'actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5';
+const CHECKOUT_SHA = 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1';
 
 function read(relativePath) {
   return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
@@ -127,8 +127,8 @@ test('release delivery retries safely and does not let one registry block the ot
   assert.doesNotMatch(workflow, /if gh release download/);
   assert.equal((workflow.match(/steps\.restore_package\.outputs\.restored != 'true'/g) ?? []).length, 4);
   assert.match(workflow, /tag_name: \$\{\{ env\.RELEASE_TAG \}\}/);
-  assert.match(workflow, /@vscode\/vsce@4\.0\.0 publish[\s\S]*?--skip-duplicate/);
-  assert.match(workflow, /ovsx@1\.2\.0 publish[\s\S]*?--skip-duplicate/);
+  assert.match(workflow, /\/\.bin\/vsce" publish[\s\S]*?--skip-duplicate/);
+  assert.match(workflow, /\/\.bin\/ovsx" publish[\s\S]*?--skip-duplicate/);
   assert.equal((workflow.match(/continue-on-error: true/g) ?? []).length, 3);
   assert.equal((workflow.match(/for attempt in 1 2 3/g) ?? []).length, 2);
   assert.equal((workflow.match(/timeout-minutes: 12/g) ?? []).length, 2);
@@ -146,12 +146,13 @@ test('Marketplace recovery reconciles the newest stable release without rebuildi
   assert.match(recovery, /releases\/latest/);
   assert.match(recovery, /gh release download[\s\S]*?claude-code-usage\.vsix/);
   assert.match(recovery, /verify-vsix\.mjs[\s\S]*?steps\.release\.outputs\.version/);
-  assert.doesNotMatch(recovery, /npm ci|npm run compile|vsce@4\.0\.0 package/);
-  assert.match(recovery, /vsce@4\.0\.0 show GrowthJack\.claude-code-usage --json/);
+  assert.doesNotMatch(recovery, /npm run compile|\/\.bin\/vsce package/);
+  assert.match(recovery, /npm ci --prefix \.github\/build-tools --ignore-scripts/);
+  assert.match(recovery, /\/\.bin\/vsce show GrowthJack\.claude-code-usage --json/);
   assert.match(recovery, /Microsoft\.VisualStudio\.Services\.VsixSha256/);
   assert.match(recovery, /sha256sum claude-code-usage\.vsix/);
   assert.match(recovery, /steps\.probe\.outputs\.needed == 'true'/);
-  assert.match(recovery, /vsce@4\.0\.0 publish[\s\S]*?--skip-duplicate/);
+  assert.match(recovery, /\/\.bin\/vsce publish[\s\S]*?--skip-duplicate/);
   assert.match(recovery, /continue-on-error: true/);
   assert.match(recovery, /recovery will retry next hour/i);
 });
@@ -173,7 +174,7 @@ test('release draft gets a post-merge reconciliation pass', () => {
 test('maintainer-only mention workflow retains its privileged Claude boundary', () => {
   const privileged = read('.github/workflows/claude.yml');
   assert.match(privileged, /contents: write/);
-  assert.match(privileged, /anthropics\/claude-code-action@v1/);
+  assert.match(privileged, /anthropics\/claude-code-action@[a-f0-9]{40}/);
   assert.match(privileged, /OWNER","MEMBER","COLLABORATOR/);
 });
 

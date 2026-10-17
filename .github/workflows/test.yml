@@ -26,18 +26,27 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            .github/build-tools/package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
+      - name: Install locked build tools
+        run: npm ci --prefix .github/build-tools --ignore-scripts
+      - name: Audit root dependencies
+        run: npm audit --audit-level=high --ignore-scripts
+      - name: Audit build tools
+        run: npm audit --prefix .github/build-tools --audit-level=high --ignore-scripts
       - name: Run Node tests
         run: npm test
       - name: Setup Node.js for native Zstd coverage
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: Verify native compressed-log compatibility
@@ -54,20 +63,20 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     container:
-      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      image: mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf
       options: --ipc=host
     env:
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Run full Webview gate
         run: npm run test:ui -- --fully-parallel --workers=1 --shard=${{ matrix.shard }}/4
 
@@ -90,18 +99,22 @@ jobs:
     timeout-minutes: 12
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # @vscode/vsce 4 requires Node >=22.
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            .github/build-tools/package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
+      - name: Install locked build tools
+        run: npm ci --prefix .github/build-tools --ignore-scripts
       - name: Compile
         run: npm run compile
       - name: Package smoke VSIX
-        run: npx -y @vscode/vsce@4.0.0 package --out /tmp/claude-code-usage-ci.vsix
+        run: .github/build-tools/node_modules/.bin/vsce package --out /tmp/claude-code-usage-ci.vsix
       - name: Verify smoke VSIX
         run: node .github/scripts/verify-vsix.mjs /tmp/claude-code-usage-ci.vsix

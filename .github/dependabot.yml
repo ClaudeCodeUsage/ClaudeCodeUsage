@@ -1,0 +1,56 @@
+# Weekly proposals only. Existing security alerts/updates stay independent.
+# No ignore rules, automatic merge, registry credentials or release automation.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 2
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      dev-tooling:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        exclude-patterns: ["@axe-core/playwright", "@types/vscode"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/.github/build-tools"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "09:30"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 2
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      build-tooling:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+      time: "10:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 2
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      github-actions:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

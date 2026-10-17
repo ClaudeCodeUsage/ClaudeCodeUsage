@@ -89,12 +89,11 @@ function workflowStepValues(workflow: string, key: 'run' | 'uses'): WorkflowStep
 }
 
 function assertExactVscePin(commands: readonly WorkflowStepValue[]): void {
-  const tokens = commands.flatMap(({ value }) =>
-    value.match(/@vscode\/vsce(?:@[^\s]+)?/g) ?? [],
-  );
-  assert.ok(tokens.length > 0, 'workflow must invoke VSCE');
-  for (const token of tokens) {
-    assert.equal(token, '@vscode/vsce@4.0.0', `unexpected VSCE invocation ${token}`);
+  const invocations = commands.filter(({ value }) => /vsce/.test(value));
+  assert.ok(invocations.length > 0, 'workflow must invoke locked VSCE');
+  for (const { value } of invocations) {
+    assert.doesNotMatch(value, /\bnpx\b|@vscode\/vsce@/, 'never download CLI dependencies at execution time');
+    assert.match(value, /(?:\.github\/build-tools|\$CCU_RELEASE_TOOLS)\/node_modules\/\.bin\/vsce/);
   }
 }
 
@@ -1948,7 +1947,10 @@ test('package lock and Codex UI tooling stay exact and release-safe', () => {
   };
   const root = lock.packages[''];
 
-  assert.equal(pkg.devDependencies['@playwright/test'], '1.61.1');
+  assert.equal(pkg.devDependencies['@playwright/test'], '1.64.1');
+  // Axe 4.14 activates label-content-name-mismatch for existing achievement
+  // controls. Keep this audited baseline until a separate accessibility fix
+  // has browser and native UI acceptance; do not disable that rule to upgrade.
   assert.equal(pkg.devDependencies['@axe-core/playwright'], '4.12.1');
   assert.equal(root.version, pkg.version);
   assert.deepEqual(root.devDependencies, pkg.devDependencies);
@@ -1998,7 +2000,7 @@ test('CI has separate Node, browser, and package release gates', () => {
   assert.deepEqual(workflowStepValues('# run: npx -y @vscode/vsce@3.9.1 package', 'run'), []);
   assert.throws(
     () => assertExactVscePin([{ value: 'npx -y @vscode/vsce@latest package', line: 1 }]),
-    /unexpected VSCE invocation/,
+    /never download CLI dependencies at execution time/,
   );
 
   assert.match(workflow, /^name:\s*Test\s*$/m);
@@ -2013,7 +2015,7 @@ test('CI has separate Node, browser, and package release gates', () => {
   assert.match(workflow, /^    name:\s*Node Tests\s*$/m);
   assert.match(workflow, /^    name:\s*UI Test\s*$/m);
   assert.match(workflow, /^    name:\s*Release Package\s*$/m);
-  assert.match(workflow, /image:\s*mcr\.microsoft\.com\/playwright:v1\.61\.1-noble/);
+  assert.match(workflow, /image:\s*mcr\.microsoft\.com\/playwright:v1\.64\.1-noble/);
   assert.match(workflow, /PLAYWRIGHT_BROWSERS_PATH:\s*\/ms-playwright/);
   assert.match(workflow, /needs:\s*\[test, ui\]/);
   const assertShardedUiGate = (source: string): void => {
@@ -2043,10 +2045,10 @@ test('CI has separate Node, browser, and package release gates', () => {
     assert.equal(matrices.length, 1, 'UI requires one complete four-shard matrix');
     assert.equal(matrices[0][1].trim(), 'shard: [1, 2, 3, 4]', 'no missing, duplicate, excluded or extra shards');
     assert.deepEqual(workflowStepValues(shards, 'run').map(({ value }) => value), [
-      'npm ci',
+      'npm ci --ignore-scripts',
       'npm run test:ui -- --fully-parallel --workers=1 --shard=${{ matrix.shard }}/4',
     ], 'each shard must run the unfiltered full UI suite and propagate its exit status');
-    assert.match(shards, /^      image:\s*mcr\.microsoft\.com\/playwright:v1\.61\.1-noble\s*$/m);
+    assert.match(shards, /^      image:\s*mcr\.microsoft\.com\/playwright:v1\.64\.1-noble@sha256:[a-f0-9]{64}\s*$/m);
     assert.match(shards, /^      PLAYWRIGHT_BROWSERS_PATH:\s*\/ms-playwright\s*$/m);
     assert.match(ui, /^    needs:\s*\[ui_shards\]\s*$/m);
     assert.deepEqual(ui.match(/^\s+if:[^\n]*$/gm)?.map((line) => line.trim()), ['if: always()']);
@@ -2075,7 +2077,7 @@ test('CI has separate Node, browser, and package release gates', () => {
     assert.throws(() => assertShardedUiGate(workflow.replace(before, after)),
       { code: 'ERR_ASSERTION' }, `unsafe CI mutation must fail: ${after}`);
   }
-  const packageAt = runValues.indexOf('npx -y @vscode/vsce@4.0.0 package --out /tmp/claude-code-usage-ci.vsix');
+  const packageAt = runValues.indexOf('.github/build-tools/node_modules/.bin/vsce package --out /tmp/claude-code-usage-ci.vsix');
   const verifyAt = runValues.indexOf('node .github/scripts/verify-vsix.mjs /tmp/claude-code-usage-ci.vsix');
   assert.ok(packageAt >= 0 && verifyAt > packageAt, 'smoke VSIX verification must follow packaging');
   assertExactVscePin(runs);
@@ -2101,17 +2103,17 @@ test('publish pins compatible registry CLIs and isolates all three delivery sink
   const releaseNodeMatch = workflow.match(/node-version:\s*'(\d+)'/);
   assert.ok(releaseNodeMatch, 'publish workflow must pin a Node major');
   const releaseNodeMajor = Number(releaseNodeMatch[1]);
-  const packageStep = findRun('npx -y @vscode/vsce@4.0.0 package --out claude-code-usage.vsix');
+  const packageStep = findRun('"$CCU_RELEASE_TOOLS/node_modules/.bin/vsce" package --out claude-code-usage.vsix');
   const verifyStep = findRun('node .release-policy/.github/scripts/verify-vsix.mjs claude-code-usage.vsix "${RELEASE_TAG#v}"');
   const restoreStep = runs.find(({ value }) => value.includes('gh release download "$RELEASE_TAG"'));
-  const publishStep = runs.find(({ value }) => value.includes('@vscode/vsce@4.0.0 publish'));
-  const openVsxStep = runs.find(({ value }) => value.includes('ovsx@1.2.0 publish'));
+  const publishStep = runs.find(({ value }) => value.includes('/.bin/vsce" publish'));
+  const openVsxStep = runs.find(({ value }) => value.includes('/.bin/ovsx" publish'));
   const resultStep = runs.find(({ value }) => value.includes('VSCODE_OUTCOME'));
   const attachStep = uses.find(({ value }) =>
     value === 'softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65',
   );
   const policyCheckout = uses.find(({ line, value }) =>
-    value === 'actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5' &&
+    value === 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' &&
       packageStep !== undefined && line > packageStep.line,
   );
   assert.ok(packageStep && verifyStep && verifyStep.line > packageStep.line, 'VSIX verification must follow packaging');
@@ -2129,10 +2131,10 @@ test('publish pins compatible registry CLIs and isolates all three delivery sink
   assert.ok(resultStep && publishStep && openVsxStep && resultStep.line > publishStep.line && resultStep.line > openVsxStep.line);
   assert.match(publishStep?.value ?? '', /--skip-duplicate/);
   assert.match(openVsxStep?.value ?? '', /--skip-duplicate/);
-  const openVsxVersion = openVsxStep?.value.match(/\bovsx@(\d+\.\d+\.\d+)\b/)?.[1];
+  const openVsxVersion = JSON.parse(repoFile('.github/build-tools/package.json')).dependencies.ovsx as string;
   const openVsxMinimumNodeMajor: Readonly<Record<string, number>> = {
-    // npm package metadata: ovsx@1.2.0 engines.node is >=22.0.0.
-    '1.2.0': 22,
+    // npm package metadata: ovsx@1.3.0 engines.node is >=22.0.0.
+    '1.3.0': 22,
   };
   assert.ok(openVsxVersion, 'Open VSX CLI must be exactly version-pinned');
   assert.ok(
@@ -2188,7 +2190,7 @@ test('CONTRIBUTING documents provider-aware privacy and three testing layers', (
   assert.match(testing, /does not replace the first two layers/i);
   assert.match(testing, /separate gates, with packaging after both test jobs pass/i);
   assert.doesNotMatch(testing, /gates independently/i);
-  assert.match(testing, /mcr\.microsoft\.com\/playwright:v1\.61\.1-noble/);
+  assert.match(testing, /mcr\.microsoft\.com\/playwright:v1\.64\.1-noble/);
   assert.match(testing, /macOS[\s\S]*must not[\s\S]*Linux snapshot/i);
 
   assert.match(guide, /controlled, comment-only\s+first pass/i);

@@ -28,7 +28,7 @@ function log(id: string, padding = ''): Buffer {
 function frame(bytes: Buffer): Buffer {
   const header = Buffer.alloc(9); header.writeUInt32LE(0xfd2fb528, 0); header[4] = 0xa0;
   header.writeUInt32LE(bytes.length, 5);
-  const parts = [header];
+  const parts: Buffer[] = [header];
   if (!bytes.length) parts.push(Buffer.from([1, 0, 0]));
   for (let offset = 0; offset < bytes.length; offset += 128 * 1024) {
     const block = bytes.subarray(offset, offset + 128 * 1024), last = offset + block.length === bytes.length;

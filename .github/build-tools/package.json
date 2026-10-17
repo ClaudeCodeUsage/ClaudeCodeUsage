@@ -1,0 +1,13 @@
+{
+  "name": "claude-code-usage-build-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Locked, build-only VSIX packaging and registry delivery tools; never shipped in the extension.",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@vscode/vsce": "4.0.0",
+    "ovsx": "1.3.0"
+  }
+}

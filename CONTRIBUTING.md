@@ -28,18 +28,44 @@ Deleting the selected session moves its log to the OS trash.
 
 ## Development setup
 
+Use Node **24 LTS** (`.nvmrc`; `nvm use` if you use nvm).
+
 ```bash
-npm install
+npm ci --ignore-scripts
 npm run compile          # tsc -> out/
 npm run watch            # recompile on change
 ```
 
 - Press **F5** in VS Code to launch the Extension Development Host and test
   your changes manually.
-- Package a `.vsix` with `npx -y @vscode/vsce@3.9.1 package`.
-  This is the pinned contributor recipe, not a claim about the latest stable
-  VSCE. For a candidate, record the actual verified packaging tool/version and
-  freeze its source and package hashes; do not silently upgrade dependencies.
+- Install build-only tools with `npm ci --prefix .github/build-tools --ignore-scripts`,
+  then package with `.github/build-tools/node_modules/.bin/vsce package`.
+  The separate manifest pins VSCE 4.0.0 and OVSX 1.3.0, including their transitive
+  dependencies in its lock. These tools never become extension runtime dependencies.
+  For a candidate, record actual tool versions and freeze source and package hashes.
+- Audit both locks with `npm audit --ignore-scripts --audit-level=high` and
+  `npm audit --prefix .github/build-tools --ignore-scripts --audit-level=high`.
+  CI fails on high/critical advisories or audit service errors; a successful audit
+  only covers known advisories, not all possible supply-chain compromises.
+  Keep installation scripts disabled; investigate any tool requiring one rather
+  than enabling scripts globally. Update the tool lock through a reviewed PR,
+  not `npx` downloads or `npm audit fix --force` in a publish job.
+
+中文审阅：开发和主要 CI 使用 Node 24 LTS。根目录和 `.github/build-tools` 分别锁定
+测试依赖与构建／发布工具；两处均用 `npm ci --ignore-scripts` 安装并审计，高危／严重
+漏洞或审计服务失败会阻止 CI。VSCE 4.0.0／OVSX 1.3.0 及其间接依赖使用独立锁文件，
+不随插件交付，不提高插件最低 VS Code 版本。发布不临时下载工具，也不自动强制修复依赖；
+升级通过审阅的 PR 完成。审计无警报只表示未命中已知漏洞，不能证明供应链绝对安全。
+
+The audited Axe 4.12.1 baseline is retained for now. The 4.14 upgrade detects
+existing `label-content-name-mismatch` failures on achievement controls. Resolve
+those with focused accessibility tests and the required native UI acceptance in
+a separate change before upgrading; do not disable the new rule or rewrite visual
+baselines merely to make a dependency update pass.
+
+中文审阅：本次保留已审计的 Axe 4.12.1。4.14 的新检查发现成就控件既有的可访问名称
+与可见文字不一致问题；应在独立改动中补齐无障碍测试和项目要求的原生 UI 验收后升级，
+不能通过关闭新规则或重写视觉基线来消除依赖升级失败。
 
 Before host smoke or installation, isolate all writable user-data, extensions,
 shared/agent state, global/workspace storage, provider homes, caches and lock
@@ -47,6 +73,51 @@ paths. See [the guarded native-test instructions](tests/native/README.md).
 A separate window or worktree is insufficient. Compare selected normal-state
 metadata/hashes before and after; unexplained changes stay unknown. Do not use
 a default-profile `code --install-extension` or modify the daily installation.
+
+### Dependabot update proposals
+
+`.github/dependabot.yml` becomes active only after it reaches the default branch.
+It checks development dependencies, separate build tools and GitHub Actions each
+Sunday at 09:00, 09:30 and 10:00 respectively in `Asia/Shanghai`. These are requested
+check times, not guaranteed job start times; first enablement may also prompt an
+initial check. Validate the first real job and generated PR after enablement;
+local checks alone do not establish scheduling or real bot execution.
+
+Each scope permits at most **two open ordinary version-update PRs** (up to six
+across the three scopes, not two globally). Minor/patch proposals are grouped by
+scope. Major updates and root `@axe-core/playwright` / `@types/vscode` updates stay
+individual for focused review. Excluding a package from a group does not ignore
+it: sensitive upgrades can still be proposed. No ignore/allow filter or non-default
+target branch is added, and groups apply only to version updates, leaving existing
+security alerts and security-update PRs independent of the weekly schedule and
+ordinary-PR limit. Available safe fixes must still be assessed for compatibility.
+
+Bot proposals are not approvals. Preserve paired Playwright package/image pins,
+reviewed Action SHAs, both locks and their policy tests, the supported Node line,
+and the VS Code API floor. An upgrade-only PR may initially fail intentional pin
+guards until its compatibility evidence and related pins/tests are reviewed.
+Use the existing CODEOWNERS/CI process and maintainer-authorized Squash and merge;
+this configuration adds **no automatic merge or new-release publication**.
+Existing delivery recovery for already-published releases is unchanged.
+The `dependencies` label does not hide
+release notes: add `skip-changelog` only when the reviewed change is internal-only.
+The configuration alone does not upgrade packages or change runtime code or
+release triggers. Removing it stops ordinary version updates; security alerts
+and security updates remain separate repository security settings.
+
+中文审阅：配置进入默认分支后才启用。开发依赖、独立构建工具和 GitHub Actions 分别在
+每周日北京时间 09:00、09:30、10:00 请求检查；实际启动可能排队，初次启用也可能先检查一次。
+每类最多两个未关闭的普通升级 PR，三类合计最多六个，不是全仓库最多两个。小版本／补丁
+按用途分组；大版本及根目录 Axe、VS Code 类型升级单独提案，仍可能出现，并非忽略。
+不设置忽略／允许筛选或其他目标分支，分组仅用于普通版本升级；已有安全警报和安全修复
+不受每周排期及普通 PR 限额限制。机器人只提建议，不自动批准，不新增自动合并或新版本
+发布；既有已发布版本的交付恢复保持不变。
+维护者须核对 Playwright 包／镜像、Action SHA、锁文件、策略测试、Node 支持周期及 API
+兼容门槛；只改版本可能先触发固定版本守卫，不能为变绿盲目放宽测试。沿用 CODEOWNERS
+和 CI，明确授权后 Squash 合并；内部维护经审阅后再标记 `skip-changelog`，不默认隐藏
+所有依赖或安全变更。配置本身不升级包或修改产品代码、发布触发器；实际排期及机器人
+PR 行为须启用后核验首个作业，本地校验不能证明已运行定时机器人。可删除配置停用普通
+升级；安全警报／安全修复开关仍在仓库安全设置中单独管理。
 
 ## Pull requests
 
@@ -124,7 +195,8 @@ does not execute F5 or accept the installed UI.
 CI uses separate gates, with packaging after both test jobs pass on every PR
 (`.github/workflows/test.yml`). Canonical Linux screenshots may only be updated
 with the exact official container
-`mcr.microsoft.com/playwright:v1.61.1-noble`, with
+`mcr.microsoft.com/playwright:v1.64.1-noble` pinned to the multi-platform digest
+in `test.yml`, with
 `PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`. A macOS run must not overwrite a
 Linux snapshot; reproduce and update it in that exact Linux container.
 
@@ -176,6 +248,15 @@ Changes ship through your original PR, preserving its *merged* status. The defau
 squash produces a new commit rather than preserving each branch commit SHA; the
 maintainer verifies its author and applicable `Co-authored-by` trailers and retains
 truthful per-entry Release credit.
+
+Manual retries obtain the release-tool manifest and lock from the exact trusted
+workflow commit, fetching that commit explicitly even when the release checkout
+does not contain it. Tools install and pass audit outside the packaged tree;
+the original tag's source and any restored release asset remain unchanged.
+
+中文审阅：历史版本重试会显式获取当前可信工作流的精确提交，从中读取工具清单和锁文件，
+在打包目录外安装并通过审计；不要求旧版本包含新工具配置，不改变原 tag 源码或已恢复的
+正式安装包。三个交付目标仍独立重试，成功审计不会自动触发版本发布。
 
 ### Release-note attribution
 

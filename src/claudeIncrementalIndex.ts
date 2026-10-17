@@ -2852,7 +2852,16 @@ export async function updateClaudeUsageIndex(
     // falls back to the full rebuild. Measured on a 976-file, 1.58 GB
     // history: one truncation cost 19.3 s of CPU and 976 body re-reads, and
     // such rewrites happen many times a day; now it is 0.8 s and one read.
-    const unsafeSourceMutation = deletions.length > 0 || moves.length > 0;
+    // A deletion needs no body re-reads: removeFile below drops the file's
+    // records and its stored contribution, UUIDs it owned are handed to the
+    // ownership restoration pass (a surviving twin that also carries them is
+    // re-read there, and only that twin), and the analysis leaves the append
+    // fast path — deletions.length === 0 is part of its condition — to be
+    // rebuilt in memory from the retained per-file contributions. Measured on
+    // a 976-file, 1.58 GB history: one delete cost 30.0 s of CPU and 975 body
+    // re-reads; now it is 1.0 s and re-reads only twins sharing its UUIDs,
+    // usually nothing.
+    const unsafeSourceMutation = moves.length > 0;
     forcedFullAnalysisRebuild = cutoffMovedBackward || unsafeSourceMutation ||
       canonicalOrderChanged;
     if (forcedFullAnalysisRebuild) {
@@ -3024,16 +3033,24 @@ export async function updateClaudeUsageIndex(
     const sourceRebasedRebuilds = parsedPlans.some(
       (plan) => plan.analysisReason === 'source' && Boolean(plan.prior),
     );
-    const orderShiftedRebuild = parsedPlans.some(
-      (plan) => plan.analysisReason === 'source' && plan.prior &&
+    // Ownership restoration can promote an append to a rebuild and replace
+    // its reason. Its first dated event can still move it past another owner,
+    // so check every prior file and let an order shift trigger the probe itself.
+    const orderShiftedPlan = !forcedFullAnalysisRebuild && parsedPlans.some(
+      (plan) => plan.prior &&
         plan.contribution.firstTimestampMs !== plan.prior.firstTimestampMs,
     );
-    if ((fastAppendAnalysis || windowRebasedAppends || sourceRebasedRebuilds) &&
+    // A deletion stays off the append fast path, which used to be the only
+    // place this probe ran. An earlier file can still append a UUID a later
+    // file owns; the in-memory rebuild cannot see that preemption.
+    const deletionMixedWithBodyPlans = deletions.length > 0 && !forcedFullAnalysisRebuild;
+    if ((fastAppendAnalysis || windowRebasedAppends || sourceRebasedRebuilds ||
+        orderShiftedPlan || deletionMixedWithBodyPlans) &&
       previousAnalysisRuntime && parsedPlans.length > 0) {
       // Seeding with the order shift short-circuits the loop on purpose: the
       // fallback it selects is the same full rebuild a later-owner collision
       // would pick, so no distinct outcome is masked, only the scan.
-      let laterOwnerCollision = orderShiftedRebuild;
+      let laterOwnerCollision = orderShiftedPlan;
       for (const appended of parsedPlans) {
         if (laterOwnerCollision) break;
         if (appended.kind === 'rebuild' && !appended.prior) {
