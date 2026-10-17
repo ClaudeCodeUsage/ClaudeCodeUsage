@@ -384,3 +384,5 @@ makes the final decision.
 ## Code of conduct
 
 Be kind and constructive. We're all here to make a useful tool.
+
+<!-- CI143 remote verification: documentation-only A. -->
