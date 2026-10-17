@@ -2110,7 +2110,7 @@ test('publish pins compatible registry CLIs and isolates all three delivery sink
   const openVsxStep = runs.find(({ value }) => value.includes('/.bin/ovsx" publish'));
   const resultStep = runs.find(({ value }) => value.includes('VSCODE_OUTCOME'));
   const attachStep = uses.find(({ value }) =>
-    value === 'softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65',
+    value === 'softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64',
   );
   const policyCheckout = uses.find(({ line, value }) =>
     value === 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' &&
