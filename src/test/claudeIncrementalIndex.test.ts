@@ -1886,6 +1886,8 @@ for (const scenario of [
     tied: false, swapped: true, reads: 2 },
   { name: 'deletion and insertion preserve surviving canonical order', mutation: 'delete',
     tied: false, swapped: true, reads: 1 },
+  { name: 'reused deletion identity conservatively replays surviving files', mutation: 'delete',
+    tied: false, swapped: true, reads: 3, reuseIdentity: true },
   { name: 'deletion and insertion cannot hide a tied ownership reorder', mutation: 'delete',
     tied: true, swapped: true, reads: 3 },
   { name: 'concurrent appends cannot hide a tied ownership reorder', mutation: 'append',
@@ -1921,9 +1923,11 @@ for (const scenario of [
         await appendFile(b, analysisTextLine('B-tail', 'appended B', timestamp('11')) + '\n');
         await appendFile(c, analysisTextLine('C-tail', 'appended C', timestamp('11')) + '\n');
       } else {
+        // Create D while A still exists: otherwise Linux may recycle A's inode
+        // and accidentally turn the independent-insertion control into a move.
+        await writeFile(d, analysisTextLine('D', 'ddd', timestamp('10')) + '\n');
         if (scenario.mutation === 'delete') await unlink(a);
         else await writeFile(a, analysisTextLine('A', 'rewritten longer text', timestamp('08')) + '\n');
-        await writeFile(d, analysisTextLine('D', 'ddd', timestamp('10')) + '\n');
       }
       // Exercise discovery order explicitly, independent of filesystem enumeration.
       // Different timestamps still take precedence over a B/C discovery swap.
@@ -1933,7 +1937,15 @@ for (const scenario of [
         if (scenario.swapped) ordered.push(d);
         else ordered.splice(1, 0, d);
       }
-      const manifest = await manifestInOrder(ordered);
+      let manifest = await manifestInOrder(ordered);
+      if ('reuseIdentity' in scenario && scenario.reuseIdentity) {
+        // Exercise inode reuse explicitly on every filesystem, not by chance.
+        const oldIdentity = coldManifest.entries.get(a)!;
+        const inserted = manifest.entries.get(d)!;
+        const entries = new Map(manifest.entries);
+        entries.set(d, { ...inserted, dev: oldIdentity.dev, ino: oldIdentity.ino });
+        manifest = { ...manifest, entries };
+      }
       const warm = await updateClaudeUsageIndex(cold.index, root, { manifest });
       const full = await ClaudeDataLoader.loadUsageRecords(root, { manifest });
       assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
