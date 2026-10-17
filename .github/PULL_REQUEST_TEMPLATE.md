@@ -2,6 +2,9 @@
 Thanks for contributing. Follow CONTRIBUTING.md; keep this PR focused.
 Fill applicable sections and mark others N/A. Do not include credentials,
 raw conversation logs, personal paths or unredacted screenshots/profiles.
+Describe changes directly; omit private request and approval narratives.
+Summaries, checklists and review comments describe the change, tests and
+limitations, not private conversations or agent execution instructions.
 -->
 
 ## Summary

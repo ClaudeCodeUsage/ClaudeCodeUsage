@@ -289,6 +289,17 @@ anchors. A static assertion of the first render is not acceptance evidence.
 
 ## GitHub text attribution
 
+### Public PR descriptions
+
+- Describe changes, rationale, tests and limitations directly.
+- Do not narrate private user or maintainer requests, approvals or agent instructions.
+  This includes summaries, checklists, titles and review comments, not just release notes.
+  Private execution/authorization records belong in the local task handoff.
+- Keep required AI attribution and truthful contributor credit. A general repository
+  permission rule or an attribution disclaimer is not a private request narrative.
+- State current verification gaps factually; do not substitute an approval story
+  for evidence that the change is correct or ready to merge.
+
 Maintainer-reviewed text generated with Codex ends with exactly:
 
 ```md

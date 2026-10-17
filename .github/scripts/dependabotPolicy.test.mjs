@@ -5,107 +5,96 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 const root = new URL('../../', import.meta.url);
 const read = (file) => readFileSync(new URL(file, root), 'utf8');
 const active = (source) => source.replaceAll('\r\n', '\n').split('\n').filter((line) => !/^\s*#/.test(line)).join('\n');
+const batch = 'weekly-dependencies';
 
-// This is a fail-closed guard for this file's deliberately small, block-style
-// YAML contract, not a general YAML parser. Real YAML syntax is also checked
-// during configuration review without adding a project parser dependency.
-function entries(source) {
-  source = active(source);
-  assert.match(source, /^version: 2\nupdates:\n/);
-  assert.doesNotMatch(source, /\t|[&*][A-Za-z_]|<<:/, 'no YAML aliases/merges or tabs');
-  assert.doesNotMatch(source, /^\s*(?:ignore|allow|target-branch|registries|insecure-external-code-execution|exclude-paths|reviewers|cooldown):/m,
-    'do not restrict vulnerable-package coverage or silently change update routing');
-  const matches = [...source.matchAll(/^  - package-ecosystem: "([^"]+)"\n([\s\S]*?)(?=^  - package-ecosystem:|(?![\s\S]))/gm)];
-  assert.equal(matches.length, 3, 'exactly three update scopes');
-  assert.equal((source.match(/^  - /gm) ?? []).length, 3);
-  return matches.map(([, ecosystem, body]) => ({ ecosystem, body }));
-}
-
+// Fail-closed guard for this deliberately constrained block-style YAML,
+// not a general YAML parser or proof that GitHub has run the update job.
 function scalar(body, key, indentation) {
-  const matches = [...body.matchAll(new RegExp(`^ {${indentation}}${key}: (.+)$`, 'gm'))];
-  assert.equal(matches.length, 1, `one ${key} at indentation ${indentation}`);
+  const matches = [...body.matchAll(new RegExp('^ {' + indentation + '}' + key + ': (.+)$', 'gm'))];
+  assert.equal(matches.length, 1, 'one ' + key);
   return JSON.parse(matches[0][1]);
 }
 
 function validate(source) {
-  const updates = entries(source);
-  const expected = [
-    { ecosystem: 'npm', directory: '/', time: '09:00', group: 'dev-tooling', sensitive: ['@axe-core/playwright', '@types/vscode'] },
-    { ecosystem: 'npm', directory: '/.github/build-tools', time: '09:30', group: 'build-tooling', sensitive: [] },
-    { ecosystem: 'github-actions', directory: '/', time: '10:00', group: 'github-actions', sensitive: [] },
-  ];
-  return updates.map(({ ecosystem, body }, index) => {
-    const want = expected[index];
-    assert.equal(ecosystem, want.ecosystem);
-    assert.equal(scalar(body, 'directory', 4), want.directory);
-    assert.equal(scalar(body, 'open-pull-requests-limit', 4), 2);
-    assert.deepEqual(scalar(body, 'labels', 4), ['dependencies']);
-    assert.match(body, /^    schedule:\n      interval: "weekly"\n      day: "sunday"\n      time: "[^"\n]+"\n      timezone: "Asia\/Shanghai"$/m);
-    assert.equal(scalar(body, 'interval', 6), 'weekly');
-    assert.equal(scalar(body, 'day', 6), 'sunday');
-    assert.equal(scalar(body, 'timezone', 6), 'Asia/Shanghai');
-    assert.equal(scalar(body, 'time', 6), want.time);
-    assert.match(body, new RegExp(`^    groups:\\n      ${want.group}:\\n`, 'm'));
-    assert.equal(scalar(body, 'applies-to', 8), 'version-updates');
-    assert.deepEqual(scalar(body, 'patterns', 8), ['*']);
-    assert.deepEqual(scalar(body, 'update-types', 8), ['minor', 'patch']);
-    const exclusions = want.sensitive.length ? scalar(body, 'exclude-patterns', 8) : [];
-    assert.deepEqual(exclusions, want.sensitive);
-    if (!want.sensitive.length) assert.doesNotMatch(body, /exclude-patterns:/);
-    assert.match(body, /^    commit-message:\n      prefix: "build"\n      include: "scope"$/m);
-    // A second mapping could otherwise silently replace the reviewed scope.
-    const topKeys = [...body.matchAll(/^ {4}([\w-]+):/gm)].map((m) => m[1]);
-    assert.deepEqual(topKeys, ['directory', 'schedule', 'open-pull-requests-limit', 'labels', 'commit-message', 'groups']);
-    assert.equal((body.match(/^ {6}[\w-]+:\s*$/gm) ?? []).length, 1, 'one version-only group');
-    return { ecosystem, directory: want.directory, exclusions };
+  source = active(source);
+  assert.doesNotMatch(source, /\t|[&*][A-Za-z_]|<<:/, 'no aliases, merges or tabs');
+  assert.doesNotMatch(source, /^\s*(?:ignore|allow|target-branch|registries|insecure-external-code-execution|exclude-paths|exclude-patterns|update-types|applies-to|groups|open-pull-requests-limit|cooldown):/m,
+    'do not split the ordinary batch, suppress security fixes or add unverified limit policies');
+  const split = source.split(/^updates:\n/m);
+  assert.equal(split.length, 2, 'one updates section');
+  const header = split[0];
+  assert.match(header, /^version: 2\nmulti-ecosystem-groups:\n/);
+  assert.deepEqual([...header.matchAll(/^  ([\w-]+):/gm)].map(m => m[1]), [batch], 'one consolidated group');
+  assert.deepEqual([...header.matchAll(/^ {4}([\w-]+):/gm)].map(m => m[1]), ['schedule', 'labels', 'commit-message']);
+  assert.match(header, /^    schedule:\n      interval: "weekly"\n      day: "sunday"\n      time: "09:00"\n      timezone: "Asia\/Shanghai"$/m);
+  assert.equal(scalar(header, 'interval', 6), 'weekly');
+  assert.equal(scalar(header, 'day', 6), 'sunday');
+  assert.equal(scalar(header, 'time', 6), '09:00');
+  assert.equal(scalar(header, 'timezone', 6), 'Asia/Shanghai');
+  assert.deepEqual(scalar(header, 'labels', 4), ['dependencies']);
+  assert.match(header, /^    commit-message:\n      prefix: "build"\n      include: "scope"$/m);
+
+  const body = split[1];
+  const matches = [...body.matchAll(/^  - package-ecosystem: "([^"]+)"\n([\s\S]*?)(?=^  - package-ecosystem:|(?![\s\S]))/gm)];
+  assert.equal(matches.length, 3, 'root npm, build-tool npm and GitHub Actions');
+  assert.equal(matches.map(m => m[0]).join(''), body, 'no unrecognized top-level sections');
+  const expected = [['npm', '/'], ['npm', '/.github/build-tools'], ['github-actions', '/']];
+  return matches.map(([, ecosystem, entry], i) => {
+    const directory = scalar(entry, 'directory', 4);
+    assert.deepEqual([ecosystem, directory], expected[i]);
+    assert.deepEqual([...entry.matchAll(/^ {4}([\w-]+):/gm)].map(m => m[1]), ['directory', 'patterns', 'multi-ecosystem-group']);
+    assert.deepEqual(scalar(entry, 'patterns', 4), ['*'], 'all ordinary proposals, including major/sensitive tools, share the batch');
+    assert.equal(scalar(entry, 'multi-ecosystem-group', 4), batch);
+    return { ecosystem, directory, batch };
   });
 }
 
-test('Dependabot covers both npm locks and workflow actions on bounded weekly schedules', () => {
+test('all three dependency scopes join one Sunday multi-ecosystem batch', () => {
   const source = read('.github/dependabot.yml');
   const scopes = validate(source);
-  assert.deepEqual(validate(source.replaceAll('\n', '\r\n')), scopes, 'checkout line endings do not change policy');
+  assert.deepEqual(validate(source.replaceAll('\n', '\r\n')), scopes);
   for (const { ecosystem, directory } of scopes) {
-    if (ecosystem === 'npm') {
-      const prefix = directory === '/' ? '' : `${directory.slice(1)}/`;
-      assert.ok(existsSync(new URL(`${prefix}package-lock.json`, root)));
-      assert.ok(existsSync(new URL(`${prefix}package.json`, root)));
-    }
+    if (ecosystem !== 'npm') continue;
+    const prefix = directory === '/' ? '' : directory.slice(1) + '/';
+    assert.ok(existsSync(new URL(prefix + 'package.json', root)));
+    assert.ok(existsSync(new URL(prefix + 'package-lock.json', root)));
   }
 });
 
-test('ordinary groups leave major and sensitive upgrades individual without suppressing security fixes', () => {
+test('batching leaves compatibility review and independent security updates intact', () => {
   const source = read('.github/dependabot.yml');
   const scopes = validate(source);
-  assert.doesNotMatch(active(source), /applies-to: "security-updates"|skip-changelog/);
-  const rootScope = scopes[0];
-  const grouped = (name, bump) => ['minor', 'patch'].includes(bump) && !rootScope.exclusions.includes(name);
-  assert.equal(grouped('@playwright/test', 'minor'), true);
-  assert.equal(grouped('typescript', 'patch'), true);
-  assert.equal(grouped('typescript', 'major'), false);
-  assert.equal(grouped('@types/node', 'major'), false);
-  assert.equal(grouped('@axe-core/playwright', 'minor'), false);
-  assert.equal(grouped('@types/vscode', 'minor'), false);
-  assert.equal(grouped('@axe-core/playwright', 'patch'), false);
+  assert.deepEqual([...new Set(scopes.map(s => s.batch))], [batch]);
+  assert.doesNotMatch(active(source), /security-updates|skip-changelog|exclude-patterns:|update-types:/);
+  assert.equal((active(source).match(/^    patterns: \["\*"\]$/gm) ?? []).length, 3);
+  // Coverage is configuration-level only: no simulated resolver or live-job claim.
+  const guidance = read('CONTRIBUTING.md');
+  assert.match(guidance, /single weekly ordinary version-update PR/);
+  assert.match(guidance, /一个每周普通版本升级 PR/);
+  assert.match(guidance, /security updates remain independent/);
+  assert.match(guidance, /existing individual PRs/);
 });
 
-test('unsafe schedule, routing, grouping and limit mutations fail the configuration guard', () => {
+test('schedule, scope, split-batch and security-suppression mutations are rejected', () => {
   const source = read('.github/dependabot.yml');
   for (const [before, after] of [
     ['interval: "weekly"', 'interval: "daily"'],
     ['day: "sunday"', 'day: "monday"'],
+    ['time: "09:00"', 'time: "09:30"'],
     ['timezone: "Asia/Shanghai"', 'timezone: "UTC"'],
-    ['open-pull-requests-limit: 2', 'open-pull-requests-limit: 20'],
     ['directory: "/.github/build-tools"', 'directory: "/tools"'],
-    ['applies-to: "version-updates"', 'applies-to: "security-updates"'],
-    ['update-types: ["minor", "patch"]', 'update-types: ["major", "minor", "patch"]'],
-    ['exclude-patterns: ["@axe-core/playwright", "@types/vscode"]', 'exclude-patterns: []'],
+    ['package-ecosystem: "github-actions"', 'package-ecosystem: "npm"'],
+    ['patterns: ["*"]', 'patterns: ["typescript"]'],
+    ['multi-ecosystem-group: "weekly-dependencies"', 'multi-ecosystem-group: "another-batch"'],
     ['labels: ["dependencies"]', 'labels: ["dependencies", "skip-changelog"]'],
-    ['    groups:\n', '    ignore: []\n    groups:\n'],
-    ['    groups:\n', '    target-branch: "preview"\n    groups:\n'],
-    ['    groups:\n', '    allow: []\n    groups:\n'],
+    ['    patterns: ["*"]\n', '    ignore: []\n    patterns: ["*"]\n'],
+    ['    patterns: ["*"]\n', '    allow: []\n    patterns: ["*"]\n'],
+    ['    patterns: ["*"]\n', '    groups: {}\n    patterns: ["*"]\n'],
+    ['    patterns: ["*"]\n', '    schedule:\n      interval: "daily"\n    patterns: ["*"]\n'],
+    ['    labels: ["dependencies"]\n', '    open-pull-requests-limit: 1\n    labels: ["dependencies"]\n'],
+    ['    labels: ["dependencies"]\n', '    target-branch: "preview"\n    labels: ["dependencies"]\n'],
   ]) {
-    assert.ok(source.includes(before), `missing mutation anchor: ${before}`);
+    assert.ok(source.includes(before), 'mutation anchor: ' + before);
     assert.throws(() => validate(source.replace(before, after)), { code: 'ERR_ASSERTION' }, after);
   }
 });

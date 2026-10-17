@@ -57,13 +57,13 @@ npm run watch            # recompile on change
 不随插件交付，不提高插件最低 VS Code 版本。发布不临时下载工具，也不自动强制修复依赖；
 升级通过审阅的 PR 完成。审计无警报只表示未命中已知漏洞，不能证明供应链绝对安全。
 
-The audited Axe 4.12.1 baseline is retained for now. The 4.14 upgrade detects
+The audited Axe 4.13.0 baseline is used for browser checks. The 4.14 upgrade detects
 existing `label-content-name-mismatch` failures on achievement controls. Resolve
 those with focused accessibility tests and the required native UI acceptance in
 a separate change before upgrading; do not disable the new rule or rewrite visual
 baselines merely to make a dependency update pass.
 
-中文审阅：本次保留已审计的 Axe 4.12.1。4.14 的新检查发现成就控件既有的可访问名称
+中文审阅：浏览器检查使用已审计的 Axe 4.13.0。4.14 的新检查发现成就控件既有的可访问名称
 与可见文字不一致问题；应在独立改动中补齐无障碍测试和项目要求的原生 UI 验收后升级，
 不能通过关闭新规则或重写视觉基线来消除依赖升级失败。
 
@@ -76,50 +76,63 @@ a default-profile `code --install-extension` or modify the daily installation.
 
 ### Dependabot update proposals
 
-`.github/dependabot.yml` becomes active only after it reaches the default branch.
-It checks development dependencies, separate build tools and GitHub Actions each
-Sunday at 09:00, 09:30 and 10:00 respectively in `Asia/Shanghai`. These are requested
-check times, not guaranteed job start times; first enablement may also prompt an
-initial check. Validate the first real job and generated PR after enablement;
-local checks alone do not establish scheduling or real bot execution.
+`.github/dependabot.yml` requests a **single weekly ordinary version-update PR**
+for root npm dependencies, the separate `.github/build-tools` npm lock and GitHub
+Actions through one `weekly-dependencies` multi-ecosystem group. All three scopes
+use `patterns: ["*"]`: eligible major/minor/patch and sensitive Axe/VS Code type
+proposals share the batch rather than generating intentional per-package PRs.
+The shared schedule is Sunday 09:00 in `Asia/Shanghai`, not three staggered jobs.
+See [GitHub's multi-ecosystem guide](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configuring-multi-ecosystem-updates).
 
-Each scope permits at most **two open ordinary version-update PRs** (up to six
-across the three scopes, not two globally). Minor/patch proposals are grouped by
-scope. Major updates and root `@axe-core/playwright` / `@types/vscode` updates stay
-individual for focused review. Excluding a package from a group does not ignore
-it: sensitive upgrades can still be proposed. No ignore/allow filter or non-default
-target branch is added, and groups apply only to version updates, leaving existing
-security alerts and security-update PRs independent of the weekly schedule and
-ordinary-PR limit. Available safe fixes must still be assessed for compatibility.
+This is one ordinary proposal group, **not a repository-wide maximum-one-PR
+guarantee**. Existing security updates remain independent and must not wait for
+the weekly batch. No ignore/allow filter, security grouping, cooldown, credentials
+or non-default target branch is added. Group-level PR-limit enforcement is not
+assumed; the minimal documented configuration does not need such a limit.
+Only available, resolvable updates can enter a batch; inspect actual coverage.
 
-Bot proposals are not approvals. Preserve paired Playwright package/image pins,
-reviewed Action SHAs, both locks and their policy tests, the supported Node line,
-and the VS Code API floor. An upgrade-only PR may initially fail intentional pin
-guards until its compatibility evidence and related pins/tests are reviewed.
-Use the existing CODEOWNERS/CI process and maintainer-authorized Squash and merge;
-this configuration adds **no automatic merge or new-release publication**.
-Existing delivery recovery for already-published releases is unchanged.
-The `dependencies` label does not hide
-release notes: add `skip-changelog` only when the reviewed change is internal-only.
-The configuration alone does not upgrade packages or change runtime code or
-release triggers. Removing it stops ordinary version updates; security alerts
-and security updates remain separate repository security settings.
+Grouping is not upgrade approval. Keep paired Playwright package/image pins,
+reviewed Action SHAs, both locks and their policy tests, Node/type compatibility
+and the VS Code API floor. Assess major and sensitive tool changes within the
+batch; fix related pins/tests with evidence or defer incompatible changes. Do not
+weaken guards merely to make the batch green. Keep CODEOWNERS/CI and
+maintainer-authorized Squash and merge; no automatic merge or new-version
+publication is added. Delivery recovery for already-published releases is unchanged.
+The `dependencies` label does not hide release notes; use `skip-changelog` only
+after review establishes that a change is internal-only.
 
-中文审阅：配置进入默认分支后才启用。开发依赖、独立构建工具和 GitHub Actions 分别在
-每周日北京时间 09:00、09:30、10:00 请求检查；实际启动可能排队，初次启用也可能先检查一次。
-每类最多两个未关闭的普通升级 PR，三类合计最多六个，不是全仓库最多两个。小版本／补丁
-按用途分组；大版本及根目录 Axe、VS Code 类型升级单独提案，仍可能出现，并非忽略。
-不设置忽略／允许筛选或其他目标分支，分组仅用于普通版本升级；已有安全警报和安全修复
-不受每周排期及普通 PR 限额限制。机器人只提建议，不自动批准，不新增自动合并或新版本
-发布；既有已发布版本的交付恢复保持不变。
-维护者须核对 Playwright 包／镜像、Action SHA、锁文件、策略测试、Node 支持周期及 API
-兼容门槛；只改版本可能先触发固定版本守卫，不能为变绿盲目放宽测试。沿用 CODEOWNERS
-和 CI，明确授权后 Squash 合并；内部维护经审阅后再标记 `skip-changelog`，不默认隐藏
-所有依赖或安全变更。配置本身不升级包或修改产品代码、发布触发器；实际排期及机器人
-PR 行为须启用后核验首个作业，本地校验不能证明已运行定时机器人。可删除配置停用普通
-升级；安全警报／安全修复开关仍在仓库安全设置中单独管理。
+The configuration activates on the default branch. Requested times may queue,
+and initial enablement/configuration changes may trigger an earlier check.
+Validate the first real grouped job/PR; local policy and YAML checks do not prove
+GitHub service execution. Migrating the configuration does not itself combine,
+close or merge existing individual PRs. Verify replacement coverage before any
+separately authorized cleanup; never ignore an update merely to reduce noise.
+Removing this file stops ordinary proposals; repository security settings remain
+separate. This change does not upgrade packages, edit locks/runtime/version or
+change release workflows.
+
+中文审阅：三个范围（根 npm、独立构建工具 npm、GitHub Actions）共用一个每周普通版本升级 PR
+分组，每周日北京时间 09:00 请求检查，不再分三次。可解析的大／小／补丁及敏感工具升级
+都进入同一普通批次，不再按包主动拆分；合并提案不等于批准升级。
+安全更新保持独立，不为凑批次延迟修复；不加忽略、允许、冷却、凭据或其他目标分支。
+一个分组不代表全仓库永远最多一个 PR，旧提案和安全提案可能仍存在，也不假定未核实的
+分组限额执行效果。仍须审阅 Node／类型、VS Code API、Playwright 包／镜像和 Action SHA，
+保留锁与测试守卫；不兼容项可在批次中暂缓，不能为变绿降低门槛。通过后仍需维护者授权
+Squash 合并，不自动合并或发布新版本；既有正式版本交付恢复不变。
+配置进入默认分支后生效；首次／变更检查和排队可能不在指定时刻。须核验首个真实分组
+作业和 PR 的实际更新覆盖。配置迁移不自动合并、关闭或替代 #137–#140 等旧提案，
+确认替代批次完整覆盖后才另行授权清理，不用忽略包来减少通知。此变更不升级包、不改锁、
+运行时代码、产品版本或发布工作流；删除配置仅停用普通提案，安全设置仍独立管理。
 
 ## Pull requests
+
+Describe changes directly; omit private request and approval narratives.
+Use summaries, checklists and review comments for the change, rationale, observed
+tests and factual limitations, not private conversations or agent execution instructions.
+Keep required AI attribution and contributor credit; execution records stay local.
+
+中文审阅：PR 直接写改动、理由、测试和限制，不叙述私人对话中的要求、授权或智能体
+执行指令；概要、核对项、标题和审阅评论均适用。保留必要 AI 归因与真实贡献署名。
 
 - Keep each PR focused on one logical change.
 - Run `npm test` and the relevant browser/host layers below before opening the
