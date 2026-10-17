@@ -10,8 +10,8 @@ const pins = new Map([
   ['actions/checkout', '3d3c42e5aac5ba805825da76410c181273ba90b1'], // v7.0.1
   ['actions/setup-node', '949feb2413d6458794dcd2491c4babbbce0c15c1'], // v7.1.0
   ['anthropics/claude-code-action', 'f27be6b65a4652f08a2ba3cff79114829b588967'], // v1.0.252
-  // v7 separates autolabeling; retain the compatible v6 release until migration.
-  ['release-drafter/release-drafter', '6a93d829887aa2e0748befe2e808c66c0ec6e4c7'], // v6.4.0
+  ['release-drafter/release-drafter', '978bb0b30c5ee8cdd332ced253758157150d43f0'], // v7.10.0
+  ['release-drafter/release-drafter/autolabeler', '978bb0b30c5ee8cdd332ced253758157150d43f0'], // v7.10.0
 ]);
 const workflow = (name) => read(`.github/workflows/${name}.yml`);
 const active = (source) => source.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n');
@@ -152,7 +152,49 @@ test('action updates preserve comment-only and maintainer security boundaries', 
   assert.match(mention, /ANTHROPIC_BASE_URL: \$\{\{ vars\.ANTHROPIC_BASE_URL \}\}/);
   assert.match(mention, /anthropic_api_key: \$\{\{ secrets\.ANTHROPIC_API_KEY \}\}/);
   const drafter = active(workflow('release-drafter'));
-  assert.match(drafter, /types: \[opened, reopened, synchronize, closed\]/);
+  assert.match(drafter, /types: \[opened, reopened, synchronize, edited, closed\]/);
   assert.match(drafter, /github\.event\.pull_request\.merged == true/);
   assert.doesNotMatch(drafter, /publish:\s*true|uses: actions\/checkout/);
+});
+
+function assertReleaseBoundaries(source) {
+  source = active(source);
+  assert.deepEqual([...source.matchAll(/^  ([\w-]+):\n    if:/gm)].map(m => m[1]),
+    ['autolabel', 'update_release_draft']);
+  assert.match(source, /^permissions:\n  contents: read$/m);
+  assert.doesNotMatch(source, /uses: actions\/checkout|\brun:|pull_request\.head|file:|continue-on-error:|secrets:/);
+  const label = job(source, 'autolabel');
+  const draft = job(source, 'update_release_draft');
+  assert.match(label, /    permissions:\n      contents: read\n      pull-requests: write\n    runs-on:/);
+  assert.match(draft, /    permissions:\n      contents: write\n      pull-requests: read\n    runs-on:/);
+  for (const [block, action] of [[label, 'release-drafter/release-drafter/autolabeler'],
+    [draft, 'release-drafter/release-drafter']]) {
+    const refs = [...block.matchAll(/^      - uses: ([^\s#]+)/gm)].map(m => m[1]);
+    assert.deepEqual(refs, [`${action}@${pins.get(action)}`]);
+    assert.equal(steps(block).length, 1, 'only the reviewed action may execute');
+    assert.match(block, /^          config-name: release-drafter.yml@main$/m);
+  }
+  assert.match(draft, /^          commitish: main$/m);
+  assert.match(draft, /^          publish: 'false'$/m);
+}
+
+test('v7 labeling and drafting retain separate permissions and trusted draft-only inputs', () => {
+  assertReleaseBoundaries(workflow('release-drafter'));
+});
+
+test('release policy rejects unsafe permissions, config, action pins and publication', () => {
+  const source = workflow('release-drafter');
+  for (const [before, after] of [
+    ['contents: read\n      pull-requests: write', 'contents: write\n      pull-requests: write'],
+    ['contents: write\n      pull-requests: read', 'contents: write\n      pull-requests: write'],
+    ['config-name: release-drafter.yml@main', 'config-name: release-drafter.yml@${{ github.event.pull_request.head.sha }}'],
+    ["publish: 'false'", "publish: 'true'"],
+    ['commitish: main', 'commitish: feature'],
+    ['release-drafter/release-drafter/autolabeler@978bb0b30c5ee8cdd332ced253758157150d43f0',
+      'release-drafter/release-drafter/autolabeler@v7'],
+    ['    steps:\n', `    steps:\n      - uses: actions/checkout@${pins.get('actions/checkout')}\n`],
+  ]) {
+    assert.ok(source.includes(before), `mutation anchor: ${before}`);
+    assert.throws(() => assertReleaseBoundaries(source.replace(before, after)), { code: 'ERR_ASSERTION' });
+  }
 });

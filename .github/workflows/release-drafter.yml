@@ -8,11 +8,11 @@
 # maintainer reviews the draft and clicks "Publish release" when ready, which
 # creates the tag and triggers publish.yml.
 #
-# On PRs it also autolabels (title/branch -> version label; config in
+# On PRs a separate v7 action autolabels (title/branch -> version label; config in
 # .github/release-drafter.yml) so the draft's version + categories are right
 # without a manual label. It runs on `pull_request_target` (not `pull_request`)
-# so the token can write labels even on fork PRs — the autolabeler only reads the
-# PR title/branch, it never checks out or runs the PR's code. A maintainer can
+# so the token can write labels even on fork PRs — the autolabeler reads PR
+# metadata, never checks out or runs the PR's code. A maintainer can
 # still override the label before merge (unlabeled defaults to patch).
 
 name: Release Drafter
@@ -22,26 +22,45 @@ on:
     branches: [main]
   # Autolabel PRs (title/branch -> version label) so the draft's next version and
   # categories are right without a manual label. `pull_request_target` so the
-  # token has write access even for fork PRs; the autolabeler only reads the PR
-  # title/branch and applies labels — it never checks out or runs the PR's code.
+  # token has write access even for fork PRs. Title edits are relabeled too;
+  # only a merged closure reconciles the draft after the main push race.
   pull_request_target:
-    types: [opened, reopened, synchronize, closed]
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, closed]
 
 permissions:
   contents: read
 
 jobs:
-  update_release_draft:
+  autolabel:
     if: >-
-      github.event_name != 'pull_request_target' ||
-      github.event.action != 'closed' ||
-      github.event.pull_request.merged == true
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.base.ref == 'main' &&
+      (github.event.action == 'opened' || github.event.action == 'reopened' ||
+       github.event.action == 'synchronize' || github.event.action == 'edited')
     permissions:
-      contents: write        # create / update the draft release
-      pull-requests: write   # autolabeler applies labels to PRs
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      # v7 separates autolabeling into another action; retain the compatible v6 release.
+      - uses: release-drafter/release-drafter/autolabeler@978bb0b30c5ee8cdd332ced253758157150d43f0 # v7.10.0
+        with:
+          config-name: release-drafter.yml@main
+
+  update_release_draft:
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request_target' &&
+       github.event.action == 'closed' &&
+       github.event.pull_request.merged == true &&
+       github.event.pull_request.base.ref == 'main')
+    permissions:
+      contents: write
+      pull-requests: read
+    runs-on: ubuntu-latest
+    steps:
       - uses: release-drafter/release-drafter@978bb0b30c5ee8cdd332ced253758157150d43f0 # v7.10.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          config-name: release-drafter.yml@main
+          commitish: main
+          publish: 'false'
