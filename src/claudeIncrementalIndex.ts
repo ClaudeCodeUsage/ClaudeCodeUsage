@@ -2800,7 +2800,12 @@ export async function updateClaudeUsageIndex(
   const deletions = [...previous.files.values()].filter((file) => !seenPrevious.has(file.fileId));
   changed.delete = deletions.length;
   let canonicalOrderChanged = false;
-  if (metadataRetags.length > 0) {
+  // Changed bodies can also carry new discovery ranks; metadata-only retags
+  // are not the only way surviving files can change their relative order.
+  if (currentEntries.some((entry) => {
+    const prior = previous.files.get(stableFileId(entry));
+    return prior && prior.fingerprint.discoveryIndex !== entry.discoveryIndex;
+  })) {
     const previousCanonicalOrder = previousAnalysisRuntime?.orderedFileIds ??
       analysisFilesInOrder(previous).map((file) => file.fileId);
     const projectedOrder = currentEntries
@@ -2813,9 +2818,13 @@ export async function updateClaudeUsageIndex(
         left.file.firstTimestampMs - right.file.firstTimestampMs ||
         left.entry.discoveryIndex - right.entry.discoveryIndex)
       .map((value) => value.file.fileId);
-    canonicalOrderChanged = projectedOrder.length === currentEntries.length &&
-      (projectedOrder.length !== previousCanonicalOrder.length ||
-        projectedOrder.some((fileId, index) => previousCanonicalOrder[index] !== fileId));
+    // Compare the same surviving files on both sides. New files must not hide
+    // a reorder, and removing files does not itself change survivor ownership.
+    const survivingIds = new Set(projectedOrder);
+    const previousSurvivingOrder = previousCanonicalOrder.filter((fileId) => survivingIds.has(fileId));
+    canonicalOrderChanged = projectedOrder.some(
+      (fileId, index) => previousSurvivingOrder[index] !== fileId,
+    );
   }
 
   const replaceWithFullAnalysisPlans = (): void => {

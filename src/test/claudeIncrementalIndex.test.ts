@@ -1877,6 +1877,85 @@ test('changed discoveryIndex ties rebuild canonical content ownership and order'
   }
 });
 
+for (const scenario of [
+  { name: 'rewrite plus insertion cannot hide a tied ownership reorder', mutation: 'rewrite',
+    tied: true, swapped: true, reads: 4 },
+  { name: 'safe insertion beside a rewrite stays bounded', mutation: 'rewrite',
+    tied: true, swapped: false, reads: 2 },
+  { name: 'discovery reorder with distinct timestamps stays bounded', mutation: 'rewrite',
+    tied: false, swapped: true, reads: 2 },
+  { name: 'deletion and insertion preserve surviving canonical order', mutation: 'delete',
+    tied: false, swapped: true, reads: 1 },
+  { name: 'deletion and insertion cannot hide a tied ownership reorder', mutation: 'delete',
+    tied: true, swapped: true, reads: 3 },
+  { name: 'concurrent appends cannot hide a tied ownership reorder', mutation: 'append',
+    tied: true, swapped: true, reads: 3 },
+] as const) {
+  test(`canonical source order: ${scenario.name}`, async () => {
+    const previousNow = Date.now;
+    Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+    try {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-surviving-order-'));
+      roots.push(root);
+      const project = path.join(root, 'projects', '-fixture');
+      await mkdir(project, { recursive: true });
+      const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((name) => path.join(project, `${name}.jsonl`));
+      const timestamp = (hour: string) => `2026-09-10T${hour}:00:00.000Z`;
+      await writeFile(a, analysisTextLine('A', 'aaa', timestamp('08')) + '\n');
+      await writeFile(b, analysisTextLine('X', 'B'.repeat(40), timestamp('09')) + '\n');
+      await writeFile(c, analysisTextLine('X', 'C'.repeat(400),
+        timestamp(scenario.tied ? '09' : '10')) + '\n');
+      const coldManifest = await manifestInOrder([a, b, c]);
+      const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+        manifest: coldManifest,
+      });
+      const coldFull = await ClaudeDataLoader.loadUsageRecords(root, { manifest: coldManifest });
+      assert.deepEqual(cold.contentAnalysis, coldFull.contentAnalysis);
+      const priorFiles = structuredClone(cold.index.files);
+      const priorAnalysis = structuredClone(cold.contentAnalysis);
+      const priorRecords = normalized(cold.records);
+      deepFreeze(cold.index);
+      deepFreeze(cold.contentAnalysis);
+
+      if (scenario.mutation === 'append') {
+        await appendFile(b, analysisTextLine('B-tail', 'appended B', timestamp('11')) + '\n');
+        await appendFile(c, analysisTextLine('C-tail', 'appended C', timestamp('11')) + '\n');
+      } else {
+        if (scenario.mutation === 'delete') await unlink(a);
+        else await writeFile(a, analysisTextLine('A', 'rewritten longer text', timestamp('08')) + '\n');
+        await writeFile(d, analysisTextLine('D', 'ddd', timestamp('10')) + '\n');
+      }
+      // Exercise discovery order explicitly, independent of filesystem enumeration.
+      // Different timestamps still take precedence over a B/C discovery swap.
+      const ordered = scenario.swapped ? [c, b] : [b, c];
+      if (scenario.mutation !== 'delete') ordered.unshift(a);
+      if (scenario.mutation !== 'append') {
+        if (scenario.swapped) ordered.push(d);
+        else ordered.splice(1, 0, d);
+      }
+      const manifest = await manifestInOrder(ordered);
+      const warm = await updateClaudeUsageIndex(cold.index, root, { manifest });
+      const full = await ClaudeDataLoader.loadUsageRecords(root, { manifest });
+      assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+      assert.deepEqual(normalized(warm.records), normalized(full.records));
+      assert.equal(warm.diagnostics.bodyReads, scenario.reads);
+      assert.deepEqual([...warm.index.files.values()]
+        .filter((file) => file.analysis?.seenUuids.has('X')).map((file) => file.path),
+      [scenario.tied && scenario.swapped ? c : b]);
+
+      const followUp = await updateClaudeUsageIndex(warm.index, root, { manifest });
+      assert.equal(followUp.diagnostics.bodyReads, 0);
+      assert.deepEqual(followUp.contentAnalysis, full.contentAnalysis);
+      assert.deepEqual(normalized(followUp.records), normalized(full.records));
+      assert.deepEqual(cold.index.files, priorFiles);
+      assert.deepEqual(cold.contentAnalysis, priorAnalysis);
+      assert.deepEqual(normalized(cold.records), priorRecords);
+    } finally {
+      Date.now = previousNow;
+    }
+  });
+}
+
 test('per-file skill retention preserves the full loader global skill cap semantics', async () => {
   const previousNow = Date.now;
   let now = Date.parse('2026-09-10T12:00:00.000Z');
