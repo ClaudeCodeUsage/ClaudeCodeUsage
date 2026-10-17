@@ -57,13 +57,13 @@ npm run watch            # recompile on change
 不随插件交付，不提高插件最低 VS Code 版本。发布不临时下载工具，也不自动强制修复依赖；
 升级通过审阅的 PR 完成。审计无警报只表示未命中已知漏洞，不能证明供应链绝对安全。
 
-The audited Axe 4.12.1 baseline is retained for now. The 4.14 upgrade detects
+The audited Axe 4.13.0 baseline is used for browser checks. The 4.14 upgrade detects
 existing `label-content-name-mismatch` failures on achievement controls. Resolve
 those with focused accessibility tests and the required native UI acceptance in
 a separate change before upgrading; do not disable the new rule or rewrite visual
 baselines merely to make a dependency update pass.
 
-中文审阅：本次保留已审计的 Axe 4.12.1。4.14 的新检查发现成就控件既有的可访问名称
+中文审阅：浏览器检查使用已审计的 Axe 4.13.0。4.14 的新检查发现成就控件既有的可访问名称
 与可见文字不一致问题；应在独立改动中补齐无障碍测试和项目要求的原生 UI 验收后升级，
 不能通过关闭新规则或重写视觉基线来消除依赖升级失败。
 

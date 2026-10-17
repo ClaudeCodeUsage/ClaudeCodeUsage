@@ -1951,7 +1951,7 @@ test('package lock and Codex UI tooling stay exact and release-safe', () => {
   // Axe 4.14 activates label-content-name-mismatch for existing achievement
   // controls. Keep this audited baseline until a separate accessibility fix
   // has browser and native UI acceptance; do not disable that rule to upgrade.
-  assert.equal(pkg.devDependencies['@axe-core/playwright'], '4.12.1');
+  assert.equal(pkg.devDependencies['@axe-core/playwright'], '4.13.0');
   assert.equal(root.version, pkg.version);
   assert.deepEqual(root.devDependencies, pkg.devDependencies);
   assert.equal(pkg.dependencies, undefined);
