@@ -94,5 +94,3 @@ function main() {
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { main(); } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
-
-// CI143 remote cancellation fixture: preserve full-source classification.
