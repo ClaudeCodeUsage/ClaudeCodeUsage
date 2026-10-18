@@ -57,6 +57,31 @@ npm run watch            # recompile on change
 不随插件交付，不提高插件最低 VS Code 版本。发布不临时下载工具，也不自动强制修复依赖；
 升级通过审阅的 PR 完成。审计无警报只表示未命中已知漏洞，不能证明供应链绝对安全。
 
+The compiler is pinned to TypeScript 6.0.3, the latest stable 6.x release verified
+for the legacy AST API used by repository/privacy policy tests. TypeScript 7.0.2
+changes that API and is not a drop-in upgrade. Keep Node declarations on the
+Node 24 development line and VS Code declarations on 1.74.x while the extension
+supports VS Code 1.74. Retain 1.74.0: the published 1.74.1 package is deprecated
+because it contains VS Code 1.75 types. Do not raise the engine floor, add a second
+compiler or relax strict/library checking.
+Explicit `types: ["node"]` retains required ambient globals under TypeScript 6.
+Explicit `esModuleInterop: false` preserves existing direct CommonJS namespace
+imports and Node module mocking instead of adopting TypeScript 6's new default.
+`ignoreDeprecations: "6.0"` is a temporary bridge for existing CommonJS/Node10
+resolution, not a type-error suppression: it preserves the lazy session-action
+import rather than combining a module-system migration with a dependency batch.
+Before moving to TypeScript 7, migrate and revalidate both module resolution and
+the AST policy checks; do not replace those checks with regexes or remove them.
+
+中文审阅：编译器固定为已核实的最新兼容 6.x 稳定版 TypeScript 6.0.3，保留仓库／隐私
+策略测试使用的旧 AST API；7.0.2 不是直接替换。Node 类型保持 24 系列，VS Code 类型保留
+1.74.0；发布方已弃用 1.74.1，因其实际包含 1.75 类型。最低宿主仍为 1.74，不添加第二套
+编译器、不关闭 strict 或库类型检查。
+显式加载 Node 类型并保留 `esModuleInterop: false`，避免新版默认值改变 CommonJS
+命名空间导入及 Node 模块替身行为；`ignoreDeprecations: "6.0"` 仅暂缓现有 CommonJS／Node10 解析的
+弃用诊断，不忽略类型错误，避免本批次改变会话操作的延迟导入行为。升级 7.x 前应另行
+迁移模块解析与 AST 策略检查，保留其安全约束，不用正则或删测试替代。
+
 The audited Axe 4.13.0 baseline is used for browser checks. The 4.14 upgrade detects
 existing `label-content-name-mismatch` failures on achievement controls. Resolve
 those with focused accessibility tests and the required native UI acceptance in
