@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "runId": 39041847767,
+    "url": "https://github.com/ClaudeCodeUsage/ClaudeCodeUsage/actions/runs/39041847767",
+    "jobIds": [
+      117422761501,
+      117422761418,
+      117422761512,
+      117422761527
+    ],
+    "method": "Approximate milliseconds: adjacent GitHub line-reporter test-start timestamps within each single-worker job; final test uses the 219-passed summary timestamp. Aggregate intervals by repository-relative spec file across all four jobs.",
+    "limitations": "Estimates, not exact Playwright test durations. Includes inter-test scheduling/fixture/reporter overhead and final teardown; excludes setup before the first start. Log timestamps can be buffered. Historical fully-parallel runs may have different fixture costs from file-preserving execution. Not a wall-clock speedup guarantee.",
+    "tests": 876,
+    "jobs": [
+      {
+        "jobId": 117422761501,
+        "tests": 219,
+        "milliseconds": 1068972
+      },
+      {
+        "jobId": 117422761418,
+        "tests": 219,
+        "milliseconds": 1326067
+      },
+      {
+        "jobId": 117422761512,
+        "tests": 219,
+        "milliseconds": 777652
+      },
+      {
+        "jobId": 117422761527,
+        "tests": 219,
+        "milliseconds": 503039
+      }
+    ]
+  },
+  "files": [
+    {
+      "file": "tests/ui/achievement-calendar-subset.spec.mjs",
+      "tests": 24,
+      "milliseconds": 124930
+    },
+    {
+      "file": "tests/ui/achievement-compact-levels.spec.mjs",
+      "tests": 34,
+      "milliseconds": 79370
+    },
+    {
+      "file": "tests/ui/achievement-compare-refresh.spec.mjs",
+      "tests": 2,
+      "milliseconds": 1086
+    },
+    {
+      "file": "tests/ui/achievement-detail-readability.spec.mjs",
+      "tests": 8,
+      "milliseconds": 32210
+    },
+    {
+      "file": "tests/ui/achievement-effort-statistics.spec.mjs",
+      "tests": 52,
+      "milliseconds": 374720
+    },
+    {
+      "file": "tests/ui/achievement-evidence-reasons.spec.mjs",
+      "tests": 16,
+      "milliseconds": 94613
+    },
+    {
+      "file": "tests/ui/achievement-experience.spec.mjs",
+      "tests": 47,
+      "milliseconds": 224959
+    },
+    {
+      "file": "tests/ui/achievement-gallery-v2.spec.mjs",
+      "tests": 101,
+      "milliseconds": 490963
+    },
+    {
+      "file": "tests/ui/achievement-journey.spec.mjs",
+      "tests": 9,
+      "milliseconds": 129825
+    },
+    {
+      "file": "tests/ui/achievement-long-term.spec.mjs",
+      "tests": 24,
+      "milliseconds": 150518
+    },
+    {
+      "file": "tests/ui/achievement-management.spec.mjs",
+      "tests": 27,
+      "milliseconds": 169346
+    },
+    {
+      "file": "tests/ui/achievement-notice-motion.spec.mjs",
+      "tests": 4,
+      "milliseconds": 9058
+    },
+    {
+      "file": "tests/ui/achievement-notice-preference.spec.mjs",
+      "tests": 9,
+      "milliseconds": 97180
+    },
+    {
+      "file": "tests/ui/achievement-overview-layout.spec.mjs",
+      "tests": 8,
+      "milliseconds": 24403
+    },
+    {
+      "file": "tests/ui/achievement-pins.spec.mjs",
+      "tests": 19,
+      "milliseconds": 140526
+    },
+    {
+      "file": "tests/ui/achievement-ready.spec.mjs",
+      "tests": 17,
+      "milliseconds": 67566
+    },
+    {
+      "file": "tests/ui/achievement-records.spec.mjs",
+      "tests": 9,
+      "milliseconds": 72428
+    },
+    {
+      "file": "tests/ui/achievement-review-fixes.spec.mjs",
+      "tests": 64,
+      "milliseconds": 259064
+    },
+    {
+      "file": "tests/ui/achievement-share-export-layout.spec.mjs",
+      "tests": 24,
+      "milliseconds": 5762
+    },
+    {
+      "file": "tests/ui/achievement-share-resources.spec.mjs",
+      "tests": 5,
+      "milliseconds": 10730
+    },
+    {
+      "file": "tests/ui/achievement-statistics.spec.mjs",
+      "tests": 12,
+      "milliseconds": 192076
+    },
+    {
+      "file": "tests/ui/achievement-themes.spec.mjs",
+      "tests": 11,
+      "milliseconds": 107273
+    },
+    {
+      "file": "tests/ui/achievement-unread.spec.mjs",
+      "tests": 10,
+      "milliseconds": 80511
+    },
+    {
+      "file": "tests/ui/achievements.spec.mjs",
+      "tests": 46,
+      "milliseconds": 99146
+    },
+    {
+      "file": "tests/ui/advice-effectiveness.spec.mjs",
+      "tests": 33,
+      "milliseconds": 81790
+    },
+    {
+      "file": "tests/ui/api-heatmap.spec.mjs",
+      "tests": 31,
+      "milliseconds": 38517
+    },
+    {
+      "file": "tests/ui/chart-date-labels.spec.mjs",
+      "tests": 2,
+      "milliseconds": 2280
+    },
+    {
+      "file": "tests/ui/claude-settings.spec.mjs",
+      "tests": 11,
+      "milliseconds": 14448
+    },
+    {
+      "file": "tests/ui/codex-accessibility.spec.mjs",
+      "tests": 30,
+      "milliseconds": 77467
+    },
+    {
+      "file": "tests/ui/codex-interactions.spec.mjs",
+      "tests": 27,
+      "milliseconds": 60275
+    },
+    {
+      "file": "tests/ui/codex-responsive.spec.mjs",
+      "tests": 15,
+      "milliseconds": 39798
+    },
+    {
+      "file": "tests/ui/codex-visual.spec.mjs",
+      "tests": 32,
+      "milliseconds": 40307
+    },
+    {
+      "file": "tests/ui/combined-heatmap.spec.mjs",
+      "tests": 17,
+      "milliseconds": 19914
+    },
+    {
+      "file": "tests/ui/currency-display.spec.mjs",
+      "tests": 2,
+      "milliseconds": 2969
+    },
+    {
+      "file": "tests/ui/dashboard-live-refresh.spec.mjs",
+      "tests": 5,
+      "milliseconds": 8304
+    },
+    {
+      "file": "tests/ui/dashboard-recovery.spec.mjs",
+      "tests": 10,
+      "milliseconds": 13080
+    },
+    {
+      "file": "tests/ui/local-data-controls.spec.mjs",
+      "tests": 5,
+      "milliseconds": 5365
+    },
+    {
+      "file": "tests/ui/project-usage-matrix.spec.mjs",
+      "tests": 7,
+      "milliseconds": 12892
+    },
+    {
+      "file": "tests/ui/time-range-presentation.spec.mjs",
+      "tests": 2,
+      "milliseconds": 2973
+    },
+    {
+      "file": "tests/ui/weekly-quota-pace.spec.mjs",
+      "tests": 65,
+      "milliseconds": 217088
+    }
+  ]
+}

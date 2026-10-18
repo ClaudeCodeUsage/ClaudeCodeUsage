@@ -57,13 +57,38 @@ npm run watch            # recompile on change
 不随插件交付，不提高插件最低 VS Code 版本。发布不临时下载工具，也不自动强制修复依赖；
 升级通过审阅的 PR 完成。审计无警报只表示未命中已知漏洞，不能证明供应链绝对安全。
 
-The audited Axe 4.12.1 baseline is retained for now. The 4.14 upgrade detects
+The compiler is pinned to TypeScript 6.0.3, the latest stable 6.x release verified
+for the legacy AST API used by repository/privacy policy tests. TypeScript 7.0.2
+changes that API and is not a drop-in upgrade. Keep Node declarations on the
+Node 24 development line and VS Code declarations on 1.74.x while the extension
+supports VS Code 1.74. Retain 1.74.0: the published 1.74.1 package is deprecated
+because it contains VS Code 1.75 types. Do not raise the engine floor, add a second
+compiler or relax strict/library checking.
+Explicit `types: ["node"]` retains required ambient globals under TypeScript 6.
+Explicit `esModuleInterop: false` preserves existing direct CommonJS namespace
+imports and Node module mocking instead of adopting TypeScript 6's new default.
+`ignoreDeprecations: "6.0"` is a temporary bridge for existing CommonJS/Node10
+resolution, not a type-error suppression: it preserves the lazy session-action
+import rather than combining a module-system migration with a dependency batch.
+Before moving to TypeScript 7, migrate and revalidate both module resolution and
+the AST policy checks; do not replace those checks with regexes or remove them.
+
+中文审阅：编译器固定为已核实的最新兼容 6.x 稳定版 TypeScript 6.0.3，保留仓库／隐私
+策略测试使用的旧 AST API；7.0.2 不是直接替换。Node 类型保持 24 系列，VS Code 类型保留
+1.74.0；发布方已弃用 1.74.1，因其实际包含 1.75 类型。最低宿主仍为 1.74，不添加第二套
+编译器、不关闭 strict 或库类型检查。
+显式加载 Node 类型并保留 `esModuleInterop: false`，避免新版默认值改变 CommonJS
+命名空间导入及 Node 模块替身行为；`ignoreDeprecations: "6.0"` 仅暂缓现有 CommonJS／Node10 解析的
+弃用诊断，不忽略类型错误，避免本批次改变会话操作的延迟导入行为。升级 7.x 前应另行
+迁移模块解析与 AST 策略检查，保留其安全约束，不用正则或删测试替代。
+
+The audited Axe 4.13.0 baseline is used for browser checks. The 4.14 upgrade detects
 existing `label-content-name-mismatch` failures on achievement controls. Resolve
 those with focused accessibility tests and the required native UI acceptance in
 a separate change before upgrading; do not disable the new rule or rewrite visual
 baselines merely to make a dependency update pass.
 
-中文审阅：本次保留已审计的 Axe 4.12.1。4.14 的新检查发现成就控件既有的可访问名称
+中文审阅：浏览器检查使用已审计的 Axe 4.13.0。4.14 的新检查发现成就控件既有的可访问名称
 与可见文字不一致问题；应在独立改动中补齐无障碍测试和项目要求的原生 UI 验收后升级，
 不能通过关闭新规则或重写视觉基线来消除依赖升级失败。
 
@@ -206,7 +231,38 @@ does not execute F5 or accept the installed UI.
 固定版本示例不是“最新稳定版”声明；候选记录实际工具版本、冻结源码和包 hash。
 
 CI uses separate gates, with packaging after both test jobs pass on every PR
-(`.github/workflows/test.yml`). Canonical Linux screenshots may only be updated
+(`.github/workflows/test.yml`). Node Tests (including both dependency audits),
+UI Test and Release Package remain the stable required checks. Only PRs whose
+actual tested-tree diff is verified to contain allowlisted regular documentation
+files may omit browser jobs; unknown ranges, mixed changes, renames involving code,
+symlinks, dependencies, assets, tests and CI changes run the complete UI suite.
+The UI aggregate rejects unknown, failed, cancelled or unexpected skipped results.
+Main pushes always run full UI, so a newer docs commit cannot cancel runtime
+verification and replace it with a documentation exemption.
+
+Four isolated single-worker jobs discover every current Playwright spec, then
+assign whole files exactly once using historical-duration estimates in
+`.github/scripts/ui-timings.json`. The baseline is not a test allowlist: new files
+and new tests receive nonzero weights. Invalid discovery/timings and empty shards
+fail rather than silently passing. Inspect the plan with
+`node .github/scripts/ui-shards.mjs --shard=1/4 --plan`; after compiling, omit
+`--plan` to execute that partition. Refresh timing estimates from a complete
+successful run and retain their provenance/limitations; modeled balance is not
+a measured speedup. No tests, locales, themes, retries or snapshot tolerances are removed.
+Obsolete Test runs are cancelled only within the same PR or main ref; other PRs
+and release workflows remain separate. No auto-merge or publishing is enabled.
+
+中文审阅：Node 测试（含两份依赖审计）、UI 汇总与打包仍是固定门禁。只有 PR 的实际待测
+树差异已确认全部为白名单普通文档时，才可省去浏览器；未知范围、混合改动、涉及代码的
+重命名、符号链接、依赖、资源、测试及 CI 改动均完整测 UI。汇总门禁拒绝未知、失败、取消
+或不符合预期的跳过。main 推送始终完整测 UI，防止新文档提交取消前一轮代码检查后免测。
+四个隔离单 worker 从当前完整清单按历史耗时估算分配文件，每文件恰好一次；新增文件／用例
+具有非零权重，历史数据不是白名单。发现／计时异常或空分片会失败，不删测试、语言、主题、
+重试或截图阈值。`--plan` 只检查分配；实际执行先编译，计时更新保留完整成功来源与局限，
+估算均衡不等于实测加速。过时 Test 仅在同 PR 或 main 引用内取消，不影响其他 PR／发布流程，
+不开启自动合并或发布。
+
+Canonical Linux screenshots may only be updated
 with the exact official container
 `mcr.microsoft.com/playwright:v1.64.1-noble` pinned to the multi-platform digest
 in `test.yml`, with

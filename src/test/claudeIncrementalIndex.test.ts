@@ -4,9 +4,11 @@ import {
   appendFile,
   mkdir,
   mkdtemp,
+  readFile,
   rename,
   rm,
   stat,
+  truncate,
   unlink,
   writeFile,
 } from 'node:fs/promises';
@@ -1875,6 +1877,97 @@ test('changed discoveryIndex ties rebuild canonical content ownership and order'
   }
 });
 
+for (const scenario of [
+  { name: 'rewrite plus insertion cannot hide a tied ownership reorder', mutation: 'rewrite',
+    tied: true, swapped: true, reads: 4 },
+  { name: 'safe insertion beside a rewrite stays bounded', mutation: 'rewrite',
+    tied: true, swapped: false, reads: 2 },
+  { name: 'discovery reorder with distinct timestamps stays bounded', mutation: 'rewrite',
+    tied: false, swapped: true, reads: 2 },
+  { name: 'deletion and insertion preserve surviving canonical order', mutation: 'delete',
+    tied: false, swapped: true, reads: 1 },
+  { name: 'reused deletion identity conservatively replays surviving files', mutation: 'delete',
+    tied: false, swapped: true, reads: 3, reuseIdentity: true },
+  { name: 'deletion and insertion cannot hide a tied ownership reorder', mutation: 'delete',
+    tied: true, swapped: true, reads: 3 },
+  { name: 'concurrent appends cannot hide a tied ownership reorder', mutation: 'append',
+    tied: true, swapped: true, reads: 3 },
+] as const) {
+  test(`canonical source order: ${scenario.name}`, async () => {
+    const previousNow = Date.now;
+    Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+    try {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-surviving-order-'));
+      roots.push(root);
+      const project = path.join(root, 'projects', '-fixture');
+      await mkdir(project, { recursive: true });
+      const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((name) => path.join(project, `${name}.jsonl`));
+      const timestamp = (hour: string) => `2026-09-10T${hour}:00:00.000Z`;
+      await writeFile(a, analysisTextLine('A', 'aaa', timestamp('08')) + '\n');
+      await writeFile(b, analysisTextLine('X', 'B'.repeat(40), timestamp('09')) + '\n');
+      await writeFile(c, analysisTextLine('X', 'C'.repeat(400),
+        timestamp(scenario.tied ? '09' : '10')) + '\n');
+      const coldManifest = await manifestInOrder([a, b, c]);
+      const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+        manifest: coldManifest,
+      });
+      const coldFull = await ClaudeDataLoader.loadUsageRecords(root, { manifest: coldManifest });
+      assert.deepEqual(cold.contentAnalysis, coldFull.contentAnalysis);
+      const priorFiles = structuredClone(cold.index.files);
+      const priorAnalysis = structuredClone(cold.contentAnalysis);
+      const priorRecords = normalized(cold.records);
+      deepFreeze(cold.index);
+      deepFreeze(cold.contentAnalysis);
+
+      if (scenario.mutation === 'append') {
+        await appendFile(b, analysisTextLine('B-tail', 'appended B', timestamp('11')) + '\n');
+        await appendFile(c, analysisTextLine('C-tail', 'appended C', timestamp('11')) + '\n');
+      } else {
+        // Create D while A still exists: otherwise Linux may recycle A's inode
+        // and accidentally turn the independent-insertion control into a move.
+        await writeFile(d, analysisTextLine('D', 'ddd', timestamp('10')) + '\n');
+        if (scenario.mutation === 'delete') await unlink(a);
+        else await writeFile(a, analysisTextLine('A', 'rewritten longer text', timestamp('08')) + '\n');
+      }
+      // Exercise discovery order explicitly, independent of filesystem enumeration.
+      // Different timestamps still take precedence over a B/C discovery swap.
+      const ordered = scenario.swapped ? [c, b] : [b, c];
+      if (scenario.mutation !== 'delete') ordered.unshift(a);
+      if (scenario.mutation !== 'append') {
+        if (scenario.swapped) ordered.push(d);
+        else ordered.splice(1, 0, d);
+      }
+      let manifest = await manifestInOrder(ordered);
+      if ('reuseIdentity' in scenario && scenario.reuseIdentity) {
+        // Exercise inode reuse explicitly on every filesystem, not by chance.
+        const oldIdentity = coldManifest.entries.get(a)!;
+        const inserted = manifest.entries.get(d)!;
+        const entries = new Map(manifest.entries);
+        entries.set(d, { ...inserted, dev: oldIdentity.dev, ino: oldIdentity.ino });
+        manifest = { ...manifest, entries };
+      }
+      const warm = await updateClaudeUsageIndex(cold.index, root, { manifest });
+      const full = await ClaudeDataLoader.loadUsageRecords(root, { manifest });
+      assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+      assert.deepEqual(normalized(warm.records), normalized(full.records));
+      assert.equal(warm.diagnostics.bodyReads, scenario.reads);
+      assert.deepEqual([...warm.index.files.values()]
+        .filter((file) => file.analysis?.seenUuids.has('X')).map((file) => file.path),
+      [scenario.tied && scenario.swapped ? c : b]);
+
+      const followUp = await updateClaudeUsageIndex(warm.index, root, { manifest });
+      assert.equal(followUp.diagnostics.bodyReads, 0);
+      assert.deepEqual(followUp.contentAnalysis, full.contentAnalysis);
+      assert.deepEqual(normalized(followUp.records), normalized(full.records));
+      assert.deepEqual(cold.index.files, priorFiles);
+      assert.deepEqual(cold.contentAnalysis, priorAnalysis);
+      assert.deepEqual(normalized(cold.records), priorRecords);
+    } finally {
+      Date.now = previousNow;
+    }
+  });
+}
+
 test('per-file skill retention preserves the full loader global skill cap semantics', async () => {
   const previousNow = Date.now;
   let now = Date.parse('2026-09-10T12:00:00.000Z');
@@ -2658,6 +2751,303 @@ test('truncate, atomic replacement, move, and delete update only affected files'
   assert.deepEqual(current.diagnostics.changed, { append: 0, rebuild: 0, move: 0, delete: 1 });
   await assertMatchesFull(root, current.records);
 });
+
+test('a truncated transcript re-reads only that file, not the whole history', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first } = await fixture();
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    const content = await readFile(first, 'utf8');
+    const lines = content.trim().split('\n');
+    await writeFile(first, `${lines.slice(0, 2).join('\n')}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.changed.rebuild, 1);
+    assert.equal(warm.diagnostics.bodyReads, 1, 'only the truncated file is re-read');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a mid-file rewrite re-reads only the rewritten file', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first } = await fixture();
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    await writeFile(first, [
+      JSON.stringify({ type: 'custom-title', customTitle: 'Edited title' }),
+      promptLine('first prompt'),
+      usageLine('first-edited', 99, 9),
+      '',
+    ].join('\n'), 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.changed.rebuild, 1);
+    assert.equal(warm.diagnostics.bodyReads, 1, 'only the rewritten file is re-read');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a rewrite that moves the first event falls back to a full ordered rebuild', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first } = await fixture();
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    // Dropping the prompt line moves the file's first timestamped event from
+    // 08:00 to 08:01, behind nothing here but past its established position.
+    await writeFile(first, `${usageLine('first', 10, 4)}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    // The fallback escalated every surviving file to a rebuild plan. (The
+    // bodyReads total is 1 bounded probe + 2 fallback reads, but pin the
+    // escalation itself, not the probe's implementation detail.)
+    assert.equal(warm.diagnostics.changed.rebuild, 2, 'the order shift forces a full rebuild');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a rewrite claiming a uuid owned by a later file falls back to a full rebuild', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first, second } = await fixture();
+    await appendFile(second, `${promptLine('shared late', '2026-08-21T09:00:00.000Z')}\n`, 'utf8');
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    await writeFile(first, [
+      JSON.stringify({ type: 'custom-title', customTitle: 'Edited title' }),
+      promptLine('first prompt'),
+      promptLine('shared late', '2026-08-21T08:30:00.000Z'),
+      usageLine('first', 10, 4),
+      '',
+    ].join('\n'), 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.changed.rebuild, 2, 'the ownership conflict forces a full rebuild');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('a rewrite that drops an owned uuid re-reads the twin that also carries it', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const { root, first, second } = await fixture();
+    await appendFile(first, `${promptLine('duplicated prompt', '2026-08-21T08:02:00.000Z')}\n`, 'utf8');
+    await appendFile(second, `${promptLine('duplicated prompt', '2026-08-21T09:02:00.000Z')}\n`, 'utf8');
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    // The rewrite drops the duplicated line from the earlier file, so the
+    // later twin takes over the uuid — and only it is re-read alongside.
+    await writeFile(first, [
+      JSON.stringify({ type: 'custom-title', customTitle: 'First title' }),
+      promptLine('first prompt'),
+      usageLine('first', 10, 4),
+      '',
+    ].join('\n'), 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.bodyReads, 2, 'the rewritten file and the twin, nothing else');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+test('rewriting an owner while appending its claimant replays that claimant', async () => {
+  const previousNow = Date.now;
+  Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+  try {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-rewrite-append-owner-'));
+    roots.push(root);
+    const project = path.join(root, 'projects', '-fixture-rewrite-append-owner');
+    await mkdir(project, { recursive: true });
+    const owner = path.join(project, 'session-owner.jsonl');
+    const claimant = path.join(project, 'session-claimant.jsonl');
+    const bystander = path.join(project, 'session-bystander.jsonl');
+    await writeFile(owner, [
+      promptLine('shared prompt', '2026-08-21T08:00:00.000Z'),
+      usageLine('owner', 10, 4, { timestamp: '2026-08-21T08:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(claimant, [
+      promptLine('shared prompt', '2026-08-21T09:00:00.000Z'),
+      usageLine('claimant', 20, 8, { timestamp: '2026-08-21T09:01:00.000Z' }),
+      '',
+    ].join('\n'), 'utf8');
+    await writeFile(bystander, `${usageLine('bystander', 4, 1, { timestamp: '2026-08-21T11:00:00.000Z' })}\n`, 'utf8');
+
+    const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    deepFreeze(cold.index);
+    deepFreeze(cold.contentAnalysis);
+
+    // Same first timestamp, so the order probe has nothing to say. The shared
+    // uuid leaves the owner and has to be replayed from the claimant's prefix.
+    await writeFile(owner, `${usageLine('owner-kept', 10, 4, { timestamp: '2026-08-21T08:00:00.000Z' })}\n`, 'utf8');
+    await appendFile(claimant, `${usageLine('claimant-tail', 3, 1, { timestamp: '2026-08-21T09:02:00.000Z' })}\n`, 'utf8');
+    const warm = await updateClaudeUsageIndex(cold.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+
+    assert.equal(warm.diagnostics.bodyReads, 2, 'the rewritten owner and the appended claimant');
+    const full = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+    await assertMatchesFull(root, warm.records);
+
+    const followUp = await updateClaudeUsageIndex(warm.index, root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.equal(followUp.diagnostics.bodyReads, 0, 'the restored owner stays restored');
+    const followFull = await ClaudeDataLoader.loadUsageRecords(root, {
+      analyzeContent: true,
+      windowDays: 30,
+    });
+    assert.deepEqual(followUp.contentAnalysis, followFull.contentAnalysis);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
+for (const mutation of ['rewrite', 'truncate', 'delete'] as const) {
+  test(`ownership replay preserves changed source order after owner ${mutation}`, async () => {
+    const previousNow = Date.now;
+    Date.now = () => Date.parse('2026-09-10T12:00:00.000Z');
+    try {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-owner-order-'));
+      roots.push(root);
+      const project = path.join(root, 'projects', '-fixture');
+      await mkdir(project, { recursive: true });
+      const owner = path.join(project, 'a.jsonl');
+      const claimant = path.join(project, 'b.jsonl');
+      const later = path.join(project, 'c.jsonl');
+      const header = `${JSON.stringify({ type: 'custom-title', customTitle: 'Before' })}\n`;
+      await writeFile(owner, header + analysisTextLine('X', 'shared X') + '\n');
+      await writeFile(claimant, [
+        analysisTextLine('X', 'shared X'),
+        analysisTextLine('Y', 'B'.repeat(40)),
+        '',
+      ].join('\n'));
+      await writeFile(later, [
+        analysisTextLine('Y', 'C'.repeat(400), '2026-08-21T09:00:00.000Z'),
+        usageLine('later', 100, 20, { timestamp: '2026-08-21T09:01:00.000Z' }),
+        '',
+      ].join('\n'));
+      const options = { analyzeContent: true, windowDays: 30 };
+      const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, options);
+      const coldFull = await ClaudeDataLoader.loadUsageRecords(root, options);
+      assert.deepEqual(cold.contentAnalysis, coldFull.contentAnalysis);
+      await assertMatchesFull(root, cold.records);
+      const priorAnalysis = structuredClone(cold.contentAnalysis);
+      const priorRecords = normalized(cold.records);
+      const priorOwners = [...cold.index.files.values()].map((file) =>
+        [file.path, [...(file.analysis?.seenUuids ?? [])]]);
+      deepFreeze(cold.index);
+      deepFreeze(cold.contentAnalysis);
+
+      if (mutation === 'delete') await unlink(owner);
+      else if (mutation === 'truncate') await truncate(owner, Buffer.byteLength(header));
+      else await writeFile(owner, `${JSON.stringify({ type: 'custom-title', customTitle: 'After' })}\n`);
+      // Restoring X promotes B's append to an ownership rebuild. Its first
+      // dated event also moves B behind C, which must now own Y.
+      await appendFile(claimant,
+        analysisTextLine('Z', 'appended', '2026-08-21T11:00:00.000Z') + '\n');
+      const warm = await updateClaudeUsageIndex(cold.index, root, options);
+      const full = await ClaudeDataLoader.loadUsageRecords(root, options);
+      assert.deepEqual(warm.contentAnalysis, full.contentAnalysis);
+      await assertMatchesFull(root, warm.records);
+      assert.deepEqual([...warm.index.files.values()]
+        .filter((file) => file.analysis?.seenUuids.has('Y'))
+        .map((file) => file.path), [later]);
+
+      const followUp = await updateClaudeUsageIndex(warm.index, root, options);
+      assert.equal(followUp.diagnostics.bodyReads, 0);
+      assert.deepEqual(followUp.contentAnalysis, full.contentAnalysis);
+      await assertMatchesFull(root, followUp.records);
+      assert.deepEqual(cold.contentAnalysis, priorAnalysis);
+      assert.deepEqual(normalized(cold.records), priorRecords);
+      assert.deepEqual([...cold.index.files.values()].map((file) =>
+        [file.path, [...(file.analysis?.seenUuids ?? [])]]), priorOwners);
+    } finally {
+      Date.now = previousNow;
+    }
+  });
+}
 
 test('a deleted transcript is dropped without re-reading the remaining history', async () => {
   const previousNow = Date.now;

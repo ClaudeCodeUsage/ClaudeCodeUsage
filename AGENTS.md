@@ -13,6 +13,12 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
 - Preserve the established product identity and Claude workflows while adding
   provider-neutral contracts. Claude and Codex dashboard presentation must use
   the same provider-aware render functions and the same CSS contract.
+- Use a pure, restrained geek aesthetic: help users understand model usage and
+  usage behavior through concise statistics, not decorative presentation.
+  Unrelated new extras default off. Material changes to established usage habits
+  need an optional switch and a retained familiar path, not a forced replacement.
+  Apply these gates to new scope; documentation changes do not silently change
+  shipped defaults or disable correctness, safety or routine maintenance fixes.
 - Prefer token-attribution accuracy over billing precision. Keep exact totals,
   labelled estimates, and point-in-time quota observations as separate concepts.
 - Keep the extension local-first, lightweight, and read-mostly. Usage ingestion
@@ -55,6 +61,9 @@ Simplified-Chinese review copy lives in [AGENTS.zh-CN.md](AGENTS.zh-CN.md).
   dashboard aggregates. Unchanged warm refreshes must not fall back to a
   full-corpus body read or full-record aggregation; documented correctness-first
   content-analysis replay is a separate path, not the default for each watcher event.
+  The single permitted exception on a changed-file refresh is a probe-guarded
+  retry when a changed file's ownership order cannot be proven safe from the
+  retained contributions.
 - `src/providers/providerTypes.ts` and provider adapters: provider-neutral token,
   coverage, confidence, and limit contracts. Do not erase provider semantics.
 - `src/providers/codex/`: allowed-root discovery, schema guards, exact-request
@@ -174,6 +183,21 @@ npm ci --prefix .github/build-tools --ignore-scripts
 - Documentation-only edits verify affected facts, links and document/policy
   tests. They do not establish new runtime, native, performance or release passes.
 
+### Plugin-scoped visual changes
+
+- Preserve existing navigation, tabs, interactions and compact plugin density.
+  Work within the explicitly scoped tab or export surface; a visual task does not
+  authorize a plugin-wide frontend refactor, website-style shell or large-screen layout.
+- Claude content analysis is the baseline for Codex advice: concise statistics,
+  shared information hierarchy and minimal charts that explain data.
+  Do not reuse achievement artwork, rank ornaments or decorative mascots
+  in analysis/advice. Reuse existing unobtrusive metric icons where useful.
+- Additional visual design belongs only on explicitly scoped surfaces such as
+  achievements and heatmap sharing, without spilling into other tabs.
+- Treat a comprehensive new visual style as a separate future opt-in, preserving
+  the existing style and interaction path; do not implement a dual-style system
+  as an incidental part of a tab-level change.
+
 ### New visual systems: design before implementation
 
 - For a new visual system (such as achievements) or a substantial visual redesign,
@@ -225,6 +249,12 @@ anchors. A static assertion of the first render is not acceptance evidence.
 - Update all nine README files together: `README.md`, `README-en.md`,
   `README-de-DE.md`, `README-zh-CN.md`, `README-zh-TW.md`, `README-ja.md`,
   `README-ko.md`, `README-pt-BR.md`, and `README-id.md`.
+- README release summaries follow the existing minor-version What's New format:
+  a short feature list, not an implementation diary or a second manual.
+  Detailed rules, storage contracts and verification belong in linked documentation
+  such as `LOCAL-DATA.md`, `CHANGELOG.md` and contributor notes. Do not repeat
+  thresholds, catalog counts, acceptance history, per-fix details or future roadmap
+  promises in multiple release-specific README sections.
 - For every artifact submitted for maintainer review—including a spec,
   implementation plan, design, release checklist, policy, or substantial
   contributor-document change—provide a faithful Chinese sibling or review

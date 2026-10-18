@@ -7,6 +7,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Fixed
+- **Rewriting a transcript re-read the whole history (#99)** — a mid-file edit
+  or truncation (`/rewind`, session repair, an external touch) tripped the
+  source-mutation guard and every file was rebuilt from its body. The rewrite
+  now re-reads only that file; UUIDs it used to own go to the
+  ownership-restoration pass, including a claimant that only grew a tail in
+  the same refresh. A moved first event or a UUID claimed ahead of its later
+  owner still falls back to one ordered rebuild. Measured on a 976-file,
+  1.58 GB corpus: 19.3 s CPU and 976 body reads become 0.8 s and one body read.
 - **Deleting a transcript re-read the whole history (#99)** — a removed `.jsonl`
   forced a full body rebuild of every surviving file. The deletion now drops
   the file's stored contribution, hands UUIDs it owned to the existing

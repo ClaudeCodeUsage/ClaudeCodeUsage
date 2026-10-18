@@ -2,7 +2,8 @@
 #
 # What this does:
 #   1. Runs the compiled Node logic and repository-policy suite.
-#   2. Runs the complete Webview gate in the canonical Playwright container.
+#   2. Runs the complete Webview gate; only verified docs-only PRs may omit it.
+#      Main pushes always run full UI, including after cancelling an older run.
 #   3. Packages and verifies a smoke VSIX only after both test jobs pass.
 #
 # To block merging, require all three checks under the repository's branch
@@ -19,7 +20,30 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  scope:
+    name: Change Scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ui_required: ${{ steps.scope.outputs.ui_required }}
+    steps:
+      - name: Checkout the tested revision with range history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Classify actual checked-out changes
+        id: scope
+        run: node .github/scripts/ci-scope.mjs
+
   test:
     name: Node Tests
     runs-on: ubuntu-latest
@@ -56,6 +80,8 @@ jobs:
 
   ui_shards:
     name: UI Shard ${{ matrix.shard }}/4
+    needs: [scope]
+    if: needs.scope.outputs.ui_required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -77,24 +103,39 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         run: npm ci --ignore-scripts
-      - name: Run full Webview gate
-        run: npm run test:ui -- --fully-parallel --workers=1 --shard=${{ matrix.shard }}/4
+      - name: Compile
+        run: npm run compile
+      - name: Run complete duration-balanced Webview partition
+        run: node .github/scripts/ui-shards.mjs --shard=${{ matrix.shard }}/4
 
-  # Preserve the stable required check and fail closed on any failed,
-  # cancelled or skipped shard. Each shard has its own VM/server/storage.
+  # Only a successful, explicit docs-only classification permits skipped shards.
+  # Unknown scope and failed/cancelled/unexpected shard results fail closed.
   ui:
     name: UI Test
-    needs: [ui_shards]
+    needs: [scope, ui_shards]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every UI shard to pass
-        run: test '${{ needs.ui_shards.result }}' = 'success'
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Require the expected complete verification result
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          UI_REQUIRED: ${{ needs.scope.outputs.ui_required }}
+          SHARDS_RESULT: ${{ needs.ui_shards.result }}
+        run: node .github/scripts/ci-scope.mjs --gate
 
   package:
     name: Release Package
     needs: [test, ui]
+    # Explicit status check avoids the skipped UI matrix propagating through
+    # successful docs gates. Cancellation or either failed gate still blocks this job.
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.ui.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
