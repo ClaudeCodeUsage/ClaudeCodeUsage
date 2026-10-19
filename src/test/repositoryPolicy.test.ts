@@ -1003,7 +1003,8 @@ test('weekly value documentation separates rough as-of estimates from local usag
       'weeklyEstimateArchive.ts', 'weeklyEstimateCoordinator.ts', 'weeklyEstimateChart.ts', 'weekly-estimates-v1.json',
       'codex.officialQuota.enabled', 'codexAccountEstimate.ts', 'account-delta-v1', 'series-prefix-v1',
       'codex-official-api', 'codexQuotaCaptureFromOfficialSample', 'accountScopeKey', 'accountNumber',
-      'unlinkedEquivalentUsd', 'linkedSourceCount', 'initialize', 'initialized', 'account/rateLimits/read']) {
+      'unlinkedEquivalentUsd', 'linkedSourceCount', 'codexQuotaEpoch.ts', 'quotaEpoch',
+      'initialize', 'initialized', 'account/rateLimits/read']) {
       assert.ok(document.includes('`' + field + '`'), file + ' must document ' + field);
     }
     // Check weekly contract facts while allowing prose and line-wrap changes.
@@ -1019,14 +1020,16 @@ test('weekly value documentation separates rough as-of estimates from local usag
     assert.ok(contract.includes('showWeeklyQuotaPace'), file);
     const facts = file.endsWith('zh-CN.md') ? [
       /同一观测快照.{0,40}F\s*-\s*R.{0,30}绿色.{0,30}=\s*R.{0,20}总高\s*=\s*F/,
-      /旧展示网格桶.{0,30}不再重复/,
+      /不能隐藏.{0,20}本机/,
+      /稳定.{0,20}日历/,
+      /65分钟/,
       /不新增估值推断或持久化/,
       /估值.{0,20}表头.{0,30}金额单元格.{0,30}不再.{0,20}≈/,
       /部分定价.{0,100}降低可信度.{0,80}不因.{0,30}一律撤下/,
       /不按.{0,20}定价覆盖率.{0,20}放大/,
       /均匀.{0,20}假设/,
-      /计数器下降.{0,40}分段/,
-      /首个.{0,20}饱和/,
+      /Codex.{0,30}下降.{0,40}分段/,
+      /首个.{0,20}(?:饱和|100%)/,
       /独立验收.{0,40}完全定价.{0,60}区间之外.{0,40}不能污染/,
       /未知误差界.{0,100}回退.{0,60}不假造/,
       /未知.{0,20}不能.{0,10}零/,
@@ -1044,7 +1047,9 @@ test('weekly value documentation separates rough as-of estimates from local usag
       /观测时间戳.{0,20}原始重置时刻/,
     ] : [
       /same observation snapshot.{0,40}F\s*-\s*R.{0,30}green.{0,30}=\s*R.{0,30}total height\s*=\s*F/i,
-      /suppress old display-grid buckets.{0,120}second time/i,
+      /(?:cannot suppress.{0,30}local chart|no estimated window suppresses local bars)/i,
+      /stable calendar grid/i,
+      /65 minutes/i,
       /no new estimate inference or persistence/i,
       /headers.{0,30}estimates.{0,30}monetary cells.{0,30}omit.{0,30}≈/i,
       /partial pricing.{0,160}lower confidence.{0,100}do not.{0,40}suppress/i,

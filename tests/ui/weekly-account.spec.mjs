@@ -77,13 +77,18 @@ async function persistToggle(page, session, value) {
 async function expectAccountTable(page) {
   const rows = details(page).locator('tbody tr');
   await expect(rows).toHaveCount(3);
-  for (const [account, total, unused] of [['Account 1', '$150.00', '$90.00'], ['Account 2', '$200.00', '$120.00']]) {
+  for (const [account, total, unused, inferred, sample] of [
+    ['Account 1', '$150.00', '$90.00', '$60.00', '$30.00'],
+    ['Account 2', '$200.00', '$120.00', '$80.00', '$40.00'],
+  ]) {
     const row = rows.filter({ has: page.getByRole('cell', { name: account, exact: true }) });
     await expect(row).toHaveCount(1);
     await expect(row.locator('td').nth(4)).toHaveText(total);
     await expect(row.locator('td').nth(5)).toHaveText(unused);
-    await expect(row.locator('td').nth(6)).toContainText('Account quota delta · local usage proxy');
-    await expect(row.locator('td').nth(6)).toContainText('Local usage ownership unverified');
+    await expect(row.locator('td').nth(2)).toHaveText(inferred);
+    await expect(row.locator('td').nth(6)).toHaveText(sample);
+    await expect(row.locator('td').nth(7)).toContainText('Account quota delta · local usage proxy');
+    await expect(row.locator('td').nth(7)).toContainText('Local usage ownership unverified');
   }
   const unknown = rows.filter({ has: page.getByRole('cell', { name: 'Unassigned', exact: true }) });
   await expect(unknown).toHaveCount(1);
@@ -91,12 +96,19 @@ async function expectAccountTable(page) {
   const table = page.locator('#all .weekly-value-details');
   if (await table.getAttribute('open') === null) await table.locator(':scope > summary').click();
   const actual = table.locator('tbody tr').filter({ hasText: 'Current period' });
-  await expect(actual.locator('td').nth(1)).toHaveText('$120.00');
+  await expect(actual.locator('td').nth(1)).toHaveText('$40.00');
+  for (const index of [2, 3, 4]) await expect(actual.locator('td').nth(index)).toHaveText('—');
+  await expect(table.locator('tbody tr td:nth-child(2)')).toHaveText(['$40.00', '$90.00']);
   await expect(actual.locator('td').last()).toHaveText('Unassigned');
   const section = page.locator('#all .daily-breakdown').filter({ has: page.locator('.weekly-estimate-details') });
-  await expect(section.locator('.hc-bars [role="img"]')).toHaveCount(3);
-  await expect(section.locator('.hc-xlabel').filter({ hasText: /^Current · Account 2$/ })).toHaveCount(1);
-  await expect(section.locator('.hc-xlabel')).not.toContainText(['Current · Account 1']);
+  const actualChart = section.locator('[data-weekly-actual-chart]');
+  await expect(actualChart.locator('h4')).toHaveText('Local 7-day usage · Unassigned');
+  await expect(actualChart.locator('.hc-bars [role="img"]')).toHaveCount(2);
+  await expect(actualChart.locator('.seg-cache-read')).toHaveCount(0);
+  const estimates = section.locator('[data-weekly-estimate-chart]');
+  await expect(estimates.locator('.hc-bars [role="img"]')).toHaveCount(3);
+  await expect(estimates.locator('.hc-xlabel').filter({ hasText: /^Current · Account 2(?: · \d.+)?$/ })).toHaveCount(1);
+  await expect(estimates.locator('.hc-xlabel')).not.toContainText(['Current · Account 1']);
   for (const text of await section.locator('td').allTextContents()) expect(text).not.toContain('≈');
   expect(await page.content()).not.toMatch(/a{64}|b{64}|accountScopeKey|private-hmac|synthetic-history/);
 }

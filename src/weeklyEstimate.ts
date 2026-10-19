@@ -1,4 +1,5 @@
 import type { UsageProvider } from './providers/providerTypes';
+import type { CodexQuotaEpoch } from './codexQuotaEpoch';
 import type { WeeklyEquivalentUsage, WeeklyQuotaObservation, WeeklyValueInputs, WeeklyValuePoint } from './weeklyValue';
 
 const WEEK=604_800_000, RESET_TOLERANCE=300_000;
@@ -18,6 +19,7 @@ export interface LocalWeeklyEstimate {
   accountNumber?:number;
   /** INTERNAL machine-local HMAC; must be removed before HTML/export. Not usage-ownership proof. */
   accountScopeKey?:string;
+  quotaEpoch?:CodexQuotaEpoch;
   calibrationStart?:number;
   /** Conditional time/percentage measurement range, NOT an account-capacity confidence interval. */
   fullRange?:{lower:number;upper:number};
@@ -112,7 +114,11 @@ export function buildLocalWeeklyEstimates(
     // Once saturated, later activity cannot improve this conversion sample.
     const latest=active.find(sample=>sample.usedPercent===100)??active[active.length-1];
     const resetAt=latest.resetAt,start=resetAt-WEEK;
-    const segmentStart=segment>0?Math.max(start,samples[segment-1].observedAt):start;
+    // The transition lies somewhere AFTER the old sample and at/before the
+    // first lower-counter sample. None of that unobserved gap is a proven
+    // prefix of the new counter. Start at its first observed baseline instead.
+    const isolateSegment=provider==='codex'&&segment>0;
+    const segmentStart=segment>0?Math.max(start,isolateSegment?active[0].observedAt:samples[segment-1].observedAt):start;
     // Source-less old history keeps its original explicitly unassigned rough
     // calculation. Concurrent keyed evidence prevents that fallback from
     // silently borrowing the other counter's numerator.
@@ -166,8 +172,9 @@ export function buildLocalWeeklyEstimates(
     let full:number|null=null,method:WeeklyEstimateMethod=seriesMode?'series-prefix-v1':'rough-prefix-v2';
     let fullRange:LocalWeeklyEstimate['fullRange'],calibrationStart:number|undefined;
     let sampleAmount=amount;
-    if(!invalid&&amount>0&&latest.usedPercent>0){
-      full=amount/(latest.usedPercent/100);
+    const measuredPercent=isolateSegment?latest.usedPercent-active[0].usedPercent:latest.usedPercent;
+    if(!invalid&&amount>0&&measuredPercent>0){
+      full=amount/(measuredPercent/100);
       if(segment>0&&segmentStart<latest.observedAt)calibrationStart=segmentStart;
     }
     if(!seriesMode){

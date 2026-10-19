@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import {ResourceOwnershipRegistry} from '../resourceOwnership';
 import {CodexAccountEstimator} from '../codexAccountEstimate';
+import {createEmptyQuotaObservationStore, mergeQuotaCaptures} from '../quotaObservationStore';
 const loader=require('node:module'),original=loader._load;
 loader._load=function(name:string,...args:unknown[]){return name==='vscode'?{env:{}}:original.call(this,name,...args);};
 let Extension:typeof import('../extension').ClaudeCodeUsageExtension;
@@ -74,5 +75,58 @@ test('a renderer failure cannot reject a successful background quota read or ret
   await assert.doesNotReject(e.refreshOfficialCodexQuota('manual'));
   assert.equal(e.officialQuotaStatus,'ready');assert.equal(e.officialQuotaPending,undefined);
   assert.equal(e.resourceOwnership.snapshotForTests().activeCount,0);
+ }finally{Date.now=clock;}
+});
+
+test('official epoch checkpoints survive before any amount calibration and a small same-reset drop opens a new segment',async()=>{
+ const clock=Date.now;let now=T,percent=12;Date.now=()=>now;
+ try{const{e}=fixture();let store=createEmptyQuotaObservationStore();
+  e.officialQuotaReader=async()=>({...sample,requestedAt:now-10,observedAt:now,usedPercent:percent});
+  e.quotaObservationRepository={append:async(captures:any[])=>{
+    store=mergeQuotaCaptures(store,captures,{salt:e.quotaFingerprintSalt,now});return store;
+  }};
+  await e.refreshOfficialCodexQuota('manual');
+  assert.equal(e.officialQuotaSample.quotaEpoch?.startedAt,T);
+  assert.equal(e.officialQuotaEstimates.length,0,'identity checkpoint does not invent a monetary calibration');
+  now+=60_000;percent=3;await e.refreshOfficialCodexQuota('manual');
+  assert.equal(e.officialQuotaSample.quotaEpoch?.startedAt,now);
+  assert.equal(e.officialQuotaSample.quotaEpoch?.reason,'counter-drop');
+  assert.equal(e.officialQuotaSample.quotaEpoch?.startLowerAt,T);
+  assert.equal(new Set(store.observations.map(row=>row.windowId)).size,2);
+  assert.equal(e.officialQuotaPublicState().quotaEpochStartedAt,now);
+  assert.doesNotMatch(JSON.stringify(e.officialQuotaPublicState()),/accountFingerprint|accountScopeKey|sourceScopeKey/);
+ }finally{Date.now=clock;}
+});
+
+test('a successful account calibration queues archive work without requiring a dashboard render',async()=>{
+ const clock=Date.now;let now=T,percent=20,usd=100;Date.now=()=>now;
+ try{const{e}=fixture();let store=createEmptyQuotaObservationStore(),queued=0;
+  e.officialQuotaReader=async()=>({...sample,requestedAt:now-10,observedAt:now,usedPercent:percent});
+  e.quotaObservationRepository={append:async(captures:any[])=>{
+    store=mergeQuotaCaptures(store,captures,{salt:e.quotaFingerprintSalt,now});return store;
+  }};
+  e.weeklyEstimateCoordinator={project:(_provider:string,_inputs:unknown,options:any)=>{
+    queued++;assert.equal(options.accountEstimates.length,1);
+    assert.equal(options.accountEstimates[0].fullEquivalentUsd,150);
+    assert.equal(options.activeQuotaEpochStartedAt,T);
+  }};
+  const view=()=>({currentManifestVerified:true,coverage:{complete:true,identity:{complete:true}},
+    periodCoverage:{allTime:{complete:true}},weeklyValueInputs:{
+      observations:[{provider:'codex',sourceKey:'synthetic',observedAt:now-1,resetAt:R,usedPercent:percent}],
+      usage:[{sourceKey:'synthetic',timestamp:now-1,equivalentUsd:usd,pricedTokens:usd,totalTokens:usd}],
+    }});
+  e.codexView=view();await e.refreshOfficialCodexQuota('manual');assert.equal(queued,0);
+  now+=60_000;percent=40;usd=130;e.codexView=view();await e.refreshOfficialCodexQuota('manual');
+  assert.equal(queued,1);assert.equal(e.officialQuotaEstimates.length,1);
+ }finally{Date.now=clock;}
+});
+
+test('an older unexpired quota remains a labelled historical observation rather than a current identity claim',()=>{
+ const clock=Date.now;Date.now=()=>T+6*60_000;
+ try{const{e}=fixture();e.officialQuotaSample=sample;e.officialQuotaStatus='ready';
+  const state=e.officialQuotaPublicState();
+  assert.equal(state.status,'ready');assert.equal(state.stale,true);
+  assert.equal(state.observedAt,T);assert.equal(state.usedPercent,25);
+  Date.now=()=>R+1;assert.equal(e.officialQuotaPublicState().status,'unavailable');
  }finally{Date.now=clock;}
 });

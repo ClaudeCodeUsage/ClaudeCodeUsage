@@ -319,7 +319,12 @@ function boundaryEvidence(
   ) {
     return 'reset-at-change';
   }
+  // An official identified counter decrease is a discontinuity, not necessarily
+  // proof that a reset credit was consumed. Do not blend even a small decrease
+  // into an old epoch. Preserve the historical threshold for other sources.
   if (
+    (capture.source === 'codex-official-api' && previous.source === 'codex-official-api' &&
+      previous.usedFraction > capture.usedFraction) ||
     previous.usedFraction - capture.usedFraction >= usageDropThreshold
   ) {
     return 'usage-drop';
@@ -359,7 +364,8 @@ function normalizedObservation(
   const keepPreviousWindow = previous !== undefined && boundary === null;
   const hasStructuredWindowIdentity =
     currentProviderWindowFingerprint !== null || capture.resetAt !== null;
-  const epochSeed = boundary === 'usage-drop' || !hasStructuredWindowIdentity
+  const epochSeed = boundary === 'usage-drop' || !hasStructuredWindowIdentity ||
+    (capture.source === 'codex-official-api' && boundary !== null)
     ? [
         capture.provider,
         capture.periodType,
@@ -452,6 +458,17 @@ function compactBySeries(
     // confidence calculations depend on an already-compacted middle slice.
     if (limit === 1) {
       retain(ordered[ordered.length - 1]);
+    } else if (ordered.every(item => item.source === 'codex-official-api')) {
+      // Official epoch identity is projected from each retained window's first
+      // observation. Routine ambiguity flags must not evict that anchor in favor
+      // of hundreds of newer flagged refreshes. Prioritize recent window bounds;
+      // the current window's first and latest facts survive even a tiny budget.
+      const byRecency = [...windows.values()].sort((left, right) =>
+        right[right.length - 1].observedAt - left[left.length - 1].observedAt);
+      for (const window of byRecency) {
+        retain(window[0]);
+        retain(window[window.length - 1]);
+      }
     } else {
       retain(ordered[0]);
       retain(ordered[ordered.length - 1]);

@@ -63,14 +63,14 @@ test('tiny positive utilization still has a number, while a genuine zero denomin
   const [zero]=buildLocalWeeklyEstimates('codex',inputs,{now:T+1});
   assert.equal(zero.fullEquivalentUsd,null);assert.equal(zero.unusedEquivalentUsd,null);
 });
-test('counter decrease starts a new calibration segment rather than dividing the whole-week amount by the new percentage',()=>{
+test('the first decreased-counter sample cannot price the unobserved transition gap as new-cycle use',()=>{
   const inputs=sample();inputs.observations=[{...inputs.observations[0],observedAt:T-D,usedPercent:80},
     {...inputs.observations[0],usedPercent:40}];
   inputs.usage=[{timestamp:T-2*D,equivalentUsd:100,pricedTokens:100,totalTokens:100},
     {timestamp:T-H,equivalentUsd:20,pricedTokens:100,totalTokens:100}];
   const [entry]=buildLocalWeeklyEstimates('codex',inputs,{now:T+1});
-  assert.equal(entry.usedEquivalentUsd,20);assert.equal(entry.fullEquivalentUsd,50);
-  assert.equal(entry.unusedEquivalentUsd,30);assert.equal(entry.calibrationStart,T-D);
+  assert.equal(entry.usedEquivalentUsd,0);assert.equal(entry.fullEquivalentUsd,null);
+  assert.equal(entry.unusedEquivalentUsd,null);assert.equal(entry.calibrationStart,undefined);
   assert.ok(entry.flags.includes('counter-change'));
 });
 test('first known saturation freezes the sample and zero unused rather than admitting later usage',()=>{

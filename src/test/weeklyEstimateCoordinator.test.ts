@@ -385,7 +385,7 @@ test('genuine null-withheld totals never replace a saved snapshot or create a us
   assert.ok(!persisted[0].flags.includes('stale-observation'));
 });
 
-test('same-window observations retain old snapshots while exact tuples select the latest valid estimate', async t => {
+test('same-window observations retain archive history while projection selects the latest valid estimate', async t => {
   const { file } = await fixture(t);
   const coordinator = new WeeklyEstimateCoordinator(file, SALT);
   coordinator.project('codex', inputs(), options);
@@ -395,13 +395,14 @@ test('same-window observations retain old snapshots while exact tuples select th
   next.observations[0].usedPercent = 50;
   coordinator.project('codex', next, options);
   await coordinator.flush();
-  assert.equal(coordinator.project('codex', next, options).entries.length, 2);
+  assert.equal(coordinator.project('codex', next, options).entries.length, 1);
   const revision = { ...next, usage: [{ ...next.usage[0], equivalentUsd: 50 }] };
   coordinator.project('codex', revision, options);
   await coordinator.flush();
   const rows = coordinator.project('codex', revision, options).entries;
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 1);
   assert.equal(rows[0].fullEquivalentUsd, 100);
+  assert.ok((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries.length >= 2);
 });
 
 test('clear drains in-flight/queued writes, blocks new writes during clear, and clears a provider across sources', async t => {
@@ -458,10 +459,10 @@ test('archive errors return unavailable without discarding live estimates or ret
   assert.equal((await coordinator.clear({ allSources: true })).status, 'ready');
 });
 
-test('UI keeps the latest 48 archived snapshots and exposes full status', async t => {
+test('UI reduces same-cycle revisions before its cap while archive retains all snapshots and full status', async t => {
   const { file } = await fixture(t);
   const archive = new WeeklyEstimateArchive(file, SALT, SOURCE);
-  for (let i = 0; i < 52; i++) await archive.record({ ...stored(), observedAt: OBSERVED + i, usedEquivalentUsd: 40 + i });
+  for (let i = 0; i < 52; i++) await archive.record({ ...stored(), method: 'legacy-prefix-ratio', observedAt: OBSERVED + i, usedEquivalentUsd: 40 + i });
   const body = await readFile(file, 'utf8');
   await writeFile(file, body + ' '.repeat(1024 * 1024 - Buffer.byteLength(body)));
   const empty = { observations: [], usage: [] };
@@ -470,9 +471,9 @@ test('UI keeps the latest 48 archived snapshots and exposes full status', async 
   await coordinator.flush();
   const result = coordinator.project('codex', empty, options);
   assert.equal(result.status, 'full');
-  assert.equal(result.entries.length, 48);
+  assert.equal(result.entries.length, 1);
   assert.equal(result.entries[0].observedAt, OBSERVED + 51);
-  assert.equal(result.entries[47].observedAt, OBSERVED + 4);
+  assert.equal((await archive.load()).entries.length, 52);
 });
 
 test('calibration evidence and nullable utilization reload without keys, range aliases or trust promotions', async t => {
@@ -595,8 +596,12 @@ test('same-observation counter and boundary rough revisions retain flags without
     await coordinator.flush();
     const storedRows = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
     assert.deepEqual(storedRows[0], original);
-    assert.equal(storedRows[storedRows.length - 1].fullEquivalentUsd, row.fullEquivalentUsd);
-    assert.ok(storedRows[storedRows.length - 1].flags.includes(flag));
+    if (row.utilizationPercent !== original.utilizationPercent) {
+      assert.equal(storedRows[storedRows.length - 1].fullEquivalentUsd, row.fullEquivalentUsd);
+      assert.ok(storedRows[storedRows.length - 1].flags.includes(flag));
+    } else {
+      assert.equal(storedRows.filter(entry => entry.utilizationPercent === original.utilizationPercent).length, 1);
+    }
   }
 });
 
@@ -753,12 +758,11 @@ test('local-history completeness changes invalidate the memo with unchanged usag
   assert.ok(complete.entries[0].flags.includes('account-unattributed'));
   await coordinator.flush();
   const rows = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 1);
   assert.ok(rows[0].flags.includes('partial-history'));
-  assert.ok(!rows[1].flags.includes('partial-history'));
 });
 
-test('known incomplete history saves a marked rough revision and keeps the prior snapshot immutable', async t => {
+test('known incomplete history updates the live warning and retains the first same-percent archive snapshot', async t => {
   const { file } = await fixture(t);
   const coordinator = new WeeklyEstimateCoordinator(file, SALT);
   const data = inputs(); data.localHistoryComplete = true;
@@ -772,9 +776,8 @@ test('known incomplete history saves a marked rough revision and keeps the prior
   assert.ok(!rough.flags.includes('stale-observation'));
   await coordinator.flush();
   const saved = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
-  assert.equal(saved.length, 2);
+  assert.equal(saved.length, 1);
   assert.deepEqual(saved[0], original);
-  assert.ok(saved[1].flags.includes('partial-history'));
   const afterRevision = await readFile(file, 'utf8');
   delete data.localHistoryComplete;
   const [legacy] = coordinator.project('codex', data, options).entries;
@@ -828,7 +831,7 @@ test('rough numeric snapshots with partial-pricing, boundary, history and counte
       pricingCoverage: 0, unusedEquivalentUsd: 0 },
   ];
   for (const [i, change] of cases.entries()) {
-    live = roughSnapshot({ ...change, observedAt: OBSERVED + i });
+    live = roughSnapshot({ ...change, observedAt: OBSERVED + i, utilizationPercent: 40 + i });
     const projected = coordinator.project('codex', inputs(), options);
     assert.ok(projected.entries.some(entry => entry.method === live.method && entry.observedAt === live.observedAt));
     await coordinator.flush();
@@ -842,7 +845,7 @@ test('rough numeric snapshots with partial-pricing, boundary, history and counte
   const restart = new WeeklyEstimateCoordinator(file, SALT);
   restart.project('codex', empty, options); await restart.flush();
   const saved = restart.project('codex', empty, options).entries;
-  assert.equal(saved.length, cases.length);
+  assert.equal(saved.length, 1);
   assert.equal(saved[0].method, live.method);
   assert.equal(saved[0].pricingCoverage, 0);
   assert.equal(saved[0].unusedEquivalentUsd, 0);
@@ -877,7 +880,7 @@ test('rough admission preserves legacy-method guards and never records used-only
   assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
 });
 
-test('rough semantic acknowledgements avoid clock-only I/O but retain pricing and numeric revisions', async t => {
+test('rough semantic acknowledgements avoid clock-only I/O and retain pricing while coalescing same-percent numeric revisions', async t => {
   const { file } = await fixture(t);
   let live = roughSnapshot({ pricingCoverage: .25, flags: ['partial-pricing', 'partial-history'] });
   t.mock.method(estimateProducer, 'buildLocalWeeklyEstimates', () => [live]);
@@ -900,8 +903,8 @@ test('rough semantic acknowledgements avoid clock-only I/O but retain pricing an
   coordinator.project('codex', inputs(), { ...options, pricingVersion: 'openai-v2' }); await coordinator.flush();
   assert.equal(records, 3);
   const loaded = await new WeeklyEstimateArchive(file, SALT, SOURCE).load();
-  assert.equal(loaded.totalEntries, 3);
-  assert.deepEqual(loaded.entries.map(entry => entry.revision), [1, 2, 3]);
+  assert.equal(loaded.totalEntries, 2);
+  assert.deepEqual(loaded.entries.map(entry => entry.revision), [1, 2]);
   assert.equal(loaded.entries[0].fullEquivalentUsd, 100);
 });
 

@@ -144,9 +144,18 @@ substitute account from local logs. Successful current quota identity does not
 prove ownership of local usage.
 
 `codexAccountEstimate.ts` owns a runtime-only baseline for `account-delta-v1`.
-Failure, reset, clock discontinuity, a real gap over five minutes between reads,
-source/account or pricing change, blur and extension restart retire both the
-accumulated run and monetary baseline. Recent-observation continuity is tracked
+Official P2 observations are durable epoch checkpoints even before a monetary
+estimate exists. `codexQuotaEpoch.ts` copies first observation, fixed reset anchor,
+optional lower boundary and cautious reason, never an invented exact manual-reset
+time. Any identified official percentage decrease starts a new window; other
+sources retain their existing threshold. Switch/blur breaks the monetary baseline
+without bridging intervening use; bounded compatible account/epoch/price sums can
+be retained. Full clearing, source/index invalidation and restart clear runtime
+calibration. Valid epoch intervals may span up to 65 minutes with complete indexes
+and consistent local witnesses; over five minutes adds a continuity warning.
+Legacy callers retain the five-minute cap. Unexpired older quota observations
+retain their original timestamp and a stale marker, not current account authority.
+Recent-observation continuity is tracked
 separately from that baseline: a valid unsaturated unchanged-percentage read updates
 `lastObserved` while preserving the original monetary baseline. Continuous
 unchanged reads can therefore span more than five minutes without discarding
@@ -192,8 +201,10 @@ dollars: do not divide U by token pricing coverage to fill the gap. Missing a
 valid percentage or positive priced value means unknown, not fabricated zero.
 A boundary-crossing daily bucket may enter only the rough numerator using an
 explicit uniform-in-time assumption. Actual usage accounting is not split.
-Counter decreases start a new observation segment; each segment stops at its
-first known saturated sample when it reaches 100%.
+Codex counter decreases start a new segment at the first post-drop sample, excluding the
+unobserved transition gap. Later increments divide by percentage growth from that
+baseline; the first lower sample alone cannot price capacity. The first known
+saturated (100%) sample still caps a segment. Existing Claude behavior is unchanged.
 
 Legacy `paired-delta` is evaluated independently over its exact, fully priced
 interval. Earlier unknown-price usage outside it cannot disqualify a valid
@@ -207,17 +218,19 @@ independent `WeeklyEquivalentUsage.accountSeriesKey` and
 `inputs.accountUsageCoverage` proof needed for `owned-window`.
 `showWeeklyQuotaPace` remains a separate elapsed-time forecast.
 
-`weeklyEstimateChart.ts` selects the latest valid estimate per local
-`accountNumber` plus actual reset window. Both segments share the same
+Codex complete local seven-day usage is rendered separately on a stable calendar
+grid, not subscription/account cycles. No estimated window suppresses local bars,
+and the actual table borrows no quota percentages, totals or unused values.
+`weeklyEstimateChart.ts` selects the latest valid estimate per local account and
+explicit quota epoch (legacy entries keep reset-cluster grouping). Both segments share the same
 observation snapshot: blue estimated used = F - R, green estimated unused = R,
 total height = F. A paired delta of 30 with F = 150 and R = 90 gives blue 60,
 not 30. Never add current actual usage to old unused value. Suppress old
-display-grid buckets that overlap a selected observed window so they do not
-appear a second time; older unobserved periods retain non-overlapping usage-only
-bars. Their seven-day grid is display alignment with Monday-to-Monday UTC
-fallback, not a historical reset schedule. Account windows may overlap and are
-not summed. Only the latest unexpired observation can be current; a numbered
-account also requires an available matching current identity.
+display-grid buckets only on the unchanged Claude path. The Codex estimate chart
+receives no local buckets; its table distinguishes inferred used F−R from interval
+evidence USD. Account windows overlap and are not summed. When official reads are
+enabled, current requires fresh matching account/epoch evidence, never unassigned
+or stale samples.
 
 The chart performs no new estimate inference or persistence and does not
 change primary local statistics. Table actual-used columns remain separate;
@@ -238,14 +251,18 @@ compatibility is one-way, not a schema downgrade.
 `weeklyEstimateArchive.ts` retains fixed numeric/enum DTOs in
 `weekly-estimates-v1.json`: original times, amounts, pricing coverage/version,
 method/flags, optional calibration range, `unlinkedEquivalentUsd` and
-`linkedSourceCount`. The existing internal `accountScopeKey` is now used;
+`linkedSourceCount`, and optional validated `quotaEpoch` numeric/enum metadata.
+Epoch-aware keys distinguish same-reset pre/post-drop records while the absent-field
+legacy key branch stays unchanged. The existing internal `accountScopeKey` is now used;
 source-local `accountNumber` is assigned and persisted under the shared lease.
 Source/window keys and account scope use machine-salted HMAC. Only the ordinal
 number reaches the public projection; HMACs, source keys, paths, raw IDs, email
 and conversation content never reach HTML/export. Old records retain their
 method, pricing version and unassigned status rather than being relabelled.
 
-Archive revisions preserve past snapshots with no expiry or eviction. At 4096
+Archive revisions preserve past snapshots with no expiry or eviction. New Codex
+captures coalesce repeated same-percentage/method/price/segment facts, preserving
+the first stored as-of point rather than every live update. At 4096
 entries or 1 MiB new writes stop; reads remain available. Mutations reread under
 a cross-process lease and use symlink checks and atomic 0600 replacement.
 Current readers accept the new methods and older records; older preview readers
@@ -254,6 +271,8 @@ provider-owned logs are not modified.
 
 `weeklyEstimateCoordinator.ts` keeps bounded memoized projections and queued
 archive work; projection reads no raw logs and creates no network requests.
+Cycle representatives are selected before the 48-row display cap. Host calibration
+queues the existing writer directly rather than relying on dashboard rendering.
 Selected-account clearing uses internal fingerprint and durable cutoff fences,
 preserving other accounts and unassigned records. Provider/all-history clears
 also cover the archive; queued stale observations cannot restore cleared data.

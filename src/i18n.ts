@@ -1801,6 +1801,13 @@ export interface WeeklyValueCopy {
   chartUsedValue: string;
   chartUnusedValue: string;
   chartEstimateNote: string;
+  localActualTitle: string;
+  estimateChartTitle: string;
+  inferredUsed: string;
+  estimateReconciliationNote: string;
+  observationSegment: string;
+  quotaChanged: string;
+  counterDecreased: string;
   accountColumn: string;
   accountLabel: string;
   accountUnassigned: string;
@@ -2844,6 +2851,9 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     noData: 'No locally recorded weekly usage is available yet.',
     historyFromLogs: 'Original local statistics remain unchanged. Bars show used/unused estimates for each observed cycle and must not be totaled as a bill; table amounts reflect their respective observations.',
     chartUsedValue: 'Used equivalent', chartUnusedValue: 'Unused estimate',
+    localActualTitle: 'Local 7-day usage', estimateChartTitle: 'Quota conversion estimates', inferredUsed: 'Inferred used (estimate)',
+    estimateReconciliationNote: 'Blue inferred used equals cycle total minus green unused, at the same observation. Sample amounts are separate calibration evidence, not whole-cycle use. Overlapping estimates must not be added.',
+    observationSegment: 'Observed segment from', quotaChanged: 'Quota changed', counterDecreased: 'Counter decreased',
     chartEstimateNote: 'Observed quota windows use the latest estimate: blue used and green unused amounts share the same observation. With no observation, show only local used amounts; overlapping windows must not be added.',
     calendarFallback: 'No historical weekly reset was observed; usage-only history is grouped into Monday-to-Monday UTC calendar weeks.',
     multiAccount: 'Account ownership is unverified; mixing usage from multiple sign-ins may skew estimates.',
@@ -2881,6 +2891,9 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     noData: '尚无可用于按周计算的本地用量记录。',
     historyFromLogs: '原始本机统计不变；柱图展示各观测周期的已用／未用估值，不能汇总为账单；表内金额对应各自观测时刻。',
     chartUsedValue: '已用等价值', chartUnusedValue: '未用估值',
+    localActualTitle: '本机七天用量', estimateChartTitle: '额度换算估值', inferredUsed: '推算已用（估值）',
+    estimateReconciliationNote: '蓝色推算已用为同次观测的周期总额减去绿色未用估值。样本金额单独保留为校准依据，不代表整周期已用量；重叠估值不能相加。',
+    observationSegment: '本段首次观测', quotaChanged: '额度变化', counterDecreased: '计数下降',
     chartEstimateNote: '真实观测窗口取最新估值，蓝色已用与绿色未用来自同一时点；无观测时仅显示本机已用，重叠窗口不能相加。',
     calendarFallback: '未观测到可用于对齐历史的每周重置时间；仅已用历史按 UTC 周一至周一的自然周分组。',
     multiAccount: '账号归属未核实，混用多个登录的记录可能使估价产生偏差。',
@@ -2918,6 +2931,9 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     noData: '尚無可用於每週計算的本機用量記錄。',
     historyFromLogs: '原始本機統計不變；柱圖顯示各觀測週期的已用／未用估值，不能彙總為帳單；表內金額對應各自觀測時刻。',
     chartUsedValue: '已用等價值', chartUnusedValue: '未用估值',
+    localActualTitle: '本機七天用量', estimateChartTitle: '額度換算估值', inferredUsed: '推算已用（估值）',
+    estimateReconciliationNote: '藍色推算已用為同次觀測的週期總額減去綠色未用估值。樣本金額另列為校準依據，不代表整週期已用量；重疊估值不能相加。',
+    observationSegment: '本段首次觀測', quotaChanged: '額度變化', counterDecreased: '計數下降',
     chartEstimateNote: '實際觀測視窗取最新估值，藍色已用與綠色未用來自同一時點；無觀測時僅顯示本機已用，重疊視窗不能相加。',
     calendarFallback: '未觀測到可用於對齊歷史的每週重設時間；僅已用歷史依 UTC 週一至週一的自然週分組。',
     multiAccount: '帳號歸屬未核實，混用多個登入的記錄可能使估價產生偏差。',
@@ -2955,6 +2971,9 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     noData: '週単位で計算できるローカル使用記録がまだありません。',
     historyFromLogs: '元のローカル統計は変わりません。棒グラフは各観測周期の使用済み・未使用推定額で、請求額として合算できません。表の金額はそれぞれの観測時点に対応します。',
     chartUsedValue: '使用済み等価値', chartUnusedValue: '未使用推定額',
+    localActualTitle: 'ローカル7日間の使用量', estimateChartTitle: 'クォータ換算推定額', inferredUsed: '使用済み推定額',
+    estimateReconciliationNote: '青の使用済み推定額は、同じ観測時点の周期総額から緑の未使用推定額を引いた値です。サンプル額は別の較正根拠であり、全周期の使用量ではありません。重複する推定は加算できません。',
+    observationSegment: '区間の初回観測', quotaChanged: 'クォータ変更', counterDecreased: 'カウンター減少',
     chartEstimateNote: '観測された枠の期間では最新の推定を使い、青の使用済み額と緑の未使用額は同じ観測時点に揃えます。観測がなければローカルの使用分のみ表示し、重複する期間は加算できません。',
     calendarFallback: '履歴を揃える週間リセットが観測されていないため、使用分のみの履歴は UTC の月曜から月曜の暦週で集計します。',
     multiAccount: 'アカウント帰属は未確認です。複数のログインの記録が混在すると、推定に偏りが生じ得ます。',
@@ -2992,6 +3011,9 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     noData: '주간 계산에 사용할 로컬 사용 기록이 아직 없습니다.',
     historyFromLogs: '원래 로컬 통계는 바뀌지 않습니다. 막대는 각 관측 주기의 사용·미사용 추정액이며 청구액으로 합산할 수 없습니다. 표의 금액은 각각의 관측 시점에 해당합니다.',
     chartUsedValue: '사용 등가치', chartUnusedValue: '미사용 추정액',
+    localActualTitle: '로컬 7일 사용량', estimateChartTitle: '한도 환산 추정액', inferredUsed: '사용 추정액',
+    estimateReconciliationNote: '파란색 사용 추정액은 같은 관측의 주기 총액에서 초록색 미사용 추정액을 뺀 값입니다. 표본 금액은 별도의 보정 근거이며 전체 주기 사용량이 아닙니다. 겹치는 추정값은 합산할 수 없습니다.',
+    observationSegment: '구간 최초 관측', quotaChanged: '한도 변경', counterDecreased: '카운터 감소',
     chartEstimateNote: '실제 관측된 한도 구간의 최신 추정값을 사용하며 파란색 사용분과 초록색 미사용분은 같은 관측 시점 기준입니다. 관측이 없으면 로컬 사용분만 표시하고, 겹치는 구간은 합산할 수 없습니다.',
     calendarFallback: '과거를 정렬할 주간 재설정이 관측되지 않아 사용분 전용 기록은 UTC 월요일부터 월요일까지의 달력 주로 묶습니다.',
     multiAccount: '계정 귀속은 확인되지 않았습니다. 여러 로그인의 기록이 섞이면 추정에 편향이 생길 수 있습니다.',
@@ -3029,6 +3051,9 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     noData: 'Ainda não há uso local registrado para o cálculo semanal.',
     historyFromLogs: 'As estatísticas locais originais não mudam. As barras mostram valores usados e não utilizados estimados por ciclo observado, que não devem ser somados como fatura; a tabela reflete cada observação correspondente.',
     chartUsedValue: 'Equivalente usado', chartUnusedValue: 'Valor não utilizado estimado',
+    localActualTitle: 'Uso local em 7 dias', estimateChartTitle: 'Estimativas de conversão de cota', inferredUsed: 'Uso inferido (estimado)',
+    estimateReconciliationNote: 'O uso inferido em azul é o total do ciclo menos o valor não utilizado em verde, na mesma observação. Os valores das amostras são evidências separadas de calibração, não o uso do ciclo inteiro. Estimativas sobrepostas não podem ser somadas.',
+    observationSegment: 'Segmento observado desde', quotaChanged: 'Cota alterada', counterDecreased: 'Contador diminuiu',
     chartEstimateNote: 'Janelas de cota observadas usam a estimativa mais recente: uso em azul e valor não utilizado em verde vêm da mesma observação. Sem observação, só aparece o uso local; janelas sobrepostas não podem ser somadas.',
     calendarFallback: 'Nenhuma redefinição semanal histórica foi observada; o histórico somente de uso é agrupado em semanas UTC de segunda a segunda.',
     multiAccount: 'A atribuição à conta não foi verificada; misturar registros de vários logins pode enviesar as estimativas.',
@@ -3066,6 +3091,9 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     noData: 'Noch keine lokal erfasste Nutzung für die Wochenberechnung verfügbar.',
     historyFromLogs: 'Die ursprüngliche lokale Statistik bleibt unverändert. Balken zeigen genutzte und ungenutzte Schätzwerte je beobachtetem Zyklus, die nicht als Rechnungssumme addiert werden dürfen; Tabellenbeträge gelten zum jeweiligen Beobachtungszeitpunkt.',
     chartUsedValue: 'Genutzter Gegenwert', chartUnusedValue: 'Ungenutzter Schätzwert',
+    localActualTitle: 'Lokale 7-Tage-Nutzung', estimateChartTitle: 'Kontingentumrechnung (Schätzwerte)', inferredUsed: 'Abgeleitete Nutzung (Schätzung)',
+    estimateReconciliationNote: 'Die blau dargestellte abgeleitete Nutzung ist die Zyklussumme minus dem grünen ungenutzten Anteil derselben Beobachtung. Stichprobenbeträge sind separate Kalibrierungsbelege, keine Nutzung des gesamten Zyklus. Überlappende Schätzungen dürfen nicht addiert werden.',
+    observationSegment: 'Abschnitt zuerst beobachtet', quotaChanged: 'Kontingent geändert', counterDecreased: 'Zähler gesunken',
     chartEstimateNote: 'Beobachtete Kontingentfenster nutzen die neueste Schätzung: Blau für genutzt und Grün für ungenutzt stammen vom selben Beobachtungszeitpunkt. Ohne Beobachtung wird nur lokale Nutzung gezeigt; überlappende Fenster dürfen nicht addiert werden.',
     calendarFallback: 'Kein historischer Wochen-Reset wurde beobachtet; reine Nutzungsverläufe werden in UTC-Kalenderwochen von Montag bis Montag gruppiert.',
     multiAccount: 'Die Kontozuordnung ist ungeprüft; gemischte Datensätze mehrerer Anmeldungen können Schätzungen verzerren.',
@@ -3103,6 +3131,9 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     noData: 'Belum ada penggunaan lokal yang tercatat untuk perhitungan mingguan.',
     historyFromLogs: 'Statistik lokal asli tidak berubah. Batang menunjukkan estimasi terpakai dan belum terpakai per siklus yang diamati, bukan untuk dijumlahkan sebagai tagihan; nilai tabel sesuai waktu masing-masing pengamatan.',
     chartUsedValue: 'Ekuivalen terpakai', chartUnusedValue: 'Estimasi belum terpakai',
+    localActualTitle: 'Penggunaan lokal 7 hari', estimateChartTitle: 'Estimasi konversi kuota', inferredUsed: 'Penggunaan tersirat (estimasi)',
+    estimateReconciliationNote: 'Penggunaan tersirat biru adalah total siklus dikurangi bagian belum terpakai hijau pada pengamatan yang sama. Jumlah sampel adalah bukti kalibrasi terpisah, bukan penggunaan seluruh siklus. Estimasi tumpang tindih tidak boleh dijumlahkan.',
+    observationSegment: 'Segmen pertama diamati', quotaChanged: 'Kuota berubah', counterDecreased: 'Penghitung menurun',
     chartEstimateNote: 'Jendela kuota yang diamati memakai estimasi terbaru: bagian terpakai biru dan belum terpakai hijau berasal dari pengamatan yang sama. Tanpa pengamatan, hanya penggunaan lokal yang ditampilkan; jendela tumpang tindih tidak boleh dijumlahkan.',
     calendarFallback: 'Tidak ada reset mingguan historis yang teramati; riwayat khusus pemakaian dikelompokkan dalam minggu UTC Senin-ke-Senin.',
     multiAccount: 'Kepemilikan akun belum terverifikasi; pencampuran catatan dari beberapa login dapat membiaskan estimasi.',

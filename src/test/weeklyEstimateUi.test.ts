@@ -55,14 +55,20 @@ test('estimated headers replace per-cell approximation signs and graph stacks sa
     p.codexView={periodCoverage:{allTime:{complete:false}}};
     const html=p.renderWeeklyValuePanel('codex');
     const history=html.split('<details class="weekly-value-details">')[1].split('</details>')[0];
-    assert.ok(history.includes(I18n.formatCurrency(100)));
-    assert.ok(history.includes(I18n.formatCurrency(75)));assert.doesNotMatch(history,/≈/);
+    assert.ok(!history.includes(I18n.formatCurrency(100)));
+    assert.ok(!history.includes(I18n.formatCurrency(75)));assert.doesNotMatch(history,/≈/);
+    assert.match(history,/<td class="number-cell">—<\/td><td class="cost-cell">—<\/td><td class="cost-cell">—<\/td>/,
+      'actual local usage cannot borrow quota percentages or converted total/unused');
     assert.ok(history.includes(I18n.t.weeklyValue.fullValue));assert.ok(history.includes(I18n.t.weeklyValue.unusedValue));
     assert.ok(history.includes(I18n.formatCurrency(400)),'live used subtotal remains separate');
     const records=html.split('<details class="weekly-estimate-details"')[1];
     assert.ok(records.includes(I18n.formatCurrency(100)));
     assert.ok(records.includes(I18n.formatCurrency(75)));assert.doesNotMatch(records,/≈/);
     assert.ok(records.includes(I18n.t.weeklyValue.roughEstimate));
+    assert.ok(records.includes(I18n.t.weeklyValue.inferredUsed));
+    assert.ok(records.includes(I18n.t.weeklyValue.estimateUsed));
+    assert.match(html, /class="composition-chart" data-weekly-actual-chart/);
+    assert.match(html, /class="composition-chart" data-weekly-estimate-chart/);
     assert.match(html,/<div class="stack-seg seg-input" style="height:30\.00px">/);
     assert.match(html,/<div class="stack-seg seg-cache-read" style="height:90\.00px">/);
     assert.match(html,/role="img"/);assert.match(html,/aria-label=/);

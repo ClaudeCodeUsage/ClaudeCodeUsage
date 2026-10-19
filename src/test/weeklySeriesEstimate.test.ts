@@ -125,8 +125,8 @@ test('source-linked saturation freezes at the first 100% sample and counter regr
   const regressed: WeeklyValueInputs = { observations: [observation('one', { observedAt: AT - 100, usedPercent: 80 }), observation('one')],
     usage: [usage('one', 25, { timestamp: AT - 200 }), usage('one', 5, { timestamp: AT - 50 })] };
   const [tail] = buildLocalWeeklyEstimates('codex', regressed, { now: AT + 1 });
-  assert.equal(tail.usedEquivalentUsd, 5); assert.equal(tail.fullEquivalentUsd, 50);
-  assert.equal(tail.calibrationStart, AT - 100); assert.ok(tail.flags.includes('counter-change'));
+  assert.equal(tail.usedEquivalentUsd, 0); assert.equal(tail.fullEquivalentUsd, null);
+  assert.equal(tail.calibrationStart, undefined); assert.ok(tail.flags.includes('counter-change'));
 });
 
 test('another session newer sample cannot extend this source own recorded prefix', () => {

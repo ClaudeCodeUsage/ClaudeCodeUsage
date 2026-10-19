@@ -15,9 +15,16 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   quota source enum and archive methods/fields.
 
 ### Fixed
+- **Codex weekly quota reconciliation** — keep complete local usage separate from
+  account/epoch estimates, retain pre-reset snapshots and prevent mixed chart/table
+  amounts. Compatible ten-minute samples can calibrate with a continuity warning;
+  account switches and resets never bridge monetary intervals. Older quota facts
+  remain labelled as observations, and repeated samples no longer crowd earlier
+  cycles out of the estimate view. Historical account ownership remains unproven.
 - **Weekly allowance chart and labels** — show estimated used and unused from
   one observation snapshot, with total height matching the existing estimate.
-  Retain older usage-only periods without duplicating overlapping grid buckets.
+  Claude retains its existing grid behavior; Codex local usage is now independent
+  of overlapping estimate windows.
   Tables keep actual usage, label estimate columns and remove repeated ≈ markers
   from monetary cells; source statistics and archived estimates are unchanged.
 - **Weekly allowance snapshots** — separate rough estimates at actual observed

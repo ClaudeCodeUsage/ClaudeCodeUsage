@@ -4,6 +4,7 @@ import { lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import * as path from 'node:path';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import { fingerprintForStableIdentity } from './quotaObservationStore';
+import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation, CodexQuotaEpoch } from './codexQuotaEpoch';
 
 export const WEEKLY_ESTIMATE_ARCHIVE_FILE = 'weekly-estimates-v1.json';
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES = 4096;
@@ -35,6 +36,7 @@ export interface WeeklyEstimateInput {
   fullRange?: { lower: number; upper: number };
   /** Optional machine-local 64 lowercase hex key. This is never ownership/identity proof. */
   accountScopeKey?: string;
+  quotaEpoch?: CodexQuotaEpoch;
   /** Source-local ordinal assigned under the archive lease, never caller identity. */
   accountNumber?: number;
   unlinkedEquivalentUsd?: number;
@@ -126,6 +128,11 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     !Number.isSafeInteger(value.linkedSourceCount))) return undefined;
   if (value.calibrationStart !== undefined && (!timestamp(value.calibrationStart) ||
     value.calibrationStart < value.windowStart || value.calibrationStart >= value.observedAt)) return undefined;
+  const quotaEpoch = copyCodexQuotaEpoch(value.quotaEpoch);
+  if (value.quotaEpoch !== undefined && (!quotaEpoch || value.provider !== 'codex' ||
+    value.accountScopeKey === undefined || value.method !== 'account-delta-v1' ||
+    !codexQuotaEpochFitsObservation(quotaEpoch, value.observedAt, value.resetAt, value.windowStart,
+      value.calibrationStart as number | undefined))) return undefined;
   if (value.fullRange !== undefined && (!object(value.fullRange) || !money(value.fullRange.lower) ||
     !money(value.fullRange.upper) || value.fullRange.lower <= 0 || value.fullEquivalentUsd === null ||
     value.fullRange.lower > value.fullEquivalentUsd || value.fullRange.upper < value.fullEquivalentUsd)) return undefined;
@@ -142,6 +149,7 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
       upper: (value.fullRange as { upper: number }).upper,
     } }),
     ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey as string }),
+    ...(quotaEpoch === undefined ? {} : { quotaEpoch }),
     ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber as number }),
     ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd as number }),
     ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount as number }),
@@ -153,6 +161,19 @@ function semanticKey(input: WeeklyEstimateInput): string {
   // New account/series methods retain each as-of measurement. Legacy signatures stay unchanged.
   return JSON.stringify(input.method === 'series-prefix-v1' || input.method === 'account-delta-v1'
     ? { ...values, observedAt } : values);
+}
+/** Official epoch snapshots retain the first as-of point at each percentage
+ * change for each method/price. Legacy snapshots keep their original signatures. */
+export function sameWeeklyEstimateQuotaPoint(left: WeeklyEstimateInput, right: WeeklyEstimateInput): boolean {
+  if (left.provider !== 'codex' || right.provider !== 'codex' || left.accountScopeKey !== right.accountScopeKey ||
+    left.method !== right.method || left.pricingVersion !== right.pricingVersion ||
+    left.utilizationPercent !== right.utilizationPercent) return false;
+  if (left.fullEquivalentUsd === null || left.fullEquivalentUsd <= 0 || left.unusedEquivalentUsd === null ||
+    right.fullEquivalentUsd === null || right.fullEquivalentUsd <= 0 || right.unusedEquivalentUsd === null) return false;
+  if (left.quotaEpoch !== undefined || right.quotaEpoch !== undefined) return left.quotaEpoch !== undefined &&
+    right.quotaEpoch !== undefined && left.quotaEpoch.startedAt === right.quotaEpoch.startedAt;
+  return left.accountScopeKey === undefined && ['rough-prefix-v2', 'series-prefix-v1'].includes(left.method) &&
+    left.calibrationStart === right.calibrationStart && Math.abs(left.resetAt - right.resetAt) <= 300_000;
 }
 function boundedOption(value: number | undefined, max: number): number {
   if (value === undefined) return max;
@@ -184,6 +205,8 @@ export class WeeklyEstimateArchive {
     return createHmac('sha256', this.salt).update(JSON.stringify(values)).digest('hex');
   }
   private windowKey(sourceKey: string, value: WeeklyEstimateInput): string {
+    if (value.quotaEpoch !== undefined) return this.hmac(['weekly-estimate-window-v2', sourceKey, value.provider,
+      value.method, value.accountScopeKey, value.quotaEpoch.startedAt]);
     return this.hmac(['weekly-estimate-window-v1', sourceKey, value.provider, value.resetAt,
       value.method, value.accountScopeKey ?? null]);
   }
@@ -271,7 +294,9 @@ export class WeeklyEstimateArchive {
       const key = raw.windowKey;
       const previous = windows.get(key);
       const signature = semanticKey(input);
-      const tuple = JSON.stringify([raw.sourceKey, input.provider, input.resetAt, input.method, input.accountScopeKey ?? null]);
+      const tuple = JSON.stringify(input.quotaEpoch === undefined
+        ? [raw.sourceKey, input.provider, input.resetAt, input.method, input.accountScopeKey ?? null]
+        : [raw.sourceKey, input.provider, input.method, input.accountScopeKey, input.quotaEpoch]);
       if (raw.revision !== (previous?.revision ?? 0) + 1 || previous?.signatures.has(signature) ||
         (previous && previous.tuple !== tuple)) throw new ArchiveFailure('invalid');
       const signatures = previous?.signatures ?? new Set<string>();
@@ -367,6 +392,12 @@ export class WeeklyEstimateArchive {
           return { ...this.result(current, current.bytes), outcome: 'cleared-observation' as const };
         }
         // Incoming ordinals are display hints only. Canonical numbering is source-local and leased.
+        if (input.quotaEpoch !== undefined && current.entries.some(entry => entry.sourceKey === this.sourceKey &&
+          entry.provider === input.provider && entry.accountScopeKey === input.accountScopeKey &&
+          entry.quotaEpoch?.startedAt === input.quotaEpoch!.startedAt &&
+          JSON.stringify(entry.quotaEpoch) !== JSON.stringify(input.quotaEpoch))) {
+          return { ...this.result(current, current.bytes), outcome: 'invalid' as const };
+        }
         let normalized = input;
         if (input.accountScopeKey !== undefined) {
           const sourceEntries = current.entries.filter(entry => entry.sourceKey === this.sourceKey);
@@ -377,7 +408,8 @@ export class WeeklyEstimateArchive {
         }
         const windowKey = this.windowKey(this.sourceKey, normalized);
         const previous = current.entries.filter(entry => entry.windowKey === windowKey);
-        if (previous.some(entry => semanticKey(copyInput(entry)!) === semanticKey(normalized))) {
+        if (previous.some(entry => semanticKey(copyInput(entry)!) === semanticKey(normalized)) ||
+          current.entries.some(entry => entry.sourceKey === this.sourceKey && sameWeeklyEstimateQuotaPoint(entry, normalized))) {
           return { ...this.result(current, current.bytes), outcome: 'unchanged' as const };
         }
         const entry: WeeklyEstimateEntry = { ...normalized, sourceKey: this.sourceKey, windowKey, revision: previous.length + 1 };

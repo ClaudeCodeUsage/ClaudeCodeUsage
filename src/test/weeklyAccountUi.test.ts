@@ -106,6 +106,51 @@ test('latest invalid, previous reset or other-account delta does not imply curre
   }
 }));
 
+test('an official quota epoch requires calibration from that same observed segment', () => english(() => {
+  const startedAt = T - 120_000;
+  for (const epoch of [undefined, { startedAt: startedAt - 60_000 }, { startedAt }]) {
+    const sample = { ...entry(), ...(epoch ? { quotaEpoch: { ...epoch, resetAnchorAt: R,
+      startLowerAt: null, reason: 'counter-drop' } } : {}) };
+    const { p, projection } = owner(true, [sample]);
+    projection.officialQuota.quotaEpochStartedAt = startedAt;
+    const quota = status(p.renderWeeklyValuePanel('codex'));
+    if (epoch?.startedAt === startedAt) assert.doesNotMatch(quota, /Collecting samples/);
+    else assert.match(quota, /Collecting samples/);
+  }
+}));
+
+test('the estimated chart receives the active quota epoch and never marks a previous segment current', () => english(() => {
+  const startedAt = T - 120_000;
+  const sample = { ...entry(), quotaEpoch: { startedAt, resetAnchorAt: R, startLowerAt: null, reason: 'initial' } };
+  const { p, projection } = owner(true, [sample]);
+  p.weeklyValuePoints = () => [];
+  projection.activeQuotaEpochStartedAt = T - 60_000;
+  projection.officialQuota.quotaEpochStartedAt = T - 60_000;
+  assert.doesNotMatch(p.renderWeeklyValuePanel('codex'), /Current · Account 2/);
+  projection.activeQuotaEpochStartedAt = startedAt;
+  projection.officialQuota.quotaEpochStartedAt = startedAt;
+  assert.match(p.renderWeeklyValuePanel('codex'), /Current · Account 2/);
+}));
+
+test('a six-minute-old stale official sample stays visible at its original observation without active calibration claims', () => english(() => {
+  const observedAt = T - 6 * 60_000;
+  for (const entries of [[], [{ ...entry(), observedAt }]]) {
+    const { p, projection } = owner(true, entries);
+    p.weeklyValuePoints = () => [];
+    projection.officialQuota.stale = true;
+    projection.officialQuota.observedAt = observedAt;
+    const before = JSON.stringify(projection), html = p.renderWeeklyValuePanel('codex'), quota = status(html);
+    assert.match(quota, /Official quota · Account 2 · 25%/);
+    const date = new Intl.DateTimeFormat(I18n.getLocale(), { month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined }).format(new Date(observedAt));
+    assert.ok(quota.includes(date)); assert.ok(quota.includes(I18n.t.weeklyValue.estimateStale));
+    assert.doesNotMatch(quota, /Collecting samples/);
+    assert.doesNotMatch(html, /Current · Account 2/);
+    assert.equal(JSON.stringify(projection), before, 'stale display must not refresh the sample time or percentage');
+    if (entries.length) assert.match(html, /\$100\.00/);
+  }
+}));
+
 test('loading, unavailable, mismatch and disabled are concise visible states without stale quota numbers', () => english(() => {
   for (const [state, expected] of [['loading', 'Reading official quota'], ['unavailable', 'Official quota unavailable'],
     ['source-mismatch', 'Quota source differs from the official service account'], ['disabled', 'Official quota disabled']]) {

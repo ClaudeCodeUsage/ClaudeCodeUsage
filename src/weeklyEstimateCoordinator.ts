@@ -1,8 +1,9 @@
 import { buildLocalWeeklyEstimates, LocalWeeklyEstimate } from './weeklyEstimate';
 import { WeeklyEstimateArchive, WeeklyEstimateArchiveResult, WeeklyEstimateClearScope,
   WeeklyEstimateInput, WeeklyEstimateProvider, WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES,
-  weeklyEstimateAccountFingerprint } from './weeklyEstimateArchive';
+  weeklyEstimateAccountFingerprint, sameWeeklyEstimateQuotaPoint } from './weeklyEstimateArchive';
 import type { WeeklyValueInputs } from './weeklyValue';
+import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation } from './codexQuotaEpoch';
 
 export interface WeeklyEstimateDisplayEntry extends LocalWeeklyEstimate {
   /** Public reference-price version retained with its historical numeric snapshot. */
@@ -12,11 +13,13 @@ export interface WeeklyEstimateProjection {
   entries: Omit<WeeklyEstimateDisplayEntry, 'accountScopeKey'>[];
   status: 'loading' | 'ready' | 'full' | 'unavailable';
   activeAccountNumber?: number;
+  activeQuotaEpochStartedAt?: number;
 }
 export interface WeeklyEstimateProjectOptions {
   sourceNamespace: string; pricingVersion: string; now: number;
   accountEstimates?: readonly WeeklyEstimateDisplayEntry[];
   activeAccountScopeKey?: string;
+  activeQuotaEpochStartedAt?: number;
 }
 interface InternalEntry extends WeeklyEstimateDisplayEntry { accountScopeKey?: string }
 type Evidence = InternalEntry;
@@ -25,6 +28,7 @@ type Memo = {
   localHistoryComplete: WeeklyValueInputs['localHistoryComplete'];
   pricingVersion: string; minute: number; live: InternalEntry[];
   accountEstimates?: readonly WeeklyEstimateDisplayEntry[]; activeAccountScopeKey?: string;
+  activeQuotaEpochStartedAt?: number;
   revision: number; projection: WeeklyEstimateProjection;
 };
 type State = {
@@ -66,6 +70,11 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
     !/^(?:[a-z]{1,16}-){0,2}v\d{1,4}(?:\.\d{1,4}){0,3}$/.test(value.pricingVersion))) return undefined;
   if (value.calibrationStart !== undefined && (!time(value.calibrationStart) || value.calibrationStart < value.windowStart ||
     value.calibrationStart >= value.observedAt)) return undefined;
+  const quotaEpoch = copyCodexQuotaEpoch(value.quotaEpoch);
+  if (value.quotaEpoch !== undefined && (!quotaEpoch || provider !== 'codex' ||
+    value.accountScopeKey === undefined || value.method !== 'account-delta-v1' ||
+    !codexQuotaEpochFitsObservation(quotaEpoch, value.observedAt, value.resetAt, value.windowStart,
+      value.calibrationStart))) return undefined;
   const range = value.fullRange;
   if (range !== undefined && (!range || !bounded(range.lower) || range.lower <= 0 || !bounded(range.upper) ||
     value.fullEquivalentUsd === null || range.lower > value.fullEquivalentUsd || range.upper < value.fullEquivalentUsd)) return undefined;
@@ -77,12 +86,13 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
     ...(value.pricingVersion === undefined ? {} : { pricingVersion: value.pricingVersion }),
     ...(value.calibrationStart === undefined ? {} : { calibrationStart: value.calibrationStart }),
     ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey }),
+    ...(quotaEpoch === undefined ? {} : { quotaEpoch }),
     ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber }),
     ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd }),
     ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount }),
     ...(range === undefined ? {} : { fullRange: { lower: range.lower, upper: range.upper } }) };
 }
-function full(value: InternalEntry): boolean {
+function full(value: Pick<WeeklyEstimateInput, 'fullEquivalentUsd' | 'unusedEquivalentUsd' | 'method' | 'pricingCoverage' | 'flags'>): boolean {
   return value.fullEquivalentUsd !== null && value.fullEquivalentUsd > 0 && value.unusedEquivalentUsd !== null &&
     (['rough-prefix-v2', 'series-prefix-v1', 'account-delta-v1'].includes(value.method) || (value.pricingCoverage === 1 &&
       !value.flags.some(flag => flag === 'boundary-uncertain' || flag === 'counter-change' ||
@@ -91,7 +101,8 @@ function full(value: InternalEntry): boolean {
 function merge(saved: InternalEntry[], live: InternalEntry[]): InternalEntry[] {
   const rows = new Map<string, InternalEntry>();
   for (const value of [...saved, ...live]) {
-    const key = JSON.stringify([value.provider, value.accountScopeKey ?? null, value.resetAt, value.observedAt, value.method]);
+    const key = JSON.stringify([value.provider, value.accountScopeKey ?? null, value.quotaEpoch?.startedAt ?? null,
+      value.quotaEpoch === undefined ? value.resetAt : null, value.observedAt, value.method, value.pricingVersion ?? null]);
     const previous = rows.get(key);
     // A newly withheld full estimate cannot erase a saved, valid as-of snapshot.
     if (previous?.fullEquivalentUsd !== null && previous !== undefined && value.fullEquivalentUsd === null) {
@@ -100,7 +111,14 @@ function merge(saved: InternalEntry[], live: InternalEntry[]): InternalEntry[] {
     }
     rows.set(key, value);
   }
-  return [...rows.values()].sort((a, b) => b.resetAt - a.resetAt || b.observedAt - a.observedAt ||
+  const representatives = new Map<string, InternalEntry>();
+  for (const value of [...rows.values()].reverse().sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt)) {
+    const key = JSON.stringify([value.provider, value.accountScopeKey ?? null, value.quotaEpoch?.startedAt ?? null,
+      value.quotaEpoch === undefined ? value.resetAt : null, value.method, value.pricingVersion ?? null,
+      value.fullEquivalentUsd === null ? 'withheld' : 'full']);
+    if (!representatives.has(key)) representatives.set(key, value);
+  }
+  return [...representatives.values()].sort((a, b) => b.resetAt - a.resetAt || b.observedAt - a.observedAt ||
     b.estimatedAt - a.estimatedAt || a.method.localeCompare(b.method)).slice(0, 48)
     .map(value => copy(value, value.provider)!);
 }
@@ -157,7 +175,7 @@ export class WeeklyEstimateCoordinator {
     state.accountNumbers.set(key, next);
     return next;
   }
-  private projection(state: State, live: InternalEntry[], activeKey?: string): WeeklyEstimateProjection {
+  private projection(state: State, live: InternalEntry[], activeKey?: string, activeEpoch?: number): WeeklyEstimateProjection {
     const entries = merge(state.saved, visible(state, live, this.salt)).map(entry => {
       const { accountScopeKey, accountNumber: _hint, ...publicEntry } = entry;
       const accountNumber = full(entry) ? this.accountNumber(state, accountScopeKey)
@@ -167,7 +185,9 @@ export class WeeklyEstimateCoordinator {
     // Identity alone must not reserve a number that the archive cannot honor.
     const activeAccountNumber = state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey)
       ? state.accountNumbers.get(activeKey) : undefined;
-    return { entries, status: state.status, ...(activeAccountNumber === undefined ? {} : { activeAccountNumber }) };
+    return { entries, status: state.status, ...(activeAccountNumber === undefined ? {} : { activeAccountNumber }),
+      ...(state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey) &&
+        activeEpoch !== undefined && time(activeEpoch) && activeEpoch > 0 ? { activeQuotaEpochStartedAt: activeEpoch } : {}) };
   }
   private acknowledge(state: State, entry: WeeklyEstimateInput): void {
     const key = semanticKey(entry);
@@ -271,7 +291,8 @@ export class WeeklyEstimateCoordinator {
     let memo = state.memo;
     if (!memo || memo.usage !== inputs.usage || memo.observations !== inputs.observations ||
       memo.localHistoryComplete !== inputs.localHistoryComplete || memo.pricingVersion !== options.pricingVersion || memo.minute !== minute ||
-      memo.accountEstimates !== options.accountEstimates || memo.activeAccountScopeKey !== options.activeAccountScopeKey) {
+      memo.accountEstimates !== options.accountEstimates || memo.activeAccountScopeKey !== options.activeAccountScopeKey ||
+      memo.activeQuotaEpochStartedAt !== options.activeQuotaEpochStartedAt) {
       const produced = buildLocalWeeklyEstimates(provider, inputs, { now: options.now, limit: 48 })
         .map(entry => ({ ...entry, pricingVersion: options.pricingVersion }));
       // Account estimates freeze their USD and pricing evidence at capture. Only unstamped
@@ -284,7 +305,8 @@ export class WeeklyEstimateCoordinator {
         .filter((entry): entry is InternalEntry => entry !== undefined);
       memo = { usage: inputs.usage, observations: inputs.observations, localHistoryComplete: inputs.localHistoryComplete,
         pricingVersion: options.pricingVersion, accountEstimates: options.accountEstimates, activeAccountScopeKey: options.activeAccountScopeKey,
-        minute, live, revision: state.revision, projection: this.projection(state, live, options.activeAccountScopeKey) };
+        activeQuotaEpochStartedAt: options.activeQuotaEpochStartedAt,
+        minute, live, revision: state.revision, projection: this.projection(state, live, options.activeAccountScopeKey, options.activeQuotaEpochStartedAt) };
       state.memo = memo;
       if (!this.blocked(state) && state.archive) {
         for (const entry of live) {
@@ -292,13 +314,16 @@ export class WeeklyEstimateCoordinator {
           const dto: WeeklyEstimateInput = { ...copy(entry, provider)!, pricingVersion: entry.pricingVersion ?? options.pricingVersion };
           const key = semanticKey(dto);
           if (state.acknowledged.has(key) || state.pending.has(key)) continue;
+          // Coalesce only the pending batch. A genuinely newer observation must
+          // still check the durable generation/cutoff after an external clear.
+          if ([...state.pending.values()].some(previous => sameWeeklyEstimateQuotaPoint(previous, dto))) continue;
           if (state.pending.size < WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES) state.pending.set(key, dto);
           else state.queueFull = true;
         }
         this.schedule(state);
       }
     } else if (memo.revision !== state.revision) {
-      memo.projection = this.projection(state, memo.live, options.activeAccountScopeKey);
+      memo.projection = this.projection(state, memo.live, options.activeAccountScopeKey, options.activeQuotaEpochStartedAt);
       memo.revision = state.revision;
     }
     return memo.projection;

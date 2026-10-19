@@ -34,6 +34,7 @@ import { fetchLatestPricing, getPricingBackend, getPricingLastFetched, setPricin
 import { WeeklyEstimateCoordinator } from './weeklyEstimateCoordinator';
 import type { LocalWeeklyEstimate } from './weeklyEstimate';
 import { CodexAccountEstimator, OfficialQuotaSample } from './codexAccountEstimate';
+import { codexQuotaEpochFromObservations } from './codexQuotaEpoch';
 import { readCodexOfficialQuota } from './providers/codex/codexOfficialQuota';
 import { WEEKLY_ESTIMATE_ARCHIVE_FILE, WeeklyEstimateArchive } from './weeklyEstimateArchive';
 import { ClaudeApiClient } from './claudeApiClient';
@@ -734,15 +735,18 @@ export class ClaudeCodeUsageExtension {
         const fetchedAt = getPricingLastFetched()?.time;
         const version = fetchedAt === undefined ? 'v1' : 'v' + String(fetchedAt)
           .padStart(16, '0').match(/.{4}/g)!.join('.');
+        const officialQuota=provider==='codex'?this.officialQuotaPublicState():undefined;
+        const identityCurrent=officialQuota?.status==='ready'&&officialQuota.stale!==true;
         const projection = this.weeklyEstimateCoordinator!.project(provider, inputs, {
           sourceNamespace: provider + '|' + (source ?? 'unavailable'),
           pricingVersion: (getPricingBackend() === 'anthropic' ? 'anthropic-' : 'openai-') + version,
           now,
           ...(provider === 'codex' ? { accountEstimates: this.officialQuotaEstimates,
-            activeAccountScopeKey: this.officialQuotaSample?.accountScopeKey } : {}),
+            activeAccountScopeKey: identityCurrent ? this.officialQuotaSample?.accountScopeKey : undefined,
+            activeQuotaEpochStartedAt: identityCurrent ? this.officialQuotaSample?.quotaEpoch?.startedAt : undefined } : {}),
         });
         return provider === 'codex' ? { ...projection, officialQuota: {
-          ...this.officialQuotaPublicState(), accountNumber: projection.activeAccountNumber,
+          ...officialQuota!, accountNumber: projection.activeAccountNumber,
         } } : projection;
       });
       this.webviewProvider.onWeeklyQuotaVisible = () => { void this.refreshOfficialCodexQuota('manual'); };
@@ -3086,10 +3090,12 @@ export class ClaudeCodeUsageExtension {
     >,
   ): Promise<void> {
     this.officialQuotaGeneration = (this.officialQuotaGeneration ?? 0) + 1;
-    this.officialAccountEstimator?.reset();
-    this.officialQuotaSample = undefined;
+    if (condition === 'window-blur' && typeof this.officialAccountEstimator?.breakContinuity === 'function') {
+      this.officialAccountEstimator.breakContinuity();
+    } else this.officialAccountEstimator?.reset();
+    if (condition !== 'window-blur') this.officialQuotaSample = undefined;
     this.officialQuotaLastAttempt = 0;
-    this.officialQuotaStatus = 'unavailable';
+    this.officialQuotaStatus = condition === 'window-blur' && this.officialQuotaSample ? 'ready' : 'unavailable';
     const active = [...this.activeQuotaNetworks.entries()];
     await Promise.all(active.map(async ([controller, operation]) => {
       const { lease, settled } = operation;
@@ -4981,13 +4987,15 @@ export class ClaudeCodeUsageExtension {
   /** UI metadata only; no account/source HMAC or daemon output crosses this boundary. */
   private officialQuotaPublicState(): {
     status:'disabled'|'loading'|'ready'|'unavailable'|'source-mismatch';
-    usedPercent?:number;resetAt?:number;observedAt?:number;
+    usedPercent?:number;resetAt?:number;observedAt?:number;quotaEpochStartedAt?:number;stale?:boolean;
   } {
     const sample=this.officialQuotaSample;
-    const current=sample&&sample.resetAt>Date.now()&&Date.now()-sample.observedAt<300_000;
-    return {status:sample&&!current?'unavailable':this.officialQuotaStatus,
-      ...(this.officialQuotaStatus==='ready'&&current?{usedPercent:sample.usedPercent,
-        resetAt:sample.resetAt,observedAt:sample.observedAt}:{})};
+    const now=Date.now(),unexpired=sample&&sample.observedAt<=now&&sample.resetAt>now;
+    return {status:sample&&!unexpired?'unavailable':this.officialQuotaStatus,
+      ...(this.officialQuotaStatus==='ready'&&unexpired?{usedPercent:sample.usedPercent,
+        resetAt:sample.resetAt,observedAt:sample.observedAt,
+        stale:now-sample.observedAt>=300_000||this.windowActivity?.focused===false,
+        ...(sample.quotaEpoch ? {quotaEpochStartedAt:sample.quotaEpoch.startedAt}:{} )}:{})};
   }
 
   private weeklyEstimatePricingVersion():string {
@@ -5045,21 +5053,41 @@ export class ClaudeCodeUsageExtension {
         const capture=codexQuotaCaptureFromOfficialSample(sample);
         if(!capture){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;
           this.officialQuotaStatus='unavailable';return;}
-        this.officialQuotaSample=sample;this.officialQuotaStatus='ready';
+        // Persist the quota checkpoint even when no monetary calibration is
+        // possible. P2's account/window history is the continuity authority;
+        // a restart, focus change or empty estimate must not erase a reset.
+        const store=await this.quotaObservationRepository.append([capture]);
+        if(!current())return;
+        this.quotaObservationStore=store;
+        const fingerprint=fingerprintForStableIdentity(this.quotaFingerprintSalt,'codex',
+          'official-account-scope-v1|'+sample.accountScopeKey);
+        const quotaEpoch=codexQuotaEpochFromObservations(store.observations,fingerprint,
+          sample.observedAt,sample.resetAt);
+        const scopedSample:OfficialQuotaSample={...sample,...(quotaEpoch?{quotaEpoch}:{})};
+        this.officialQuotaSample=scopedSample;this.officialQuotaStatus='ready';
         const view=this.codexView;
-        if(view?.weeklyValueInputs){
-          const estimate=this.officialAccountEstimator.observe(sample,{...view.weeklyValueInputs,
+        if(view?.weeklyValueInputs&&quotaEpoch){
+          const estimate=this.officialAccountEstimator.observe(scopedSample,{...view.weeklyValueInputs,
             localHistoryComplete:view.currentManifestVerified===true&&view.coverage.complete&&view.coverage.identity.complete&&
               view.periodCoverage.allTime.complete},this.weeklyEstimatePricingVersion());
           if(estimate){
+            const pricingVersion=this.weeklyEstimatePricingVersion();
             this.officialQuotaEstimates=[...this.officialQuotaEstimates.filter(row=>
-                row.accountScopeKey!==estimate.accountScopeKey||Math.abs(row.resetAt-estimate.resetAt)>300_000),
-              {...estimate,pricingVersion:this.weeklyEstimatePricingVersion()}]
+                row.accountScopeKey!==estimate.accountScopeKey||
+                row.quotaEpoch?.startedAt!==estimate.quotaEpoch?.startedAt||
+                Math.abs(row.resetAt-estimate.resetAt)>300_000),
+              {...estimate,pricingVersion}]
               .sort((a,b)=>b.observedAt-a.observedAt).slice(0,64);
+            // Persistence must not depend on an auto-refreshing renderer. The
+            // coordinator owns its existing coalesced writer and clear fences.
+            this.weeklyEstimateCoordinator?.project('codex',view.weeklyValueInputs,{
+              sourceNamespace:'codex|'+home,pricingVersion,now:sample.observedAt,
+              accountEstimates:this.officialQuotaEstimates,
+              activeAccountScopeKey:sample.accountScopeKey,
+              activeQuotaEpochStartedAt:quotaEpoch.startedAt,
+            });
           }
         }else this.officialAccountEstimator.reset();
-        this.quotaObservationStore=await this.quotaObservationRepository.append([capture]);
-        if(!current())return;
         if(sample.observedAt>(this.weeklyEstimateClearedAt.get('codex')??Infinity))this.weeklyEstimateClearedAt.delete('codex');
       }catch{
         if(current()){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;
