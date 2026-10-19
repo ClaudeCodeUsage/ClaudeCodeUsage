@@ -11,7 +11,7 @@ export const WEEKLY_ESTIMATE_ARCHIVE_MAX_CLEAR_FENCES = 128;
 export type WeeklyEstimateProvider = 'claude' | 'codex';
 export type WeeklyEstimateMethod = 'legacy-prefix-ratio' | 'paired-delta' | 'owned-window';
 export type WeeklyEstimateFlag = 'account-unattributed' | 'boundary-uncertain' | 'partial-pricing'
-  | 'stale-observation' | 'counter-change' | 'reconstructed';
+  | 'stale-observation' | 'counter-change' | 'reconstructed' | 'partial-history';
 
 /** Numeric snapshots only. All times are Unix milliseconds; null is unknown, not zero. */
 export interface WeeklyEstimateInput {
@@ -76,7 +76,7 @@ function cutoff(fences: ClearFence[], sourceKey: string, provider: WeeklyEstimat
   return matches.length ? Math.max(...matches.map(fence => fence.observedThrough)) : undefined;
 }
 const FLAGS: readonly WeeklyEstimateFlag[] = ['account-unattributed', 'boundary-uncertain',
-  'partial-pricing', 'stale-observation', 'counter-change', 'reconstructed'];
+  'partial-pricing', 'stale-observation', 'counter-change', 'reconstructed', 'partial-history'];
 const HEX = /^[a-f0-9]{64}$/;
 const VERSION = /^(?:[a-z]{1,16}-){0,2}v\d{1,4}(?:\.\d{1,4}){0,3}$/;
 class ArchiveFailure extends Error {

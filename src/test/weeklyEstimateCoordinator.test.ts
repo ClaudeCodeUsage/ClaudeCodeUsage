@@ -386,3 +386,161 @@ test('a separate Node process cannot resubmit pre-clear observations but can sav
   { encoding: 'utf8', timeout: 10_000 });
   assert.deepEqual(JSON.parse(result), [0, 1]);
 });
+
+test('immediate provider clear preserves another provider queued before its worker starts', async t => {
+  t.mock.method(Date, 'now', () => NOW);
+  const { file } = await fixture(t);
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  const claude = inputs(); claude.observations[0].provider = 'claude';
+  coordinator.project('claude', claude, options);
+  coordinator.project('codex', inputs(), options);
+  await coordinator.clear({ provider: 'codex' });
+  await coordinator.flush();
+  assert.deepEqual((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntriesByProvider,
+    { claude: 1, codex: 0 });
+  assert.equal(coordinator.project('claude', claude, options).entries[0].fullEquivalentUsd, 100);
+});
+
+test('source switch retires UI callbacks but drains the old source valid snapshots after a paused load', async t => {
+  const { file } = await fixture(t);
+  const entered = deferred(), release = deferred();
+  const originalLoad = WeeklyEstimateArchive.prototype.load;
+  let first = true, callbacks = 0;
+  t.mock.method(WeeklyEstimateArchive.prototype, 'load', async function(this: WeeklyEstimateArchive) {
+    if (first) { first = false; entered.resolve(); await release.promise; }
+    return originalLoad.call(this);
+  });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT, () => { callbacks++; });
+  coordinator.project('codex', inputs(), options);
+  await entered.promise;
+  const empty = { observations: [], usage: [] };
+  const otherOptions = { ...options, sourceNamespace: 'source-b' };
+  coordinator.project('codex', empty, otherOptions);
+  release.resolve(); await coordinator.flush();
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries.length, 1);
+  assert.equal(callbacks, 1, 'only the current source can notify the UI');
+  assert.deepEqual(coordinator.project('codex', empty, otherOptions).entries, []);
+});
+
+test('acknowledged semantic snapshots perform no repeated archive I/O across clock minutes', async t => {
+  const { file } = await fixture(t);
+  const originalLoad = WeeklyEstimateArchive.prototype.load, originalRecord = WeeklyEstimateArchive.prototype.record;
+  let loads = 0, records = 0;
+  t.mock.method(WeeklyEstimateArchive.prototype, 'load', function(this: WeeklyEstimateArchive) {
+    loads++; return originalLoad.call(this);
+  });
+  t.mock.method(WeeklyEstimateArchive.prototype, 'record', function(this: WeeklyEstimateArchive,
+    ...args: Parameters<WeeklyEstimateArchive['record']>) {
+    records++; return originalRecord.apply(this, args);
+  });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  const data = inputs();
+  coordinator.project('codex', data, options); await coordinator.flush();
+  const before = await readFile(file, 'utf8');
+  for (let minute = 1; minute <= 3; minute++) {
+    coordinator.project('codex', data, { ...options, now: NOW + minute * 60_000 });
+    await coordinator.flush();
+  }
+  assert.deepEqual([loads, records], [1, 1]);
+  const stale = coordinator.project('codex', data, { ...options, now: NOW + 7 * 3_600_000 });
+  await coordinator.flush();
+  assert.ok(stale.entries[0].flags.includes('stale-observation'));
+  assert.deepEqual([loads, records], [1, 1], 'clock-only staleness remains display metadata');
+  assert.equal(await readFile(file, 'utf8'), before);
+  coordinator.project('codex', data, { ...options, pricingVersion: 'openai-v2' });
+  await coordinator.flush();
+  assert.equal(records, 2, 'a real pricing-version change still records');
+});
+
+test('provider clear cancels retired-source queued work and retains durable observation fences', async t => {
+  t.mock.method(Date, 'now', () => NOW);
+  const { file } = await fixture(t);
+  const entered = deferred(), release = deferred();
+  const originalLoad = WeeklyEstimateArchive.prototype.load;
+  let first = true;
+  t.mock.method(WeeklyEstimateArchive.prototype, 'load', async function(this: WeeklyEstimateArchive) {
+    if (first) { first = false; entered.resolve(); await release.promise; }
+    return originalLoad.call(this);
+  });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  coordinator.project('codex', inputs(), options); await entered.promise;
+  coordinator.project('codex', inputs(), { ...options, sourceNamespace: 'source-b' });
+  const cleared = coordinator.clear({ provider: 'codex' });
+  release.resolve(); await cleared; await coordinator.flush();
+  const archive = new WeeklyEstimateArchive(file, SALT, SOURCE);
+  assert.equal((await archive.load()).totalEntries, 0);
+  assert.equal((await archive.record(stored())).outcome, 'cleared-observation');
+});
+
+test('local-history completeness changes invalidate the memo with unchanged usage and observation references', async t => {
+  const { file } = await fixture(t);
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  const data = inputs(); data.localHistoryComplete = false;
+  const usage = data.usage, observations = data.observations;
+  const incomplete = coordinator.project('codex', data, options);
+  assert.equal(incomplete.entries[0].fullEquivalentUsd, null);
+  assert.ok(incomplete.entries[0].flags.includes('partial-history'));
+  await coordinator.flush();
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
+  data.localHistoryComplete = true;
+  const complete = coordinator.project('codex', data, options);
+  assert.strictEqual(data.usage, usage); assert.strictEqual(data.observations, observations);
+  assert.equal(complete.entries[0].fullEquivalentUsd, 100);
+  assert.ok(!complete.entries[0].flags.includes('partial-history'));
+  assert.ok(complete.entries[0].flags.includes('account-unattributed'));
+  await coordinator.flush();
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
+});
+
+test('known incomplete history withdraws a saved same-observation estimate only in the display copy', async t => {
+  const { file } = await fixture(t);
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  const data = inputs(); data.localHistoryComplete = true;
+  coordinator.project('codex', data, options); await coordinator.flush();
+  const before = await readFile(file, 'utf8');
+  data.localHistoryComplete = false;
+  const [withdrawn] = coordinator.project('codex', data, options).entries;
+  assert.equal(withdrawn.fullEquivalentUsd, 100);
+  assert.ok(withdrawn.flags.includes('partial-history'));
+  assert.ok(withdrawn.flags.includes('stale-observation'));
+  await coordinator.flush();
+  assert.equal(await readFile(file, 'utf8'), before);
+  delete data.localHistoryComplete;
+  const [legacy] = coordinator.project('codex', data, options).entries;
+  assert.equal(legacy.fullEquivalentUsd, 100);
+  assert.ok(!legacy.flags.includes('partial-history'));
+  assert.ok(legacy.flags.includes('account-unattributed'));
+  await coordinator.flush();
+  assert.equal(await readFile(file, 'utf8'), before);
+});
+
+test('semantic deduplication still permits a fresh identical-valued observation after another window clears', async t => {
+  t.mock.method(Date, 'now', () => NOW);
+  const { file } = await fixture(t);
+  const writer = new WeeklyEstimateCoordinator(file, SALT);
+  writer.project('codex', inputs(), options); await writer.flush();
+  await new WeeklyEstimateCoordinator(file, SALT).clear({ provider: 'codex' });
+  const fresh = inputs(); fresh.observations[0].observedAt = NOW + 1;
+  writer.project('codex', fresh, { ...options, now: NOW + 2 }); await writer.flush();
+  const loaded = await new WeeklyEstimateArchive(file, SALT, SOURCE).load();
+  assert.equal(loaded.totalEntries, 1);
+  assert.equal(loaded.entries[0].observedAt, NOW + 1);
+});
+
+test('an unchanged-valued newer observation is acknowledged even when archive keeps its original record', async t => {
+  const { file } = await fixture(t);
+  const original = WeeklyEstimateArchive.prototype.record;
+  let records = 0;
+  t.mock.method(WeeklyEstimateArchive.prototype, 'record', function(this: WeeklyEstimateArchive,
+    ...args: Parameters<WeeklyEstimateArchive['record']>) { records++; return original.apply(this, args); });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  coordinator.project('codex', inputs(), options); await coordinator.flush();
+  const newer = inputs(); newer.observations[0].observedAt += 100;
+  coordinator.project('codex', newer, options); await coordinator.flush();
+  const accepted = records;
+  for (let i = 1; i <= 3; i++) {
+    coordinator.project('codex', newer, { ...options, now: NOW + i * 60_000 }); await coordinator.flush();
+  }
+  assert.equal(records, accepted);
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
+});

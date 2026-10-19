@@ -441,3 +441,12 @@ test('bounded fences never evict clear receipts; all-clear compacts them and clo
   assert.equal((await archive.load()).clearedThrough.codex, NOW);
   assert.equal((await archive.record(estimate({ observedAt: NOW - 500 }))).outcome, 'cleared-observation');
 });
+
+test('partial-history is an allowlisted flag preserved without promoting a missing full estimate', async t => {
+  const { archive, file } = await fixture(t);
+  await archive.record(estimate({ fullEquivalentUsd: null, unusedEquivalentUsd: null,
+    flags: ['account-unattributed', 'partial-history'] }));
+  const [entry] = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.deepEqual(entry.flags, ['account-unattributed', 'partial-history']);
+  assert.equal(entry.fullEquivalentUsd, null);
+});

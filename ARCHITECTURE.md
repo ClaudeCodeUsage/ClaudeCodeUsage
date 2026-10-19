@@ -1662,6 +1662,14 @@ the archive adapter owns file I/O. Quota-history inventory/clearing includes
 this archive: a provider clear covers that provider across source homes, and
 clear-all covers the entire archive, without touching source logs. Clear fences
 drain queued writes and prevent stale queued work from restoring cleared data.
+Durable generation and original-observation cutoff fences also reject stale
+samples after another window clears history or the extension restarts. Clearing
+one provider leaves the other provider's queued snapshots intact. Accepted
+snapshots survive source switches; normal shutdown flushes them before disposal.
+Unchanged projections do not repeat archive I/O merely because time has passed.
+Archiving runs when the estimate projection is requested, not as a separate
+historical scanner. Known incomplete local indexing blocks new total inference;
+previously retained snapshots stay labelled historical rather than being erased.
 An individual anonymous account-epoch clear does not remove unattributed
 estimates; use provider-wide or all-history clearing for those records.
 

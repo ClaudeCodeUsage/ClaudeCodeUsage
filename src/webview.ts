@@ -7612,7 +7612,8 @@ export class UsageWebviewProvider {
       this.weeklyUsageCache = { records: this.allRecords, pricing: getPricingLastFetched(), backend: getPricingBackend(), usage: claudeWeeklyEquivalentUsage(this.allRecords) };
     }
     return provider === 'codex'
-      ? this.codexView?.weeklyValueInputs
+      ? this.codexView?.weeklyValueInputs ? { ...this.codexView.weeklyValueInputs,
+          localHistoryComplete: this.codexView.periodCoverage.allTime.complete } : undefined
       : {
           observations: this.claudeWeeklyQuotaHistory,
           usage: this.weeklyUsageCache!.usage,
@@ -7639,7 +7640,7 @@ export class UsageWebviewProvider {
     const money = (value: number | null): string => value === null ? '—' : esc(I18n.formatCurrency(value));
     const rows = projection.entries.map(entry => {
       const method = entry.fullEquivalentUsd === null || entry.flags.some(flag =>
-        flag === 'counter-change' || flag === 'boundary-uncertain' || flag === 'partial-pricing') ? copy.estimateBlocked :
+        flag === 'counter-change' || flag === 'boundary-uncertain' || flag === 'partial-pricing' || flag === 'partial-history') ? copy.estimateBlocked :
         entry.method === 'paired-delta' ? copy.pairedEstimate : copy.roughEstimate;
       const range = entry.fullRange ? '<br><span class="model-details">' + money(entry.fullRange.lower) +
         ' – ' + money(entry.fullRange.upper) + '</span>' : '';

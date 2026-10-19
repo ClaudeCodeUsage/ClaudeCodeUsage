@@ -850,6 +850,15 @@ test('historical weekly estimates remain rough as-of records and preserve their 
   await expect(details.locator('tbody td').nth(4)).not.toHaveText('—');
   await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('__ccu-vscode-state')??'{}').openDetails??[]))
     .toContain('weekly-estimate-claude');
+  const response=await page.context().request.get(page.url());
+  expect(response.ok()).toBe(true);
+  await page.evaluate(html=>{
+    const panel=new DOMParser().parseFromString(html,'text/html').getElementById('provider-panel');
+    window.dispatchEvent(new MessageEvent('message',{data:{command:'dashboardDataPatch',provider:'claude',
+      tab:'all',revision:1,html:panel.innerHTML,claudeLast30HoursByDay:{},adviceSnapshotIds:{}}}));
+  },await response.text());
+  await page.clock.runFor(250);
+  await expect(page.locator('#all .weekly-estimate-details')).toHaveAttribute('open','');
   await page.reload();
   await expect(page.locator('#all .weekly-estimate-details')).toHaveAttribute('open','');
   await expect(page.locator('#all .weekly-estimate-details')).toContainText('Rough prefix conversion');

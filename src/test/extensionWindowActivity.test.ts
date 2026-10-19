@@ -2897,6 +2897,16 @@ test('quota cold retry timer is owned and cleared on blur', async () => {
 
 test('extension disposal releases worker and backfill only after provider termination', async () => {
   const extension = bareExtension();
+  const archiveStops: string[] = [];
+  let historyPending = true;
+  extension.weeklyEstimateCoordinator = {
+    flush: async () => {
+      assert.equal(historyPending, true, 'accepted historical snapshots drain before coordinator retirement');
+      archiveStops.push('flush');
+      historyPending = false;
+    },
+    dispose: () => { archiveStops.push('dispose'); historyPending = false; },
+  };
   let finishProviderDispose!: () => void;
   const providerDisposed = new Promise<void>((resolve) => {
     finishProviderDispose = resolve;
@@ -2946,6 +2956,7 @@ test('extension disposal releases worker and backfill only after provider termin
   await disposal;
   assert.equal(extension.resourceOwnership.snapshotForTests().activeCount, 0);
   assert.equal(hostDisposals, 2);
+  assert.deepEqual(archiveStops, ['flush', 'dispose']);
 });
 
 test('extension disposal keeps worker ownership active when termination fails', async () => {

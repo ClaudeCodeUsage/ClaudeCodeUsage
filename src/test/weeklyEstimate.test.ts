@@ -92,6 +92,13 @@ test('positive money without priced tokens cannot enter a fully-priced numerator
   assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].fullEquivalentUsd,null);
 });
 
+test('a known incomplete local index withdraws conversion without discarding sample usage',()=>{
+  const inputs=sample();inputs.localHistoryComplete=false;
+  const [entry]=buildLocalWeeklyEstimates('codex',inputs,{now:T+1});
+  assert.equal(entry.fullEquivalentUsd,null);assert.equal(entry.usedEquivalentUsd,40);
+  assert.ok(entry.flags.includes('partial-history'));
+});
+
 test('invalid numbers demonstrably outside the historical interval cannot rewrite its estimate',()=>{
   for(const timestamp of [T+100,R-9*D]){
     const inputs=sample();inputs.usage.push({timestamp,equivalentUsd:NaN,pricedTokens:100,totalTokens:100});

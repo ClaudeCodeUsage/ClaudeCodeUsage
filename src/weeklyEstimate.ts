@@ -4,7 +4,7 @@ import type { WeeklyEquivalentUsage, WeeklyQuotaObservation, WeeklyValueInputs }
 const WEEK=604_800_000, RESET_TOLERANCE=300_000;
 export type WeeklyEstimateMethod='legacy-prefix-ratio'|'paired-delta'|'owned-window';
 export type WeeklyEstimateFlag='account-unattributed'|'boundary-uncertain'|'partial-pricing'|
-  'stale-observation'|'counter-change'|'reconstructed';
+  'stale-observation'|'counter-change'|'reconstructed'|'partial-history';
 export interface LocalWeeklyEstimate {
   provider:UsageProvider; windowStart:number; resetAt:number; observedAt:number; estimatedAt:number;
   usedEquivalentUsd:number; fullEquivalentUsd:number|null; unusedEquivalentUsd:number|null;
@@ -62,6 +62,7 @@ export function buildLocalWeeklyEstimates(
     const samples=group.rows.slice().sort((a,b)=>a.observedAt-b.observedAt);
     const latest=samples[samples.length-1],start=group.resetAt-WEEK;
     const flags=new Set<WeeklyEstimateFlag>(['account-unattributed','reconstructed']);
+    if(inputs.localHistoryComplete===false)flags.add('partial-history');
     if(samples.some(sample=>sample.observedAt<start))flags.add('boundary-uncertain');
     if(now-latest.observedAt>6*3_600_000)flags.add('stale-observation');
     if(samples.some((s,i)=>i>0&&(s.usedPercent<samples[i-1].usedPercent||
@@ -87,7 +88,7 @@ export function buildLocalWeeklyEstimates(
     let full:number|null=null,method:WeeklyEstimateMethod='legacy-prefix-ratio';
     let fullRange:LocalWeeklyEstimate['fullRange'],calibrationStart:number|undefined;
     let sampleAmount=amount;
-    if(!flags.has('counter-change')&&!flags.has('boundary-uncertain')&&coverage===1&&amount>0&&
+    if(!flags.has('counter-change')&&!flags.has('boundary-uncertain')&&!flags.has('partial-history')&&coverage===1&&amount>0&&
       latest.usedPercent>=5&&latest.usedPercent<100){
       full=amount/(latest.usedPercent/100);
       // Paired inference requires an explicit SAME window and finite documented

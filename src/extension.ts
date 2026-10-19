@@ -5504,7 +5504,6 @@ export class ClaudeCodeUsageExtension {
   dispose(): Promise<void> {
     if (this.disposal) return this.disposal;
     this.disposed = true;
-    this.weeklyEstimateCoordinator?.dispose();
     this.claudeRenderSnapshot = undefined;
     this.configurationGeneration += 1;
     this.disposal = (async () => {
@@ -5544,7 +5543,10 @@ export class ClaudeCodeUsageExtension {
         throw error;
       }));
       await capture(this.drainResourceStops());
-      if (this.weeklyEstimateCoordinator) await capture(this.weeklyEstimateCoordinator.flush());
+      if (this.weeklyEstimateCoordinator) {
+        await capture(this.weeklyEstimateCoordinator.flush());
+        this.weeklyEstimateCoordinator.dispose();
+      }
       this.statusBar.dispose();
       this.webviewProvider.dispose();
       if (failures.length > 0) {

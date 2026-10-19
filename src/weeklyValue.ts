@@ -58,6 +58,8 @@ export interface WeeklyEquivalentUsage {
 export interface WeeklyValueInputs {
   observations: WeeklyQuotaObservation[];
   usage: WeeklyEquivalentUsage[];
+  /** Known local indexing completeness, not complete account/device coverage. */
+  localHistoryComplete?: boolean;
   /** Runtime-only proof of complete account-scoped usage for this exact window.
    * Missing proof fails closed; this is not inferred from indexed file counts. */
   accountUsageCoverage?: Array<{
