@@ -125,7 +125,14 @@ import {
   summarizeEquivalentUsage,
   WeeklyQuotaObservation,
   WeeklyValuePoint,
+  WeeklyValueInputs,
 } from './weeklyValue';
+import { buildLocalWeeklyEstimates, LocalWeeklyEstimate } from './weeklyEstimate';
+
+export interface WeeklyEstimatePanelProjection {
+  entries: LocalWeeklyEstimate[];
+  status: 'loading' | 'ready' | 'full' | 'unavailable';
+}
 import {
   defaultDashboardProvider,
 } from './codexView';
@@ -1267,6 +1274,9 @@ export class UsageWebviewProvider {
   private claudeQuotaPaceSnapshot: QuotaPaceAdapterSnapshot | null = null;
   private lastWeeklyQuotaPaceHtml: string | undefined;
   private claudeWeeklyQuotaHistory: WeeklyQuotaObservation[] = [];
+  private weeklyEstimateProjector?: (
+    provider: SettingProvider, inputs: WeeklyValueInputs, now: number,
+  ) => WeeklyEstimatePanelProjection;
   private quotaWarnDismissed: boolean = false;
   // Extension-host hooks make the optimizer use the same prepare -> preview ->
   // explicit send boundary as advice, without exposing keys to the webview.
@@ -3415,15 +3425,22 @@ export class UsageWebviewProvider {
 
   /** Receive quota utilisation (decoupled from local data; see extension.ts). */
   updateQuota(usageLimits: ClaudeApiUsageResponse | null): void {
-    if (!usageLimits) {
-      return;
-    }
-    const changed = JSON.stringify(usageLimits) !== JSON.stringify(this.usageLimits);
+    const changed = JSON.stringify(usageLimits) !== JSON.stringify(this.usageLimits) ||
+      (usageLimits === null && ((this.claudeWeeklyQuotaHistory?.length ?? 0) > 0 ||
+        this.claudeQuotaPaceSnapshot != null));
     if (!changed) return;
     this.usageLimits = usageLimits;
+    if (usageLimits === null) {
+      this.claudeWeeklyQuotaHistory = [];
+      this.claudeQuotaPaceSnapshot = null;
+      this.quotaWarnDismissed = false;
+    }
     // Re-render only on change so the cheap quota poll doesn't redraw the
     // dashboard (and reset scroll position) every tick.
-    if (changed && this.panel && !this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)) {
+    // Null is explicit account/source retirement, not a failed refresh. It must
+    // withdraw the previous account's quota even when automatic delivery is off.
+    if (this.panel && (usageLimits === null ||
+      (!this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)))) {
       this.updateWebview();
     }
   }
@@ -7579,22 +7596,72 @@ export class UsageWebviewProvider {
       sharingWorkspace + dailyBreakdown;
   }
 
-  private weeklyValuePoints(provider: SettingProvider): WeeklyValuePoint[] {
-    const now = Date.now();
+  setWeeklyEstimateProjector(projector: (
+    provider: SettingProvider, inputs: WeeklyValueInputs, now: number,
+  ) => WeeklyEstimatePanelProjection): void {
+    this.weeklyEstimateProjector = projector;
+  }
+
+  refreshWeeklyEstimates(): void {
+    if (this.panel && !this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)) this.updateWebview();
+  }
+
+  private weeklyValueInputs(provider: SettingProvider): WeeklyValueInputs | undefined {
     if (provider === 'claude' && (this.weeklyUsageCache?.records !== this.allRecords ||
       this.weeklyUsageCache.pricing !== getPricingLastFetched() || this.weeklyUsageCache.backend !== getPricingBackend())) {
       this.weeklyUsageCache = { records: this.allRecords, pricing: getPricingLastFetched(), backend: getPricingBackend(), usage: claudeWeeklyEquivalentUsage(this.allRecords) };
     }
-    const inputs = provider === 'codex'
+    return provider === 'codex'
       ? this.codexView?.weeklyValueInputs
       : {
           observations: this.claudeWeeklyQuotaHistory,
           usage: this.weeklyUsageCache!.usage,
         };
-    if (!inputs) {
-      return [];
-    }
-    return buildWeeklyValueTimeline(provider, inputs, { now });
+  }
+
+  private weeklyValuePoints(provider: SettingProvider): WeeklyValuePoint[] {
+    const inputs = this.weeklyValueInputs(provider);
+    return inputs ? buildWeeklyValueTimeline(provider, inputs, { now: Date.now() }) : [];
+  }
+
+  private renderWeeklyEstimateRecords(provider: SettingProvider): string {
+    const inputs = this.weeklyValueInputs(provider) ?? { observations: [], usage: [] };
+    const now = Date.now(), copy = I18n.t.weeklyValue;
+    const projection = this.weeklyEstimateProjector?.(provider, inputs, now) ?? {
+      entries: buildLocalWeeklyEstimates(provider, inputs, { now }), status: 'ready' as const,
+    };
+    const esc = (value: string): string => this.escapeHtml(value);
+    const date = (value: number): string => {
+      try { return new Intl.DateTimeFormat(I18n.getLocale(), { year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() }).format(new Date(value)); }
+      catch { return new Date(value).toISOString(); }
+    };
+    const money = (value: number | null): string => value === null ? '—' : esc(I18n.formatCurrency(value));
+    const rows = projection.entries.map(entry => {
+      const method = entry.fullEquivalentUsd === null || entry.flags.some(flag =>
+        flag === 'counter-change' || flag === 'boundary-uncertain' || flag === 'partial-pricing') ? copy.estimateBlocked :
+        entry.method === 'paired-delta' ? copy.pairedEstimate : copy.roughEstimate;
+      const range = entry.fullRange ? '<br><span class="model-details">' + money(entry.fullRange.lower) +
+        ' – ' + money(entry.fullRange.upper) + '</span>' : '';
+      return '<tr><td class="date-cell">' + esc(date(entry.resetAt)) + '</td><td class="date-cell">' +
+        (entry.calibrationStart === undefined ? '' : esc(date(entry.calibrationStart)) + ' – ') +
+        esc(date(entry.observedAt)) + '</td><td class="cost-cell">' + money(entry.usedEquivalentUsd) +
+        '</td><td class="number-cell">' + (entry.utilizationPercent === null ? '—' : this.formatPercent(entry.utilizationPercent / 100)) +
+        '</td><td class="cost-cell">' + money(entry.fullEquivalentUsd) + range +
+        '</td><td class="cost-cell">' + money(entry.unusedEquivalentUsd) + '</td><td>' + esc(method) +
+        (entry.flags.includes('stale-observation') ? '<br><span class="model-details">' + esc(copy.estimateStale) + '</span>' : '') +
+        (entry.flags.includes('reconstructed') ? '<br><span class="model-details">' + esc(copy.reconstructedEstimate) + '</span>' : '') +
+        '</td></tr>';
+    }).join('');
+    const status = projection.status === 'full' ? copy.archiveFull : projection.status === 'unavailable' ?
+      copy.archiveUnavailable : projection.status === 'loading' ? copy.archiveLoading : '';
+    return (status ? '<p class="table-hint" role="status">' + esc(status) + '</p>' : '') +
+      '<details class="weekly-estimate-details" data-persist="weekly-estimate-' + provider +
+      '"><summary>' + esc(copy.estimateDetails) + '</summary><p class="table-hint">' + esc(copy.estimateNote) +
+      '</p><div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
+      [copy.resetsAt, copy.estimateAsOf, copy.estimateUsed, copy.utilization, copy.estimateFull, copy.estimateUnused, copy.estimateMethod]
+        .map(label => '<th>' + esc(label) + '</th>').join('') + '</tr></thead><tbody>' + rows +
+      '</tbody></table></div></details>';
   }
 
   /** Shared reset-aligned allowance-value renderer for Claude and Codex. The
@@ -7627,7 +7694,8 @@ export class UsageWebviewProvider {
     if (points.length === 0) {
       return '<div class="daily-breakdown"><div class="section-header"><h3>' +
         heading + '</h3></div><p class="table-hint">' + notes + '</p>' +
-        '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div></div>';
+        '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div>' +
+        this.renderWeeklyEstimateRecords(provider) + '</div>';
     }
 
     const dateLabel = (value: number, short = false, dateOnly = false): string => {
@@ -7662,7 +7730,7 @@ export class UsageWebviewProvider {
         const range = dateLabel(point.windowStart, false, true) + ' – ' +
           dateLabel(point.resetAt - 1, false, true);
         return point.basis === 'quota-observation'
-          ? `${copy.currentPeriod} · ${range} (${copy.resetsAt} ${dateLabel(point.resetAt)})`
+          ? `${copy.currentPeriod} · ${range} (${copy.resetsAt} ${dateLabel(point.observedResetAt ?? point.resetAt)})`
           : `${copy.currentPeriod} · ${range}`;
       }
       return dateLabel(point.windowStart, short, true) + ' – ' +
@@ -7737,7 +7805,8 @@ export class UsageWebviewProvider {
       '<td class="cost-cell">' +
       (point.usageAvailable === false ? dash : I18n.formatCurrency(point.usedEquivalentUsd)) + '</td>' +
       '<td class="number-cell">' +
-      (point.utilizationPercent === null ? dash : this.formatPercent(point.utilizationPercent / 100)) + '</td>' +
+      (point.utilizationPercent === null ? dash : this.formatPercent(point.utilizationPercent / 100) +
+        (point.observedAt === undefined ? '' : ' · ' + this.escapeHtml(dateLabel(point.observedAt)))) + '</td>' +
       '<td class="cost-cell">' +
       (point.fullEquivalentUsd === null ? dash : I18n.formatCurrency(point.fullEquivalentUsd)) + '</td>' +
       '<td class="cost-cell">' +
@@ -7753,7 +7822,7 @@ export class UsageWebviewProvider {
       '<th>' + this.escapeHtml(copy.utilization) + '</th><th>' + this.escapeHtml(copy.fullValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.unusedValue) + '</th><th>' + this.escapeHtml(copy.confidence) + '</th>' +
       '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th></tr></thead><tbody>' +
-      tableRows + '</tbody></table></div></details></div>';
+      tableRows + '</tbody></table></div></details>' + this.renderWeeklyEstimateRecords(provider) + '</div>';
   }
 
   /** Claude's legacy Share Card remains a provider-truthful presentation inside
@@ -12175,12 +12244,12 @@ export class UsageWebviewProvider {
         margin-top: 12px;
       }
 
-      .weekly-value-details {
+      .weekly-value-details, .weekly-estimate-details {
         margin-top: var(--ccu-space-3);
         border-top: 1px solid var(--ccu-border);
       }
 
-      .weekly-value-details > summary {
+      .weekly-value-details > summary, .weekly-estimate-details > summary {
         width: fit-content;
         padding-top: var(--ccu-space-3);
         color: var(--vscode-textLink-foreground);
@@ -12188,7 +12257,7 @@ export class UsageWebviewProvider {
         font-weight: 600;
       }
 
-      .weekly-value-details > summary:focus-visible {
+      .weekly-value-details > summary:focus-visible, .weekly-estimate-details > summary:focus-visible {
         outline: 1px solid var(--ccu-focus);
         outline-offset: 3px;
       }

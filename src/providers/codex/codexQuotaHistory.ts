@@ -63,6 +63,7 @@ function normalizeObservation(value: unknown): CodexQuotaObservation | undefined
     observedAt === undefined ||
     resetAt === undefined ||
     usedPercent === undefined ||
+    usedPercent < 0 || usedPercent > 100 ||
     observedAt <= 0 ||
     resetAt <= 0
   ) {
@@ -73,7 +74,7 @@ function normalizeObservation(value: unknown): CodexQuotaObservation | undefined
     seriesKey: 'codex',
     observedAt,
     resetAt,
-    usedPercent: Math.min(100, Math.max(0, usedPercent)),
+    usedPercent,
   };
 }
 

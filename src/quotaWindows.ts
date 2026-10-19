@@ -33,8 +33,8 @@ export interface QuotaWindow {
   scopeLabel?: string;
   utilization: number; // 0-100
   /** Decimal places the API's own precision justifies: 0 for the integer
-   *  `limits[].percent`, 1 for the legacy float `utilization` (serialized "3.0",
-   *  so the field can carry a tenth even when this sample does not). JSON.parse
+   *  `limits[].percent`, 1 for the legacy numeric `utilization` (e.g. the JSON
+   *  number 3.0, not a string, so the field can carry tenths). JSON.parse
    *  collapses 3.0 to 3, so the distinction has to be recorded here at the point
    *  the shape is known. */
   decimals: number;
@@ -112,16 +112,21 @@ function scopeLabelOf(entry: ClaudeUsageLimitEntry): string | undefined {
   return entry.scope?.surface || undefined;
 }
 
+function isQuotaPercentage(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
 function windowFromEntry(entry: ClaudeUsageLimitEntry): QuotaWindow | null {
   const kind = kindOf(entry);
   if (!kind) {
     return null;
   }
-  const pct = Number(entry.percent);
+  const pct = entry.percent;
+  if (!isQuotaPercentage(pct)) return null;
   return {
     kind,
     scopeLabel: kind === 'weekly_scoped' ? scopeLabelOf(entry) : undefined,
-    utilization: Number.isFinite(pct) ? pct : 0,
+    utilization: pct,
     decimals: 0, // `percent` is an integer field
     resetsAt: entry.resets_at ?? '',
     isActive: entry.is_active === true
@@ -138,12 +143,13 @@ function windowFromLegacy(
   if (!limit) {
     return null;
   }
-  const pct = Number(limit.utilization);
+  const pct = limit.utilization;
+  if (!isQuotaPercentage(pct)) return null;
   return {
     kind,
     scopeLabel,
-    utilization: Number.isFinite(pct) ? pct : 0,
-    decimals: 1, // `utilization` is a float field, sent as "3.0"
+    utilization: pct,
+    decimals: 1, // Legacy JSON numbers can carry tenths, even when integral here.
     resetsAt: limit.resets_at ?? '',
     isActive: false
   };
@@ -199,16 +205,15 @@ function sortWindows(windows: QuotaWindow[]): QuotaWindow[] {
  * A utilization figure is a point-in-time snapshot valid only until its
  * resets_at. When the OAuth fetch starts failing the caller keeps handing us the
  * last successful response, so without this a stale "100%" would linger for
- * hours. Behaviour, unchanged from the original statusBar implementation:
+ * hours. Weekly windows require a fresh observation after reset; session
+ * windows retain the original statusBar rollover behaviour:
  *
  *   - no / unparseable reset time  → keep as-is (nothing to reason about)
  *   - reset still ahead            → keep as-is
- *   - reset passed within 2 periods→ show 0% with no countdown; the window
- *                                    rolled over, and these windows are
- *                                    usage-anchored so the next reset only
- *                                    starts on the next message
- *   - reset passed longer ago      → drop; the fetch has been failing for ages
- *                                    and we have no trustworthy figure
+ *   - weekly reset at/before now   → drop; the next week's usage is unknown
+ *   - session reset within 2 periods→ show 0% with no countdown; the session
+ *                                     is usage-anchored and starts on use
+ *   - session reset longer ago     → drop; the snapshot is no longer useful
  *
  * Adapted from PR #24 by @nickearnshaw.
  */
@@ -218,6 +223,9 @@ export function liveQuotaWindows(windows: QuotaWindow[], now: number = Date.now(
     const t = Date.parse(w.resetsAt);
     if (isNaN(t) || t > now) {
       out.push(w);
+      continue;
+    }
+    if (w.kind !== 'session') {
       continue;
     }
     if (now - t > 2 * quotaWindowPeriodMs(w.kind)) {
@@ -236,8 +244,8 @@ export function liveQuotaWindows(windows: QuotaWindow[], now: number = Date.now(
  * session and all-models rows always stay: "5h 0%" is the signal that quota
  * tracking is working at all, so suppressing it would look like breakage.
  *
- * Composes with liveQuotaWindows, which zeroes a rolled-over window: after a
- * weekly rollover a scoped cap drops out until usage lands against it again.
+ * Composes with liveQuotaWindows, which drops expired weekly windows until a
+ * fresh observation is available.
  */
 export function visibleQuotaWindows(windows: QuotaWindow[]): QuotaWindow[] {
   return windows.filter((w) => w.kind !== 'weekly_scoped' || w.utilization > 0);

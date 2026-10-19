@@ -71,10 +71,10 @@ Today, Last 30 days, months, models, effort, and all-time totals.*
 
 ![Codex weekly allowance estimate in English, dark theme](images/v2.3.1/codex-weekly-estimate-en-dark.png)
 
-*Observed quota windows retain reset evidence locally. A valid used fraction can
-produce labelled total and unused subscription-durability estimates, including
-for the current window. Approximate evidence remains visible with low confidence.
-Period details start collapsed; expand them to inspect the numeric evidence.*
+*Quota observations retain their observation timestamps and original resets.
+Local usage bars and rough archived estimates are separate. Estimates describe
+the original observation, with attribution and evidence limits visible; they
+do not show a live account balance.*
 
 ![Combined Claude and Codex heatmap in English, light theme](images/v2.3.1/compare-heatmap-en-light.png)
 
@@ -319,34 +319,16 @@ drill-down. See [CHANGELOG.md](CHANGELOG.md) for patch-by-patch details.
 
 ### Weekly estimates and provider boundaries
 
-- **Weekly allowance-value trend** — Claude and Codex All-time / Compare views
-  calculate historical used equivalents directly from local token logs. The
-  newest valid official reset observation anchors one sequence of unique,
-  non-overlapping weekly periods, and each usage event belongs to exactly one
-  period; without a usable observation, usage-only rows fall back to
-  Monday-to-Monday UTC calendar weeks. A genuinely different quota series with
-  an overlapping, non-aligned future reset is a conflict; same-series observations
-  remain one series and may be shown as a low-confidence approximation. It cannot
-  create a second current period, and period ranges are shown separately from reset times. Codex usage is
-  stored in daily slices: when one crosses an official intraday reset, its tokens
-  are still counted once, the affected period is labelled a boundary
-  approximation. Codex's account-wide `codex` observations can decorate both
-  historical and current buckets. If an observed reset drifts from the seven-day
-  grid, the sample is mapped to the display period containing its observation
-  time; file-source uncertainty, reset drift, and daily boundary crossings lower
-  confidence and are labelled as approximate. File keys are not account
-  identities, so eligible local files in one home are included together. A
-  current period still uses the latest real observation for a low-confidence
-  blended estimate when local quota series overlap. Ambiguous completed periods,
-  or periods without a usable observation, remain usage-only rather than
-  inventing an account split. Any coherent
-  observed window—including the current one—can show total and unused durability
-  estimates; attribution or boundary uncertainty lowers confidence instead of
-  silently replacing the values with dashes.
-  This display rule neither changes the index schema nor triggers a rebuild.
-  Current official API rates are applied consistently across history. This is a
-  proxy, not a bill or an official subscription price. The panel is enabled by
-  default and can be hidden in Settings with `showWeeklyEquivalentValue`.
+
+Weekly API-equivalent bars count local usage once. Separate rough as-of estimates
+use actual observed resets; reconstructed, unattributed history can qualify before
+100% use. The archive retains prior snapshots when new inference is blocked by
+known account/window changes, dropping or conflicting counters, uncertain boundaries
+or partial pricing. Used and unused values stay frozen at the original observation,
+not a live balance or official account capacity. Preview is local and offline.
+See [local data and privacy](LOCAL-DATA.md) for methods, retention and clearing.
+
+Usage bars align to a seven-day grid, with Monday-to-Monday UTC fallback; this does not reconstruct unobserved resets. Quota percentages retain their original observation time and reset. The panel stays on by default (`showWeeklyEquivalentValue`).
 
 ### Dashboard, indexing, and privacy
 
@@ -684,10 +666,10 @@ only date/hour buckets migrate, without restarting primary history.
 ### Known limits
 
 - A reset absent from an official response or local structured event cannot be
-  reconstructed; day-only evidence lowers confidence.
-- One Codex home may contain several sign-ins. The current period may therefore
-  show a low-confidence blended estimate from the latest real observation;
-  ambiguous completed periods remain used-only rather than inventing an account split.
+  reconstructed; a daily slice crossing a reset cannot prove exact-window usage.
+- One home may contain several sign-ins. Rough archived estimates do not prove
+  same-account ownership or complete account history. Actual quota observations
+  retain their timestamps and original resets.
 - API-equivalent values depend on current known API prices and visible pricing
   coverage. They are not bills or subscription prices.
 - Source-log retention belongs to Claude Code and Codex. Uninstall may leave

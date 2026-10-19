@@ -65,3 +65,22 @@ test('normalizer fallback zeros and unknown weekly kinds cannot be forecast obse
   zero.windows[0].kind='weekly_scoped';p.updateQuotaPace(zero);
   assert.doesNotMatch(p.renderWeeklyQuotaPace('claude'),/Estimated at reset/);
 }));
+
+test('explicit quota retirement clears the real renderer even with pace and refresh disabled', () => {
+  const {p,settings}=owner();
+  settings.showWeeklyQuotaPace=false;
+  settings.workflowQuotaWarnPercent=50;
+  let renders=0;
+  p.updateWebview=()=>{ renders++; };
+  p.usageLimits={five_hour:{utilization:90,resets_at:new Date(Date.now()+60_000).toISOString()}};
+  p.claudeWeeklyQuotaHistory=[{provider:'claude',seriesKey:'old-epoch',observedAt:T,resetAt:START+WEEK,usedPercent:90}];
+  assert.notEqual(p.renderQuotaBanner('claude'),'');
+  p.updateQuota(null);
+  p.updateQuotaPace(null,null);
+  assert.equal(p.usageLimits,null);
+  assert.equal(p.renderQuotaBanner('claude'),'');
+  assert.deepEqual(p.claudeWeeklyQuotaHistory,[]);
+  assert.equal(renders,1,'account retirement is not an automatic data refresh');
+  p.updateQuota(null);
+  assert.equal(renders,1,'repeated retirement is a no-op');
+});

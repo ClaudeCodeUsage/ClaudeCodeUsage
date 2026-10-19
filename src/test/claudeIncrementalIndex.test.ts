@@ -2268,6 +2268,7 @@ test('advice window is opt-in and comes only from materialized day and session a
 
 test('configured timezone rebuckets Claude Today and hours from the in-memory index without body reads', async () => {
   const previousTimeZone = I18n.getTimezone();
+  const previousNow = Date.now;
   const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-claude-timezone-index-'));
   roots.push(root);
   const project = path.join(root, 'projects', '-fixture-timezone');
@@ -2278,6 +2279,9 @@ test('configured timezone rebuckets Claude Today and hours from the in-memory in
   })}\n`, 'utf8');
 
   try {
+    // Index retention and dashboard projections must share the fixture clock;
+    // otherwise this case expires once July leaves the rolling 90-day window.
+    Date.now = () => Date.parse('2026-07-21T00:15:00.000Z');
     I18n.setTimezone('UTC');
     const cold = await updateClaudeUsageIndex(createClaudeUsageIndex(), root, {
       analyzeContent: false,
@@ -2313,6 +2317,7 @@ test('configured timezone rebuckets Claude Today and hours from the in-memory in
       ['07:00'],
     );
   } finally {
+    Date.now = previousNow;
     I18n.setTimezone(previousTimeZone);
   }
 });

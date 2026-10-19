@@ -245,9 +245,8 @@ export class ClaudeApiClient {
     // honoured without a window reload. #45: a switched-in account has a *valid*
     // (non-expired) token, so the expiry-only re-read below never noticed it and
     // we kept serving the previous account's quota until the host restarted.
-    // loadCredentials refreshes this.credentials; fall back to the cached copy
-    // only if the fresh read transiently fails.
-    let credentials = (await this.loadCredentials()) || this.credentials;
+    // A failed fresh read cannot establish which account is selected.
+    let credentials = await this.loadCredentials();
     if (signal?.aborted) throw new Error('Request cancelled');
     if (!credentials) {
       return null;
@@ -259,13 +258,14 @@ export class ClaudeApiClient {
       // token would stick until the extension host restarts, which is exactly
       // why "quota only comes back after I restart VS Code" was happening.
       const fresh = await this.loadCredentials();
-      if (fresh && !this.isTokenExpired(fresh)) {
+      if (!fresh) return null;
+      if (!this.isTokenExpired(fresh)) {
         this.log('token: expired in memory, re-read a fresh one from disk');
         return fresh;
       }
       this.log('token: expired, refreshing');
       try {
-        credentials = await this.refreshAccessToken(fresh || credentials, signal);
+        credentials = await this.refreshAccessToken(fresh, signal);
       } catch (e) {
         this.log(`token: refresh failed: ${(e as Error).message}`);
         return null;

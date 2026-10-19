@@ -995,27 +995,76 @@ test('current data inventory supplements the historical baseline and dates only 
   }
 });
 
-test('weekly value documentation explains current-window estimates without promising account balances', () => {
+test('weekly value documentation separates rough as-of estimates from local usage and account facts', () => {
   const english = repoFile('ARCHITECTURE.md'), chinese = repoFile('ARCHITECTURE-zh-CN.md');
-  for (const document of [english, chinese]) {
-    assert.ok(document.includes('candidateFullEquivalent = pricedUsedEquivalentThroughObservedAt / usedFraction'));
+  for (const file of ['ARCHITECTURE.md', 'ARCHITECTURE-zh-CN.md', 'LOCAL-DATA.md', 'LOCAL-DATA.zh-CN.md']) {
+    const document = repoFile(file);
+    for (const field of ['weeklyEstimate.ts', 'LocalWeeklyEstimate', 'legacy-prefix-ratio', 'paired-delta',
+      'windowId', 'percentageErrorBound', 'usedEquivalentUsd', 'calibrationStart', 'fullRange',
+      'weeklyEstimateArchive.ts', 'weeklyEstimateCoordinator.ts', 'weekly-estimates-v1.json']) {
+      assert.ok(document.includes('`' + field + '`'), `${file} must document ${field}`);
+    }
+    assert.ok(document.includes('showWeeklyQuotaPace'));
+    assert.match(document, /4096[\s\S]*1 MiB/);
+    assert.match(document, /0600/);
+    assert.ok(document.includes('HMAC'));
+    assert.ok(document.includes('[ΔU/(d+q), ΔU/(d−q)]'));
+    assert.doesNotMatch(document, /local history remains used-only|当前及已结束周期的本地历史均保持仅已用|本地历史均保持仅已用/);
+    if (file.endsWith('zh-CN.md')) {
+      assert.match(document, /重建[\s\S]*粗略/);
+      assert.match(document, /样本本机记录/);
+      assert.match(document, /条件[\s\S]*置信区间/);
+      assert.match(document, /不[\s\S]{0,30}扣减后续[\s\S]{0,20}用量/);
+      assert.match(document, /归档[\s\S]*保留/);
+      assert.match(document, /不[\s\S]{0,20}当前账号[\s\S]{0,12}过滤/);
+      assert.match(document, /离线预览/);
+      assert.match(document, /不要求达到 100%/);
+      assert.match(document, /下降或冲突[\s\S]*部分定价[\s\S]*阻止/);
+      assert.match(document, /不新增 API 传输、OAuth 凭据读取／刷新、登录或网络请求/);
+      assert.match(document, /30 秒[\s\S]*尚未连接[\s\S]*账号检测/);
+      assert.match(document, /供应商清除[\s\S]*全部清除/);
+      assert.match(document, /匿名账号周期清除不删除未归属估算/);
+      assert.match(document, /观测时间戳和原始重置时刻/);
+    } else {
+      assert.match(document, /reconstructed[\s\S]*rough/i);
+      assert.match(document, /sample-local recorded usage/i);
+      assert.match(document, /conditional[\s\S]*confidence interval/i);
+      assert.match(document, /never subtract later local usage/i);
+      assert.match(document, /archiv[\s\S]*retain/i);
+      assert.match(document, /no current-account filter/i);
+      assert.match(document, /offline preview/i);
+      assert.match(document, /reaching 100% is not required/i);
+      assert.match(document, /dropping or conflicting counters[\s\S]*partial pricing block new numeric inference/i);
+      assert.match(document, /no API transport, OAuth credential read\/refresh, login\s+or network request/i);
+      assert.match(document, /30-second runtime account-scope cache[\s\S]*not\s+connected[\s\S]*not working account\s+detection/i);
+      assert.match(document, /provider clear[\s\S]*clear-all/i);
+      assert.match(document, /account-epoch clear does not remove unattributed\s+estimates/i);
+      assert.match(document, /observed timestamp and original reset/i);
+    }
   }
-  assert.match(english, /current window[\s\S]*low-confidence local estimate/i);
-  assert.match(english, /weighted median/i);
-  assert.match(chinese, /当前周期[\s\S]*低可信本地估算/);
-  assert.match(chinese, /加权中位数/);
-  assert.match(english, /multiple distinct mapped `seriesKey`/);
-  assert.match(english, /single unattributed[\s\S]*after completion/);
-  assert.match(chinese, /多个不同 `seriesKey`[\s\S]*已结束 Codex/);
-  assert.match(chinese, /单一未归属[\s\S]*结束后仍可保留/);
-  assert.match(english, /cumulative known used value exceeds the aggregate candidate/i);
-  assert.match(chinese, /累计已知已用等价值[\s\S]*汇总候选/);
-  assert.doesNotMatch(english, /Current\s+unused value is withheld/i);
-  assert.doesNotMatch(chinese, /当前周期不显示未用值/);
-  assert.match(repoFile('LOCAL-DATA.md'), /74[\s\S]*100[\s\S]*26/);
-  assert.match(repoFile('LOCAL-DATA.zh-CN.md'), /74[\s\S]*100[\s\S]*26/);
+  assert.match(english, /verified quota observation does not prove usage ownership/i);
+  assert.match(chinese, /已核验的额度观测不能证明用量归属/);
+  assert.match(english, /display alignment[\s\S]*historical reset schedule/i);
+  assert.match(chinese, /展示对齐[\s\S]*历史重置计划/);
   for (const file of ['LOCAL-DATA.md', 'LOCAL-DATA.zh-CN.md']) {
-    assert.ok(repoFile(file).includes('showWeeklyQuotaPace'));
+    assert.match(repoFile(file), /74[\s\S]*100[\s\S]*26/);
+  }
+  for (const [file, estimateBoundary] of [
+    ['README.md', /rough[\s\S]*as-of[\s\S]*archive/i],
+    ['README-en.md', /rough[\s\S]*as-of[\s\S]*archive/i],
+    ['README-zh-CN.md', /粗略[\s\S]*观测时点[\s\S]*归档/],
+    ['README-zh-TW.md', /粗略[\s\S]*觀測時點[\s\S]*封存/],
+    ['README-ja.md', /概算[\s\S]*観測時点[\s\S]*保存/],
+    ['README-ko.md', /대략[\s\S]*관측 시점[\s\S]*보관/],
+    ['README-id.md', /kasar[\s\S]*saat pengamatan[\s\S]*arsip/],
+    ['README-de-DE.md', /grobe[\s\S]*Beobachtungszeitpunkt[\s\S]*Archiv/],
+    ['README-pt-BR.md', /aproximadas[\s\S]*momento da observação[\s\S]*arquivo/],
+  ] as const) {
+    const document = repoFile(file);
+    assert.match(document, estimateBoundary, `${file} must describe rough archived as-of estimates`);
+    assert.ok(document.includes('showWeeklyEquivalentValue'), `${file} must retain the panel setting`);
+    assert.ok(document.includes('UTC'), `${file} must describe display grouping`);
+    assert.doesNotMatch(document, /current and completed windows remain used-only|all weekly[\s\S]{0,20}history remains used-only|当前及已结束周期均仅显示已用值/);
   }
 });
 

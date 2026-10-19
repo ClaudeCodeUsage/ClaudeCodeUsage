@@ -688,47 +688,48 @@ test('weekly allowance value uses the shared all-time chart and exposes uncertai
   });
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('not an official balance, bill, or cash value');
-  await expect(panel).toContainText('Historical used equivalents come directly from local token logs');
-  await expect(panel).toContainText('Full and unused estimates appear only for windows with a real quota-utilization observation');
-  await expect(panel).toContainText('current window uses the latest real quota observation for a low-confidence blended durability estimate');
-  await expect(panel).toContainText('ambiguous completed windows remain usage-only');
-  await expect(panel).toContainText('No account split or official balance is invented');
-  await expect(panel).toContainText('A reset inside a recorded day lowers confidence');
+  await expect(panel).toContainText('The local history graph counts each logged usage record once');
+  await expect(panel).toContainText('separate estimate table contains independent rough conversion records');
+  await expect(panel).toContainText('— means unavailable, not zero');
+  await expect(panel).toContainText('Neither the history graph nor the estimate table splits by account');
+  await expect(panel).toContainText('Daily aggregates crossing a reset are counted once');
   const details = panel.locator('.weekly-value-details');
   await expect(details).not.toHaveAttribute('open', '');
   await expect(details.getByText('Period details', { exact: true })).toBeVisible();
   await expect(details.locator('.daily-table-container')).toBeHidden();
   await details.locator('summary').click();
   await expect(details.locator('.daily-table-container')).toBeVisible();
-  await expect(panel.locator('tbody')).toContainText('Low · Boundary approx.');
+  await expect(details.locator('tbody')).toContainText('Usage only · Boundary approx.');
   await expect(panel.locator('.hc-col')).toHaveCount(2);
-  await expect(panel.locator('tbody tr')).toHaveCount(2);
-  await expect(panel.locator('thead')).toContainText('Full allowance est.');
-  await expect(panel.locator('thead')).toContainText('Priced coverage');
-  await expect(panel.locator('tbody')).toContainText('Current period');
-  await expect(panel.locator('tbody')).toContainText('resets');
-  await expect(panel.locator('tbody')).not.toContainText('In progress');
-  await expect(panel.locator('tbody').getByText('Current period')).toHaveCount(1);
+  await expect(details.locator('tbody tr')).toHaveCount(2);
+  await expect(details.locator('thead')).toContainText('Full allowance est.');
+  await expect(details.locator('thead')).toContainText('Priced coverage');
+  await expect(details.locator('tbody')).toContainText('Current period');
+  await expect(details.locator('tbody')).toContainText('resets');
+  await expect(details.locator('tbody')).not.toContainText('In progress');
+  await expect(details.locator('tbody').getByText('Current period')).toHaveCount(1);
 
   const bars = panel.locator('.hc-col');
-  await expect(bars.last().locator('.seg-cache-read')).toHaveCount(1);
-  const currentRow = panel.locator('tbody tr').filter({ hasText: 'Current period' });
-  await expect(currentRow.locator('td').nth(4)).not.toHaveText('—');
-  await expect(currentRow.locator('td').nth(5)).toContainText('Low');
+  await expect(bars.last().locator('.seg-cache-read')).toHaveCount(0);
+  const currentRow = details.locator('tbody tr').filter({ hasText: 'Current period' });
+  await expect(currentRow.locator('td').nth(3)).toHaveText('—');
+  await expect(currentRow.locator('td').nth(4)).toHaveText('—');
+  await expect(currentRow.locator('td').nth(5)).toContainText('Usage only');
+  await expect(currentRow.locator('td').nth(2)).toContainText(' · ');
 });
 
-test('a completed observed Claude period can still show its unused segment', async ({ page }) => {
+test('a completed Claude observation cannot assign unowned local usage to an account', async ({ page }) => {
   await openClaude(page, { fixture: 'weekly-claude-completed' });
   await page.locator('#tab-all').click();
 
   const panel = page.locator('#all .daily-breakdown').filter({
     hasText: 'Weekly subscription allowance · API-equivalent estimate · Claude',
   });
-  await expect(panel.locator('.hc-col .seg-cache-read')).toHaveCount(1);
+  await expect(panel.locator('.hc-col .seg-cache-read')).toHaveCount(0);
   await expect(panel.locator('.weekly-value-details')).not.toHaveAttribute('open', '');
   await panel.locator('.weekly-value-details summary').click();
-  await expect(panel.locator('tbody tr')).toHaveCount(1);
-  await expect(panel.locator('tbody tr td').nth(4)).not.toHaveText('—');
+  await expect(panel.locator('.weekly-value-details tbody tr')).toHaveCount(1);
+  await expect(panel.locator('.weekly-value-details tbody tr td').nth(4)).toHaveText('—');
 });
 
 test('weekly allowance value can be hidden without hiding Codex API-equivalent cost', async ({ page }) => {
@@ -770,14 +771,14 @@ test('weekly allowance table fits at 1280px in the longest locale', async ({ pag
     hasText: 'Wöchentliches Abo-Kontingent · API-Äquivalenzschätzung · Codex',
   });
   await panel.locator('.weekly-value-details summary').click();
-  const container = panel.locator('.daily-table-container');
+  const container = panel.locator('.weekly-value-details .daily-table-container');
   await expect(container).toBeVisible();
   const dimensions = await container.evaluate((element) => ({
     scrollWidth: element.scrollWidth,
     clientWidth: element.clientWidth,
   }));
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
-  const clippedHeaders = await panel.locator('th').evaluateAll((headers) =>
+  const clippedHeaders = await panel.locator('.weekly-value-details th').evaluateAll((headers) =>
     headers.filter((header) => header.scrollWidth > header.clientWidth).map((header) => header.textContent),
   );
   expect(clippedHeaders).toEqual([]);
@@ -825,13 +826,31 @@ test('weekly used-value history remains visible without historical quota samples
   await expect(panel).toContainText('Monday-to-Monday UTC calendar weeks');
   await expect(panel.locator('.weekly-value-details')).not.toHaveAttribute('open', '');
   await panel.locator('.weekly-value-details summary').click();
-  await expect(panel.locator('tbody tr')).toHaveCount(2);
-  await expect(panel.locator('tbody')).toContainText('Usage only');
-  await expect(panel.locator('tbody')).toContainText('$12.00');
-  await expect(panel.locator('tbody')).toContainText('$8.00');
-  for (const row of await panel.locator('tbody tr').all()) {
+  const localHistory=panel.locator('.weekly-value-details');
+  await expect(localHistory.locator('tbody tr')).toHaveCount(2);
+  await expect(localHistory.locator('tbody')).toContainText('Usage only');
+  await expect(localHistory.locator('tbody')).toContainText('$12.00');
+  await expect(localHistory.locator('tbody')).toContainText('$8.00');
+  for (const row of await localHistory.locator('tbody tr').all()) {
     await expect(row.locator('td').nth(2)).toHaveText('—');
     await expect(row.locator('td').nth(3)).toHaveText('—');
     await expect(row.locator('td').nth(4)).toHaveText('—');
   }
+});
+
+test('historical weekly estimates remain rough as-of records and preserve their disclosure across reload', async ({ page }) => {
+  await openClaude(page, { fixture: 'weekly-claude-completed' });
+  await page.locator('#tab-all').click();
+  const details=page.locator('#all .weekly-estimate-details');
+  await details.locator('summary').click();
+  await expect(details).toContainText('account ownership is unproven');
+  await expect(details).toContainText('Historical reconstruction');
+  await expect(details).toContainText('Rough prefix conversion');
+  await expect(details.locator('tbody tr')).toHaveCount(1);
+  await expect(details.locator('tbody td').nth(4)).not.toHaveText('—');
+  await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('__ccu-vscode-state')??'{}').openDetails??[]))
+    .toContain('weekly-estimate-claude');
+  await page.reload();
+  await expect(page.locator('#all .weekly-estimate-details')).toHaveAttribute('open','');
+  await expect(page.locator('#all .weekly-estimate-details')).toContainText('Rough prefix conversion');
 });

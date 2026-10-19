@@ -172,3 +172,51 @@ test('quota fetch forwards caller cancellation through the active request', asyn
   assert.strictEqual(observedSignal, controller.signal);
   assert.equal(observedSignal?.aborted, true);
 });
+
+for (const expired of [false, true]) {
+  test(`a failed fresh credential read cannot reuse the previous account (expired=${expired})`, async () => {
+    const client = new ClaudeApiClient(null) as any;
+    client.credentials = { claudeAiOauth: {
+      accessToken: 'synthetic-previous-access', refreshToken: 'synthetic-previous-refresh',
+      expiresAt: expired ? 0 : Date.now() + 3600_000,
+    } };
+    client.loadCredentials = async () => null;
+    let refreshes = 0;
+    let requests = 0;
+    client.refreshAccessToken = async () => { refreshes++; return client.credentials; };
+    client.callUsageApi = async () => { requests++; return { status: 200, body: '{}' }; };
+    assert.equal(await client.getAccessToken(), null);
+    assert.equal(await client.fetchUsageLimits(), null);
+    assert.equal(refreshes, 0);
+    assert.equal(requests, 0);
+  });
+}
+
+test('an expired token cannot refresh after the second fresh credential read fails', async () => {
+  const client = new ClaudeApiClient(null) as any;
+  let reads = 0;
+  client.loadCredentials = async () => ++reads === 1 ? { claudeAiOauth: {
+    accessToken: 'synthetic-expired', refreshToken: 'synthetic-refresh', expiresAt: 0,
+  } } : null;
+  let refreshes = 0;
+  client.refreshAccessToken = async () => { refreshes++; return null; };
+  assert.equal(await client.getAccessToken(), null);
+  assert.equal(reads, 2);
+  assert.equal(refreshes, 0, 'a failed reread must fail closed');
+});
+
+test('consecutive fresh credential reads follow account switches without a new login', async () => {
+  const client = new ClaudeApiClient(null, undefined, 'synthetic-salt') as any;
+  let account = 'a';
+  const requested: string[] = [];
+  client.loadCredentials = async () => ({ claudeAiOauth: {
+    accessToken: `synthetic-${account}`, refreshToken: `synthetic-refresh-${account}`,
+    expiresAt: Date.now() + 3600_000,
+  } });
+  client.callUsageApi = async (token: string) => {
+    requested.push(token);
+    return { status: 200, body: '{"seven_day":{"utilization":25}}' };
+  };
+  for (account of ['a', 'b', 'c']) assert.ok(await client.fetchUsageLimits());
+  assert.deepEqual(requested, ['synthetic-a', 'synthetic-b', 'synthetic-c']);
+});

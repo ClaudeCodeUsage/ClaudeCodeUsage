@@ -12,6 +12,7 @@ import {
   visibleQuotaWindows
 } from '../quotaWindows';
 import { ClaudeApiUsageResponse } from '../types';
+import { claudeQuotaCapturesFromUsage } from '../quotaObservationStore';
 
 const NOW = Date.parse('2026-08-03T12:00:00Z');
 const H = 3600_000;
@@ -104,6 +105,30 @@ test('normalize tolerates a null / empty payload', () => {
   assert.deepEqual(normalizeQuotaWindows({ limits: [] } as ClaudeApiUsageResponse), []);
 });
 
+for (const invalid of [null, undefined, '', '12', 'not-a-percent', false, true, [], {}, NaN, Infinity, -1, 101]) {
+  const label = typeof invalid === 'number' ? String(invalid) : JSON.stringify(invalid);
+  test(`normalize rejects invalid quota percentages (${label})`, () => {
+    const modern = {
+      limits: [{ kind: 'weekly_all', percent: invalid, resets_at: at(H) }],
+    } as unknown as ClaudeApiUsageResponse;
+    const legacy = {
+      seven_day: { utilization: invalid, resets_at: at(H) },
+    } as unknown as ClaudeApiUsageResponse;
+    for (const usage of [modern, legacy]) {
+      assert.deepEqual(normalizeQuotaWindows(usage), []);
+      assert.deepEqual(claudeQuotaCapturesFromUsage(usage, 'synthetic-account', 'profile-continuity', NOW), [],
+        'invalid percentages cannot enter quota history');
+    }
+  });
+}
+
+test('normalize preserves genuine zero and fractional quota percentages', () => {
+  for (const percent of [0, 0.5, 100]) {
+    assert.equal(normalizeQuotaWindows({ limits: [{ kind: 'weekly_all', percent }] })[0].utilization, percent);
+    assert.equal(normalizeQuotaWindows({ seven_day: { utilization: percent, resets_at: null } })[0].utilization, percent);
+  }
+});
+
 test('a null resets_at becomes an empty string, not "Invalid Date"', () => {
   // The session window has no reset until you send a message; /usage renders
   // "Starts when a message is sent".
@@ -116,32 +141,64 @@ test('liveQuotaWindows keeps current windows untouched', () => {
   assert.equal(w[0].utilization, 6);
 });
 
-test('liveQuotaWindows zeroes a just-rolled-over window and clears its reset', () => {
+test('liveQuotaWindows zeroes an expired session but drops an expired account-wide weekly', () => {
   const stale = normalizeQuotaWindows({
     five_hour: { utilization: 100, resets_at: at(-H) },
     seven_day: { utilization: 90, resets_at: at(-H) }
   });
   const w = liveQuotaWindows(stale, NOW);
-  assert.deepEqual(w.map((x: QuotaWindow) => [x.utilization, x.resetsAt]), [[0, ''], [0, '']]);
+  assert.deepEqual(w.map((x: QuotaWindow) => [x.kind, x.utilization, x.resetsAt]), [['session', 0, '']]);
 });
 
-test('liveQuotaWindows drops a window stale by more than two periods', () => {
+test('liveQuotaWindows drops an ancient session and an expired account-wide weekly', () => {
   const stale = normalizeQuotaWindows({
     five_hour: { utilization: 100, resets_at: at(-11 * H) },
     seven_day: { utilization: 90, resets_at: at(-H) }
   });
-  assert.deepEqual(liveQuotaWindows(stale, NOW).map((x: QuotaWindow) => x.kind), ['weekly_all']);
+  assert.deepEqual(liveQuotaWindows(stale, NOW), []);
 });
 
-test('liveQuotaWindows rolls a scoped weekly on the weekly period, not the 5h one', () => {
-  // A scoped weekly 11h stale is well inside two weekly periods, so it must
-  // survive as 0% rather than being dropped like a 5h window would be.
+test('liveQuotaWindows drops an expired scoped weekly immediately', () => {
   const stale = normalizeQuotaWindows({
     seven_day_opus: { utilization: 77, resets_at: at(-11 * H) }
   });
-  const w = liveQuotaWindows(stale, NOW);
-  assert.equal(w.length, 1);
-  assert.equal(w[0].utilization, 0);
+  assert.deepEqual(liveQuotaWindows(stale, NOW), []);
+});
+
+for (const kind of ['weekly_all', 'weekly_scoped'] as const) {
+  test(`liveQuotaWindows expires ${kind} at the exact reset boundary without synthesizing zero`, () => {
+    const windows = normalizeQuotaWindows({ limits: [{
+      kind, percent: 90, resets_at: at(0), is_active: true,
+    }] });
+    const original = structuredClone(windows);
+    assert.deepEqual(liveQuotaWindows(windows, NOW - 1), windows);
+    assert.deepEqual(liveQuotaWindows(windows, NOW), []);
+    assert.deepEqual(liveQuotaWindows(windows, NOW + 1), []);
+    assert.deepEqual(windows, original, 'filtering must preserve the historical observation');
+  });
+}
+
+test('expired weekly percentages remain available to normalized historical capture, never as live zeros', () => {
+  const usage = {
+    seven_day: { utilization: 90, resets_at: at(-H) },
+    seven_day_opus: { utilization: 77, resets_at: at(-H) },
+  };
+  const normalized = normalizeQuotaWindows(usage);
+  assert.deepEqual(liveQuotaWindows(normalized, NOW), []);
+  assert.deepEqual(normalizeQuotaWindows(usage).map(w => w.utilization), [90, 77]);
+  const captures = claudeQuotaCapturesFromUsage(usage, 'synthetic-account', 'profile-continuity', NOW);
+  assert.deepEqual(captures.map(capture => capture.usedFraction), [0.9, 0.77]);
+});
+
+test('session expiry still zeroes at reset through two periods and drops only afterward', () => {
+  const windows = normalizeQuotaWindows({ five_hour: { utilization: 75, resets_at: at(0) } });
+  assert.equal(liveQuotaWindows(windows, NOW - 1)[0].utilization, 75);
+  for (const now of [NOW, NOW + 10 * H]) {
+    assert.deepEqual(liveQuotaWindows(windows, now), [{
+      ...windows[0], utilization: 0, resetsAt: '', isActive: false,
+    }]);
+  }
+  assert.deepEqual(liveQuotaWindows(windows, NOW + 10 * H + 1), []);
 });
 
 test('liveQuotaWindows keeps a window with no reset time', () => {
@@ -334,8 +391,8 @@ test('the baseline windows stay visible at 0%', () => {
 });
 
 test('a rolled-over per-model cap drops out until usage lands again', () => {
-  // liveQuotaWindows zeroes a window whose period has passed, so the two
-  // compose: after a weekly rollover the scoped row disappears until next use.
+  // liveQuotaWindows drops an expired weekly observation; only fresh usage
+  // can restore the row after rollover.
   const rolled = liveQuotaWindows([
     { kind: 'weekly_all', utilization: 9, decimals: 0, resetsAt: at(80 * H), isActive: false },
     { kind: 'weekly_scoped', scopeLabel: 'Fable', utilization: 88, decimals: 0, resetsAt: at(-H), isActive: false }

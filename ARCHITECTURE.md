@@ -78,6 +78,7 @@ only the separate publish action can perform that network operation.
 | `apiHeatmapDaily.ts`, `pricing.ts#getCurrentEstimatePricing` | Read-only ≤366-date projection with per-projection memoized, in-memory selected-model/component rate admission; preserves current cost scalars, excludes generic unknown-model fallback coverage and adds no network/corpus reads. |
 | `apiHeatmap.ts`, `apiHeatmapCopy.ts` | Whitelisted provider/metric configuration and canonical local SVG/Markdown artifact; Token default, explicit amounts, separate provider monetary panels and eight-locale artifact copy. |
 | `quotaPace.ts`, `quotaPaceAdapters.ts`, `quotaPaceSource.ts` | Pure cycle-average calculation, ≤16-window numeric adapters and runtime account/window continuity owner using original successful quota observations; no I/O, timers or persisted history. |
+| `weeklyEstimate.ts`, `weeklyEstimateArchive.ts`, `weeklyEstimateCoordinator.ts` | Rough as-of estimates separate from unique local usage bars; fixed-field bounded archive and memoized numeric projections with coalesced archive work. The extension owns storage/lifecycle; preview adds no source reads, timers or network. |
 | `providers/codex/codexHourProof.ts` | Bounded UTC positive-output hour proof tied to canonical files, verified offsets, current identity and lineage. Optional old-checkpoint proof migration never resets primary totals. |
 | `providers/codex/codexAchievementOrigin.ts` | Runtime-only main-tail Token and frozen-reference-money lower bounds; known native per-event pricing, affected aggregate-difference admission, settled canonical lineages and fixed copied worker DTOs. No persistent index fields or extra source reads. |
 | `adviceEffectiveness/contract.ts`, `adapters.ts`, and `payload.ts` | Strict observation/evidence/recommendation/action/result contracts, privacy-rebuilding provider adapters, and canonical aggregate/personalization payloads. |
@@ -353,8 +354,9 @@ fallback and may include an inherited parent baseline. That path uses
 per-component, per-lineage high-water marks. Unknown parents, regressions, and
 schema drift produce quality flags rather than negative or fabricated usage.
 
-Codex `rate_limits` found in local logs is a last-observed snapshot only. It is
-hidden once its reset time passes. The v2.3.1 candidate also keeps a bounded,
+Codex `rate_limits` found in local logs is a last-observed snapshot only. Whenever
+shown, it includes its observed timestamp and original reset; it is hidden once
+that reset passes rather than rolled into a new window. The v2.3.1 candidate also keeps a bounded,
 account-neutral history of account-wide weekly observations: repeated samples
 for one reset boundary collapse to one representative, while genuinely
 different reset times remain separate. This history is evidence for aligning
@@ -1587,53 +1589,87 @@ This small development-host diagnostic is not the final packaged VSIX, pixel
 acceptance, manual F5, long soak, multi-window or Windows evidence. See the
 helper README for normal-state before/after and background-launch requirements.
 
-Weekly API-equivalent history is derived from already-aggregated token usage.
-The newest valid reset observation anchors non-overlapping seven-day display
-buckets; without one, usage-only history uses Monday-to-Monday UTC calendar
-weeks. A real utilization sample can support a full-window estimate, including
-for historical buckets. For Codex, the account-wide `codex` series is allowed to
-use all eligible local files in the same home because file keys are not account
-identities. A reset that drifts from the seven-day grid is mapped by observation
-time to the corresponding display bucket; source uncertainty, reset drift, and
-daily slices crossing a boundary lower confidence and are rendered as an
-approximation. Each usage row still contributes to exactly one bucket.
+## Weekly estimate preview and archive
 
-For each eligible in-window observation, the candidate uses the already-priced
-local usage through that observation, not all usage through the current time:
+Weekly API-equivalent history uses already-aggregated local token usage. Its
+non-overlapping bars count each usage row once. The newest valid reset supplies
+display alignment only, not an actual historical reset schedule; without a usable
+reset, grouping uses Monday-to-Monday UTC weeks. Irregular resets retain their
+original evidence rather than being assigned to arbitrary display buckets.
+Unobserved resets cannot be reconstructed and boundary-crossing daily aggregates
+cannot be split proportionally.
 
-```text
-candidateFullEquivalent = pricedUsedEquivalentThroughObservedAt / usedFraction
-```
+Separately, `weeklyEstimate.ts` builds `LocalWeeklyEstimate` snapshots for actual
+observed resets. These reconstructed snapshots remain explicitly rough and
+account-unattributed: `legacy-prefix-ratio` divides positive, fully priced local
+usage admitted from reset minus seven days through the original quota observation
+by its used fraction. Positive partial cycles can qualify (currently 5% to below
+100%); reaching 100% is not required. This is a local comparison, not proof that
+the local history covers the account or that multiple sign-ins share a capacity.
+A verified quota observation does not prove usage ownership. Current adapters do
+not provide independent same-account ownership and complete exact-window coverage;
+a shared home/profile, matching labels or file keys cannot supply that proof.
+Runtime `WeeklyEquivalentUsage.accountSeriesKey` and
+`inputs.accountUsageCoverage` remain separate contracts for such proof; the rough
+path does not manufacture them or promote itself to `owned-window`.
 
-Only positive local amounts and `0 < usedFraction <= 1` produce a candidate.
-Multiple candidates use an evidence-weighted median, considering pricing coverage,
-observation confidence/account attribution, boundary flags and observation timing.
-The current window may show a low-confidence local estimate even when account
-attribution is uncertain: eligible Codex usage from the same local home/window is
-compared with the latest applicable quota-observation cluster, not allocated to
-individual accounts. Current overlapping/competing series force low confidence.
-Only completed Codex display windows with multiple distinct mapped `seriesKey`
-values withhold total/unused inference; a single unattributed or account-ambiguous
-series can still retain a low-confidence estimate after completion.
+Known account/window changes, dropping or conflicting counters, uncertain
+boundaries and partial pricing block new numeric inference for the affected
+interval. Missing observations cannot supply an estimate. Unattributed history
+alone is labelled rather than blanket-suppressed. Previously archived valid
+as-of records are retained when newer evidence blocks a new estimate; they
+remain historical comparisons, not current account facts.
 
-With a valid aggregate candidate, displayed full equivalent is at least the
-current priced used equivalent; unused equivalent is their non-negative difference.
-If cumulative known used value exceeds the aggregate candidate, retain used value
-as a low-confidence lower bound and withhold unused value rather than fabricate
-zero. This compares the cumulative amount, not just post-observation additions,
-against the weighted-median candidate, not one sample. With no valid candidate,
-show used value only. Full/unused values are
-API-equivalent estimates, not money paid, an official account balance or a promise
-of remaining subscription usage. This is not the elapsed-time prediction in
-`showWeeklyQuotaPace`, whose trusted-account/window rules are unchanged.
+`paired-delta` requires two observations with the same explicit `windowId`,
+independently known per-sample `percentageErrorBound` values, a sufficiently
+positive percentage change, and an exact, fully priced admitted bucket interval.
+Decimal formatting is not an error bound. With local value increment ΔU,
+used-fraction change d and summed fraction-error bound q, the conditional range
+is [ΔU/(d+q), ΔU/(d−q)], with d > q. It is not an account-capacity confidence interval
+and does not resolve ownership or missing activity. Its
+`usedEquivalentUsd` is the paired increment, not whole-cycle usage.
+`calibrationStart` and `fullRange` preserve the measurement interval and range.
 
-The maintainer's 2026-10-11 decision preserves this existing current-cycle
-estimation behavior. Accurate per-account attribution belongs to future
-multi-account compatibility; it is not implemented or promised by version 2.5.0.
+Every value is frozen at the original sample: sample-local recorded usage,
+full equivalent, and unused equivalent (full × the original remaining fraction).
+For example, local API-equivalent use of USD 74 at an observed 74% can yield a
+rough total of USD 100 and unused equivalent of USD 26 at that observation.
+Never subtract later local usage to create a live balance; do not infer final
+unused value after an unobserved reset. Actual percentages always carry their
+observed timestamp and original reset. These values are neither official USD
+quota nor bills, subscription prices, guaranteed account balances or tier detection.
+`showWeeklyQuotaPace` remains a separate elapsed-time forecast with its own rules.
 
-v2.3.0 does not infer a $20, $100, or $200 subscription tier. Local Codex logs
-do not expose a reliable account-and-plan identity, so a future comparison must
-use an explicit opt-in account mapping rather than attaching prices by guess.
+`weeklyEstimateArchive.ts` stores fixed-field numeric/enum DTOs in
+`weekly-estimates-v1.json`: provider, window/reset/sample/estimate times,
+used/full/unused amounts, utilization, pricing coverage/version, method/flags,
+optional calibration interval/range and optional pseudonymous account scope.
+Source/window keys use machine-salted HMAC; the raw source namespace and salt
+stay out of the archive. No paths, raw account/session IDs, credentials, labels
+or conversation content are stored. Revisions preserve past evidence, with no
+expiry or eviction; at 4096 entries or 1 MiB, new writes stop and existing records
+remain readable. Mutations reread under a shared cross-process lease and use
+atomic 0600 file replacement with symlink checks. Unsafe/invalid input is not
+silently overwritten. Loading is source-filtered with no current-account filter:
+historical sign-ins remain visible as rough records, not a combined account quota.
+
+`weeklyEstimateCoordinator.ts` memoizes synchronous numeric projections (up to
+48 displayed snapshots), merges saved/live evidence, and coalesces asynchronous
+archive work. Its projection uses existing aggregates: no raw source-data reads,
+timer or network request. Archive keys and account labels do not reach the UI.
+The extension owns storage paths, machine salt, lifecycle and refresh delivery;
+the archive adapter owns file I/O. Quota-history inventory/clearing includes
+this archive: a provider clear covers that provider across source homes, and
+clear-all covers the entire archive, without touching source logs. Clear fences
+drain queued writes and prevent stale queued work from restoring cleared data.
+An individual anonymous account-epoch clear does not remove unattributed
+estimates; use provider-wide or all-history clearing for those records.
+
+The offline preview adds no API transport, OAuth credential read/refresh, login
+or network request. A 30-second runtime account-scope cache foundation is not
+connected to provider discovery or these estimates; it is not working account
+detection. Dependencies, source ingestion/index schema, package version, primary
+usage accounting and the default-on `showWeeklyEquivalentValue` panel are unchanged.
 
 ## Release invariants
 
