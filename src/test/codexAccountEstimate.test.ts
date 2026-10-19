@@ -89,3 +89,12 @@ test('continuous unchanged-percentage observations keep the monetary baseline be
   const next=e.observe(sample(T+11*60_000,30),inputs(T+11*60_000,30,130),'v1')!;
   assert.equal(next.fullEquivalentUsd,300);assert.equal(next.usedEquivalentUsd,30);
 });
+test('an old large corpus cannot exhaust the active-window checkpoint budget',()=>{
+  const e=new CodexAccountEstimator();
+  const old=Array.from({length:17000},(_,i)=>({sourceKey:'old-'+i,timestamp:T-30*86_400_000,
+    equivalentUsd:1,pricedTokens:1,totalTokens:1}));
+  const first=inputs(T,20,100);first.usage.push(...old);
+  assert.equal(e.observe(sample(T,20),first,'v1'),undefined);
+  const next=inputs(T+60_000,40,130);next.usage.push(...old);
+  assert.equal(e.observe(sample(T+60_000,40),next,'v1')!.fullEquivalentUsd,150);
+});

@@ -7852,7 +7852,8 @@ export class UsageWebviewProvider {
         dateLabel(point.resetAt - 1, short, true);
     };
     const periodLabel = (point: WeeklyValuePoint & { asOfEstimate?: boolean; accountNumber?: number }, short = false): string =>
-      periodBaseLabel(point, short) + (provider === 'codex' && point.asOfEstimate
+      periodBaseLabel(point, short) + (provider === 'codex' && point.asOfEstimate &&
+        this.weeklyAccountNumber(point.accountNumber) !== undefined
         ? ' · ' + this.weeklyAccountLabel(point.accountNumber) : '');
     const confidenceLabel = (point: WeeklyValuePoint): string => {
       if (point.boundaryUncertain) {

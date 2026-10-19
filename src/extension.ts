@@ -5067,7 +5067,7 @@ export class ClaudeCodeUsageExtension {
       }finally{
         this.activeQuotaNetworks.delete(controller);settled();
         if(lease.active)await lease.stop(controller.signal.aborted?'cancelled':'settled',()=>undefined);
-        if(current())this.webviewProvider.refreshWeeklyEstimates?.(trigger==='manual');
+        if(current())this.tryProviderUiUpdate(()=>this.webviewProvider.refreshWeeklyEstimates?.(trigger==='manual'));
       }
     };
     const pending=run();this.officialQuotaPending=pending;

@@ -68,3 +68,11 @@ test('index-generation changes retire calibration and in-flight reply authority,
  assert.equal(resets,1);assert.equal(e.officialQuotaSample,undefined);
  assert.ok(e.officialQuotaGeneration>generation);
 });
+test('a renderer failure cannot reject a successful background quota read or retain its resource lease',async()=>{
+ const clock=Date.now;Date.now=()=>T;
+ try{const{e}=fixture();e.webviewProvider.refreshWeeklyEstimates=()=>{throw Error('synthetic-render-failure');};
+  await assert.doesNotReject(e.refreshOfficialCodexQuota('manual'));
+  assert.equal(e.officialQuotaStatus,'ready');assert.equal(e.officialQuotaPending,undefined);
+  assert.equal(e.resourceOwnership.snapshotForTests().activeCount,0);
+ }finally{Date.now=clock;}
+});

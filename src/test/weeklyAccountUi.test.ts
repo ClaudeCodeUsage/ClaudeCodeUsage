@@ -159,6 +159,14 @@ test('chart current marker follows the identified service account and retires wh
   assert.doesNotMatch(chart(), /Current/);
 }));
 
+test('unassigned historical bars retain the compact original period label without a repeated account suffix',()=>english(()=>{
+  const {p}=owner(false,[{...entry('series-prefix-v1'),accountNumber:undefined}]);
+  const html=p.renderWeeklyValuePanel('codex');
+  const labels=[...html.matchAll(/<div class="hc-xlabel">([^<]*)<\/div>/g)].map(row=>row[1]);
+  assert.ok(labels.length>0);assert.ok(labels.every(label=>!label.includes(' · Unassigned')));
+  assert.match(html,/<td>Unassigned<\/td>/,'the table still discloses missing ownership');
+}));
+
 test('manual estimate refresh bypasses paused auto-refresh but preserves loading and no-panel guards', () => english(() => {
   const { p } = owner(); let renders = 0;
   p.updateWebview = () => { renders++; }; p.panel = { visible: true };

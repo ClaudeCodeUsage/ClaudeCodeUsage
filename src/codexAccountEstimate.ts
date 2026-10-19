@@ -18,7 +18,7 @@ function counters(s:OfficialQuotaSample,inputs:WeeklyValueInputs):Map<string,Cou
   const result=new Map<string,Counter>();
   for(const row of inputs.usage){
     const first=row.intervalStart??row.timestamp,last=row.intervalEnd??row.timestamp;
-    if(!row.sourceKey||last>s.observedAt)continue;
+    if(!row.sourceKey||last>s.observedAt||last<s.resetAt-WEEK-300_000)continue;
     if(![first,last,row.timestamp,row.equivalentUsd,row.pricedTokens,row.totalTokens].every(finite)||
       first>last||row.timestamp<first||row.timestamp>last||row.pricedTokens>row.totalTokens||
       (row.equivalentUsd>0&&row.pricedTokens===0))return undefined;
