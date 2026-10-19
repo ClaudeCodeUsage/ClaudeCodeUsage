@@ -702,8 +702,8 @@ test('weekly allowance separates local seven-day usage from same-observation quo
   await expect(actualChart.locator('.hc-col')).toHaveCount(2);
   await expect(actualChart.locator('.seg-cache-read')).toHaveCount(0);
   await expect(actualChart.locator('.hc-yval')).toHaveText(['$50.00', '$25.00', '$0.00']);
-  await expect(actualChart.locator('.seg-input').nth(0)).toHaveAttribute('style', 'height:120.00px');
-  await expect(actualChart.locator('.seg-input').nth(1)).toHaveAttribute('style', 'height:24.00px');
+  await expect(actualChart.locator('.stack-bar .seg-input').nth(0)).toHaveAttribute('style', 'height:120.00px');
+  await expect(actualChart.locator('.stack-bar .seg-input').nth(1)).toHaveAttribute('style', 'height:24.00px');
   const details = panel.locator('.weekly-value-details');
   await expect(details).not.toHaveAttribute('open', '');
   await expect(details.locator('summary')).toHaveText('Local 7-day usage · Period details');

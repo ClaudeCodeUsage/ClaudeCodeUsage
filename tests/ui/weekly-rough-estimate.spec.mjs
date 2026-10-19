@@ -283,7 +283,10 @@ for (const [locale, theme, width] of [
     expect(result.incomplete.filter(row => row.id === 'color-contrast')).toEqual([]);
     await reveal(page);
     await expectAmounts(page, locale);
-    for(const cell of await details(page).locator('tbody tr td:last-child').all()){
+    for(const cell of await details(page).locator('tbody tr td:nth-child(8)').all()){
+      expect(await cell.evaluate(node=>node.clientWidth)).toBeGreaterThanOrEqual(160);
+    }
+    for(const cell of await panel(page).locator('.weekly-value-details .date-cell, .weekly-estimate-details .date-cell').all()){
       expect(await cell.evaluate(node=>node.clientWidth)).toBeGreaterThanOrEqual(140);
     }
     const geometry = await panel(page).evaluate(node => {

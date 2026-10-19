@@ -7786,7 +7786,8 @@ export class UsageWebviewProvider {
     return (status ? '<p class="table-hint" role="status">' + esc(status) + '</p>' : '') +
       '<details class="weekly-estimate-details" data-persist="weekly-estimate-' + provider +
       '"><summary>' + esc(copy.estimateDetails) + '</summary><p class="table-hint">' + esc(copy.estimateNote) +
-      '</p><div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
+      '</p><div class="daily-table-container" tabindex="0"><table class="daily-table"' +
+      (provider === 'codex' ? ' data-weekly-table-provider="codex"' : '') + '><thead><tr>' +
       [copy.resetsAt, copy.estimateAsOf, provider === 'codex' ? copy.inferredUsed : copy.estimateUsed,
         copy.utilization, copy.estimateFull, copy.estimateUnused,
         ...(provider === 'codex' ? [copy.estimateUsed] : []), copy.estimateMethod,
@@ -7995,7 +7996,8 @@ export class UsageWebviewProvider {
       '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' + chart +
       '<details class="weekly-value-details"><summary>' + this.escapeHtml(provider === 'codex'
         ? copy.localActualTitle + ' · ' + copy.periodDetails : copy.periodDetails) +
-      '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
+      '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table"' +
+      (provider === 'codex' ? ' data-weekly-table-provider="codex"' : '') + '><thead><tr>' +
       '<th>' + this.escapeHtml(copy.period) + '</th><th>' + this.escapeHtml(copy.usedValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.utilization) + '</th><th>' + this.escapeHtml(copy.fullValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.unusedValue) + '</th><th>' + this.escapeHtml(copy.confidence) + '</th>' +
@@ -12438,6 +12440,28 @@ export class UsageWebviewProvider {
 
       .weekly-estimate-details th:last-child, .weekly-estimate-details td:last-child {
         min-width: 140px;
+      }
+
+      .weekly-value-details [data-weekly-table-provider="codex"] {
+        min-width: 820px;
+      }
+
+      .weekly-estimate-details [data-weekly-table-provider="codex"] {
+        min-width: 1080px;
+      }
+
+      [data-weekly-table-provider="codex"] .date-cell {
+        min-width: 140px;
+      }
+
+      .weekly-estimate-details [data-weekly-table-provider="codex"] th:nth-child(8),
+      .weekly-estimate-details [data-weekly-table-provider="codex"] td:nth-child(8) {
+        min-width: 160px;
+      }
+
+      .weekly-estimate-details [data-weekly-table-provider="codex"] th:last-child,
+      .weekly-estimate-details [data-weekly-table-provider="codex"] td:last-child {
+        min-width: 72px;
       }
 
       .weekly-value-details > summary, .weekly-estimate-details > summary {
