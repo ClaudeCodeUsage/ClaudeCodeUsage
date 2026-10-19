@@ -170,7 +170,10 @@ test('historical estimates remain visible without a second local statistics surf
     windowStart: history.windowStart, observedAt: history.resetAt - 3_600_000 });
   const html = f.owner.renderWeeklyValuePanel('codex');
   assert.equal(barLabels(chart(html, 'weekly-estimate-chart')).length, 2);
-  assert.equal(rows(details(html, 'weekly-estimate-details')).length, 3);
+  const records = rows(details(html, 'weekly-estimate-details'));
+  assert.equal(records.length, 2, 'one latest monetary row per cycle, including the historical cycle');
+  assert.ok(records.every(row => row[4] === money(FULL) && row[5] === money(UNUSED)),
+    'the competing older observation must not become a duplicate cycle row');
   assert.doesNotMatch(html, /weekly-actual-chart|weekly-value-details/);
 }));
 
@@ -221,30 +224,46 @@ test('unassigned legacy estimates retain numbers with low confidence and no curr
   }
 }));
 
-test('same-reset quota segments retain their first-observed starts and cautious reasons in eight locales', () => display(() => {
+test('same-schedule reset cycles disclose actual bounds, uncertainty and planned reset in eight locales', () => display(() => {
   for (const locale of locales) {
     I18n.setLanguage(locale);
     const f = fixture();
     f.projection.entries = [
       { ...f.projection.entries[0], method: 'account-delta-v1', accountNumber: 2,
         quotaEpoch: { startedAt: NOW - 4 * 3_600_000,
-        resetAnchorAt: RESET, startLowerAt: null, reason: 'reset-change' } },
+        resetAnchorAt: RESET, startLowerAt: null, reason: 'reset-change' },
+        quotaCycle: { id: NOW - 4 * 3_600_000, startAt: null, startLowerAt: null,
+          endAt: NOW - 90 * 60_000, endLowerAt: NOW - 2 * 3_600_000,
+          closed: true, scheduledResetAt: RESET, boundaryUncertain: true } },
       { ...f.projection.entries[1], method: 'account-delta-v1', accountNumber: 2,
-        quotaEpoch: { startedAt: NOW - 2 * 3_600_000,
-        resetAnchorAt: RESET, startLowerAt: NOW - 3 * 3_600_000, reason: 'counter-drop' } },
+        quotaEpoch: { startedAt: NOW - 90 * 60_000,
+        resetAnchorAt: RESET, startLowerAt: NOW - 2 * 3_600_000, reason: 'counter-drop' },
+        quotaCycle: { id: NOW - 90 * 60_000, startAt: NOW - 90 * 60_000, startLowerAt: NOW - 2 * 3_600_000,
+          endAt: RESET, endLowerAt: null, closed: false, scheduledResetAt: RESET, boundaryUncertain: true } },
     ];
     const html = f.owner.renderWeeklyValuePanel('codex');
     const records = details(html, 'weekly-estimate-details');
     const labels = barLabels(chart(html, 'weekly-estimate-chart'));
-    assert.equal(labels.length, 2, 'same reset does not merge distinct observed segments');
+    assert.equal(labels.length, 2, 'the same planned reset can contain two distinct actual reset cycles');
+    assert.equal(rows(records).length, 2);
     const copy = I18n.t.weeklyValue;
-    for (const label of [copy.observationSegment, copy.quotaChanged, copy.counterDecreased]) {
-      assert.ok(records.includes(label));
+    const date = (at: number) => new Intl.DateTimeFormat(I18n.getLocale(), { year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined }).format(new Date(at));
+    const bounds = '(' + date(NOW - 2 * 3_600_000) + ' – ' + date(NOW - 90 * 60_000) + ']';
+    assert.ok(labels.some(label => label.includes(copy.cycleStartUnknown) && label.includes(copy.cycleEnd + ': ' + bounds)));
+    assert.ok(labels.some(label => label.includes(copy.cycleStart + ': ' + bounds) && !label.includes(copy.cycleEnd + ':')));
+    for (const label of labels) {
+      assert.ok(label.includes(copy.scheduledReset + ': ' + date(RESET)));
+      assert.ok(label.includes(copy.cycleBoundaryUncertain));
+      assert.ok(label.includes(copy.estimateAsOf + ':'));
+      assert.ok(!label.includes(copy.observationSegment));
     }
-    for (const entry of f.projection.entries) {
-      const date = new Intl.DateTimeFormat(I18n.getLocale(), { year: 'numeric', month: 'short', day: 'numeric',
-        hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined }).format(new Date(entry.quotaEpoch!.startedAt));
-      assert.ok(labels.some(label => label.includes(copy.observationSegment + ' ' + date)));
+    for (const text of [copy.cycleStartUnknown, copy.cycleStart + ': ' + bounds, copy.cycleEnd + ': ' + bounds,
+      copy.scheduledReset + ': ' + date(RESET), copy.cycleBoundaryUncertain]) assert.ok(records.includes(text));
+    const axis = [...chart(html, 'weekly-estimate-chart').matchAll(/<div class="hc-xlabel"[^>]*>([\s\S]*?)<\/div>/g)];
+    assert.equal(axis.length, 2);
+    for (const [, label] of axis) {
+      assert.match(label, /^<span>\d{1,2}\/\d{1,2}<\/span><span>#2<\/span>$/);
     }
     assert.doesNotMatch(records, /manual reset|confirmed reset|手动重置|手動重設/i);
   }

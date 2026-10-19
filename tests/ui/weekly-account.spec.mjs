@@ -101,8 +101,18 @@ async function expectAccountTable(page) {
   await expect(section.locator('.composition-chart')).toHaveCount(1);
   const estimates = section.locator('[data-weekly-estimate-chart]');
   await expect(estimates.locator('.hc-bars [role="img"]')).toHaveCount(3);
-  await expect(estimates.locator('.hc-xlabel').filter({ hasText: /^Current · Account 2(?: · \d.+)?$/ })).toHaveCount(1);
-  await expect(estimates.locator('.hc-xlabel')).not.toContainText(['Current · Account 1']);
+  await expect(estimates.locator('.hc-xlabel').filter({ hasText: /#2 · Current$/ })).toHaveCount(1);
+  await expect(estimates.locator('.hc-xlabel')).not.toContainText(['#1 · Current']);
+  for (const label of await estimates.locator('.hc-xlabel').all()) {
+    await expect(label.locator('span')).toHaveCount(2);
+    await expect(label.locator('span').first()).toHaveText(/^\d{1,2}\/\d{1,2}$/);
+    for (const line of await label.locator('span').all()) {
+      await expect(line).toHaveCSS('white-space', 'nowrap');
+      await expect(line).toHaveCSS('text-overflow', 'ellipsis');
+    }
+    await expect(label).toHaveAttribute('title', /Cycle start unknown|Cycle start:/);
+    await expect(label).toHaveAttribute('title', /Scheduled reset:.*As of observation:/);
+  }
   for (const text of await section.locator('td').allTextContents()) expect(text).not.toContain('≈');
   expect(await page.content()).not.toMatch(/a{64}|b{64}|accountScopeKey|private-hmac|synthetic-history/);
 }

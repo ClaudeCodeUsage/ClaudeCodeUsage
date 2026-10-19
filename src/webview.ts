@@ -129,6 +129,7 @@ import {
 } from './weeklyValue';
 import { buildLocalWeeklyEstimates, weeklyEstimateForPoint, LocalWeeklyEstimate } from './weeklyEstimate';
 import { projectWeeklyEstimateChart } from './weeklyEstimateChart';
+import { CodexQuotaCycle, selectCodexCycleEstimates } from './codexQuotaCycles';
 
 export interface WeeklyEstimatePanelProjection {
   entries: LocalWeeklyEstimate[];
@@ -7700,6 +7701,26 @@ export class UsageWebviewProvider {
     return method === 'paired-delta' ? copy.pairedEstimate : copy.roughEstimate;
   }
 
+  private weeklyCycleDescription(cycle: CodexQuotaCycle | undefined, scheduledResetAt: number): string {
+    const copy = I18n.t.weeklyValue;
+    const valid = (value: unknown): value is number => typeof value === 'number' &&
+      Number.isFinite(value) && value > 0 && value <= 8.64e15;
+    const date = (value: number): string => new Intl.DateTimeFormat(I18n.getLocale(), {
+      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      timeZone: I18n.getTimezone() || undefined,
+    }).format(new Date(value));
+    const bound = (upper: number, lower: number | null): string => lower === upper ? date(upper) :
+      valid(lower) && lower < upper ? '(' + date(lower) + ' – ' + date(upper) + ']' : '≤ ' + date(upper);
+    const parts = [cycle && valid(cycle.startAt)
+      ? copy.cycleStart + ': ' + bound(cycle.startAt, cycle.startLowerAt) : copy.cycleStartUnknown];
+    if (cycle?.closed && valid(cycle.endAt)) parts.push(copy.cycleEnd + ': ' + bound(cycle.endAt, cycle.endLowerAt));
+    const scheduled = cycle && valid(cycle.scheduledResetAt) ? cycle.scheduledResetAt : scheduledResetAt;
+    if (valid(scheduled)) parts.push(copy.scheduledReset + ': ' + date(scheduled));
+    if (cycle && (cycle.boundaryUncertain || cycle.startAt !== null && cycle.startAt !== cycle.startLowerAt ||
+      cycle.closed && cycle.endAt !== cycle.endLowerAt)) parts.push(copy.cycleBoundaryUncertain);
+    return parts.join(' · ');
+  }
+
   private renderOfficialWeeklyQuota(provider: SettingProvider, projection: WeeklyEstimatePanelProjection): string {
     if (provider !== 'codex' || !this.setting<boolean>('codex.officialQuota.enabled', false)) return '';
     const quota = projection.officialQuota, copy = I18n.t.weeklyValue;
@@ -7752,7 +7773,12 @@ export class UsageWebviewProvider {
       catch { return new Date(value).toISOString(); }
     };
     const money = (value: number | null): string => value === null ? '—' : esc(this.weeklyTableCurrency(value));
-    const rows = projection.entries.map(entry => {
+    const entries = provider === 'codex' ? [
+      ...selectCodexCycleEstimates(projection.entries),
+      // Uncalibrated observations remain audit evidence, never another bar.
+      ...projection.entries.filter(entry => entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null),
+    ].sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt) : projection.entries;
+    const rows = entries.map(entry => {
       const method = this.weeklyEstimateMethod(entry);
       const reasons=this.weeklyEstimateReasons(entry);
       const range = entry.fullRange ? '<br><span class="model-details">' + money(entry.fullRange.lower) +
@@ -7763,12 +7789,14 @@ export class UsageWebviewProvider {
         ? projectWeeklyEstimateChart('codex', [], [entry], { now: Date.now() })[0]?.usedEquivalentUsd ?? null
         : entry.usedEquivalentUsd;
       const epoch = provider === 'codex' ? entry.quotaEpoch : undefined;
-      const reference = provider === 'codex' && (!epoch || this.weeklyAccountNumber(entry.accountNumber) === undefined);
+      const reference = provider === 'codex' && (!entry.quotaCycle || entry.quotaCycle.referenceOnly === true ||
+        this.weeklyAccountNumber(entry.accountNumber) === undefined);
       const segment = epoch && Number.isFinite(epoch.startedAt) && epoch.startedAt > 0 && epoch.startedAt <= 8.64e15
         ? '<br><span class="model-details">' + esc(copy.observationSegment + ' ' + date(epoch.startedAt) +
           (epoch.reason === 'reset-change' ? ' · ' + copy.quotaChanged :
             epoch.reason === 'counter-drop' ? ' · ' + copy.counterDecreased : '')) + '</span>' : '';
-      return '<tr><td class="date-cell">' + esc(date(entry.resetAt)) + '</td><td class="date-cell">' +
+      return '<tr><td class="date-cell">' + esc(provider === 'codex'
+        ? this.weeklyCycleDescription(entry.quotaCycle, entry.resetAt) : date(entry.resetAt)) + '</td><td class="date-cell">' +
         (entry.calibrationStart === undefined ? '' : esc(date(entry.calibrationStart)) + ' – ') +
         esc(date(entry.observedAt)) + segment + '</td><td class="cost-cell">' +
         money(inferred) +
@@ -7790,7 +7818,7 @@ export class UsageWebviewProvider {
       '"><summary>' + esc(copy.estimateDetails) + '</summary><p class="table-hint">' + esc(copy.estimateNote) +
       '</p><div class="daily-table-container" tabindex="0"><table class="daily-table"' +
       (provider === 'codex' ? ' data-weekly-table-provider="codex"' : '') + '><thead><tr>' +
-      [copy.resetsAt, copy.estimateAsOf, provider === 'codex' ? copy.inferredUsed : copy.estimateUsed,
+      [provider === 'codex' ? copy.period : copy.resetsAt, copy.estimateAsOf, provider === 'codex' ? copy.inferredUsed : copy.estimateUsed,
         copy.utilization, copy.estimateFull, copy.estimateUnused,
         ...(provider === 'codex' ? [copy.estimateUsed] : []), copy.estimateMethod,
         ...(provider === 'codex' ? [copy.accountColumn] : [])]
@@ -7808,7 +7836,7 @@ export class UsageWebviewProvider {
     const copy = I18n.t.weeklyValue;
     const points = provider === 'codex' ? [] : this.weeklyValuePoints(provider);
     const estimates=this.weeklyEstimateProjection(provider);
-    const observedChartPoints=projectWeeklyEstimateChart(provider,provider === 'codex' ? [] : points,estimates.entries,{now:Date.now(),limit:8,
+    const observedChartPoints=projectWeeklyEstimateChart(provider,provider === 'codex' ? [] : points,estimates.entries,{now:Date.now(),limit:provider === 'codex' ? 48 : 8,
       ...(provider === 'codex' && this.setting<boolean>('codex.officialQuota.enabled', false) ? {
         activeAccountNumber: estimates.activeAccountNumber,
         activeQuotaEpochStartedAt: estimates.activeQuotaEpochStartedAt,
@@ -7818,7 +7846,7 @@ export class UsageWebviewProvider {
     const providerLabel = provider === 'codex'
       ? I18n.t.providers.codexBeta
       : I18n.t.providers.claude;
-    const heading = this.escapeHtml(`${copy.title} · ${providerLabel}`);
+    const heading = this.escapeHtml(`${provider === 'codex' ? copy.cycleTitle : copy.title} · ${providerLabel}`);
     const officialQuota = this.renderOfficialWeeklyQuota(provider, estimates);
     const notes = [
       copy.description,
@@ -7832,7 +7860,7 @@ export class UsageWebviewProvider {
         ? [copy.boundaryApproximation]
         : []),
       ...(provider === 'codex' && this.codexView && !this.codexView.periodCoverage.allTime.complete
-        ? [copy.indexedSubtotal]
+        ? [copy.cycleIndexedSubtotal]
         : []),
     ].map((line) => this.escapeHtml(line)).join('<br>');
     if (points.length === 0 && observedChartPoints.length === 0) {
@@ -7880,29 +7908,17 @@ export class UsageWebviewProvider {
       return dateLabel(point.windowStart, short, true) + ' – ' +
         dateLabel(point.resetAt - 1, short, true);
     };
-    const segmentDate = (value: number): string => new Intl.DateTimeFormat(I18n.getLocale(), {
-      month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
-      timeZone: I18n.getTimezone() || undefined,
-    }).format(new Date(value));
     const periodLabel = (point: WeeklyValuePoint & { asOfEstimate?: boolean; accountNumber?: number;
-      quotaEpoch?: { startedAt: number; reason: string } }, short = false): string => {
+      quotaEpoch?: { startedAt: number; reason: string }; quotaCycle?: CodexQuotaCycle }, short = false): string => {
       const account = provider === 'codex' && point.asOfEstimate && this.weeklyAccountNumber(point.accountNumber) !== undefined
         ? this.weeklyAccountLabel(point.accountNumber) : '';
-      const epoch = provider === 'codex' && point.asOfEstimate && point.quotaEpoch && Number.isFinite(point.quotaEpoch.startedAt) &&
-        point.quotaEpoch.startedAt > 0 && point.quotaEpoch.startedAt <= 8.64e15 ? point.quotaEpoch : undefined;
-      if (provider === 'codex' && point.asOfEstimate && (!epoch || !account)) {
-        if (short) return dateLabel(point.resetAt, true);
-        return [account || copy.accountUnassigned, copy.low, copy.estimateReference,
-          copy.resetsAt + ' ' + dateLabel(point.resetAt, short)].join(' · ');
+      if (provider === 'codex' && point.asOfEstimate) {
+        return [point.current && point.quotaCycle && !point.quotaCycle.closed && !point.quotaCycle.referenceOnly
+          ? copy.currentPeriod : '', account || copy.accountUnassigned,
+          ...(!point.quotaCycle || point.quotaCycle.referenceOnly === true || !account ? [copy.low, copy.estimateReference] : []),
+          this.weeklyCycleDescription(point.quotaCycle, point.observedResetAt ?? point.resetAt)].filter(Boolean).join(' · ');
       }
-      if (short && epoch) return [point.current ? copy.currentPeriodShort : '', account, segmentDate(epoch.startedAt)]
-        .filter(Boolean).join(' · ');
-      return (provider === 'codex'
-        ? [point.current ? copy.currentPeriod : '', account, copy.resetsAt + ' ' + dateLabel(point.resetAt)].filter(Boolean).join(' · ')
-        : periodBaseLabel(point, short)) +
-        (epoch ? ' · ' + copy.observationSegment + ' ' + dateLabel(epoch.startedAt) +
-          (epoch.reason === 'reset-change' ? ' · ' + copy.quotaChanged :
-            epoch.reason === 'counter-drop' ? ' · ' + copy.counterDecreased : '') : '');
+      return periodBaseLabel(point, short);
     };
     const confidenceLabel = (point: WeeklyValuePoint): string => {
       if (point.boundaryUncertain) {
@@ -7950,14 +7966,27 @@ export class UsageWebviewProvider {
           : '') +
         '</div></div>';
     }).join('');
-    const xlabels = chartPoints.map((point) =>
-      '<div class="hc-xlabel">' + this.escapeHtml(periodLabel(point, true)) + '</div>',
-    ).join('');
+    const xlabels = chartPoints.map((point) => {
+      if (provider !== 'codex' || kind !== 'estimate') return '<div class="hc-xlabel">' +
+        this.escapeHtml(periodLabel(point, true)) + '</div>';
+      const cycle = point.quotaCycle;
+      const parts = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric',
+        timeZone: I18n.getTimezone() || undefined }).formatToParts(new Date(cycle?.endAt ?? point.resetAt));
+      const shortDate = parts.find(part => part.type === 'month')!.value + '/' + parts.find(part => part.type === 'day')!.value;
+      const number = this.weeklyAccountNumber(point.accountNumber);
+      const account = number === undefined ? '?' : '#' + number;
+      const marker = [account, point.current && cycle && !cycle.closed && !cycle.referenceOnly
+        ? copy.currentPeriodShort : ''].filter(Boolean).join(' · ');
+      const title = periodLabel(point) + ' · ' + copy.estimateAsOf + ': ' + dateLabel(point.observedAt!);
+      return '<div class="hc-xlabel" title="' + this.escapeHtml(title) + '"><span>' + this.escapeHtml(shortDate) +
+        '</span><span>' + this.escapeHtml(marker) + '</span></div>';
+    }).join('');
     const legend = (cls: string, label: string): string =>
       '<span class="legend-item"><span class="legend-dot ' + cls + '"></span>' +
       this.escapeHtml(label) + '</span>';
     return '<div class="composition-chart"' + (kind ? ' data-weekly-' + kind + '-chart' : '') + '>' +
-      (kind ? '<h4>' + this.escapeHtml(copy.estimateChartTitle) + '</h4>' : '') + '<div class="stack-legend">' +
+      (kind ? '<h4>' + this.escapeHtml(copy.estimateChartTitle) + '</h4><p class="table-hint">' +
+        this.escapeHtml(copy.cycleChartNote) + '</p>' : '') + '<div class="stack-legend">' +
       legend('seg-input', kind === 'estimate' ? copy.inferredUsed : copy.chartUsedValue) +
       (chartPoints.some((point) => point.unusedEquivalentUsd !== null)
         ? legend('seg-cache-read', copy.chartUnusedValue)
@@ -7970,7 +7999,8 @@ export class UsageWebviewProvider {
       '<div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>' +
       '<div class="hc-bars">' + bars + '</div></div><div class="hc-xlabels">' +
       xlabels + '</div></div></div></div></div>' + '<p class="table-hint">' +
-        (kind === 'estimate' && chartPoints.some(point => !point.quotaEpoch || this.weeklyAccountNumber(point.accountNumber) === undefined)
+        (kind === 'estimate' && chartPoints.some(point => !point.quotaCycle || point.quotaCycle.referenceOnly === true ||
+          this.weeklyAccountNumber(point.accountNumber) === undefined)
           ? this.escapeHtml(copy.low + ' · ' + copy.estimateReference) + '<br>' : '') +
         this.escapeHtml(kind === 'estimate' ? copy.estimateReconciliationNote : copy.chartEstimateNote) + '</p>';
     };
@@ -13666,6 +13696,19 @@ export class UsageWebviewProvider {
         text-align: center;
         font-size: 10px;
         color: var(--vscode-descriptionForeground);
+      }
+
+      [data-weekly-estimate-chart] .hc-col,
+      [data-weekly-estimate-chart] .hc-xlabel {
+        width: 64px;
+      }
+
+      [data-weekly-estimate-chart] .hc-xlabel > span {
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 14px;
       }
 
       [data-codex-time-series],

@@ -232,21 +232,29 @@ independent `WeeklyEquivalentUsage.accountSeriesKey` and
 `inputs.accountUsageCoverage` proof needed for `owned-window`.
 `showWeeklyQuotaPace` remains a separate elapsed-time forecast.
 
-The Codex quota comparison contains only account × `quotaEpoch` equivalent
-estimates; the duplicate local seven-day usage chart and detail table are removed.
-Primary local usage remains available in its existing dashboard views.
-`weeklyEstimateChart.ts` selects the latest valid estimate per local account and
-explicit quota epoch (legacy entries keep reset-cluster grouping). Both segments share the same
-observation snapshot: blue estimated used = F - R, green estimated unused = R,
-total height = F. A paired delta of 30 with F = 150 and R = 90 gives blue 60,
-not 30. Never add current actual usage to old unused value. The unchanged Claude
-path retains its display grid and actual-used columns. The Codex estimate chart
-receives no local buckets; its table distinguishes inferred used F−R from interval
-evidence USD. Account windows overlap and are not summed. When official reads are
-enabled, current requires fresh matching account/epoch evidence, never unassigned
-or stale samples.
+The Codex cycle quota comparison shows one bar per local account's historical
+reset-to-reset cycle, which can be shorter than seven days. Daily usage,
+calibration segments, login visits, price changes and resampling do not create
+new cycles. Existing official P2 checkpoints and saved `quotaEpoch` metadata
+supply display-only cycle bounds; early resets truncate the previous cycle.
+Uncertain boundaries remain explicit, and an unknown initial start is never
+filled with reset minus seven days. Legacy unassigned estimates retain cycle
+references without acquiring account labels.
 
-The chart performs no new estimate inference or persistence and does not
+`codexQuotaCycles.ts` derives display-only `quotaCycle` bounds for `weeklyEstimateChart.ts`.
+Each account/cycle uses its last valid monetary observation: estimated used =
+F - R, estimated unused = R, total height = F, all from that same frozen snapshot.
+A closed cycle need not have exhausted its allowance, so R is not forced to zero;
+archived amounts are not recalculated. The table distinguishes inferred used
+from calibration evidence, and account cycles are not summed. Up to 48 cycles
+scroll horizontally with short dates on at most two axis lines; tooltips/tables
+retain full boundary details. Primary local usage remains in its existing views,
+and Claude retains its grid and actual-used columns. Current requires fresh
+matching account/epoch evidence when official reads are enabled; unassigned,
+stale or closed cycles cannot acquire that marker.
+
+Cycle metadata and chart selection add no file, sample, source scan or network
+request. The chart performs no new estimate inference or persistence and does not
 change primary local statistics. Estimate column headers identify estimates,
 while monetary cells omit ≈.
 Every quota percentage retains its observed timestamp and original reset.

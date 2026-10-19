@@ -47,6 +47,7 @@ Codex effort 统计及仅累计范围的金额新活动收据已完成接入。
 | `providers/codex/codexOfficialQuota.ts`、`codexQuotaWebSocket.ts` | 主动启用后，通过有界 WebSocket-over-stdio 代理读取已运行的本地 daemon；仅初始化及额度读取 RPC，绝不启动 daemon、登录或读取凭据文件。 |
 | `codexAccountEstimate.ts` | 仅运行期连续官方样本／本机增量校准；额度身份不证明本地用量归属。 |
 | `codexCalibrationEvidence.ts` | 纯函数复制固定校准证据及精确公开模型费率／parser／period 版本，供估算器、协调器和既有归档校验复用；无 I/O。 |
+| `codexQuotaCycles.ts` | 从既有官方检查点和已保存分段派生仅用于显示的 reset 周期边界；每账号／周期选择一个末次有效估值，无 I/O，不改归档。 |
 | `quotaObservationStore.ts` | 严格数值／匿名观测捕获、来源白名单、既有有界压缩及租约内清除；官方 Codex 样本与未归属本地日志证据分开保留。 |
 | `dataLoader.ts` | 为精确兼容保留的 Claude 解析、校验、归因和内容分析 primitive。 |
 | `claudeIncrementalIndex.ts` | 生产环境 Claude 内存 per-file 索引：append-tail 解析、精确跨文件 response 去重、受影响 group 聚合、内容分析 contribution 和已物化 dashboard row。 |
@@ -1147,16 +1148,23 @@ R = F * (1 - p / 100)
 独立 `WeeklyEquivalentUsage.accountSeriesKey` 与 `inputs.accountUsageCoverage`
 证明。`showWeeklyQuotaPace` 仍是独立的时间进度预测。
 
-Codex 额度对比仅保留账号 × `quotaEpoch` 的额度等价估值，移除重复的本机七日用量图
-及明细表；主要本地用量仍可在仪表板既有统计视图查看。
-`weeklyEstimateChart.ts` 按本地账号与明确额度分段选择最新有效估值，旧记录仍按重置簇分组。
-两个色段来自同一观测快照：蓝色已用估值 = F - R，绿色未用估值 = R，柱总高 = F。
-配对增量为 30、F = 150、R = 90 时蓝色为 60，不是 30，不能把当前实际已用加到旧未用上。
-Claude 路径保留既有展示网格及实际已用列。Codex 估值图不接收本机桶，估值表以 F−R
-表示推算已用，另列校准样本金额。账号窗口可重叠，不相加；
-启用官方读取后，只有新鲜且匹配账号、分段的证据可标当前，未归属或旧观测不能获得该标记。
+Codex 周期额度对比按本机账号的历史 reset 周期一周期一柱；同账号两次 reset 之间
+为一周期，可短于七天。每日用量、校准分段、切号、费率变化及重采样均不另开周期。
+主要本地用量仍在仪表板既有统计视图查看。`codexQuotaCycles.ts` 结合官方 P2 reset
+检查点和已保存的 `quotaEpoch`，派生仅用于显示的 `quotaCycle` 边界：
+`startAt`／`startLowerAt`、`endAt`／`endLowerAt`、`closed` 及 `scheduledResetAt`。
+提前 reset 截断旧周期，边界不确定性明确保留；初始起点未知时，不以 reset 减七天补造。
+旧未归属估值保留周期参考，不补贴账号标签。
 
-柱图不新增估值推断或持久化，不改变主要本地统计。估值在表头注明，金额单元格不再
+`selectCodexCycleEstimates` 为 `weeklyEstimateChart.ts` 选择每账号／周期末次有效金额观测。
+两个色段保留同一快照：蓝色已用估值 = F - R，绿色未用估值 = R，柱总高 = F。
+周期结束不表示用尽，末次观测的 R 不必为零；归档金额不重算。表格区分推算已用与校准
+证据，账号周期不相加。最多48个周期横向滚动，横轴短日期最多两行，完整边界详情在
+悬浮提示／表格中显示。Claude 保留既有网格及实际已用列。启用官方读取后，当前标记
+要求新鲜且匹配账号／分段的证据，未归属、旧观测或已结束周期不能获得该标记。
+
+周期元数据与选柱不新增文件、采样、源扫描或网络请求。柱图不新增估值推断或持久化，
+不改变主要本地统计。估值在表头注明，金额单元格不再
 逐项显示 ≈。每个额度百分比都保留观测时间戳和原始重置时刻。
 公开账号标签只是本机序号，不是身份或账号名称；当前额度身份仍不证明本地用量归属。
 

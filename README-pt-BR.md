@@ -81,8 +81,9 @@ não são somados entre si. Registros ausentes ou ainda não indexados podem
 reduzir os totais mostrados; por padrão, o limite do Codex é a última observação local.
 
 
-- **Comparação de cotas Codex** — estimativas aproximadas no momento da observação por conta local ×
-  quotaEpoch, com evidências de calibração em arquivo, substituem o gráfico e os detalhes locais de sete dias duplicados.
+- **Comparação de cotas Codex por ciclo** — ciclos históricos entre duas redefinições da mesma conta,
+  com uma barra por conta local/ciclo usando a última estimativa válida. O ciclo pode durar menos de sete dias.
+  São estimativas aproximadas, não faturas.
   Defina `showWeeklyEquivalentValue` como false para ocultar a comparação.
   `codex.officialQuota.enabled` vem desativado; lê um daemon em execução, que pode contatar a OpenAI.
   A identidade da cota não prova a atribuição do uso. Veja [dados locais e privacidade](LOCAL-DATA.md).

@@ -149,8 +149,8 @@ untuk batas cakupan tanggal, ekspor, penyimpanan, dan kuota.
 - **Hari Ini** pada Codex berarti hari kalender saat ini dalam zona waktu yang dikonfigurasi. Tampilan ini menambahkan biaya ekuivalen API per jam yang tepat di samping tampilan komposisi Token yang terpisah. Grafik utama harian dan bulanan juga memakai biaya ekuivalen API sebagai default, sementara komposisi Token tetap tersedia secara terpisah. Hanya harga model yang dikenal dan cocok tepat yang dihitung; model tak dikenal tetap tanpa harga dan cakupan harga selalu terlihat. Sidecar per jam yang bersifat tambahan dan kompatibel dengan schema 3 menyimpan bucket tanggal / jam yang jarang untuk 30 hari bergulir, mendukung checkpoint dan resume, membuang hari ke-31, dan membuka tanggal tanpa membaca JSONL. Grafik dan tabel bulanan Codex menampilkan bulan dari yang paling lama ke yang terbaru.
 - Atribusi Token per permintaan memprioritaskan component `last_token_usage` yang valid; `total_tokens` di dalamnya adalah ukuran konteks aktif, bukan penggunaan permintaan. Signature numerik lengkap total-plus-last hanya menghapus replay yang terbukti berasal dari sumber rate-limit pseudonim yang sama atau record yang tepat bersebelahan. Jika last snapshot tidak ada, parser kembali ke cumulative lineage high-water. Setelah upgrade, indeks dibangun ulang otomatis satu kali dan subtotal terindeks tetap terlihat selama prosesnya.
 
-- **Perbandingan kuota Codex** — bandingkan ekuivalen kasar saat pengamatan per nomor akun lokal ×
-  quotaEpoch, dengan bukti kalibrasi dalam arsip, menggantikan grafik dan detail lokal tujuh hari yang berulang.
+- **Perbandingan kuota Codex per siklus** — bandingkan siklus historis antara dua reset akun yang sama,
+  satu batang per akun lokal/siklus memakai estimasi valid terakhir. Siklus dapat lebih pendek dari tujuh hari.
   Atur `showWeeklyEquivalentValue` ke false untuk menyembunyikan perbandingan.
   `codex.officialQuota.enabled` nonaktif secara default; membaca daemon yang berjalan dan dapat menghubungi OpenAI.
   Identitas kuota tidak membuktikan kepemilikan pemakaian. Lihat [data lokal dan privasi](LOCAL-DATA.md).

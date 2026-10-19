@@ -5,6 +5,8 @@ import { WeeklyEstimateArchive, WeeklyEstimateArchiveResult, WeeklyEstimateClear
 import type { WeeklyValueInputs } from './weeklyValue';
 import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation } from './codexQuotaEpoch';
 import { copyCodexCalibrationEvidence, codexCalibrationEvidenceFitsEstimate } from './codexCalibrationEvidence';
+import type { QuotaObservationV2 } from './quotaObservationStore';
+import { withCodexQuotaCycles } from './codexQuotaCycles';
 
 export interface WeeklyEstimateDisplayEntry extends LocalWeeklyEstimate {
   /** Public reference-price version retained with its historical numeric snapshot. */
@@ -21,6 +23,7 @@ export interface WeeklyEstimateProjectOptions {
   accountEstimates?: readonly WeeklyEstimateDisplayEntry[];
   activeAccountScopeKey?: string;
   activeQuotaEpochStartedAt?: number;
+  quotaObservations?: readonly QuotaObservationV2[];
 }
 interface InternalEntry extends WeeklyEstimateDisplayEntry { accountScopeKey?: string }
 type Evidence = InternalEntry;
@@ -30,6 +33,7 @@ type Memo = {
   pricingVersion: string; minute: number; live: InternalEntry[];
   accountEstimates?: readonly WeeklyEstimateDisplayEntry[]; activeAccountScopeKey?: string;
   activeQuotaEpochStartedAt?: number;
+  quotaObservations?: readonly QuotaObservationV2[];
   revision: number; projection: WeeklyEstimateProjection;
 };
 type State = {
@@ -191,8 +195,12 @@ export class WeeklyEstimateCoordinator {
     state.accountNumbers.set(key, next);
     return next;
   }
-  private projection(state: State, live: InternalEntry[], activeKey?: string, activeEpoch?: number): WeeklyEstimateProjection {
-    const entries = merge(state.saved, visible(state, live, this.salt)).map(entry => {
+  private projection(state: State, live: InternalEntry[], activeKey?: string, activeEpoch?: number,
+    observations: readonly QuotaObservationV2[] = [], now = Date.now()): WeeklyEstimateProjection {
+    const merged = merge(state.saved, visible(state, live, this.salt));
+    const cycleEntries = state.provider === 'codex' ? withCodexQuotaCycles(merged, observations,
+      key => weeklyEstimateAccountFingerprint(this.salt, 'codex', key), now) : merged;
+    const entries = cycleEntries.map(entry => {
       const { accountScopeKey, accountNumber: _hint, ...publicEntry } = entry;
       const accountNumber = full(entry) ? this.accountNumber(state, accountScopeKey)
         : accountScopeKey === undefined ? undefined : state.accountNumbers.get(accountScopeKey);
@@ -308,7 +316,7 @@ export class WeeklyEstimateCoordinator {
     if (!memo || memo.usage !== inputs.usage || memo.observations !== inputs.observations ||
       memo.localHistoryComplete !== inputs.localHistoryComplete || memo.pricingVersion !== options.pricingVersion || memo.minute !== minute ||
       memo.accountEstimates !== options.accountEstimates || memo.activeAccountScopeKey !== options.activeAccountScopeKey ||
-      memo.activeQuotaEpochStartedAt !== options.activeQuotaEpochStartedAt) {
+      memo.activeQuotaEpochStartedAt !== options.activeQuotaEpochStartedAt || memo.quotaObservations !== options.quotaObservations) {
       const produced = buildLocalWeeklyEstimates(provider, inputs, { now: options.now, limit: 48 })
         .map(entry => ({ ...entry, pricingVersion: options.pricingVersion }));
       // Account estimates freeze their USD and pricing evidence at capture. Only unstamped
@@ -322,7 +330,9 @@ export class WeeklyEstimateCoordinator {
       memo = { usage: inputs.usage, observations: inputs.observations, localHistoryComplete: inputs.localHistoryComplete,
         pricingVersion: options.pricingVersion, accountEstimates: options.accountEstimates, activeAccountScopeKey: options.activeAccountScopeKey,
         activeQuotaEpochStartedAt: options.activeQuotaEpochStartedAt,
-        minute, live, revision: state.revision, projection: this.projection(state, live, options.activeAccountScopeKey, options.activeQuotaEpochStartedAt) };
+        quotaObservations: options.quotaObservations,
+        minute, live, revision: state.revision, projection: this.projection(state, live, options.activeAccountScopeKey,
+          options.activeQuotaEpochStartedAt, options.quotaObservations, options.now) };
       state.memo = memo;
       if (!this.blocked(state) && state.archive) {
         for (const entry of live) {
@@ -339,7 +349,8 @@ export class WeeklyEstimateCoordinator {
         this.schedule(state);
       }
     } else if (memo.revision !== state.revision) {
-      memo.projection = this.projection(state, memo.live, options.activeAccountScopeKey, options.activeQuotaEpochStartedAt);
+      memo.projection = this.projection(state, memo.live, options.activeAccountScopeKey, options.activeQuotaEpochStartedAt,
+        options.quotaObservations, options.now);
       memo.revision = state.revision;
     }
     return memo.projection;

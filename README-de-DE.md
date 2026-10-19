@@ -87,8 +87,9 @@ Fehlende oder noch nicht indizierte Protokolle können die Anzeige verkleinern;
 die Codex-Quote bleibt standardmäßig die letzte lokale Beobachtung.
 
 
-- **Codex-Quotenvergleich** — grobe Äquivalente zum Beobachtungszeitpunkt nach lokaler Kontonummer ×
-  quotaEpoch mit Kalibrierungsbelegen im Archiv statt doppelter lokaler Siebentagegrafik und Details.
+- **Codex-Quotenvergleich nach Zyklus** — historische Zyklen zwischen zwei Resets desselben Kontos,
+  ein Balken je lokalem Konto/Zyklus mit dem letzten gültigen groben Schätzwert. Zyklen können kürzer als sieben Tage sein.
+  Kalibrierbelege bleiben im lokalen Archiv.
   Mit `showWeeklyEquivalentValue` auf false lässt sich der Vergleich ausblenden.
   `codex.officialQuota.enabled` ist standardmäßig aus; Abfragen nutzen einen laufenden Daemon und können
   OpenAI kontaktieren. Quotenidentität beweist keine Nutzungszuordnung. Siehe [Datenschutz](LOCAL-DATA.md).

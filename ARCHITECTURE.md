@@ -65,6 +65,7 @@ only the separate publish action can perform that network operation.
 | `providers/codex/codexOfficialQuota.ts`, `codexQuotaWebSocket.ts` | Opt-in read from an already-running local daemon via a bounded WebSocket-over-stdio proxy; only initialization and quota-read RPCs, never daemon startup, login or credential-file reads. |
 | `codexAccountEstimate.ts` | Runtime-only continuous official-sample/local-increment calibration; quota identity does not prove local usage ownership. |
 | `codexCalibrationEvidence.ts` | Pure fixed-field calibration evidence and exact public model-rate/parser/period snapshots, reused by estimator, coordinator and existing archive validation; no I/O. |
+| `codexQuotaCycles.ts` | Display-only reset-to-reset cycle bounds from existing official checkpoints and saved epochs; selects one last valid estimate per account/cycle without I/O or archive changes. |
 | `quotaObservationStore.ts` | Strict numeric/pseudonymous observation capture, source allowlist, existing bounded compaction and leased clearing; official Codex samples stay distinct from unattributed local-log evidence. |
 | `dataLoader.ts` | Claude parsing, validation, attribution, and content-analysis primitives retained for exact compatibility. |
 | `claudeIncrementalIndex.ts` | Production in-memory per-file Claude index: append-tail parsing, exact cross-file response deduplication, affected-group aggregation, content-analysis contributions, and materialized dashboard rows. |
@@ -1706,21 +1707,30 @@ independent `WeeklyEquivalentUsage.accountSeriesKey` and
 `inputs.accountUsageCoverage` proof needed for `owned-window`.
 `showWeeklyQuotaPace` remains a separate elapsed-time forecast.
 
-The Codex quota comparison contains only account × `quotaEpoch` equivalent
-estimates; the duplicate local seven-day usage chart and detail table are removed.
-Primary local usage remains available in its existing dashboard views.
-`weeklyEstimateChart.ts` selects the latest valid estimate per local account and
-explicit quota epoch (legacy entries retain reset-cluster grouping). Both segments share the same
-observation snapshot: blue estimated used = F - R, green estimated unused = R,
-total height = F. A paired delta of 30 with F = 150 and R = 90 gives blue 60,
-not 30. Never add current actual usage to old unused value. The unchanged Claude
-path retains its display grid and actual-used columns. The Codex estimate chart
-receives no local-usage buckets. The estimate table uses F−R for inferred used and
-lists calibration evidence separately. Account windows may overlap and are not summed. Current
-requires a fresh matching account and epoch when official reads are enabled;
-unassigned or stale evidence cannot acquire that marker.
+The Codex cycle quota comparison uses one bar per local account's historical
+reset-to-reset cycle, which can be shorter than seven days. Daily usage,
+calibration segments, account switches, price changes and resampling do not define
+new cycles. Primary local usage remains in its existing dashboard views.
+`codexQuotaCycles.ts` combines official P2 reset checkpoints with saved `quotaEpoch`
+metadata into display-only `quotaCycle` bounds: `startAt`/`startLowerAt`,
+`endAt`/`endLowerAt`, `closed` and `scheduledResetAt`. Early resets truncate the
+previous cycle; uncertain bounds remain explicit. An unknown initial start is
+never filled with reset minus seven days. Legacy unassigned estimates retain
+their cycle reference without acquiring an account label.
 
-The chart performs no new estimate inference or persistence and does not
+`selectCodexCycleEstimates` selects the last valid monetary observation per
+account/cycle for `weeklyEstimateChart.ts`. Both segments retain that snapshot:
+blue estimated used = F - R, green estimated unused = R, total height = F.
+Closed does not mean exhausted: the last observed R need not be zero. Archived
+amounts are not recalculated. The table distinguishes inferred used from
+calibration evidence; account cycles are not summed. Up to 48 cycles scroll
+horizontally, with short dates on at most two axis lines and full boundary details
+in tooltips/tables. Claude retains its existing grid and actual-used columns.
+Current requires fresh matching account/epoch evidence when official reads are
+enabled; unassigned, stale or closed cycles cannot acquire that marker.
+
+Cycle metadata and chart selection add no file, sample, source scan or network
+request. The chart performs no new estimate inference or persistence and does not
 change primary local statistics. Estimate column headers identify estimates,
 while monetary cells omit ≈.
 Every quota percentage retains its observed timestamp and original reset.

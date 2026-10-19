@@ -1005,6 +1005,7 @@ test('weekly value documentation separates rough as-of estimates from local usag
       'codex-official-api', 'codexQuotaCaptureFromOfficialSample', 'accountScopeKey', 'accountNumber',
       'unlinkedEquivalentUsd', 'linkedSourceCount', 'codexQuotaEpoch.ts', 'quotaEpoch',
       'codexCalibrationEvidence.ts', 'calibrationEvidence',
+      'codexQuotaCycles.ts', 'quotaCycle',
       'initialize', 'initialized', 'account/rateLimits/read']) {
       assert.ok(document.includes('`' + field + '`'), file + ' must document ' + field);
     }
@@ -1020,8 +1021,8 @@ test('weekly value documentation separates rough as-of estimates from local usag
     }
     assert.ok(contract.includes('showWeeklyQuotaPace'), file);
     const facts = file.endsWith('zh-CN.md') ? [
-      /同一观测快照.{0,40}F\s*-\s*R.{0,30}绿色.{0,30}=\s*R.{0,20}总高\s*=\s*F/,
-      /移除重复的本机七日用量图/,
+      /(?:蓝色|推算已用|已用估值).{0,40}F\s*-\s*R.{0,40}(?:绿色|未用).{0,30}=\s*R.{0,20}总高\s*=\s*F/,
+      /一周期一柱/,
       /账号.{0,40}(?:分段|周期)/,
       /65分钟/,
       /不新增估值推断或持久化/,
@@ -1047,8 +1048,8 @@ test('weekly value documentation separates rough as-of estimates from local usag
       /清除.{0,80}保留其他.{0,30}未归属记录/,
       /观测时间戳.{0,20}原始重置时刻/,
     ] : [
-      /same observation snapshot.{0,40}F\s*-\s*R.{0,30}green.{0,30}=\s*R.{0,30}total height\s*=\s*F/i,
-      /duplicate local seven-day usage chart and detail table are removed/i,
+      /(?:blue|estimated used).{0,40}F\s*-\s*R.{0,40}(?:green|estimated unused).{0,30}=\s*R.{0,30}total height\s*=\s*F/i,
+      /one bar.{0,70}reset-to-reset cycle/i,
       /account.{0,40}(?:epoch|cycle)/i,
       /65 minutes/i,
       /no new estimate inference or persistence/i,
@@ -1078,15 +1079,15 @@ test('weekly value documentation separates rough as-of estimates from local usag
   }
   // README translations retain the user boundary without imposing sentence order.
   for (const [file, concepts] of [
-    ['README.md', [/rough/i, /as-of/i, /archive/i]],
-    ['README-en.md', [/rough/i, /as-of/i, /archive/i]],
-    ['README-zh-CN.md', [/粗略/, /观测时点/, /归档/]],
-    ['README-zh-TW.md', [/粗略/, /觀測時點/, /封存/]],
-    ['README-ja.md', [/概算/, /観測時点/, /保存/]],
-    ['README-ko.md', [/대략/, /관측 시점/, /보관/]],
-    ['README-id.md', [/kasar/i, /saat pengamatan/i, /arsip/i]],
-    ['README-de-DE.md', [/grobe/i, /Beobachtungszeitpunkt/i, /Archiv/i]],
-    ['README-pt-BR.md', [/aproximadas/i, /momento da observação/i, /arquivo/i]],
+    ['README.md', [/rough/i, /as-of|reset-to-reset/i, /archive/i]],
+    ['README-en.md', [/rough/i, /as-of|reset-to-reset/i, /archive/i]],
+    ['README-zh-CN.md', [/粗略/, /观测时点|历史周期/, /归档/]],
+    ['README-zh-TW.md', [/粗略/, /觀測時點|歷史週期/, /封存/]],
+    ['README-ja.md', [/概算/, /観測時点|リセット/, /保存/]],
+    ['README-ko.md', [/대략/, /관측 시점|재설정/, /보관/]],
+    ['README-id.md', [/kasar/i, /saat pengamatan|siklus/i, /arsip/i]],
+    ['README-de-DE.md', [/grobe/i, /Beobachtungszeitpunkt|Reset/i, /Archiv/i]],
+    ['README-pt-BR.md', [/aproximadas/i, /momento da observação|ciclos/i, /arquivo/i]],
   ] as const) {
     const document = repoFile(file);
     for (const concept of concepts) assert.match(document, concept, file);

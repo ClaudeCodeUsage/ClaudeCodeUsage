@@ -25,7 +25,9 @@ function entry(method = 'account-delta-v1', accountNumber: unknown = 2): any {
     usedEquivalentUsd: 25, fullEquivalentUsd: 100, unusedEquivalentUsd: 75, utilizationPercent: 25,
     pricingCoverage: 1, flags: [], method, accountNumber,
     ...(method === 'account-delta-v1' ? { quotaEpoch: { startedAt: T - 120_000,
-      resetAnchorAt: R, startLowerAt: null, reason: 'initial' } } : {}),
+      resetAnchorAt: R, startLowerAt: null, reason: 'initial' }, quotaCycle: {
+      id: T - 120_000, startAt: null, startLowerAt: null, endAt: R, endLowerAt: null,
+      closed: false, scheduledResetAt: R, boundaryUncertain: true } } : {}),
     sourceKey: 'raw-private-id', accountScopeKey: 'private-hmac-must-not-render' };
 }
 function owner(enabled = true, entries: any[] = []) {
@@ -127,10 +129,10 @@ test('the estimated chart receives the active quota epoch and never marks a prev
   p.weeklyValuePoints = () => [];
   projection.activeQuotaEpochStartedAt = T - 60_000;
   projection.officialQuota.quotaEpochStartedAt = T - 60_000;
-  assert.doesNotMatch(p.renderWeeklyValuePanel('codex'), /Current · Account 2/);
+  assert.doesNotMatch(p.renderWeeklyValuePanel('codex'), /#2 · Current/);
   projection.activeQuotaEpochStartedAt = startedAt;
   projection.officialQuota.quotaEpochStartedAt = startedAt;
-  assert.match(p.renderWeeklyValuePanel('codex'), /Current · Account 2/);
+  assert.match(p.renderWeeklyValuePanel('codex'), /#2 · Current/);
 }));
 
 test('a six-minute-old stale official sample stays visible at its original observation without active calibration claims', () => english(() => {
@@ -146,7 +148,7 @@ test('a six-minute-old stale official sample stays visible at its original obser
       hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined }).format(new Date(observedAt));
     assert.ok(quota.includes(date)); assert.ok(quota.includes(I18n.t.weeklyValue.estimateStale));
     assert.doesNotMatch(quota, /Collecting samples/);
-    assert.doesNotMatch(html, /Current · Account 2/);
+    assert.doesNotMatch(html, /#2 · Current/);
     assert.equal(JSON.stringify(projection), before, 'stale display must not refresh the sample time or percentage');
     if (entries.length) assert.match(html, /\$100\.00/);
   }
@@ -194,7 +196,7 @@ test('identified quota before number assignment collects samples without inventi
 test('chart current marker follows the identified service account and retires when another account is collecting', () => english(() => {
   const { p, projection } = owner(true, [entry()]); p.weeklyValuePoints = () => [];
   const chart = () => p.renderWeeklyValuePanel('codex').match(/<div class="hc-xlabels">([\s\S]*?)<\/div><\/div>/)?.[1] ?? '';
-  assert.match(chart(), /Current · Account 2/);
+  assert.match(chart(), /#2 · Current/);
   projection.activeAccountNumber = 3; projection.officialQuota.accountNumber = 3;
   assert.doesNotMatch(chart(), /Current/);
   assert.match(status(p.renderWeeklyValuePanel('codex')), /Collecting samples/);

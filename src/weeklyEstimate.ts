@@ -1,6 +1,7 @@
 import type { UsageProvider } from './providers/providerTypes';
 import type { CodexQuotaEpoch } from './codexQuotaEpoch';
 import type { CodexCalibrationEvidence } from './codexCalibrationEvidence';
+import type { CodexQuotaCycle } from './codexQuotaCycles';
 import type { WeeklyEquivalentUsage, WeeklyQuotaObservation, WeeklyValueInputs, WeeklyValuePoint } from './weeklyValue';
 
 const WEEK=604_800_000, RESET_TOLERANCE=300_000;
@@ -21,6 +22,8 @@ export interface LocalWeeklyEstimate {
   /** INTERNAL machine-local HMAC; must be removed before HTML/export. Not usage-ownership proof. */
   accountScopeKey?:string;
   quotaEpoch?:CodexQuotaEpoch;
+  /** Runtime presentation only; never changes frozen archived amounts. */
+  quotaCycle?:CodexQuotaCycle;
   calibrationStart?:number;
   calibrationEvidence?:CodexCalibrationEvidence;
   /** Conditional time/percentage measurement range, NOT an account-capacity confidence interval. */

@@ -126,8 +126,8 @@
 - Codex 的**今天**指設定時區中的目前自然日。頁面會顯示精確的每小時 API 等效成本，並將 Token 構成保留為獨立檢視；每日與每月主圖也預設顯示 API 等效成本，Token 構成仍分開呈現。只有精確符合的已知模型才參與計價，未知模型維持未定價，定價涵蓋率始終可見。這個相容 schema 3 的增量小時 sidecar 會保留最近 30 天的稀疏日期 / 小時分桶，支援檢查點與續傳、淘汰第 31 天，並在展開日期時不讀取 JSONL。Codex 按月圖表與表格會按月份由舊到新顯示。
 - 單次請求 Token 歸因優先採用有效的 `last_token_usage` component；其中 `total_tokens` 表示目前上下文大小，不是該次請求的用量。只有完整的 total-plus-last 數字簽名能證明同一假名化 rate-limit 來源或相鄰記錄發生重播時才去重；缺少 last snapshot 時回退為 cumulative lineage high-water。升級後會自動重建一次索引，期間持續顯示已索引小計。
 
-- **Codex 額度對比**——依本機帳號序號 × quotaEpoch 比較觀測時點的粗略等價值，保留
-  校準證據封存，移除重複本機七日用量圖／明細。`codex.officialQuota.enabled` 預設關閉；
+- **Codex 週期額度對比**——比較同帳號兩次 reset 之間的歷史週期，每帳號／週期一柱，
+  採用末次有效估值；週期可短於七天。`codex.officialQuota.enabled` 預設關閉；
   讀取已執行的 daemon，可能存取 OpenAI，額度身分不證明用量歸屬。
   將 `showWeeklyEquivalentValue` 設為 false 可隱藏對比。
   詳見[本機資料與隱私](LOCAL-DATA.zh-CN.md)。

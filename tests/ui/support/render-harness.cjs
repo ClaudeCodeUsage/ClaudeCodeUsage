@@ -661,6 +661,8 @@ exports.renderHarness = async function renderHarness({
           : codexWebviewFixture();
     const accountFixture = fixture === 'weekly-accounts'
       ? await require('./weekly-account-fixture.cjs').weeklyAccountFixture(weeklyRoughPartialSnapshot(baseSnapshot), CODEX_WEBVIEW_NOW)
+      : fixture === 'weekly-cycles'
+      ? require('./weekly-cycle-fixture.cjs').weeklyCycleFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
       : undefined;
     const snapshot = accountFixture ? accountFixture.snapshot : fixture === 'weekly-rough-partial'
       ? weeklyRoughPartialSnapshot(baseSnapshot)

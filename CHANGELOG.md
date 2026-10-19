@@ -15,10 +15,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   quota source enum and archive methods/fields.
 
 ### Fixed
-- **Codex weekly quota reconciliation** — keep complete local usage separate from
-  account × quotaEpoch estimates and retain pre-reset snapshots. The quota comparison
-  removes the duplicate local seven-day chart/details and shows only account/window
-  equivalent estimates. Compatible ten-minute samples can calibrate with a continuity
+- **Codex cycle quota reconciliation** — compare historical reset-to-reset cycles,
+  one bar per local account/cycle using its last valid monetary observation. Cycles
+  can be shorter than seven days; daily usage, calibration segments and login visits
+  do not create separate bars. Early resets close the previous cycle; unknown starts
+  remain unknown. Complete local usage and pre-reset snapshots stay separate.
+  Compatible ten-minute samples can calibrate with a continuity
   warning; switches, blur and resets require fresh baselines without bridging gaps.
   Compatible earlier intervals can retain their percentage-weighted contribution.
   Existing schema-1 snapshots retain fixed calibration evidence and the exact model
@@ -32,10 +34,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   only a low-confidence proxy. Clear fences also check calibration start, preventing
   another instance's old sums from returning with a later timestamp; its next sample
   retires affected sums and establishes a fresh baseline.
-- **Weekly allowance chart and labels** — show estimated used and unused from
+- **Cycle allowance chart and labels** — show estimated used and unused from
   one observation snapshot, with total height matching the existing estimate.
-  Claude retains its existing grid behavior; Codex compares account/window estimates
-  without local-usage buckets. Headers identify estimates and monetary cells omit
+  A closed cycle retains the last observed unused estimate, which need not be zero.
+  Claude retains its existing grid behavior; Codex shows up to 48 cycles with
+  horizontal scrolling, short date labels on at most two lines and full boundary
+  details in tooltips/tables. Headers identify estimates and monetary cells omit
   repeated ≈ markers. Existing percentage-change snapshots carry the latest admitted
   interval and cumulative USD/percentage-point/Token evidence; the same archive stops
   writing at 4096 entries / 1 MiB without eviction, retaining its clear fences,

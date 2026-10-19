@@ -684,7 +684,7 @@ test('weekly allowance keeps one same-observation estimate comparison and its re
   await page.locator('#tab-all').click();
 
   const panel = page.locator('#all .daily-breakdown').filter({
-    hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex',
+    hasText: 'Cycle allowance · API-equivalent estimate · Codex',
   });
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('not an official balance, bill or cash value');
@@ -754,7 +754,7 @@ test('weekly allowance value can be hidden without hiding Codex API-equivalent c
   await openCodex(page, { weeklyValue: false });
   await page.locator('#tab-all').click();
 
-  await expect(page.locator('#all')).not.toContainText('Weekly subscription allowance · API-equivalent estimate · Codex');
+  await expect(page.locator('#all')).not.toContainText('Cycle allowance · API-equivalent estimate · Codex');
   await expect(page.locator('#all .summary-grid .summary-item').first()).toContainText(
     'API-equivalent cost',
   );
@@ -771,12 +771,12 @@ test('weekly allowance value can be hidden from Claude All time', async ({ page 
 test('Compare shows both weekly panels by default and hides only those panels when disabled', async ({ page }) => {
   await openCompare(page);
   await expect(page.locator('#provider-panel')).toContainText('Weekly subscription allowance · API-equivalent estimate · Claude');
-  await expect(page.locator('#provider-panel')).toContainText('Weekly subscription allowance · API-equivalent estimate · Codex');
+  await expect(page.locator('#provider-panel')).toContainText('Cycle allowance · API-equivalent estimate · Codex');
   await expect(page.locator('#provider-panel .usage-summary .summary-item')).toHaveCount(2);
 
   await openCompare(page, { weeklyValue: false });
   await expect(page.locator('#provider-panel')).not.toContainText('Weekly subscription allowance · API-equivalent estimate · Claude');
-  await expect(page.locator('#provider-panel')).not.toContainText('Weekly subscription allowance · API-equivalent estimate · Codex');
+  await expect(page.locator('#provider-panel')).not.toContainText('Cycle allowance · API-equivalent estimate · Codex');
   await expect(page.locator('#provider-panel .usage-summary .summary-item')).toHaveCount(2);
   await expect(page.locator('#provider-panel .usage-summary')).toContainText('Claude');
   await expect(page.locator('#provider-panel .usage-summary')).toContainText('Codex');
@@ -786,7 +786,7 @@ test('weekly allowance table fits at 1280px in the longest locale', async ({ pag
   await openCodex(page, { locale: 'de-DE', width: 1280 });
   await page.locator('#tab-all').click();
   const panel = page.locator('#all .daily-breakdown').filter({
-    hasText: 'Wöchentliches Abo-Kontingent · API-Äquivalenzschätzung · Codex',
+    hasText: 'Zykluskontingent · API-Äquivalenzschätzung · Codex',
   });
   await panel.locator('.weekly-estimate-details summary').click();
   const container = panel.locator('.weekly-estimate-details .daily-table-container');
@@ -807,7 +807,7 @@ test('weekly chart uses a non-overflowing current-period label in German', async
   await openCodex(page, { locale: 'de-DE', width: 1280 });
   await page.locator('#tab-all').click();
   const panel = page.locator('#all .daily-breakdown').filter({
-    hasText: 'Wöchentliches Abo-Kontingent · API-Äquivalenzschätzung · Codex',
+    hasText: 'Zykluskontingent · API-Äquivalenzschätzung · Codex',
   });
   const charts = panel.locator('[data-weekly-actual-chart], [data-weekly-estimate-chart]');
   await expect(charts).toHaveCount(1);
@@ -845,7 +845,7 @@ test('weekly comparison without quota samples keeps records and an empty state',
   await page.locator('#tab-all').click();
 
   const panel = page.locator('#all .daily-breakdown').filter({
-    hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex',
+    hasText: 'Cycle allowance · API-equivalent estimate · Codex',
   });
   await expect(panel).not.toContainText('Monday-to-Monday UTC calendar weeks');
   await expect(panel.locator('.weekly-value-details')).toHaveCount(0);

@@ -315,7 +315,7 @@ test('Compare keeps provider costs and allowance estimates separate instead of s
   await expect(allowancePanels).toHaveCount(2);
   await expect(allowancePanels.locator(':scope > .section-header > h3')).toHaveText([
     'Weekly subscription allowance · API-equivalent estimate · Claude',
-    'Weekly subscription allowance · API-equivalent estimate · Codex',
+    'Cycle allowance · API-equivalent estimate · Codex',
   ]);
 });
 

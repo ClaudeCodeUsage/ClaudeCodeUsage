@@ -742,6 +742,7 @@ export class ClaudeCodeUsageExtension {
           pricingVersion: (getPricingBackend() === 'anthropic' ? 'anthropic-' : 'openai-') + version,
           now,
           ...(provider === 'codex' ? { accountEstimates: this.officialQuotaEstimates,
+            quotaObservations: this.quotaObservationStore.observations,
             activeAccountScopeKey: identityCurrent ? this.officialQuotaSample?.accountScopeKey : undefined,
             activeQuotaEpochStartedAt: identityCurrent ? this.officialQuotaSample?.quotaEpoch?.startedAt : undefined } : {}),
         });
@@ -5086,6 +5087,7 @@ export class ClaudeCodeUsageExtension {
             this.weeklyEstimateCoordinator?.project('codex',view.weeklyValueInputs,{
               sourceNamespace:'codex|'+home,pricingVersion,now:sample.observedAt,
               accountEstimates:this.officialQuotaEstimates,
+              quotaObservations:this.quotaObservationStore.observations,
               activeAccountScopeKey:sample.accountScopeKey,
               activeQuotaEpochStartedAt:quotaEpoch.startedAt,
             });
