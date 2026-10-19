@@ -149,11 +149,10 @@ untuk batas cakupan tanggal, ekspor, penyimpanan, dan kuota.
 - **Hari Ini** pada Codex berarti hari kalender saat ini dalam zona waktu yang dikonfigurasi. Tampilan ini menambahkan biaya ekuivalen API per jam yang tepat di samping tampilan komposisi Token yang terpisah. Grafik utama harian dan bulanan juga memakai biaya ekuivalen API sebagai default, sementara komposisi Token tetap tersedia secara terpisah. Hanya harga model yang dikenal dan cocok tepat yang dihitung; model tak dikenal tetap tanpa harga dan cakupan harga selalu terlihat. Sidecar per jam yang bersifat tambahan dan kompatibel dengan schema 3 menyimpan bucket tanggal / jam yang jarang untuk 30 hari bergulir, mendukung checkpoint dan resume, membuang hari ke-31, dan membuka tanggal tanpa membaca JSONL. Grafik dan tabel bulanan Codex menampilkan bulan dari yang paling lama ke yang terbaru.
 - Atribusi Token per permintaan memprioritaskan component `last_token_usage` yang valid; `total_tokens` di dalamnya adalah ukuran konteks aktif, bukan penggunaan permintaan. Signature numerik lengkap total-plus-last hanya menghapus replay yang terbukti berasal dari sumber rate-limit pseudonim yang sama atau record yang tepat bersebelahan. Jika last snapshot tidak ada, parser kembali ke cumulative lineage high-water. Setelah upgrade, indeks dibangun ulang otomatis satu kali dan subtotal terindeks tetap terlihat selama prosesnya.
 
-Grafik mingguan menampilkan estimasi terpakai biru dan sisa hijau dari snapshot yang sama
-saat pengamatan. Nilai kasar tetap berlabel keyakinan rendah; jendela nyata yang tumpang tindih
-tidak dijumlahkan sebagai kuota akun. Tabel tetap memuat pemakaian lokal nyata, menandai estimasi
-di judul kolom dan menghilangkan ≈ dari sel nominal. Arsip menyimpan snapshot asli, bukan saldo langsung.
-Lihat [data lokal dan privasi](LOCAL-DATA.md).
+- **Kuota Codex opsional dan estimasi kasar** — `codex.officialQuota.enabled` nonaktif secara default.
+  Membaca daemon lokal yang sudah berjalan; snapshot saat pengamatan bernomor lokal disimpan dalam arsip.
+  Identitas kuota tidak membuktikan kepemilikan pemakaian; daemon dapat menghubungi OpenAI.
+  Lihat [data lokal dan privasi](LOCAL-DATA.md).
 
 Periode lama tanpa pengamatan memakai kisi pemakaian nyata tujuh hari, atau Senin-ke-Senin UTC tanpa reset valid; reset yang belum diamati tidak direkonstruksi. Persentase kuota menyimpan waktu pengamatan dan reset asli. Panel tetap aktif secara default (`showWeeklyEquivalentValue`).
 - Beralih ke Codex tetap memakai struktur Hari Ini / 30 Hari Terakhir / Sepanjang Waktu / Sesi / Proyek / Konten / Settings yang sudah ada, dengan label yang disesuaikan pada makna Codex. Kedua penyedia memakai render function, HTML class, grafik, tabel, jarak, dan aturan responsif yang sama; grafik deret waktunya tetap sejajar lebarnya, sedangkan konten padat hanya bergulir di areanya sendiri. Rekomendasi Codex memakai bukti struktural 30 hari yang telah diindeks.
@@ -197,7 +196,7 @@ retensi, migrasi, penghapusan, dan batas interaksi jarak jauh.
 |---|---|---|
 | Log sumber | Milik penyedia, hanya-baca, tidak disalin utuh | Tidak ada secara default |
 | Indeks Codex | Agregat pseudonim terbatas, terpisah menurut direktori log, salt profil dan zona waktu; bangun ulang hanya indeks aktif, Hapus Semua mencakup semua keluarga berkas indeks yang cocok persis | Tidak ada |
-| Riwayat kuota | Pengamatan jendela anonim terbatas, tanpa ID akun mentah | Hanya kuota Claude saat aktif; Codex tetap lokal |
+| Riwayat kuota | Pengamatan jendela anonim terbatas, tanpa ID akun mentah | Kueri Claude saat aktif atau pembacaan daemon Codex opsional; yang terakhir dapat menghubungi OpenAI |
 | UI/berbagi | Filter serta judul/rentang/tujuan GitHub opsional | Publikasi hanya setelah konfirmasi tepat |
 | Saran/kunci | Bukti agregat terbatas; kunci hanya di SecretStorage | Hanya permintaan yang dipratinjau persis setelah tindakan Kirim terpisah |
 

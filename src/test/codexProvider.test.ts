@@ -800,6 +800,23 @@ test('provider snapshots promote exact period slices for scoped consumers', asyn
   }
 });
 
+test('per-file retained quota history preserves runtime source joins without inventing account ownership', async () => {
+  const root=await mkdtemp(path.join(os.tmpdir(),'ccu-provider-quota-source-'));
+  try{
+    await mkdir(path.join(root,'sessions'),{recursive:true});
+    const index=duplicateIndex(false),file=index.files['active-key'];
+    const resetAt=Date.parse('2026-08-31T03:00Z');
+    file.quotaHistory=[{provider:'codex',seriesKey:'codex',observedAt:resetAt-3_600_000,resetAt,usedPercent:25},
+      {provider:'codex',seriesKey:'codex',observedAt:resetAt-1_800_000,resetAt:resetAt+3_600_000,usedPercent:40}];
+    const provider=new CodexProvider({enabled:true,codexHome:root,indexPath:'index',salt:'salt',timeZone:'UTC'},
+      ()=>new FakeClient([{...workerResult(index),failedFiles:0}]));
+    const rows=(await provider.refresh()).snapshot.weeklyValueInputs!.observations;
+    const retained=rows.filter(row=>row.usedPercent===25||row.usedPercent===40);
+    assert.equal(retained.length,2);assert.ok(retained.every(row=>row.sourceKey==='active-key'));
+    assert.ok(retained.every(row=>row.accountAttribution!=='verified-local-signal'));
+  }finally{await rm(root,{recursive:true,force:true});}
+});
+
 test('a delayed post-reset current poll does not hide cached pre-reset evidence', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-provider-quota-rollover-'));
   try {

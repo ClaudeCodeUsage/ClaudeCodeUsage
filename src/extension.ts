@@ -32,6 +32,9 @@ import {
 } from './githubHeatmapPublish';
 import { fetchLatestPricing, getPricingBackend, getPricingLastFetched, setPricingBackend } from './pricing';
 import { WeeklyEstimateCoordinator } from './weeklyEstimateCoordinator';
+import type { LocalWeeklyEstimate } from './weeklyEstimate';
+import { CodexAccountEstimator, OfficialQuotaSample } from './codexAccountEstimate';
+import { readCodexOfficialQuota } from './providers/codex/codexOfficialQuota';
 import { WEEKLY_ESTIMATE_ARCHIVE_FILE, WeeklyEstimateArchive } from './weeklyEstimateArchive';
 import { ClaudeApiClient } from './claudeApiClient';
 import {
@@ -56,6 +59,7 @@ import {
 import {
   claudeQuotaCapturesFromUsage,
   codexQuotaCapturesFromWeeklyObservations,
+  codexQuotaCaptureFromOfficialSample,
   createEmptyQuotaObservationStore,
   fingerprintForStableIdentity,
   loadQuotaObservationStore,
@@ -552,6 +556,17 @@ export class ClaudeCodeUsageExtension {
   private activeClaudeQuotaFingerprint: string | undefined;
   private weeklyEstimateCoordinator?: WeeklyEstimateCoordinator;
   private readonly weeklyEstimateClearedAt = new Map<'claude' | 'codex', number>();
+  private officialAccountEstimator = new CodexAccountEstimator();
+  private officialQuotaReader = readCodexOfficialQuota;
+  private officialQuotaGeneration = 0;
+  private officialQuotaPending?: Promise<void>;
+  private officialQuotaLastAttempt = 0;
+  private officialQuotaBinary?: string;
+  private officialQuotaSample?: OfficialQuotaSample;
+  private officialQuotaSource?: string;
+  private officialQuotaIndexGeneration?: number|null;
+  private officialQuotaEstimates: Array<LocalWeeklyEstimate & {pricingVersion?:string}> = [];
+  private officialQuotaStatus: 'disabled'|'loading'|'ready'|'unavailable'|'source-mismatch' = 'disabled';
   private readonly claudeQuotaPaceSource = new ClaudeQuotaPaceSource();
   private activePricingBackend: ExtensionConfig['pricingBackend'] = 'anthropic';
   private codexProvider: CodexProvider;
@@ -719,12 +734,18 @@ export class ClaudeCodeUsageExtension {
         const fetchedAt = getPricingLastFetched()?.time;
         const version = fetchedAt === undefined ? 'v1' : 'v' + String(fetchedAt)
           .padStart(16, '0').match(/.{4}/g)!.join('.');
-        return this.weeklyEstimateCoordinator!.project(provider, inputs, {
+        const projection = this.weeklyEstimateCoordinator!.project(provider, inputs, {
           sourceNamespace: provider + '|' + (source ?? 'unavailable'),
           pricingVersion: (getPricingBackend() === 'anthropic' ? 'anthropic-' : 'openai-') + version,
           now,
+          ...(provider === 'codex' ? { accountEstimates: this.officialQuotaEstimates,
+            activeAccountScopeKey: this.officialQuotaSample?.accountScopeKey } : {}),
         });
+        return provider === 'codex' ? { ...projection, officialQuota: {
+          ...this.officialQuotaPublicState(), accountNumber: projection.activeAccountNumber,
+        } } : projection;
       });
+      this.webviewProvider.onWeeklyQuotaVisible = () => { void this.refreshOfficialCodexQuota('manual'); };
     }
     // Migrate any pre-2.1 settings.json values for the keys that have moved out
     // of the VS Code Settings UI into the dashboard-managed store. Runs once.
@@ -1909,13 +1930,23 @@ export class ClaudeCodeUsageExtension {
         this.stopQuotaColdRetry('settings-change');
         await this.cancelQuotaNetworks('cancelled');
         this.assertScopedQuotaMigrationIsResolved(quotaScope ?? {});
-        if (!quotaScope?.accountFingerprint && this.weeklyEstimateCoordinator) {
+        if (this.weeklyEstimateCoordinator && (!quotaScope?.accountFingerprint ||
+          /^acct_[a-f0-9]{32}$/.test(quotaScope.accountFingerprint))) {
           const clearedAt = Date.now();
-          for (const provider of ['claude', 'codex'] as const) {
-            if (!quotaScope?.provider || quotaScope.provider === provider) this.weeklyEstimateClearedAt.set(provider, clearedAt);
+          if (!quotaScope?.accountFingerprint) {
+            for (const provider of ['claude', 'codex'] as const) {
+              if (!quotaScope?.provider || quotaScope.provider === provider) this.weeklyEstimateClearedAt.set(provider, clearedAt);
+            }
           }
-          const cleared = await this.weeklyEstimateCoordinator.clear({ provider: quotaScope?.provider });
+          const cleared = await this.weeklyEstimateCoordinator.clear({ provider: quotaScope?.provider,
+            accountFingerprint: quotaScope?.accountFingerprint });
           if (cleared.status !== 'ready') throw new Error('weekly-estimate-clear-failed');
+        }
+        if (!quotaScope?.provider || quotaScope.provider === 'codex') {
+          this.officialQuotaEstimates = (this.officialQuotaEstimates ?? []).filter(entry =>
+            quotaScope?.accountFingerprint && (!entry.accountScopeKey ||
+              fingerprintForStableIdentity(this.quotaFingerprintSalt,'codex',
+                'official-account-scope-v1|'+entry.accountScopeKey)!==quotaScope.accountFingerprint));
         }
         this.quotaObservationStore = await this.quotaObservationRepository.clear(quotaScope ?? {});
         await this.clearLegacyQuotaMigrationInputs(quotaScope ?? {});
@@ -1954,6 +1985,10 @@ export class ClaudeCodeUsageExtension {
 
   private async clearCodexDerivedIndex(rebuild: boolean): Promise<void> {
     const generation = ++this.configurationGeneration;
+    this.officialQuotaGeneration = (this.officialQuotaGeneration ?? 0) + 1;
+    this.officialAccountEstimator?.reset();
+    this.officialQuotaSample = undefined;
+    this.officialQuotaStatus = 'unavailable';
     this.codexRefreshSuspensionDepth += 1;
     try {
       this.stopCodexWatching('settings-change');
@@ -2511,6 +2546,7 @@ export class ClaudeCodeUsageExtension {
       codexFileWatchSeconds:
         Number(s.get<string>('codex.fileWatchSeconds') ?? '30') || 0,
       codexOptimizationEnabled: s.get<boolean>('codex.optimization.enabled'),
+      codexOfficialQuotaEnabled: s.get<boolean>('codex.officialQuota.enabled') === true,
       statusBarProvider: s.get<'auto' | 'claude' | 'codex'>('statusBarProvider'),
       codexStatusMetric: s.get<'fresh' | 'processed' | 'output'>(
         'codex.statusMetric',
@@ -2581,6 +2617,12 @@ export class ClaudeCodeUsageExtension {
     const changed = this.codexSnapshotHome !== undefined;
     this.codexSnapshotHome = home;
     if (!changed) return;
+    this.officialQuotaGeneration = (this.officialQuotaGeneration ?? 0) + 1;
+    this.officialAccountEstimator?.reset();
+    this.officialQuotaSource = undefined;
+    this.officialQuotaSample = undefined;
+    this.officialQuotaEstimates = [];
+    this.officialQuotaStatus = 'unavailable';
     // A shared index checkpoint is not proof that a newly selected home owns
     // it. Wait for this provider's verified refresh before adopting it.
     this.codexSkipPersistedHydration = true;
@@ -3043,6 +3085,11 @@ export class ClaudeCodeUsageExtension {
       | 'profile-change'
     >,
   ): Promise<void> {
+    this.officialQuotaGeneration = (this.officialQuotaGeneration ?? 0) + 1;
+    this.officialAccountEstimator?.reset();
+    this.officialQuotaSample = undefined;
+    this.officialQuotaLastAttempt = 0;
+    this.officialQuotaStatus = 'unavailable';
     const active = [...this.activeQuotaNetworks.entries()];
     await Promise.all(active.map(async ([controller, operation]) => {
       const { lease, settled } = operation;
@@ -3291,6 +3338,9 @@ export class ClaudeCodeUsageExtension {
       this.syncProviderUiSafely(trigger);
     } finally {
       this.activeCodexRefreshes.delete(operation);
+      if (!calibration && trigger !== 'watch' && trigger !== 'pricing') {
+        void this.refreshOfficialCodexQuota(trigger);
+      }
     }
   }
 
@@ -3730,9 +3780,19 @@ export class ClaudeCodeUsageExtension {
     }
   }
 
+  private acceptOfficialQuotaIndexGeneration(value:number|null):void {
+    if(this.officialQuotaIndexGeneration!==undefined&&this.officialQuotaIndexGeneration!==value){
+      this.officialQuotaGeneration=(this.officialQuotaGeneration??0)+1;
+      this.officialAccountEstimator?.reset();this.officialQuotaSample=undefined;
+      this.officialQuotaStatus='unavailable';
+    }
+    this.officialQuotaIndexGeneration=value;
+  }
+
   private applyCodexSnapshot(snapshot: CodexProviderSnapshot, acceptedForAchievements = true): void {
     const config = this.getConfiguration();
     this.selectCodexSnapshotHome(this.codexHome(config));
+    this.acceptOfficialQuotaIndexGeneration(this.codexIndexGeneration(snapshot));
     if (!this.codexView) this.codexAchievementRevision = undefined;
     const nextView = buildCodexUsageView(snapshot);
     const capturedObservations = snapshot.weeklyValueInputs?.observations ?? [];
@@ -4916,6 +4976,102 @@ export class ClaudeCodeUsageExtension {
     return this.claudeQuotaPaceSource.project({enabled: true, usage: this.cache.usageLimits,
       observedAt, verifiedAccountFingerprint: signal
         ? fingerprintForStableIdentity(this.quotaFingerprintSalt, 'claude', signal) ?? null : null});
+  }
+
+  /** UI metadata only; no account/source HMAC or daemon output crosses this boundary. */
+  private officialQuotaPublicState(): {
+    status:'disabled'|'loading'|'ready'|'unavailable'|'source-mismatch';
+    usedPercent?:number;resetAt?:number;observedAt?:number;
+  } {
+    const sample=this.officialQuotaSample;
+    const current=sample&&sample.resetAt>Date.now()&&Date.now()-sample.observedAt<300_000;
+    return {status:sample&&!current?'unavailable':this.officialQuotaStatus,
+      ...(this.officialQuotaStatus==='ready'&&current?{usedPercent:sample.usedPercent,
+        resetAt:sample.resetAt,observedAt:sample.observedAt}:{})};
+  }
+
+  private weeklyEstimatePricingVersion():string {
+    const fetchedAt=getPricingLastFetched()?.time;
+    const version=fetchedAt===undefined?'v1':'v'+String(fetchedAt).padStart(16,'0').match(/.{4}/g)!.join('.');
+    return (getPricingBackend()==='anthropic'?'anthropic-':'openai-')+version;
+  }
+
+  /** Explicit opt-in reads the ALREADY RUNNING default local daemon only.
+   * No service start, credential file, auth RPC, separate timer or corpus scan.
+   */
+  private async refreshOfficialCodexQuota(trigger:RefreshTrigger):Promise<void> {
+    const config=this.getConfiguration();
+    if(this.disposed||this.localDataClearedRequiresReload||!config.codexEnabled||
+      !config.codexOfficialQuotaEnabled||!config.usageLimitTracking){
+      this.officialAccountEstimator?.reset();this.officialQuotaSample=undefined;
+      this.officialQuotaStatus='disabled';return;
+    }
+    if(!this.webviewProvider.isDashboardVisible?.()||this.windowActivity?.focused===false)return;
+    const home=this.codexHome(config),defaultHome=path.join(os.homedir(),'.codex');
+    if(path.resolve(home)!==path.resolve(defaultHome)||
+      (typeof vscode.env?.remoteName==='string'&&vscode.env.remoteName.length>0)){
+      this.officialAccountEstimator?.reset();this.officialQuotaSample=undefined;
+      this.officialQuotaStatus='source-mismatch';return;
+    }
+    if(this.officialQuotaPending)return this.officialQuotaPending;
+    const now=Date.now(),floor=trigger==='manual'?10_000:60_000;
+    if(now-(this.officialQuotaLastAttempt??0)<floor)return;
+    this.officialQuotaLastAttempt=now;
+    if(this.officialQuotaSource!==home){
+      this.officialAccountEstimator??=new CodexAccountEstimator();this.officialAccountEstimator.reset();
+      this.officialQuotaSource=home;this.officialQuotaEstimates=[];this.officialQuotaSample=undefined;
+    }
+    const generation=this.officialQuotaGeneration??0,configuration=this.configurationGeneration;
+    const controller=new AbortController();
+    const current=()=>!this.disposed&&!this.localDataClearedRequiresReload&&!controller.signal.aborted&&
+      generation===(this.officialQuotaGeneration??0)&&configuration===this.configurationGeneration&&
+      home===this.codexHome(this.getConfiguration())&&this.getConfiguration().codexOfficialQuotaEnabled===true;
+    const lease=this.resourceOwnership.register({kind:'network',capability:'quota',scope:'codex',creator:'codex-quota-client',
+      stopConditions:['settled','cancelled','window-blur','feature-disabled','extension-dispose','settings-change','profile-change'],boundedException:'none'});
+    let settled!:()=>void;const stopped=new Promise<void>(resolve=>{settled=resolve;});
+    this.activeQuotaNetworks.set(controller,{lease,settled:stopped});
+    this.officialQuotaStatus='loading';
+    const run=async()=>{
+      try{
+        let binary=this.officialQuotaBinary;
+        if(!binary){
+          const bundled='/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex';
+          binary=process.platform==='darwin'&&fs.existsSync(bundled)?bundled:'codex';
+        }
+        const sample=await this.officialQuotaReader({binary,source:home,machineSalt:this.quotaFingerprintSalt,signal:controller.signal});
+        if(!current())return;
+        if(!sample){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;
+          this.officialQuotaStatus='unavailable';return;}
+        const capture=codexQuotaCaptureFromOfficialSample(sample);
+        if(!capture){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;
+          this.officialQuotaStatus='unavailable';return;}
+        this.officialQuotaSample=sample;this.officialQuotaStatus='ready';
+        const view=this.codexView;
+        if(view?.weeklyValueInputs){
+          const estimate=this.officialAccountEstimator.observe(sample,{...view.weeklyValueInputs,
+            localHistoryComplete:view.currentManifestVerified===true&&view.coverage.complete&&view.coverage.identity.complete&&
+              view.periodCoverage.allTime.complete},this.weeklyEstimatePricingVersion());
+          if(estimate){
+            this.officialQuotaEstimates=[...this.officialQuotaEstimates.filter(row=>
+                row.accountScopeKey!==estimate.accountScopeKey||Math.abs(row.resetAt-estimate.resetAt)>300_000),
+              {...estimate,pricingVersion:this.weeklyEstimatePricingVersion()}]
+              .sort((a,b)=>b.observedAt-a.observedAt).slice(0,64);
+          }
+        }else this.officialAccountEstimator.reset();
+        this.quotaObservationStore=await this.quotaObservationRepository.append([capture]);
+        if(!current())return;
+        if(sample.observedAt>(this.weeklyEstimateClearedAt.get('codex')??Infinity))this.weeklyEstimateClearedAt.delete('codex');
+      }catch{
+        if(current()){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;
+          this.officialQuotaStatus='unavailable';}
+      }finally{
+        this.activeQuotaNetworks.delete(controller);settled();
+        if(lease.active)await lease.stop(controller.signal.aborted?'cancelled':'settled',()=>undefined);
+        if(current())this.webviewProvider.refreshWeeklyEstimates?.(trigger==='manual');
+      }
+    };
+    const pending=run();this.officialQuotaPending=pending;
+    try{await pending;}finally{if(this.officialQuotaPending===pending)this.officialQuotaPending=undefined;}
   }
 
   private async maybeFetchUsageLimits(config: ExtensionConfig): Promise<ClaudeApiUsageResponse | null> {

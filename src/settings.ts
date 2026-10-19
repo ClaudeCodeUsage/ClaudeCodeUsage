@@ -343,6 +343,16 @@ export const SETTINGS: SettingDef[] = [
     providers: ['codex'],
   },
   {
+    key: 'codex.officialQuota.enabled',
+    type: 'boolean',
+    default: false,
+    storage: 'state',
+    group: 'providers',
+    label: 'Read official Codex quota',
+    help: 'Off by default. Connect to an already running official Codex daemon. Start official Codex yourself; this extension never starts it automatically.',
+    providers: ['codex'],
+  },
+  {
     key: 'codex.optimization.enabled',
     type: 'boolean',
     default: true,

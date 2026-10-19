@@ -84,15 +84,13 @@ nochmals addiert werden. Angezeigte API-Äquivalentkosten sind Schätzungen
 anhand bekannter Modellpreise, **keine Rechnung oder Abo-Belastung**.
 Claude- und Codex-Kosten oder Quoten werden nicht zusammengerechnet.
 Fehlende oder noch nicht indizierte Protokolle können die Anzeige verkleinern;
-die Codex-Quote bleibt die letzte lokale Beobachtung.
+die Codex-Quote bleibt standardmäßig die letzte lokale Beobachtung.
 
 
-Wöchentliche Balken zeigen geschätzten Verbrauch blau und geschätzten Rest grün aus derselben
-Momentaufnahme zum Beobachtungszeitpunkt. Grobe Werte bleiben als unsicher gekennzeichnet;
-überlappende reale Fenster werden nicht als Kontolimit addiert. Tabellen behalten den tatsächlichen
-lokalen Verbrauch, kennzeichnen Schätzspalten im Kopf und lassen ≈ in Betragszellen weg.
-Das Archiv behält Originalaufnahmen, kein Live-Guthaben.
-Siehe [Lokale Daten und Datenschutz](LOCAL-DATA.md).
+- **Optionale Codex-Quote und grobe Schätzungen** — `codex.officialQuota.enabled` ist standardmäßig aus.
+  Ein bereits laufender lokaler Daemon liefert Werte; Momentaufnahmen zum Beobachtungszeitpunkt bleiben
+  mit lokalen Nummern im Archiv. Quotenidentität beweist keine Nutzungszuordnung; der Daemon kann OpenAI
+  kontaktieren. Siehe [Lokale Daten und Datenschutz](LOCAL-DATA.md).
 
 Ältere Zeiträume ohne Beobachtung zeigen nur Verbrauch im Siebentageraster, ohne verwertbaren Reset Montag bis Montag UTC; unbeobachtete Resets werden nicht rekonstruiert. Quotenprozente behalten Beobachtungszeitpunkt und ursprünglichen Reset. Der Bereich bleibt standardmäßig an (`showWeeklyEquivalentValue`).
 

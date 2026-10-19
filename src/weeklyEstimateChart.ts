@@ -4,6 +4,7 @@ import type { WeeklyValuePoint } from './weeklyValue';
 
 export interface WeeklyEstimateChartPoint extends WeeklyValuePoint {
   asOfEstimate: boolean;
+  accountNumber?: number;
 }
 
 /** A presentation projection, never an update to the unique usage ledger or archive. */
@@ -11,7 +12,7 @@ export function projectWeeklyEstimateChart(
   provider: UsageProvider,
   usage: readonly WeeklyValuePoint[],
   snapshots: readonly LocalWeeklyEstimate[],
-  options: { now?: number; limit?: number } = {},
+  options: { now?: number; limit?: number; activeAccountNumber?: number; accountIdentityAvailable?: boolean } = {},
 ): WeeklyEstimateChartPoint[] {
   const now=options.now??Date.now();
   if(!Number.isFinite(now))return [];
@@ -23,22 +24,26 @@ export function projectWeeklyEstimateChart(
   const valid=all.filter(entry=>entry.fullEquivalentUsd!==null&&Number.isFinite(entry.fullEquivalentUsd)&&
     entry.fullEquivalentUsd>0&&entry.unusedEquivalentUsd!==null&&Number.isFinite(entry.unusedEquivalentUsd)&&
     entry.unusedEquivalentUsd>=0&&entry.unusedEquivalentUsd<=entry.fullEquivalentUsd);
-  const rank=(entry:LocalWeeklyEstimate)=>entry.method==='paired-delta'?3:entry.method==='rough-prefix-v2'?2:1;
+  const rank=(entry:LocalWeeklyEstimate)=>entry.method==='account-delta-v1'?5:entry.method==='series-prefix-v1'?4:
+    entry.method==='paired-delta'?3:entry.method==='rough-prefix-v2'?2:1;
   valid.sort((a,b)=>b.observedAt-a.observedAt||rank(b)-rank(a)||b.estimatedAt-a.estimatedAt);
   const chosen:LocalWeeklyEstimate[]=[];
   for(const entry of valid){
     // Compare to the selected representative, not a chain of neighboring resets.
-    if(!chosen.some(other=>Math.abs(other.resetAt-entry.resetAt)<=300_000))chosen.push(entry);
+    if(!chosen.some(other=>Math.abs(other.resetAt-entry.resetAt)<=300_000&&other.accountNumber===entry.accountNumber))chosen.push(entry);
   }
   const estimated:WeeklyEstimateChartPoint[]=chosen.map(entry=>({
     provider,seriesKey:'observed-window',windowStart:entry.windowStart,resetAt:entry.resetAt,
-    current:entry.observedAt===latestObserved&&entry.resetAt>now,
+    current:entry.observedAt===latestObserved&&entry.resetAt>now&&
+      (entry.accountNumber===undefined||(options.accountIdentityAvailable===true&&
+        options.activeAccountNumber===entry.accountNumber)),
     usedEquivalentUsd:entry.fullEquivalentUsd!-entry.unusedEquivalentUsd!,
     fullEquivalentUsd:entry.fullEquivalentUsd,unusedEquivalentUsd:entry.unusedEquivalentUsd,
     utilizationPercent:entry.utilizationPercent,pricingCoverage:entry.pricingCoverage,
     observationGapMs:Math.max(0,now-entry.observedAt),confidence:'low',basis:'quota-observation',
     usageAvailable:true,boundaryUncertain:entry.flags.includes('boundary-uncertain'),
     observedAt:entry.observedAt,observedResetAt:entry.resetAt,asOfEstimate:true,
+    ...(entry.accountNumber===undefined?{}:{accountNumber:entry.accountNumber}),
   }));
   const fallback=usage.filter(point=>point.provider===provider&&
     !chosen.some(entry=>point.windowStart<entry.resetAt&&entry.windowStart<point.resetAt))

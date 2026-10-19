@@ -633,6 +633,7 @@ exports.renderHarness = async function renderHarness({
   commandAfterReset = false,
   quotaPace = false,
   quotaPaceState = 'fresh',
+  weeklyAccountSession = '00000000000000000000000000000000',
   nativeResources = false,
 } = {}) {
   vscodeHost.window.createWebviewPanel = () => createHarnessPanel(nativeResources);
@@ -658,7 +659,10 @@ exports.renderHarness = async function renderHarness({
         : fixture === 'unknown-models'
           ? unknownModelCodexWebviewFixture()
           : codexWebviewFixture();
-    const snapshot = fixture === 'weekly-rough-partial'
+    const accountFixture = fixture === 'weekly-accounts'
+      ? await require('./weekly-account-fixture.cjs').weeklyAccountFixture(weeklyRoughPartialSnapshot(baseSnapshot), CODEX_WEBVIEW_NOW)
+      : undefined;
+    const snapshot = accountFixture ? accountFixture.snapshot : fixture === 'weekly-rough-partial'
       ? weeklyRoughPartialSnapshot(baseSnapshot)
       : fixture === 'weekly-usage-only'
       ? {
@@ -712,6 +716,10 @@ exports.renderHarness = async function renderHarness({
       achievementNotices,
       quotaPace,
     });
+    if (accountFixture) {
+      provider.settings = require('./weekly-account-fixture.cjs').weeklyAccountSettings(weeklyAccountSession, provider.settings);
+      provider.setWeeklyEstimateProjector(accountFixture.projector(provider.settings.get('codex.officialQuota.enabled')));
+    }
     if (!codexOnly && fixture !== 'achievement-calendar-subset') addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
     if (fixture === 'achievement-token-stages') {
       // Synthetic materialized Token history for presentation, not a calendar

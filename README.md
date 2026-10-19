@@ -320,12 +320,10 @@ drill-down. See [CHANGELOG.md](CHANGELOG.md) for patch-by-patch details.
 ### Weekly estimates and provider boundaries
 
 
-Weekly charts show blue estimated used and green estimated unused from the same
-observation snapshot. Separate rough as-of values retain low-confidence labels;
-overlapping real windows are not additive account quotas. Tables keep actual
-local usage, identify estimates in column headers and omit ≈ from amount cells.
-The archive keeps original snapshots, not live balances.
-See [local data and privacy](LOCAL-DATA.md).
+- **Optional Codex quota and rough estimates** — `codex.officialQuota.enabled` defaults off.
+  Read an already-running local daemon; locally numbered as-of snapshots stay in the archive.
+  Quota identity does not prove usage ownership, and daemon reads may contact OpenAI.
+  See [local data and privacy](LOCAL-DATA.md).
 
 Older usage-only periods use a seven-day display grid, with Monday-to-Monday UTC fallback; unobserved resets are not reconstructed. Quota percentages retain their original observation time and reset. The panel stays on by default (`showWeeklyEquivalentValue`).
 
@@ -627,7 +625,7 @@ remote boundaries are in [Local data and privacy](LOCAL-DATA.md) ([简体中文]
 |---|---|---|---|
 | Claude/Codex source logs | Provider-owned and read-only; never copied wholesale | None by default | Managed by the provider tools, not deleted by this extension |
 | Codex derived index | Bounded pseudonymous numeric/structural aggregates, isolated by source directory, profile salt and timezone | None | Rebuild the active index; Clear All removes every exact index family in this extension storage |
-| Quota observations | Bounded anonymous window facts; no raw account ID | Claude quota fetch only when enabled; Codex evidence stays local | Clear by provider/account epoch or all |
+| Quota observations | Bounded anonymous window facts; no raw account ID | Enabled Claude lookup or optional Codex daemon read; the latter may contact OpenAI | Clear by provider/account epoch or all |
 | UI/share preferences | Tab/filter state plus optional title/range and GitHub destination strings | Publish only after exact explicit confirmation | Reset UI or sharing preferences independently |
 | Advice data/key | Bounded aggregate evidence; key only in SecretStorage | Exact previewed request only after separate Send | Clear advice data and key independently |
 

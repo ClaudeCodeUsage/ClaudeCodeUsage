@@ -1,6 +1,7 @@
 import { buildLocalWeeklyEstimates, LocalWeeklyEstimate } from './weeklyEstimate';
 import { WeeklyEstimateArchive, WeeklyEstimateArchiveResult, WeeklyEstimateClearScope,
-  WeeklyEstimateInput, WeeklyEstimateProvider, WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES } from './weeklyEstimateArchive';
+  WeeklyEstimateInput, WeeklyEstimateProvider, WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES,
+  weeklyEstimateAccountFingerprint } from './weeklyEstimateArchive';
 import type { WeeklyValueInputs } from './weeklyValue';
 
 export interface WeeklyEstimateDisplayEntry extends LocalWeeklyEstimate {
@@ -8,44 +9,59 @@ export interface WeeklyEstimateDisplayEntry extends LocalWeeklyEstimate {
   pricingVersion?: string;
 }
 export interface WeeklyEstimateProjection {
-  entries: WeeklyEstimateDisplayEntry[];
+  entries: Omit<WeeklyEstimateDisplayEntry, 'accountScopeKey'>[];
   status: 'loading' | 'ready' | 'full' | 'unavailable';
+  activeAccountNumber?: number;
 }
-export interface WeeklyEstimateProjectOptions { sourceNamespace: string; pricingVersion: string; now: number }
-type Evidence = WeeklyEstimateDisplayEntry & { calibrationStart?: number };
+export interface WeeklyEstimateProjectOptions {
+  sourceNamespace: string; pricingVersion: string; now: number;
+  accountEstimates?: readonly WeeklyEstimateDisplayEntry[];
+  activeAccountScopeKey?: string;
+}
+interface InternalEntry extends WeeklyEstimateDisplayEntry { accountScopeKey?: string }
+type Evidence = InternalEntry;
 type Memo = {
   usage: WeeklyValueInputs['usage']; observations: WeeklyValueInputs['observations'];
   localHistoryComplete: WeeklyValueInputs['localHistoryComplete'];
-  pricingVersion: string; minute: number; live: WeeklyEstimateDisplayEntry[];
+  pricingVersion: string; minute: number; live: InternalEntry[];
+  accountEstimates?: readonly WeeklyEstimateDisplayEntry[]; activeAccountScopeKey?: string;
   revision: number; projection: WeeklyEstimateProjection;
 };
 type State = {
   provider: WeeklyEstimateProvider; source: string; archive?: WeeklyEstimateArchive;
-  saved: WeeklyEstimateDisplayEntry[]; status: WeeklyEstimateProjection['status'];
+  saved: InternalEntry[]; status: WeeklyEstimateProjection['status'];
   loaded: boolean; scheduled: boolean; revision: number; memo?: Memo;
   pending: Map<string, WeeklyEstimateInput>;
   acknowledged: Set<string>;
+  accountNumbers: Map<string, number>;
   epoch: number;
   queueFull?: boolean;
   generation: number | null;
   clearedThrough?: number;
+  accountClearedThrough: Record<string, number>;
 };
 const FLAGS = ['account-unattributed', 'boundary-uncertain', 'partial-pricing',
   'stale-observation', 'counter-change', 'reconstructed', 'partial-history'] as const;
+const HEX = /^[a-f0-9]{64}$/;
 function bounded(value: unknown, max = 1e12): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= max;
 }
 function time(value: unknown): value is number { return bounded(value, 8_640_000_000_000_000) && Number.isSafeInteger(value); }
 
-/** Copy numeric DTOs and public pricing versions. Archive/account keys and unknown fields never reach UI. */
-function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimateProvider): WeeklyEstimateDisplayEntry | undefined {
+/** Internal fixed-field copy. The account HMAC is stripped only at the public projection boundary. */
+function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimateProvider): InternalEntry | undefined {
   if (value.provider !== provider || !time(value.windowStart) || !time(value.resetAt) || value.windowStart >= value.resetAt ||
     !time(value.observedAt) || !time(value.estimatedAt) || !bounded(value.usedEquivalentUsd) ||
     !(value.fullEquivalentUsd === null || bounded(value.fullEquivalentUsd)) ||
     !(value.unusedEquivalentUsd === null || bounded(value.unusedEquivalentUsd)) ||
     !(value.utilizationPercent === null || bounded(value.utilizationPercent, 100)) || !bounded(value.pricingCoverage, 1) ||
-    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window'].includes(value.method) ||
+    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window', 'series-prefix-v1', 'account-delta-v1'].includes(value.method) ||
     !Array.isArray(value.flags) || value.flags.length > 12 || !value.flags.every(flag => FLAGS.includes(flag))) return undefined;
+  if (value.accountScopeKey !== undefined && (typeof value.accountScopeKey !== 'string' || !HEX.test(value.accountScopeKey))) return undefined;
+  if (value.accountNumber !== undefined && (value.accountScopeKey === undefined || !bounded(value.accountNumber) ||
+    !Number.isSafeInteger(value.accountNumber) || value.accountNumber < 1)) return undefined;
+  if (value.unlinkedEquivalentUsd !== undefined && !bounded(value.unlinkedEquivalentUsd)) return undefined;
+  if (value.linkedSourceCount !== undefined && (!bounded(value.linkedSourceCount) || !Number.isSafeInteger(value.linkedSourceCount))) return undefined;
   if (value.pricingVersion !== undefined && (typeof value.pricingVersion !== 'string' || value.pricingVersion.length > 32 ||
     !/^(?:[a-z]{1,16}-){0,2}v\d{1,4}(?:\.\d{1,4}){0,3}$/.test(value.pricingVersion))) return undefined;
   if (value.calibrationStart !== undefined && (!time(value.calibrationStart) || value.calibrationStart < value.windowStart ||
@@ -60,18 +76,22 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
     flags: [...value.flags],
     ...(value.pricingVersion === undefined ? {} : { pricingVersion: value.pricingVersion }),
     ...(value.calibrationStart === undefined ? {} : { calibrationStart: value.calibrationStart }),
+    ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey }),
+    ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber }),
+    ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd }),
+    ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount }),
     ...(range === undefined ? {} : { fullRange: { lower: range.lower, upper: range.upper } }) };
 }
-function full(value: LocalWeeklyEstimate): boolean {
+function full(value: InternalEntry): boolean {
   return value.fullEquivalentUsd !== null && value.fullEquivalentUsd > 0 && value.unusedEquivalentUsd !== null &&
-    (value.method === 'rough-prefix-v2' || (value.pricingCoverage === 1 &&
+    (['rough-prefix-v2', 'series-prefix-v1', 'account-delta-v1'].includes(value.method) || (value.pricingCoverage === 1 &&
       !value.flags.some(flag => flag === 'boundary-uncertain' || flag === 'counter-change' ||
         flag === 'partial-pricing' || flag === 'partial-history')));
 }
-function merge(saved: WeeklyEstimateDisplayEntry[], live: WeeklyEstimateDisplayEntry[]): WeeklyEstimateDisplayEntry[] {
-  const rows = new Map<string, WeeklyEstimateDisplayEntry>();
+function merge(saved: InternalEntry[], live: InternalEntry[]): InternalEntry[] {
+  const rows = new Map<string, InternalEntry>();
   for (const value of [...saved, ...live]) {
-    const key = `${value.resetAt}:${value.observedAt}:${value.method}`;
+    const key = JSON.stringify([value.provider, value.accountScopeKey ?? null, value.resetAt, value.observedAt, value.method]);
     const previous = rows.get(key);
     // A newly withheld full estimate cannot erase a saved, valid as-of snapshot.
     if (previous?.fullEquivalentUsd !== null && previous !== undefined && value.fullEquivalentUsd === null) {
@@ -84,14 +104,21 @@ function merge(saved: WeeklyEstimateDisplayEntry[], live: WeeklyEstimateDisplayE
     b.estimatedAt - a.estimatedAt || a.method.localeCompare(b.method)).slice(0, 48)
     .map(value => copy(value, value.provider)!);
 }
-function signature(state: State): string { return JSON.stringify([state.status, state.saved, state.clearedThrough]); }
+function signature(state: State): string {
+  return JSON.stringify([state.status, state.saved, state.clearedThrough, state.accountClearedThrough, [...state.accountNumbers]]);
+}
 function semanticKey(value: WeeklyEstimateInput | Evidence): string {
-  const { estimatedAt: _estimatedAt, flags, ...fields } = copy(value, value.provider)!;
+  const { estimatedAt: _estimatedAt, accountNumber: _number, flags, ...fields } = copy(value, value.provider)!;
   // Clock passage changes display staleness, not the retained measurement or pricing evidence.
   return JSON.stringify({ ...fields, flags: FLAGS.filter(flag => flag !== 'stale-observation' && flags.includes(flag)) });
 }
-function visible(state: State, entries: WeeklyEstimateDisplayEntry[]): WeeklyEstimateDisplayEntry[] {
-  return entries.filter(entry => state.clearedThrough === undefined || entry.observedAt > state.clearedThrough);
+function cleared(state: State, entry: InternalEntry | WeeklyEstimateInput, salt: string): boolean {
+  const fingerprint = weeklyEstimateAccountFingerprint(salt, entry.provider, entry.accountScopeKey);
+  return entry.observedAt <= Math.max(state.clearedThrough ?? -1,
+    fingerprint === undefined ? -1 : state.accountClearedThrough[fingerprint] ?? -1);
+}
+function visible(state: State, entries: InternalEntry[], salt: string): InternalEntry[] {
+  return entries.filter(entry => !cleared(state, entry, salt));
 }
 function unavailable(): WeeklyEstimateArchiveResult {
   return { status: 'unavailable', entries: [], totalEntries: null, totalEntriesByProvider: null, generation: null, clearedThrough: {} };
@@ -117,6 +144,31 @@ export class WeeklyEstimateCoordinator {
   private notify(): void {
     if (!this.disposed) { try { this.onChanged?.(); } catch { /* Rendering cannot break persistence. */ } }
   }
+  private accountNumber(state: State, key: string | undefined): number | undefined {
+    if (key === undefined || !HEX.test(key)) return undefined;
+    const existing = state.accountNumbers.get(key);
+    if (existing !== undefined) return existing;
+    const next = Math.max(0, ...state.accountNumbers.values()) + 1;
+    if (state.accountNumbers.size >= WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES || next > 1e12) {
+      state.queueFull = true;
+      state.status = 'full';
+      return undefined;
+    }
+    state.accountNumbers.set(key, next);
+    return next;
+  }
+  private projection(state: State, live: InternalEntry[], activeKey?: string): WeeklyEstimateProjection {
+    const entries = merge(state.saved, visible(state, live, this.salt)).map(entry => {
+      const { accountScopeKey, accountNumber: _hint, ...publicEntry } = entry;
+      const accountNumber = full(entry) ? this.accountNumber(state, accountScopeKey)
+        : accountScopeKey === undefined ? undefined : state.accountNumbers.get(accountScopeKey);
+      return { ...publicEntry, ...(accountNumber === undefined ? {} : { accountNumber }) };
+    });
+    // Identity alone must not reserve a number that the archive cannot honor.
+    const activeAccountNumber = state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey)
+      ? state.accountNumbers.get(activeKey) : undefined;
+    return { entries, status: state.status, ...(activeAccountNumber === undefined ? {} : { activeAccountNumber }) };
+  }
   private acknowledge(state: State, entry: WeeklyEstimateInput): void {
     const key = semanticKey(entry);
     if (!state.acknowledged.has(key)) {
@@ -134,12 +186,22 @@ export class WeeklyEstimateCoordinator {
       if (state.generation !== result.generation) state.acknowledged.clear();
       state.generation = result.generation;
       state.clearedThrough = result.clearedThrough[state.provider];
-      state.saved = result.entries.map(entry => copy(entry, state.provider)).filter((entry): entry is WeeklyEstimateDisplayEntry => entry !== undefined);
+      state.accountClearedThrough = result.accountClearedThrough?.[state.provider] ?? {};
+      const numbers = new Map<string, number>();
       for (const entry of result.entries) {
-        if (entry.provider === state.provider && entry.accountScopeKey === undefined) this.acknowledge(state, entry);
+        if (entry.accountScopeKey !== undefined && entry.accountNumber !== undefined) numbers.set(entry.accountScopeKey, entry.accountNumber);
+      }
+      // Durable ordinals win over temporary labels, including labels allocated before the first load.
+      const temporaryKeys = [...state.accountNumbers.keys()];
+      state.accountNumbers = numbers;
+      for (const entry of result.entries) this.accountNumber(state, entry.accountScopeKey);
+      for (const key of temporaryKeys) this.accountNumber(state, key);
+      state.saved = result.entries.map(entry => copy(entry, state.provider)).filter((entry): entry is InternalEntry => entry !== undefined);
+      for (const entry of result.entries) {
+        if (entry.provider === state.provider) this.acknowledge(state, entry);
       }
       for (const [key, entry] of state.pending) {
-        if (state.acknowledged.has(key) || (state.clearedThrough !== undefined && entry.observedAt <= state.clearedThrough)) state.pending.delete(key);
+        if (state.acknowledged.has(key) || cleared(state, entry, this.salt)) state.pending.delete(key);
       }
     }
   }
@@ -163,7 +225,7 @@ export class WeeklyEstimateCoordinator {
         for (const entry of pending) {
           if (!this.retained(state) || this.blocked(state)) return;
           if (state.acknowledged.has(semanticKey(entry))) continue;
-          if (state.generation === null || (state.clearedThrough !== undefined && entry.observedAt <= state.clearedThrough)) continue;
+          if (state.generation === null || cleared(state, entry, this.salt)) continue;
           let result = await state.archive!.record(entry, { expectedGeneration: state.generation });
           if (!this.retained(state) || this.blocked(state)) return;
           this.apply(state, result);
@@ -171,7 +233,7 @@ export class WeeklyEstimateCoordinator {
           // One retry is safe only against the newly read durable cutoff/generation, never an old receipt.
           if (result.outcome === 'stale-generation' && state.generation !== null &&
             !state.acknowledged.has(semanticKey(entry)) &&
-            (state.clearedThrough === undefined || entry.observedAt > state.clearedThrough)) {
+            !cleared(state, entry, this.salt)) {
             result = await state.archive!.record(entry, { expectedGeneration: state.generation });
             if (!this.retained(state) || this.blocked(state)) return;
             this.apply(state, result);
@@ -199,8 +261,8 @@ export class WeeklyEstimateCoordinator {
     let state = this.states.get(provider);
     if (!state || state.source !== options.sourceNamespace) {
       state = { provider, source: options.sourceNamespace, saved: [], status: 'loading', loaded: false,
-        scheduled: false, revision: 0, pending: new Map(), acknowledged: new Set(),
-        epoch: this.epochs.get(provider) ?? 0, generation: null };
+        scheduled: false, revision: 0, pending: new Map(), acknowledged: new Set(), accountNumbers: new Map(),
+        epoch: this.epochs.get(provider) ?? 0, generation: null, accountClearedThrough: {} };
       try { state.archive = new WeeklyEstimateArchive(this.filePath, this.salt, options.sourceNamespace); }
       catch { state.status = 'unavailable'; }
       this.states.set(provider, state);
@@ -208,18 +270,26 @@ export class WeeklyEstimateCoordinator {
     const minute = Math.floor(options.now / 60_000);
     let memo = state.memo;
     if (!memo || memo.usage !== inputs.usage || memo.observations !== inputs.observations ||
-      memo.localHistoryComplete !== inputs.localHistoryComplete || memo.pricingVersion !== options.pricingVersion || memo.minute !== minute) {
-      const live = buildLocalWeeklyEstimates(provider, inputs, { now: options.now, limit: 48 })
-        .map(entry => copy({ ...entry, pricingVersion: options.pricingVersion }, provider))
-        .filter((entry): entry is WeeklyEstimateDisplayEntry => entry !== undefined);
+      memo.localHistoryComplete !== inputs.localHistoryComplete || memo.pricingVersion !== options.pricingVersion || memo.minute !== minute ||
+      memo.accountEstimates !== options.accountEstimates || memo.activeAccountScopeKey !== options.activeAccountScopeKey) {
+      const produced = buildLocalWeeklyEstimates(provider, inputs, { now: options.now, limit: 48 })
+        .map(entry => ({ ...entry, pricingVersion: options.pricingVersion }));
+      // Account estimates freeze their USD and pricing evidence at capture. Only unstamped
+      // legacy callers inherit the current version; a present invalid version fails copy().
+      const accounts = provider === 'codex' ? (options.accountEstimates ?? []).map(entry => ({
+        ...entry, pricingVersion: entry.pricingVersion === undefined ? options.pricingVersion : entry.pricingVersion,
+      })) : [];
+      const live = [...produced, ...accounts]
+        .map(entry => copy(entry, provider))
+        .filter((entry): entry is InternalEntry => entry !== undefined);
       memo = { usage: inputs.usage, observations: inputs.observations, localHistoryComplete: inputs.localHistoryComplete,
-        pricingVersion: options.pricingVersion,
-        minute, live, revision: state.revision, projection: { entries: merge(state.saved, visible(state, live)), status: state.status } };
+        pricingVersion: options.pricingVersion, accountEstimates: options.accountEstimates, activeAccountScopeKey: options.activeAccountScopeKey,
+        minute, live, revision: state.revision, projection: this.projection(state, live, options.activeAccountScopeKey) };
       state.memo = memo;
       if (!this.blocked(state) && state.archive) {
         for (const entry of live) {
-          if (!full(entry) || (state.clearedThrough !== undefined && entry.observedAt <= state.clearedThrough)) continue;
-          const dto: WeeklyEstimateInput = { ...copy(entry, provider)!, pricingVersion: options.pricingVersion };
+          if (!full(entry) || cleared(state, entry, this.salt)) continue;
+          const dto: WeeklyEstimateInput = { ...copy(entry, provider)!, pricingVersion: entry.pricingVersion ?? options.pricingVersion };
           const key = semanticKey(dto);
           if (state.acknowledged.has(key) || state.pending.has(key)) continue;
           if (state.pending.size < WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES) state.pending.set(key, dto);
@@ -228,7 +298,7 @@ export class WeeklyEstimateCoordinator {
         this.schedule(state);
       }
     } else if (memo.revision !== state.revision) {
-      memo.projection = { entries: merge(state.saved, visible(state, memo.live)), status: state.status };
+      memo.projection = this.projection(state, memo.live, options.activeAccountScopeKey);
       memo.revision = state.revision;
     }
     return memo.projection;
@@ -243,6 +313,33 @@ export class WeeklyEstimateCoordinator {
   async clear(scope: WeeklyEstimateClearScope = {}): Promise<WeeklyEstimateArchiveResult> {
     if (this.disposed) return unavailable();
     const providers: WeeklyEstimateProvider[] = scope.provider === undefined ? ['claude', 'codex'] : [scope.provider];
+    if (scope.accountFingerprint !== undefined) {
+      // Drain all existing writers before deleting this account. Unlike provider/all clear,
+      // unrelated account and unbound queues must retain their state and epoch.
+      this.clearing++;
+      const run = async (): Promise<WeeklyEstimateArchiveResult> => {
+        if (this.disposed) return unavailable();
+        try {
+          const result = await new WeeklyEstimateArchive(this.filePath, this.salt, 'clear').clear({ ...scope, allSources: true });
+          if (result.status === 'ready' || result.status === 'full') {
+            for (const provider of providers) {
+              const state = this.states.get(provider);
+              if (!state?.archive || !this.active(state) || this.blocked(state)) continue;
+              const loaded = await state.archive.load();
+              if (!this.active(state) || this.blocked(state)) continue;
+              this.apply(state, loaded);
+              state.loaded = loaded.status === 'ready' || loaded.status === 'full';
+              state.revision++;
+            }
+          }
+          return result;
+        } catch { return unavailable(); }
+      };
+      const pending = this.tail.then(run, run);
+      this.tail = pending.then(() => undefined, () => undefined);
+      try { return await pending; }
+      finally { this.clearing--; if (!this.clearing) this.notify(); }
+    }
     this.clearing++;
     for (const provider of providers) {
       this.clearCounts.set(provider, (this.clearCounts.get(provider) ?? 0) + 1);

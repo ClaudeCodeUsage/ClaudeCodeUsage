@@ -6,6 +6,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
+### Added
+- **Optional official Codex quota** — default-off reads use an already-running
+  local daemon. Rough account-numbered as-of estimates remain local proxies,
+  distinct from source-linked historical estimates and primary usage totals.
+  The daemon may contact OpenAI and refresh authentication; the extension never
+  starts it or reads Codex credentials. Older readers may reject the added
+  quota source enum and archive methods/fields.
+
 ### Fixed
 - **Weekly allowance chart and labels** — show estimated used and unused from
   one observation snapshot, with total height matching the existing estimate.

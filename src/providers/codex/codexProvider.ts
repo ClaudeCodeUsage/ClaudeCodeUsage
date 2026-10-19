@@ -227,6 +227,15 @@ function codexWeeklyValueInputs(
   for (const file of files) {
     const sourceKey = file.fileKey;
     fileHistory.push(...(file.quotaHistory ?? []));
+    // Retain the existing per-file sample's runtime join. Flattened global
+    // history has no safe way to reconstruct this link, and it is NOT identity.
+    for (const observation of weeklyQuotaObservationsFromCodexHistory(file.quotaHistory ?? [])) {
+      const identity=[observation.observedAt,observation.resetAt,observation.usedPercent,sourceKey].join('|');
+      if (!seenObservations.has(identity)) {
+        seenObservations.add(identity);
+        currentObservations.push({...observation,sourceKey});
+      }
+    }
     for (const snapshot of [
       ...Object.values(file.limits ?? {}),
       ...(file.limit ? [file.limit] : []),

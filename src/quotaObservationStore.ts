@@ -35,6 +35,7 @@ export type QuotaAccountAttribution =
   | 'unattributed';
 export type QuotaObservationSource =
   | 'claude-official-api'
+  | 'codex-official-api'
   | 'codex-local-structured-event';
 export type QuotaEvidenceConfidence = 'high' | 'medium' | 'low';
 export type QuotaCaptureReason =
@@ -156,6 +157,7 @@ const ATTRIBUTIONS = new Set<QuotaAccountAttribution>([
 ]);
 const SOURCES = new Set<QuotaObservationSource>([
   'claude-official-api',
+  'codex-official-api',
   'codex-local-structured-event',
 ]);
 const CONFIDENCES = new Set<QuotaEvidenceConfidence>(['high', 'medium', 'low']);
@@ -576,7 +578,7 @@ export function mergeQuotaCaptures(
           capture.stableIdentitySignal as string,
         );
     const previous = latestBefore(observations, capture, stableFingerprint);
-    // Codex does not expose a safe stable account identity. Its reset windows
+    // Local Codex logs do not expose a safe stable account identity. Their reset windows
     // intentionally use separate unattributed epochs, but a resetAt/window
     // transition still remains useful low-confidence reset evidence. Consult
     // the preceding provider-period observation only for boundary detection;
@@ -1093,6 +1095,44 @@ export function claudeQuotaCapturesFromUsage(
       flags: Number.isFinite(resetAt) && resetAt > 0 ? [] : ['approximate-boundary'],
     };
   });
+}
+
+/** Copy only the daemon sample's numeric checkpoint and already-pseudonymous
+ * account scope. This does not attribute local usage to the official account. */
+export function codexQuotaCaptureFromOfficialSample(sample: {
+  accountScopeKey: string;
+  observedAt: number;
+  resetAt: number;
+  usedPercent: number;
+}): QuotaCapture | null {
+  if (!sample || typeof sample !== 'object' || Array.isArray(sample)) return null;
+  try {
+    const { accountScopeKey, observedAt, resetAt, usedPercent } = sample;
+    if (
+      typeof accountScopeKey !== 'string' || accountScopeKey.length !== 64 ||
+      !/^[a-f0-9]{64}$/.test(accountScopeKey) ||
+      !Number.isSafeInteger(observedAt) || observedAt <= 0 ||
+      !Number.isSafeInteger(resetAt) || resetAt <= observedAt ||
+      observedAt < resetAt - 7 * DAY_MS ||
+      !Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100
+    ) return null;
+    return {
+      provider: 'codex',
+      stableIdentitySignal: 'official-account-scope-v1|' + accountScopeKey,
+      accountAttribution: 'verified-local-signal',
+      observedAt,
+      periodType: 'seven-day',
+      usedFraction: usedPercent / 100,
+      resetAt,
+      source: 'codex-official-api',
+      sourceWindowId: 'codex|weekly',
+      confidence: 'high',
+      captureReason: 'refresh',
+      flags: [],
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function codexQuotaCapturesFromWeeklyObservations(

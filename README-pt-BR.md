@@ -78,14 +78,13 @@ raciocínio já fazem parte da saída. Não some essas parcelas outra vez. O
 **custo equivalente de API** é apenas uma estimativa com preços conhecidos,
 não uma fatura nem cobrança da assinatura. Custos e limites de Claude e Codex
 não são somados entre si. Registros ausentes ou ainda não indexados podem
-reduzir os totais mostrados; o limite do Codex é a última observação local.
+reduzir os totais mostrados; por padrão, o limite do Codex é a última observação local.
 
 
-Os gráficos semanais mostram uso estimado em azul e saldo não utilizado estimado em verde
-do mesmo snapshot no momento da observação. Estimativas aproximadas mantêm o aviso de baixa confiança;
-janelas reais sobrepostas não são somadas como cota da conta. As tabelas preservam o uso local real,
-identificam estimativas no cabeçalho e omitem ≈ nas células monetárias. O arquivo guarda snapshots
-originais, não saldo ao vivo. Veja [dados locais e privacidade](LOCAL-DATA.md).
+- **Cota Codex opcional e estimativas aproximadas** — `codex.officialQuota.enabled` vem desativado.
+  Lê um daemon local já em execução e guarda snapshots numerados localmente no momento da observação em arquivo.
+  A identidade da cota não prova a atribuição do uso; o daemon pode contatar a OpenAI.
+  Veja [dados locais e privacidade](LOCAL-DATA.md).
 
 Períodos antigos sem observação mostram apenas uso real numa grade de sete dias, ou segunda a segunda em UTC sem reset válido; resets não observados não são reconstruídos. Percentuais de cota preservam o horário observado e o reset original. O painel continua ativo por padrão (`showWeeklyEquivalentValue`).
 

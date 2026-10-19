@@ -133,6 +133,14 @@ import { projectWeeklyEstimateChart } from './weeklyEstimateChart';
 export interface WeeklyEstimatePanelProjection {
   entries: LocalWeeklyEstimate[];
   status: 'loading' | 'ready' | 'full' | 'unavailable';
+  officialQuota?: {
+    status: 'disabled' | 'loading' | 'ready' | 'unavailable' | 'source-mismatch';
+    accountNumber?: number;
+    usedPercent?: number;
+    resetAt?: number;
+    observedAt?: number;
+  };
+  activeAccountNumber?: number;
 }
 import {
   defaultDashboardProvider,
@@ -1278,6 +1286,7 @@ export class UsageWebviewProvider {
   private weeklyEstimateProjector?: (
     provider: SettingProvider, inputs: WeeklyValueInputs, now: number,
   ) => WeeklyEstimatePanelProjection;
+  public onWeeklyQuotaVisible?: () => void;
   private quotaWarnDismissed: boolean = false;
   // Extension-host hooks make the optimizer use the same prepare -> preview ->
   // explicit send boundary as advice, without exposing keys to the webview.
@@ -2478,6 +2487,12 @@ export class UsageWebviewProvider {
       enableScripts: true,
       retainContextWhenHidden: true,
     });
+    let wasVisible = this.panel.visible === true;
+    this.panel.onDidChangeViewState?.(event => {
+      const visible = event.webviewPanel.visible === true;
+      if (visible && !wasVisible) this.notifyWeeklyQuotaVisible();
+      wasVisible = visible;
+    });
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
@@ -3143,6 +3158,7 @@ export class UsageWebviewProvider {
     });
 
     this.updateWebview();
+    this.notifyWeeklyQuotaVisible();
   }
 
   /** Compatibility commands enter the same preview-first workspace instead of
@@ -7603,8 +7619,18 @@ export class UsageWebviewProvider {
     this.weeklyEstimateProjector = projector;
   }
 
-  refreshWeeklyEstimates(): void {
-    if (this.panel && !this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)) this.updateWebview();
+  public isDashboardVisible(): boolean {
+    return this.panel?.visible === true;
+  }
+
+  private notifyWeeklyQuotaVisible(): void {
+    if (!this.setting<boolean>('codex.officialQuota.enabled', false)) return;
+    try { void Promise.resolve(this.onWeeklyQuotaVisible?.()).catch(() => undefined); }
+    catch { /* Quota refresh must not interrupt dashboard visibility or controls. */ }
+  }
+
+  refreshWeeklyEstimates(force = false): void {
+    if (this.panel && !this.isLoading && (force || this.setting<boolean>('dashboardAutoRefresh', true))) this.updateWebview();
   }
 
   private weeklyValueInputs(provider: SettingProvider): WeeklyValueInputs | undefined {
@@ -7636,9 +7662,11 @@ export class UsageWebviewProvider {
 
   private weeklyEstimateReasons(entry: LocalWeeklyEstimate): string {
     const copy=I18n.t.weeklyValue,reasons:string[]=[];
-    if(entry.flags.includes('account-unattributed'))reasons.push(copy.estimateAccountUnknown);
+    if(entry.flags.includes('account-unattributed'))reasons.push((entry.method as string) === 'account-delta-v1'
+      ? copy.localAmountUnattributed : copy.estimateAccountUnknown);
     if(entry.flags.includes('partial-pricing'))reasons.push(copy.estimatePartialPricing+' ('+this.formatPercent(entry.pricingCoverage)+')');
-    if(entry.flags.includes('boundary-uncertain'))reasons.push(copy.estimateBoundarySplit);
+    if(entry.flags.includes('boundary-uncertain'))reasons.push(entry.method==='account-delta-v1'
+      ? copy.boundaryApproximate : copy.estimateBoundarySplit);
     if(entry.flags.includes('partial-history'))reasons.push(copy.estimatePartialHistory);
     if(entry.flags.includes('counter-change'))reasons.push(copy.estimateObservationChanged);
     return reasons.join(' · ');
@@ -7647,6 +7675,60 @@ export class UsageWebviewProvider {
   private weeklyTableCurrency(value: number): string {
     // The column heading carries estimate semantics, including display FX.
     return I18n.formatCurrency(value).replace(/^≈/,'');
+  }
+
+  private weeklyAccountNumber(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+  }
+
+  private weeklyAccountLabel(value: unknown): string {
+    const number = this.weeklyAccountNumber(value), copy = I18n.t.weeklyValue;
+    return number === undefined ? copy.accountUnassigned : copy.accountLabel.replace('{number}', String(number));
+  }
+
+  private weeklyEstimateMethod(entry: LocalWeeklyEstimate): string {
+    const copy = I18n.t.weeklyValue, method: string = entry.method;
+    if (entry.fullEquivalentUsd === null) return copy.estimateBlocked;
+    if (method === 'account-delta-v1') return copy.accountDeltaEstimate;
+    if (method === 'series-prefix-v1') return copy.seriesEstimate;
+    return method === 'paired-delta' ? copy.pairedEstimate : copy.roughEstimate;
+  }
+
+  private renderOfficialWeeklyQuota(provider: SettingProvider, projection: WeeklyEstimatePanelProjection): string {
+    if (provider !== 'codex' || !this.setting<boolean>('codex.officialQuota.enabled', false)) return '';
+    const quota = projection.officialQuota, copy = I18n.t.weeklyValue;
+    const esc = (value: string): string => this.escapeHtml(value);
+    let state = quota?.status ?? 'unavailable';
+    const accountNumber = this.weeklyAccountNumber(quota?.accountNumber);
+    const active = this.weeklyAccountNumber(projection.activeAccountNumber);
+    if (state === 'ready' && accountNumber !== undefined && active !== undefined && accountNumber !== active) state = 'source-mismatch';
+    const ready = state === 'ready' && quota &&
+      typeof quota.usedPercent === 'number' && Number.isFinite(quota.usedPercent) && quota.usedPercent >= 0 && quota.usedPercent <= 100 &&
+      typeof quota.observedAt === 'number' && Number.isFinite(quota.observedAt) && quota.observedAt > 0 && quota.observedAt <= Date.now() &&
+      typeof quota.resetAt === 'number' && Number.isFinite(quota.resetAt) && quota.resetAt > quota.observedAt && quota.resetAt <= 8.64e15;
+    let text: string;
+    if (ready) {
+      const date = (value: number): string => new Intl.DateTimeFormat(I18n.getLocale(), {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined,
+      }).format(new Date(value));
+      text = `${copy.officialQuotaTitle} · ${accountNumber === undefined ? copy.accountIdentified : this.weeklyAccountLabel(accountNumber)} · ${this.formatPercent(quota.usedPercent! / 100)} · ` +
+        `${copy.resetsAt} ${date(quota.resetAt!)} · ${copy.estimateAsOf} ${date(quota.observedAt!)}`;
+      const latest = projection.entries.filter(entry => entry.provider === 'codex' &&
+        (entry.method as string) === 'account-delta-v1' && accountNumber !== undefined &&
+        this.weeklyAccountNumber((entry as LocalWeeklyEstimate & { accountNumber?: number }).accountNumber) === accountNumber &&
+        Math.abs(entry.resetAt - quota.resetAt!) <= 300_000)
+        .sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt)[0];
+      if (!latest || !Number.isFinite(latest.observedAt) || latest.observedAt <= 0 || latest.observedAt > quota.observedAt! || latest.fullEquivalentUsd === null ||
+        !Number.isFinite(latest.fullEquivalentUsd) || latest.fullEquivalentUsd <= 0 || latest.unusedEquivalentUsd === null ||
+        !Number.isFinite(latest.unusedEquivalentUsd) || latest.unusedEquivalentUsd < 0 || latest.unusedEquivalentUsd > latest.fullEquivalentUsd) {
+        text += ' · ' + copy.collectingSamples;
+      }
+    } else {
+      if (state === 'ready') state = 'unavailable';
+      text = state === 'loading' ? copy.officialQuotaLoading : state === 'disabled' ? copy.officialQuotaDisabled :
+        state === 'source-mismatch' ? copy.officialQuotaSourceMismatch : copy.officialQuotaUnavailable;
+    }
+    return '<p class="table-hint weekly-official-quota" role="status">' + esc(text) + '</p>';
   }
 
   private renderWeeklyEstimateRecords(provider: SettingProvider, supplied?: WeeklyEstimatePanelProjection): string {
@@ -7659,8 +7741,7 @@ export class UsageWebviewProvider {
     };
     const money = (value: number | null): string => value === null ? '—' : esc(this.weeklyTableCurrency(value));
     const rows = projection.entries.map(entry => {
-      const method = entry.fullEquivalentUsd === null ? copy.estimateBlocked :
-        entry.method === 'paired-delta' ? copy.pairedEstimate : copy.roughEstimate;
+      const method = this.weeklyEstimateMethod(entry);
       const reasons=this.weeklyEstimateReasons(entry);
       const range = entry.fullRange ? '<br><span class="model-details">' + money(entry.fullRange.lower) +
         ' – ' + money(entry.fullRange.upper) + '</span>' : '';
@@ -7674,7 +7755,8 @@ export class UsageWebviewProvider {
         (reasons?'<br><span class="model-details">'+esc(reasons)+'</span>':'')+
         (entry.flags.includes('stale-observation') ? '<br><span class="model-details">' + esc(copy.estimateStale) + '</span>' : '') +
         (entry.flags.includes('reconstructed') ? '<br><span class="model-details">' + esc(copy.reconstructedEstimate) + '</span>' : '') +
-        '</td></tr>';
+        '</td>' + (provider === 'codex' ? '<td>' + esc(this.weeklyAccountLabel(
+          (entry as LocalWeeklyEstimate & { accountNumber?: number }).accountNumber)) + '</td>' : '') + '</tr>';
     }).join('');
     const status = projection.status === 'full' ? copy.archiveFull : projection.status === 'unavailable' ?
       copy.archiveUnavailable : projection.status === 'loading' ? copy.archiveLoading : '';
@@ -7682,7 +7764,8 @@ export class UsageWebviewProvider {
       '<details class="weekly-estimate-details" data-persist="weekly-estimate-' + provider +
       '"><summary>' + esc(copy.estimateDetails) + '</summary><p class="table-hint">' + esc(copy.estimateNote) +
       '</p><div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
-      [copy.resetsAt, copy.estimateAsOf, copy.estimateUsed, copy.utilization, copy.estimateFull, copy.estimateUnused, copy.estimateMethod]
+      [copy.resetsAt, copy.estimateAsOf, copy.estimateUsed, copy.utilization, copy.estimateFull, copy.estimateUnused, copy.estimateMethod,
+        ...(provider === 'codex' ? [copy.accountColumn] : [])]
         .map(label => '<th>' + esc(label) + '</th>').join('') + '</tr></thead><tbody>' + rows +
       '</tbody></table></div></details>';
   }
@@ -7697,11 +7780,17 @@ export class UsageWebviewProvider {
     const copy = I18n.t.weeklyValue;
     const points = this.weeklyValuePoints(provider);
     const estimates=this.weeklyEstimateProjection(provider);
-    const chartPoints=projectWeeklyEstimateChart(provider,points,estimates.entries,{now:Date.now(),limit:8}).reverse();
+    const chartPoints=projectWeeklyEstimateChart(provider,points,estimates.entries,{now:Date.now(),limit:8,
+      ...(provider === 'codex' && this.setting<boolean>('codex.officialQuota.enabled', false) ? {
+        activeAccountNumber: estimates.activeAccountNumber,
+        accountIdentityAvailable: estimates.officialQuota?.status === 'ready',
+      } : {}),
+    }).reverse();
     const providerLabel = provider === 'codex'
       ? I18n.t.providers.codexBeta
       : I18n.t.providers.claude;
     const heading = this.escapeHtml(`${copy.title} · ${providerLabel}`);
+    const officialQuota = this.renderOfficialWeeklyQuota(provider, estimates);
     const notes = [
       copy.description,
       copy.historyFromLogs,
@@ -7709,6 +7798,7 @@ export class UsageWebviewProvider {
         ? [copy.calendarFallback]
         : []),
       ...(provider === 'codex' ? [copy.multiAccount] : []),
+      ...(provider === 'codex' && this.setting<boolean>('codex.officialQuota.enabled', false) ? [copy.accountUsageScope] : []),
       ...(provider === 'codex' && points.some((point) => point.boundaryUncertain)
         ? [copy.boundaryApproximation]
         : []),
@@ -7718,7 +7808,7 @@ export class UsageWebviewProvider {
     ].map((line) => this.escapeHtml(line)).join('<br>');
     if (points.length === 0 && chartPoints.length === 0) {
       return '<div class="daily-breakdown"><div class="section-header"><h3>' +
-        heading + '</h3></div><p class="table-hint">' + notes + '</p>' +
+        heading + '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' +
         '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div>' +
         this.renderWeeklyEstimateRecords(provider,estimates) + '</div>';
     }
@@ -7747,7 +7837,7 @@ export class UsageWebviewProvider {
         return new Date(value).toISOString().slice(0, 10);
       }
     };
-    const periodLabel = (point: WeeklyValuePoint, short = false): string => {
+    const periodBaseLabel = (point: WeeklyValuePoint, short = false): string => {
       if (point.current) {
         if (short) {
           return copy.currentPeriodShort;
@@ -7761,6 +7851,9 @@ export class UsageWebviewProvider {
       return dateLabel(point.windowStart, short, true) + ' – ' +
         dateLabel(point.resetAt - 1, short, true);
     };
+    const periodLabel = (point: WeeklyValuePoint & { asOfEstimate?: boolean; accountNumber?: number }, short = false): string =>
+      periodBaseLabel(point, short) + (provider === 'codex' && point.asOfEstimate
+        ? ' · ' + this.weeklyAccountLabel(point.accountNumber) : '');
     const confidenceLabel = (point: WeeklyValuePoint): string => {
       if (point.boundaryUncertain) {
         return point.fullEquivalentUsd === null
@@ -7843,17 +7936,19 @@ export class UsageWebviewProvider {
       (full === null ? dash : this.weeklyTableCurrency(full)) + '</td>' +
       '<td class="cost-cell">' +
       (unused === null ? dash : this.weeklyTableCurrency(unused)) + '</td>' +
-      '<td>' + this.escapeHtml(estimate?copy.low+' · '+copy.roughEstimate:confidenceLabel(point)) + '</td>' +
-      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td></tr>'
+      '<td>' + this.escapeHtml(estimate ? copy.low + ' · ' + this.weeklyEstimateMethod(estimate) : confidenceLabel(point)) + '</td>' +
+      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td>' +
+      (provider === 'codex' ? '<td>' + this.escapeHtml(copy.accountUnassigned) + '</td>' : '') + '</tr>'
     );}).join('');
     return '<div class="daily-breakdown"><div class="section-header"><h3>' + heading +
-      '</h3></div><p class="table-hint">' + notes + '</p>' + chart +
+      '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' + chart +
       '<details class="weekly-value-details"><summary>' + this.escapeHtml(copy.periodDetails) +
       '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
       '<th>' + this.escapeHtml(copy.period) + '</th><th>' + this.escapeHtml(copy.usedValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.utilization) + '</th><th>' + this.escapeHtml(copy.fullValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.unusedValue) + '</th><th>' + this.escapeHtml(copy.confidence) + '</th>' +
-      '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th></tr></thead><tbody>' +
+      '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th>' +
+      (provider === 'codex' ? '<th>' + this.escapeHtml(copy.accountColumn) + '</th>' : '') + '</tr></thead><tbody>' +
       tableRows + '</tbody></table></div></details>' + this.renderWeeklyEstimateRecords(provider,estimates) + '</div>';
   }
 

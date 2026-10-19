@@ -164,12 +164,10 @@ For patch-level detail, see [CHANGELOG.md](CHANGELOG.md).
 - Codex **Today** means the current calendar day in the configured timezone. It adds exact hourly API-equivalent cost beside a separate token-composition view; daily and monthly primary charts also default to API-equivalent cost while token composition stays separately visible. Only exact known-model prices contribute, so unknown models remain unpriced and pricing coverage stays visible. The additive, schema-3-compatible hourly sidecar keeps sparse buckets for the rolling last 30 days, is checkpointed and resumable, evicts day 31, and serves date expansion without reading JSONL on click. Codex monthly charts and tables list months oldest-first.
 - Request-level attribution prefers valid `last_token_usage` components; its `total_tokens` is active-context size, not request usage. A full numeric total-plus-last signature suppresses only proven replay from the same pseudonymous rate-limit source or an immediately adjacent duplicate. Missing last snapshots fall back to cumulative lineage high-water. Upgrading triggers one automatic reindex, while the indexed subtotal remains visible throughout the pass.
 
-Weekly charts show blue estimated used and green estimated unused from the same
-observation snapshot. Separate rough as-of values retain low-confidence labels;
-overlapping real windows are not additive account quotas. Tables keep actual
-local usage, identify estimates in column headers and omit ≈ from amount cells.
-The archive keeps original snapshots, not live balances.
-See [local data and privacy](LOCAL-DATA.md).
+- **Optional Codex quota and rough estimates** — `codex.officialQuota.enabled` defaults off.
+  Read an already-running local daemon; locally numbered as-of snapshots stay in the archive.
+  Quota identity does not prove usage ownership, and daemon reads may contact OpenAI.
+  See [local data and privacy](LOCAL-DATA.md).
 
 Older usage-only periods use a seven-day display grid, with Monday-to-Monday UTC fallback; unobserved resets are not reconstructed. Quota percentages retain their original observation time and reset. The panel stays on by default (`showWeeklyEquivalentValue`).
 - Switching to Codex keeps the established Today / Last 30 days / All time / Sessions / Projects / Content / Settings structure, relabelled where Codex semantics differ. Both providers use the same render functions, HTML classes, charts, tables, spacing, and responsive rules; their time-series charts stay width-aligned while dense content scrolls inside its own region. Codex recommendations use indexed 30-day structural evidence.
@@ -217,7 +215,7 @@ retention, migration, clearing, and remote-interaction contract.
 |---|---|---|
 | Source logs | Provider-owned, read-only; never copied wholesale | None by default |
 | Codex index | Bounded pseudonymous aggregates, isolated by source directory, profile salt and timezone; rebuild affects the active index, Clear All includes all exact index families | None |
-| Quota history | Bounded anonymous window observations; no raw account ID | Claude quota lookup only when enabled; Codex evidence stays local |
+| Quota history | Bounded anonymous window observations; no raw account ID | Enabled Claude lookup or optional Codex daemon read; the latter may contact OpenAI |
 | UI/share state | Filters plus optional title/range and GitHub destination strings | Publish only after exact explicit confirmation |
 | Advice state/key | Bounded aggregate evidence; key only in SecretStorage | Exact previewed request only after a separate Send action |
 

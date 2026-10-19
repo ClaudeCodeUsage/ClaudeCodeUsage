@@ -15,6 +15,7 @@ export const RESOURCE_CREATORS = [
   'extension',
   'refresh-coordinator',
   'claude-api-client',
+  'codex-quota-client',
   'codex-index-client',
   'codex-index-worker',
   'codex-file-pass-pool',

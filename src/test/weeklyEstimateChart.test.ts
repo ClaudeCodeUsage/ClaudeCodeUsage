@@ -57,3 +57,11 @@ test('a saved estimate remains renderable when raw usage rows are no longer pres
   const [row]=projectWeeklyEstimateChart('codex',[],[snapshot()],{now:N});
   assert.equal(row.fullEquivalentUsd,100);assert.equal(row.unusedEquivalentUsd,75);
 });
+test('same-reset accounts remain separate chart comparisons and only the identified active account may be current',()=>{
+  const rows=projectWeeklyEstimateChart('codex',[],[snapshot({accountNumber:1}),snapshot({accountNumber:2,
+    observedAt:N,fullEquivalentUsd:200,unusedEquivalentUsd:150})],{now:N,activeAccountNumber:1,accountIdentityAvailable:true});
+  assert.equal(rows.length,2);assert.deepEqual(rows.map(r=>r.accountNumber).sort(),[1,2]);
+  assert.equal(rows.find(r=>r.accountNumber===2)!.current,false);
+  const unknown=projectWeeklyEstimateChart('codex',[],[snapshot({accountNumber:1})],{now:N,accountIdentityAvailable:false});
+  assert.equal(unknown[0].current,false);
+});

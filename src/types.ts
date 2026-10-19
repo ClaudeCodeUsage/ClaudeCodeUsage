@@ -317,6 +317,8 @@ export interface ExtensionConfig {
   codexDataDirectory: string;
   codexFileWatchSeconds: number;
   codexOptimizationEnabled: boolean;
+  /** Default-off official daemon read; never starts a service or logs in. */
+  codexOfficialQuotaEnabled?: boolean;
   statusBarProvider: 'auto' | 'claude' | 'codex';
   codexStatusMetric: 'fresh' | 'processed' | 'output';
   language: string;

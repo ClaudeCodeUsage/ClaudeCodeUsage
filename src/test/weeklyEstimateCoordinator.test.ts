@@ -4,18 +4,20 @@ import { mkdtemp, readFile, realpath, readdir, rm, writeFile } from 'node:fs/pro
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { WeeklyEstimateCoordinator } from '../weeklyEstimateCoordinator';
+import { WeeklyEstimateCoordinator, WeeklyEstimateDisplayEntry } from '../weeklyEstimateCoordinator';
 import { WeeklyEstimateArchive, WeeklyEstimateInput } from '../weeklyEstimateArchive';
 import { buildLocalWeeklyEstimates } from '../weeklyEstimate';
 import * as estimateProducer from '../weeklyEstimate';
 import type { LocalWeeklyEstimate } from '../weeklyEstimate';
 import type { WeeklyValueInputs } from '../weeklyValue';
+import { fingerprintForStableIdentity } from '../quotaObservationStore';
 
 const DAY = 86_400_000, RESET = 1_800_000_000_000, OBSERVED = RESET - DAY, NOW = OBSERVED + 1000;
 const SALT = 'synthetic-coordinator-salt', SOURCE = 'synthetic-source-a';
 const options = { sourceNamespace: SOURCE, pricingVersion: 'api-equivalent-v1', now: NOW };
 function inputs(): WeeklyValueInputs {
-  return { observations: [{ provider: 'codex', seriesKey: 'raw-series-canary', sourceKey: 'raw-source-canary',
+  // Keep the existing persistence fixtures source-less: they exercise legacy rough/paired snapshots.
+  return { observations: [{ provider: 'codex', seriesKey: 'raw-series-canary',
     resetAt: RESET, observedAt: OBSERVED, usedPercent: 40 }],
   usage: [{ timestamp: OBSERVED - 1000, equivalentUsd: 40, pricedTokens: 100, totalTokens: 100 }] };
 }
@@ -41,6 +43,250 @@ function deferred() {
   const promise = new Promise<void>(done => { resolve = done; });
   return { promise, resolve };
 }
+
+test('extra Codex accounts keep same-reset A-B-A identities, stable labels and private keys across reload', async t => {
+  const { file } = await fixture(t), a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const empty = { usage: [], observations: [] };
+  const extra = (key: string, fullEquivalentUsd = 100): LocalWeeklyEstimate => ({
+    ...snapshot(), method: 'account-delta-v1', accountScopeKey: key, fullEquivalentUsd,
+    unusedEquivalentUsd: fullEquivalentUsd * .6, pricingCoverage: .25,
+    unlinkedEquivalentUsd: 7, linkedSourceCount: 2, flags: ['partial-pricing', 'counter-change'],
+  });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  for (const [key, number] of [[a, 1], [b, 2], [a, 1]] as const) {
+    const opts = { ...options, accountEstimates: [extra(key)], activeAccountScopeKey: key };
+    const pending = coordinator.project('codex', empty, opts);
+    assert.doesNotMatch(JSON.stringify(pending), /accountScopeKey|[a-f0-9]{64}/);
+    await coordinator.flush();
+    const projection = coordinator.project('codex', empty, opts);
+    assert.equal(projection.activeAccountNumber, number);
+    assert.ok(projection.entries.some(row => row.accountNumber === number));
+    assert.doesNotMatch(JSON.stringify(projection), /accountScopeKey|sourceKey|windowKey|[a-f0-9]{64}/);
+  }
+  const archived = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.equal(archived.length, 2);
+  assert.deepEqual(archived.map(row => row.accountScopeKey), [a, b]);
+  const restart = new WeeklyEstimateCoordinator(file, SALT);
+  const opts = { ...options, activeAccountScopeKey: b };
+  restart.project('codex', empty, opts); await restart.flush();
+  const reloaded = restart.project('codex', empty, opts);
+  assert.equal(reloaded.entries.length, 2);
+  assert.deepEqual(reloaded.entries.map(row => row.accountNumber).sort(), [1, 2]);
+  assert.equal(reloaded.activeAccountNumber, 2);
+  assert.ok(reloaded.entries.every(row => row.unlinkedEquivalentUsd === 7));
+  assert.doesNotMatch(JSON.stringify(reloaded), /accountScopeKey|[a-f0-9]{64}/);
+});
+
+test('frozen account prices keep their capture version while newly produced estimates use current pricing', async t => {
+  const { file } = await fixture(t), key = 'a'.repeat(64), data = inputs();
+  const frozen: WeeklyEstimateDisplayEntry = {
+    ...snapshot({ method: 'account-delta-v1', accountScopeKey: key }), pricingVersion: 'api-v1',
+  };
+  const accountEstimates: readonly WeeklyEstimateDisplayEntry[] = [frozen], before = JSON.stringify(accountEstimates);
+  const original = WeeklyEstimateArchive.prototype.record;
+  let accountRecords = 0;
+  t.mock.method(WeeklyEstimateArchive.prototype, 'record', function(this: WeeklyEstimateArchive,
+    ...args: Parameters<WeeklyEstimateArchive['record']>) {
+    if (args[0].accountScopeKey === key) accountRecords++;
+    return original.apply(this, args);
+  });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  const first = { ...options, pricingVersion: 'api-v1', accountEstimates, activeAccountScopeKey: key };
+  coordinator.project('codex', data, first); await coordinator.flush();
+  const archive = new WeeklyEstimateArchive(file, SALT, SOURCE);
+  const saved = (await archive.load()).entries.find(entry => entry.accountScopeKey === key)!;
+  assert.equal(saved.pricingVersion, 'api-v1'); assert.equal(accountRecords, 1);
+  const changed = { ...first, pricingVersion: 'api-v2' };
+  const updated = coordinator.project('codex', data, changed);
+  assert.equal(updated.entries.find(entry => entry.accountNumber === 1)!.pricingVersion, 'api-v1');
+  assert.equal(updated.entries.find(entry => entry.accountNumber === undefined)!.pricingVersion, 'api-v2');
+  await coordinator.flush();
+  const entries = (await archive.load()).entries, scoped = entries.filter(entry => entry.accountScopeKey === key);
+  assert.deepEqual(scoped, [saved]); assert.equal(accountRecords, 1);
+  assert.ok(entries.some(entry => entry.accountScopeKey === undefined && entry.pricingVersion === 'api-v2'));
+  assert.equal(JSON.stringify(accountEstimates), before);
+  const restart = new WeeklyEstimateCoordinator(file, SALT);
+  restart.project('codex', data, changed); await restart.flush();
+  assert.equal(restart.project('codex', data, changed).entries.find(entry => entry.accountNumber === 1)!.pricingVersion, 'api-v1');
+  assert.equal(accountRecords, 1, 'reload acknowledges the frozen version instead of repricing it');
+});
+
+test('extra account estimates fall back to current pricing only when the capture version is absent', async t => {
+  const { file } = await fixture(t), empty = { usage: [], observations: [] };
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  const legacy = snapshot({ method: 'account-delta-v1', accountScopeKey: 'a'.repeat(64) });
+  const invalid = { ...legacy, accountScopeKey: 'b'.repeat(64), pricingVersion: '/private/raw-version' };
+  const opts = { ...options, pricingVersion: 'api-v2', accountEstimates: [legacy, invalid] };
+  const projected = coordinator.project('codex', empty, opts); await coordinator.flush();
+  assert.equal(projected.entries.length, 1); assert.equal(projected.entries[0].pricingVersion, 'api-v2');
+  const saved = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.equal(saved.length, 1); assert.equal(saved[0].pricingVersion, 'api-v2');
+});
+
+test('active identity without calibration reserves no ordinal before B1 then A2 are persisted', async t => {
+  const { file, root } = await fixture(t), a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT), empty = { observations: [], usage: [] };
+  const account = (accountScopeKey: string): WeeklyEstimateDisplayEntry => ({
+    ...snapshot({ method: 'account-delta-v1', accountScopeKey }), pricingVersion: 'api-v1',
+  });
+  const identified = { ...options, activeAccountScopeKey: a };
+  assert.equal(coordinator.project('codex', empty, identified).activeAccountNumber, undefined);
+  await coordinator.flush();
+  assert.equal(coordinator.project('codex', empty, identified).activeAccountNumber, undefined);
+  assert.deepEqual(await readdir(root), [], 'identity-only display creates no persistent identity or fake estimate');
+  const calibratedB = { ...options, accountEstimates: [account(b)], activeAccountScopeKey: b };
+  assert.equal(coordinator.project('codex', empty, calibratedB).activeAccountNumber, 1);
+  await coordinator.flush();
+  assert.equal(coordinator.project('codex', empty, calibratedB).activeAccountNumber, 1);
+  const backToA = { ...calibratedB, activeAccountScopeKey: a };
+  assert.equal(coordinator.project('codex', empty, backToA).activeAccountNumber, undefined);
+  const withheldA = { ...backToA, accountEstimates: [account(b), {
+    ...account(a), fullEquivalentUsd: null, unusedEquivalentUsd: null,
+  }] };
+  const withheld = coordinator.project('codex', empty, withheldA); await coordinator.flush();
+  assert.equal(withheld.activeAccountNumber, undefined);
+  assert.equal(withheld.entries.find(entry => entry.fullEquivalentUsd === null)!.accountNumber, undefined);
+  const calibratedA = { ...backToA, accountEstimates: [account(b), account(a)] };
+  coordinator.project('codex', empty, calibratedA); await coordinator.flush();
+  const view = coordinator.project('codex', empty, calibratedA);
+  assert.equal(view.activeAccountNumber, 2);
+  assert.deepEqual(view.entries.map(entry => entry.accountNumber).sort(), [1, 2]);
+  const archived = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.deepEqual(archived.map(entry => [entry.accountScopeKey, entry.accountNumber]), [[b, 1], [a, 2]]);
+  assert.doesNotMatch(JSON.stringify(view), /accountScopeKey|[a-f0-9]{64}/);
+});
+
+test('pending live ordinals reconcile against canonical loaded accounts without collisions', async t => {
+  const { file } = await fixture(t), a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const archive = new WeeklyEstimateArchive(file, SALT, SOURCE);
+  await archive.record({ ...snapshot({ method: 'account-delta-v1', accountScopeKey: b }), pricingVersion: 'api-v1' });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT), empty = { observations: [], usage: [] };
+  const opts = { ...options, activeAccountScopeKey: a, accountEstimates: [{
+    ...snapshot({ method: 'account-delta-v1', accountScopeKey: a }), pricingVersion: 'api-v1',
+  }] };
+  assert.equal(coordinator.project('codex', empty, opts).activeAccountNumber, 1, 'live calibration may have a temporary pre-load ordinal');
+  await coordinator.flush();
+  const reconciled = coordinator.project('codex', empty, opts);
+  assert.equal(reconciled.activeAccountNumber, 2);
+  assert.deepEqual(reconciled.entries.map(entry => entry.accountNumber).sort(), [1, 2]);
+  assert.equal(coordinator.project('codex', empty, { ...opts, activeAccountScopeKey: b }).activeAccountNumber, 1);
+});
+
+test('uncalibrated active identities stay unnumbered while bound/unbound estimates cannot overwrite each other', async t => {
+  const { file } = await fixture(t), a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const bound = { ...roughSnapshot(), accountScopeKey: a };
+  const archive = new WeeklyEstimateArchive(file, SALT, SOURCE);
+  await archive.record({ ...bound, pricingVersion: options.pricingVersion });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT), data = inputs();
+  const opts = { ...options, accountEstimates: [bound], activeAccountScopeKey: b };
+  coordinator.project('codex', data, opts); await coordinator.flush();
+  const projection = coordinator.project('codex', data, opts);
+  assert.equal(projection.activeAccountNumber, undefined);
+  assert.ok(projection.entries.some(row => row.accountNumber === 1));
+  assert.ok(projection.entries.some(row => row.accountNumber === undefined));
+  const switched = coordinator.project('codex', data, { ...opts, activeAccountScopeKey: a });
+  assert.equal(switched.activeAccountNumber, 1);
+  const claude = coordinator.project('claude', { usage: [], observations: [] }, opts);
+  await coordinator.flush();
+  assert.equal(claude.entries.length, 0);
+  assert.equal(claude.activeAccountNumber, undefined);
+});
+
+test('scoped extra estimates are acknowledged without warm I/O and remain fenced after a clear race', async t => {
+  t.mock.method(Date, 'now', () => NOW);
+  const { file } = await fixture(t), key = 'c'.repeat(64), empty = { usage: [], observations: [] };
+  const extra: LocalWeeklyEstimate = { ...roughSnapshot(), method: 'series-prefix-v1', accountScopeKey: key,
+    pricingCoverage: .5, flags: ['partial-pricing'] };
+  const opts = { ...options, accountEstimates: [extra], activeAccountScopeKey: key };
+  const original = WeeklyEstimateArchive.prototype.record;
+  let records = 0;
+  t.mock.method(WeeklyEstimateArchive.prototype, 'record', function(this: WeeklyEstimateArchive,
+    ...args: Parameters<WeeklyEstimateArchive['record']>) { records++; return original.apply(this, args); });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  coordinator.project('codex', empty, opts); await coordinator.flush();
+  assert.equal(records, 1);
+  for (let i = 1; i <= 3; i++) {
+    coordinator.project('codex', empty, { ...opts, accountEstimates: [{ ...extra }], now: NOW + i * 60_000 });
+    await coordinator.flush();
+  }
+  assert.equal(records, 1);
+  const entered = deferred(), release = deferred();
+  t.mock.method(WeeklyEstimateArchive.prototype, 'record', async function(this: WeeklyEstimateArchive,
+    ...args: Parameters<WeeklyEstimateArchive['record']>) {
+    entered.resolve(); await release.promise; return original.apply(this, args);
+  });
+  const changed = { ...opts, accountEstimates: [{ ...extra, fullEquivalentUsd: 120, unusedEquivalentUsd: 80 }] };
+  coordinator.project('codex', empty, changed); await entered.promise;
+  await new WeeklyEstimateCoordinator(file, SALT).clear({ allSources: true });
+  release.resolve(); await coordinator.flush();
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
+  assert.equal(coordinator.project('codex', empty, changed).entries.length, 0);
+  const restart = new WeeklyEstimateCoordinator(file, SALT);
+  restart.project('codex', empty, opts); await restart.flush();
+  assert.equal(restart.project('codex', empty, opts).entries.length, 0);
+});
+
+test('account-only coordinator clear preserves queued other accounts and unbound samples, then fences reloads', async t => {
+  t.mock.method(Date, 'now', () => NOW);
+  const { file } = await fixture(t), a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const extra = (accountScopeKey: string): LocalWeeklyEstimate => ({ ...snapshot(), method: 'account-delta-v1', accountScopeKey });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT), data = inputs();
+  const opts = { ...options, accountEstimates: [extra(a), extra(b)], activeAccountScopeKey: b };
+  coordinator.project('codex', data, opts);
+  const scope = { provider: 'codex' as const,
+    accountFingerprint: fingerprintForStableIdentity(SALT, 'codex', 'official-account-scope-v1|' + a) };
+  const cleared = await coordinator.clear(scope); await coordinator.flush();
+  assert.equal(cleared.status, 'ready');
+  const saved = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.equal(saved.length, 2);
+  assert.ok(saved.some(row => row.accountScopeKey === b));
+  assert.ok(saved.some(row => row.accountScopeKey === undefined));
+  const view = coordinator.project('codex', data, opts);
+  assert.equal(view.entries.length, 2); assert.equal(view.activeAccountNumber, 2);
+  assert.doesNotMatch(JSON.stringify(view), /acct_[a-f0-9]{32}|accountScopeKey|[a-f0-9]{64}/);
+  const restart = new WeeklyEstimateCoordinator(file, SALT);
+  restart.project('codex', data, opts); await restart.flush();
+  assert.equal(restart.project('codex', data, opts).entries.length, 2);
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 2);
+  const fresh = { ...opts, accountEstimates: [extra(b), { ...extra(a), observedAt: NOW + 1 }], now: NOW + 2 };
+  restart.project('codex', data, fresh); await restart.flush();
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 3);
+});
+
+test('another instance account clear fences an in-flight A writer but permits queued B under the changed generation', async t => {
+  t.mock.method(Date, 'now', () => NOW);
+  const { file } = await fixture(t), a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const entered = deferred(), release = deferred(), original = WeeklyEstimateArchive.prototype.record;
+  let first = true;
+  t.mock.method(WeeklyEstimateArchive.prototype, 'record', async function(this: WeeklyEstimateArchive,
+    ...args: Parameters<WeeklyEstimateArchive['record']>) {
+    if (first) { first = false; entered.resolve(); await release.promise; }
+    return original.apply(this, args);
+  });
+  const writer = new WeeklyEstimateCoordinator(file, SALT), empty = { observations: [], usage: [] };
+  const opts = { ...options, accountEstimates: [a, b].map(accountScopeKey => snapshot({ method: 'account-delta-v1', accountScopeKey })) };
+  writer.project('codex', empty, opts); await entered.promise;
+  const clearer = new WeeklyEstimateCoordinator(file, SALT);
+  await clearer.clear({ provider: 'codex',
+    accountFingerprint: fingerprintForStableIdentity(SALT, 'codex', 'official-account-scope-v1|' + a) });
+  release.resolve(); await writer.flush();
+  const saved = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.deepEqual(saved.map(row => row.accountScopeKey), [b]);
+  assert.equal(writer.project('codex', empty, opts).entries.length, 1);
+});
+
+test('extra account estimates validate optional metadata and cannot leak raw identities or invalid numbers', async t => {
+  const { file } = await fixture(t), empty = { observations: [], usage: [] };
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  for (const fields of [{ accountScopeKey: 'raw-account-id' }, { accountNumber: 1 },
+    { unlinkedEquivalentUsd: -1 }, { linkedSourceCount: 1.5 }]) {
+    const opts = { ...options, accountEstimates: [snapshot({ method: 'account-delta-v1', ...fields })], activeAccountScopeKey: 'raw-account-id' };
+    const view = coordinator.project('codex', empty, opts); await coordinator.flush();
+    assert.equal(view.entries.length, 0); assert.equal(view.activeAccountNumber, undefined);
+    assert.doesNotMatch(JSON.stringify(view), /raw-account-id|accountScopeKey/);
+  }
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
+});
 
 test('project synchronously estimates, saves, and a fresh coordinator shows old as-of records without live data', async t => {
   const { file } = await fixture(t);

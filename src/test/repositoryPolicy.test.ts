@@ -1000,7 +1000,10 @@ test('weekly value documentation separates rough as-of estimates from local usag
     const document = repoFile(file);
     for (const field of ['weeklyEstimate.ts', 'LocalWeeklyEstimate', 'rough-prefix-v2', 'legacy-prefix-ratio',
       'paired-delta', 'windowId', 'percentageErrorBound', 'usedEquivalentUsd', 'calibrationStart', 'fullRange',
-      'weeklyEstimateArchive.ts', 'weeklyEstimateCoordinator.ts', 'weeklyEstimateChart.ts', 'weekly-estimates-v1.json']) {
+      'weeklyEstimateArchive.ts', 'weeklyEstimateCoordinator.ts', 'weeklyEstimateChart.ts', 'weekly-estimates-v1.json',
+      'codex.officialQuota.enabled', 'codexAccountEstimate.ts', 'account-delta-v1', 'series-prefix-v1',
+      'codex-official-api', 'codexQuotaCaptureFromOfficialSample', 'accountScopeKey', 'accountNumber',
+      'unlinkedEquivalentUsd', 'linkedSourceCount', 'initialize', 'initialized', 'account/rateLimits/read']) {
       assert.ok(document.includes('`' + field + '`'), file + ' must document ' + field);
     }
     // Check weekly contract facts while allowing prose and line-wrap changes.
@@ -1009,6 +1012,7 @@ test('weekly value documentation separates rough as-of estimates from local usag
     const end = document.indexOf('\n## ', methodAt);
     const contract = document.slice(Math.max(0, start), end < 0 ? undefined : end).replace(/\s+/g, ' ');
     for (const pattern of [/0\s*<\s*p\s*<=\s*100/, /F\s*=\s*U\s*\/\s*\(p\s*\/\s*100\)/,
+      /F\s*=\s*linkedLocalDeltaUsd\s*\/\s*\(deltaPercent\s*\/\s*100\)/,
       /R\s*=\s*F\s*\*\s*\(1\s*-\s*p\s*\/\s*100\)/, /4096/, /1\s*MiB/, /0600/, /HMAC/]) {
       assert.match(contract, pattern, file);
     }
@@ -1017,7 +1021,7 @@ test('weekly value documentation separates rough as-of estimates from local usag
       /同一观测快照.{0,40}F\s*-\s*R.{0,30}绿色.{0,30}=\s*R.{0,20}总高\s*=\s*F/,
       /旧展示网格桶.{0,30}不再重复/,
       /不新增估值推断或持久化/,
-      /表头.{0,20}估值.{0,30}金额单元格.{0,30}不再.{0,20}≈/,
+      /估值.{0,20}表头.{0,30}金额单元格.{0,30}不再.{0,20}≈/,
       /部分定价.{0,100}降低可信度.{0,80}不因.{0,30}一律撤下/,
       /不按.{0,20}定价覆盖率.{0,20}放大/,
       /均匀.{0,20}假设/,
@@ -1027,9 +1031,16 @@ test('weekly value documentation separates rough as-of estimates from local usag
       /未知误差界.{0,100}回退.{0,60}不假造/,
       /未知.{0,20}不能.{0,10}零/,
       /不扣减后续.{0,20}用量/,
-      /单向.{0,40}旧预览读取器.{0,60}拒绝读取/,
-      /不新增 API 传输.{0,80}OAuth.{0,80}账号检测/,
-      /尚未连接/,
+      /旧 schema-2 读取器拒绝未知来源枚举.{0,30}单向/,
+      /旧预览读取器.{0,30}拒绝.{0,30}方法／字段/,
+      /默认关闭/,
+      /绝不启动.{0,30}登录.{0,30}读取凭据/,
+      /可能访问 OpenAI.{0,80}认证.{0,30}刷新凭据/,
+      /拒绝自定义 Codex home.{0,30}远程扩展宿主/,
+      /至少 60 秒.{0,30}至少 10 秒/,
+      /不新增周期定时器/,
+      /当前额度身份.{0,20}不证明.{0,20}用量归属/,
+      /清除.{0,80}保留其他.{0,30}未归属记录/,
       /观测时间戳.{0,20}原始重置时刻/,
     ] : [
       /same observation snapshot.{0,40}F\s*-\s*R.{0,30}green.{0,30}=\s*R.{0,30}total height\s*=\s*F/i,
@@ -1045,9 +1056,16 @@ test('weekly value documentation separates rough as-of estimates from local usag
       /unknown error bounds.{0,100}fall back.{0,80}without inventing/i,
       /unknown.{0,30}not.{0,30}zero/i,
       /never subtract later local usage/i,
-      /one-way.{0,50}older preview reader.{0,30}rejects/i,
-      /no API transport.{0,80}OAuth.{0,80}account detection/i,
-      /not connected/i,
+      /older schema-2 reader rejects.{0,30}source enum.{0,40}one-way/i,
+      /older preview readers?.{0,40}reject.{0,30}methods\/fields/i,
+      /defaults off/i,
+      /never.{0,30}starts.{0,40}login.{0,30}reads credentials/i,
+      /contact OpenAI.{0,100}authentication.{0,30}refresh credentials/i,
+      /rejects custom Codex homes.{0,30}remote extension hosts/i,
+      /at least 60 seconds apart.{0,50}at least 10 seconds apart/i,
+      /no extra recurring timer/i,
+      /current quota identity.{0,30}does not.{0,30}ownership of local usage/i,
+      /selected-account clearing.{0,100}preserving other accounts and unassigned records/i,
       /observed timestamp.{0,20}original reset/i,
     ];
     for (const pattern of facts) assert.match(contract, pattern, file);
@@ -1067,6 +1085,7 @@ test('weekly value documentation separates rough as-of estimates from local usag
     const document = repoFile(file);
     for (const concept of concepts) assert.match(document, concept, file);
     assert.ok(document.includes('showWeeklyEquivalentValue'), file);
+    assert.ok(document.includes('codex.officialQuota.enabled'), file);
     assert.ok(document.includes('UTC'), file);
   }
 });

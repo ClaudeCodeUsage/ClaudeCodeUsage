@@ -3,13 +3,15 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import * as path from 'node:path';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
+import { fingerprintForStableIdentity } from './quotaObservationStore';
 
 export const WEEKLY_ESTIMATE_ARCHIVE_FILE = 'weekly-estimates-v1.json';
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES = 4096;
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_BYTES = 1024 * 1024;
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_CLEAR_FENCES = 128;
 export type WeeklyEstimateProvider = 'claude' | 'codex';
-export type WeeklyEstimateMethod = 'legacy-prefix-ratio' | 'rough-prefix-v2' | 'paired-delta' | 'owned-window';
+export type WeeklyEstimateMethod = 'legacy-prefix-ratio' | 'rough-prefix-v2' | 'paired-delta' | 'owned-window'
+  | 'series-prefix-v1' | 'account-delta-v1';
 export type WeeklyEstimateFlag = 'account-unattributed' | 'boundary-uncertain' | 'partial-pricing'
   | 'stale-observation' | 'counter-change' | 'reconstructed' | 'partial-history';
 
@@ -33,6 +35,10 @@ export interface WeeklyEstimateInput {
   fullRange?: { lower: number; upper: number };
   /** Optional machine-local 64 lowercase hex key. This is never ownership/identity proof. */
   accountScopeKey?: string;
+  /** Source-local ordinal assigned under the archive lease, never caller identity. */
+  accountNumber?: number;
+  unlinkedEquivalentUsd?: number;
+  linkedSourceCount?: number;
   flags: readonly WeeklyEstimateFlag[];
 }
 export interface WeeklyEstimateEntry extends WeeklyEstimateInput {
@@ -52,6 +58,8 @@ export interface WeeklyEstimateArchiveResult {
   generation: number | null;
   /** Source-applicable durable observation cutoffs, without exposing fence/source keys. */
   clearedThrough: Partial<Record<WeeklyEstimateProvider, number>>;
+  /** Internal P2 account receipts applicable to this source. Never project these keys to UI. */
+  accountClearedThrough?: Partial<Record<WeeklyEstimateProvider, Record<string, number>>>;
 }
 export interface WeeklyEstimateRecordResult extends WeeklyEstimateArchiveResult {
   outcome: 'recorded' | 'unchanged' | 'full' | 'invalid' | 'unsafe' | 'unavailable' | 'stale-generation' | 'cleared-observation';
@@ -62,22 +70,31 @@ export interface WeeklyEstimateClearScope {
   /** Default clears this source only. Explicit true clears every source, including corrupt data. */
   allSources?: boolean;
   provider?: WeeklyEstimateProvider;
+  /** P2 account fingerprint, distinct from the full-length internal accountScopeKey. */
+  accountFingerprint?: string;
 }
-interface ClearFence { sourceKey?: string; provider?: WeeklyEstimateProvider; observedThrough: number }
+interface ClearFence { sourceKey?: string; provider?: WeeklyEstimateProvider; accountFingerprint?: string; observedThrough: number }
 interface Document { schemaVersion: 1; entries: WeeklyEstimateEntry[]; generation: number; clearFences: ClearFence[] }
 interface Loaded extends Document { bytes: number }
 function empty(): Document { return { schemaVersion: 1, generation: 0, clearFences: [], entries: [] }; }
 function covers(outer: ClearFence, inner: ClearFence): boolean {
   return (outer.sourceKey === undefined || outer.sourceKey === inner.sourceKey) &&
-    (outer.provider === undefined || outer.provider === inner.provider);
+    (outer.provider === undefined || outer.provider === inner.provider) &&
+    (outer.accountFingerprint === undefined || outer.accountFingerprint === inner.accountFingerprint);
 }
-function cutoff(fences: ClearFence[], sourceKey: string, provider: WeeklyEstimateProvider): number | undefined {
-  const matches = fences.filter(fence => covers(fence, { sourceKey, provider, observedThrough: 0 }));
+function cutoff(fences: ClearFence[], sourceKey: string, provider: WeeklyEstimateProvider, accountFingerprint?: string): number | undefined {
+  const matches = fences.filter(fence => covers(fence, { sourceKey, provider, accountFingerprint, observedThrough: 0 }));
   return matches.length ? Math.max(...matches.map(fence => fence.observedThrough)) : undefined;
 }
 const FLAGS: readonly WeeklyEstimateFlag[] = ['account-unattributed', 'boundary-uncertain',
   'partial-pricing', 'stale-observation', 'counter-change', 'reconstructed', 'partial-history'];
 const HEX = /^[a-f0-9]{64}$/;
+const ACCOUNT_FINGERPRINT = /^(?:acct|anon)_[a-f0-9]{32}$/;
+/** Same stable signal as official Codex quota capture. Importing the quota helper has no archive cycle. */
+export function weeklyEstimateAccountFingerprint(salt: string, provider: WeeklyEstimateProvider, key?: string): string | undefined {
+  return key !== undefined && HEX.test(key)
+    ? fingerprintForStableIdentity(salt, provider, 'official-account-scope-v1|' + key) : undefined;
+}
 const VERSION = /^(?:[a-z]{1,16}-){0,2}v\d{1,4}(?:\.\d{1,4}){0,3}$/;
 class ArchiveFailure extends Error {
   constructor(readonly status: 'invalid' | 'unsafe' | 'unavailable') { super(`weekly-estimate-archive:${status}`); }
@@ -97,11 +114,16 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     !(value.unusedEquivalentUsd === null || money(value.unusedEquivalentUsd)) ||
     !(value.utilizationPercent === null || number(value.utilizationPercent, 100)) ||
     !number(value.pricingCoverage, 1) ||
-    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window'].includes(value.method as string) ||
+    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window', 'series-prefix-v1', 'account-delta-v1'].includes(value.method as string) ||
     typeof value.pricingVersion !== 'string' || value.pricingVersion.length > 32 || !VERSION.test(value.pricingVersion) ||
     !(value.accountScopeKey === undefined || (typeof value.accountScopeKey === 'string' && HEX.test(value.accountScopeKey))) ||
     !Array.isArray(value.flags) || value.flags.length > 12 ||
     !value.flags.every(flag => FLAGS.includes(flag as WeeklyEstimateFlag))) return undefined;
+  if (value.accountNumber !== undefined && (value.accountScopeKey === undefined || !number(value.accountNumber, 1e12) ||
+    !Number.isSafeInteger(value.accountNumber) || value.accountNumber < 1)) return undefined;
+  if (value.unlinkedEquivalentUsd !== undefined && !money(value.unlinkedEquivalentUsd)) return undefined;
+  if (value.linkedSourceCount !== undefined && (!number(value.linkedSourceCount, 1e12) ||
+    !Number.isSafeInteger(value.linkedSourceCount))) return undefined;
   if (value.calibrationStart !== undefined && (!timestamp(value.calibrationStart) ||
     value.calibrationStart < value.windowStart || value.calibrationStart >= value.observedAt)) return undefined;
   if (value.fullRange !== undefined && (!object(value.fullRange) || !money(value.fullRange.lower) ||
@@ -120,12 +142,17 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
       upper: (value.fullRange as { upper: number }).upper,
     } }),
     ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey as string }),
+    ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber as number }),
+    ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd as number }),
+    ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount as number }),
     flags: FLAGS.filter(flag => (value.flags as unknown[]).includes(flag)),
   };
 }
 function semanticKey(input: WeeklyEstimateInput): string {
-  const { observedAt: _observed, estimatedAt: _estimated, ...values } = input;
-  return JSON.stringify(values);
+  const { observedAt, estimatedAt: _estimated, accountNumber: _number, ...values } = input;
+  // New account/series methods retain each as-of measurement. Legacy signatures stay unchanged.
+  return JSON.stringify(input.method === 'series-prefix-v1' || input.method === 'account-delta-v1'
+    ? { ...values, observedAt } : values);
 }
 function boundedOption(value: number | undefined, max: number): number {
   if (value === undefined) return max;
@@ -163,12 +190,20 @@ export class WeeklyEstimateArchive {
   private result(document: Document, bytes: number): WeeklyEstimateArchiveResult {
     const { entries, generation, clearFences } = document;
     const clearedThrough: WeeklyEstimateArchiveResult['clearedThrough'] = {};
+    const accountClearedThrough: NonNullable<WeeklyEstimateArchiveResult['accountClearedThrough']> = {};
     for (const provider of ['claude', 'codex'] as const) {
       const through = cutoff(clearFences, this.sourceKey, provider);
       if (through !== undefined) clearedThrough[provider] = through;
+      for (const fence of clearFences) {
+        if (fence.accountFingerprint === undefined || (fence.sourceKey !== undefined && fence.sourceKey !== this.sourceKey) ||
+          (fence.provider !== undefined && fence.provider !== provider)) continue;
+        const accounts = accountClearedThrough[provider] ??= {};
+        accounts[fence.accountFingerprint] = Math.max(accounts[fence.accountFingerprint] ?? 0, fence.observedThrough);
+      }
     }
     return { status: entries.length >= this.maxEntries || bytes >= this.maxBytes ? 'full' : 'ready',
       entries: entries.filter(entry => entry.sourceKey === this.sourceKey), generation, clearedThrough,
+      ...(Object.keys(accountClearedThrough).length ? { accountClearedThrough } : {}),
       totalEntries: entries.length, totalEntriesByProvider: {
         claude: entries.filter(entry => entry.provider === 'claude').length,
         codex: entries.filter(entry => entry.provider === 'codex').length,
@@ -202,15 +237,19 @@ export class WeeklyEstimateArchive {
     for (const raw of rawFences) {
       if (!object(raw) || !timestamp(raw.observedThrough) ||
         (raw.sourceKey !== undefined && (typeof raw.sourceKey !== 'string' || !HEX.test(raw.sourceKey))) ||
-        (raw.provider !== undefined && raw.provider !== 'claude' && raw.provider !== 'codex')) throw new ArchiveFailure('invalid');
-      const scope = JSON.stringify([raw.sourceKey ?? null, raw.provider ?? null]);
+        (raw.provider !== undefined && raw.provider !== 'claude' && raw.provider !== 'codex') ||
+        (raw.accountFingerprint !== undefined && (typeof raw.accountFingerprint !== 'string' || !ACCOUNT_FINGERPRINT.test(raw.accountFingerprint)))) throw new ArchiveFailure('invalid');
+      const scope = JSON.stringify([raw.sourceKey ?? null, raw.provider ?? null, raw.accountFingerprint ?? null]);
       if (fenceScopes.has(scope)) throw new ArchiveFailure('invalid');
       fenceScopes.add(scope);
       clearFences.push({ observedThrough: raw.observedThrough,
         ...(raw.sourceKey === undefined ? {} : { sourceKey: raw.sourceKey as string }),
-        ...(raw.provider === undefined ? {} : { provider: raw.provider as WeeklyEstimateProvider }) });
+        ...(raw.provider === undefined ? {} : { provider: raw.provider as WeeklyEstimateProvider }),
+        ...(raw.accountFingerprint === undefined ? {} : { accountFingerprint: raw.accountFingerprint as string }) });
     }
     const entries: WeeklyEstimateEntry[] = [];
+    const accountNumbers = new Map<string, number>();
+    const numberedAccounts = new Map<string, string>();
     const windows = new Map<string, { revision: number; signatures: Set<string>; tuple: string }>();
     for (const raw of value.entries) {
       const input = copyInput(raw);
@@ -218,7 +257,16 @@ export class WeeklyEstimateArchive {
         typeof raw.windowKey !== 'string' || !HEX.test(raw.windowKey) ||
         !Number.isSafeInteger(raw.revision) || (raw.revision as number) < 1 ||
         (raw.sourceKey === this.sourceKey && raw.windowKey !== this.windowKey(raw.sourceKey, input))) throw new ArchiveFailure('invalid');
-      const through = cutoff(clearFences, raw.sourceKey, input.provider);
+      if (input.accountScopeKey !== undefined && input.accountNumber !== undefined) {
+        const account = JSON.stringify([raw.sourceKey, input.accountScopeKey]);
+        const ordinal = JSON.stringify([raw.sourceKey, input.accountNumber]);
+        if ((accountNumbers.has(account) && accountNumbers.get(account) !== input.accountNumber) ||
+          (numberedAccounts.has(ordinal) && numberedAccounts.get(ordinal) !== input.accountScopeKey)) throw new ArchiveFailure('invalid');
+        accountNumbers.set(account, input.accountNumber);
+        numberedAccounts.set(ordinal, input.accountScopeKey);
+      }
+      const through = cutoff(clearFences, raw.sourceKey, input.provider,
+        weeklyEstimateAccountFingerprint(this.salt, input.provider, input.accountScopeKey));
       if (through !== undefined && input.observedAt <= through) throw new ArchiveFailure('invalid');
       const key = raw.windowKey;
       const previous = windows.get(key);
@@ -313,16 +361,26 @@ export class WeeklyEstimateArchive {
         if (options.expectedGeneration !== undefined && options.expectedGeneration !== current.generation) {
           return { ...this.result(current, current.bytes), outcome: 'stale-generation' as const };
         }
-        const through = cutoff(current.clearFences, this.sourceKey, input.provider);
+        const through = cutoff(current.clearFences, this.sourceKey, input.provider,
+          weeklyEstimateAccountFingerprint(this.salt, input.provider, input.accountScopeKey));
         if (through !== undefined && input.observedAt <= through) {
           return { ...this.result(current, current.bytes), outcome: 'cleared-observation' as const };
         }
-        const windowKey = this.windowKey(this.sourceKey, input);
+        // Incoming ordinals are display hints only. Canonical numbering is source-local and leased.
+        let normalized = input;
+        if (input.accountScopeKey !== undefined) {
+          const sourceEntries = current.entries.filter(entry => entry.sourceKey === this.sourceKey);
+          const existing = sourceEntries.find(entry => entry.accountScopeKey === input.accountScopeKey && entry.accountNumber !== undefined);
+          const accountNumber = existing?.accountNumber ?? Math.max(0, ...sourceEntries.map(entry => entry.accountNumber ?? 0)) + 1;
+          if (accountNumber > 1e12) return { ...this.result(current, current.bytes), status: 'full' as const, outcome: 'full' as const };
+          normalized = { ...input, accountNumber };
+        }
+        const windowKey = this.windowKey(this.sourceKey, normalized);
         const previous = current.entries.filter(entry => entry.windowKey === windowKey);
-        if (previous.some(entry => semanticKey(copyInput(entry)!) === semanticKey(input))) {
+        if (previous.some(entry => semanticKey(copyInput(entry)!) === semanticKey(normalized))) {
           return { ...this.result(current, current.bytes), outcome: 'unchanged' as const };
         }
-        const entry: WeeklyEstimateEntry = { ...input, sourceKey: this.sourceKey, windowKey, revision: previous.length + 1 };
+        const entry: WeeklyEstimateEntry = { ...normalized, sourceKey: this.sourceKey, windowKey, revision: previous.length + 1 };
         const next: Document = { schemaVersion: 1, generation: current.generation,
           clearFences: current.clearFences, entries: [...current.entries, entry] };
         const body = JSON.stringify(next);
@@ -340,30 +398,34 @@ export class WeeklyEstimateArchive {
   }
   async clear(scope: WeeklyEstimateClearScope = {}): Promise<WeeklyEstimateArchiveResult> {
     if ((scope.provider !== undefined && scope.provider !== 'claude' && scope.provider !== 'codex') ||
-      (scope.allSources !== undefined && typeof scope.allSources !== 'boolean')) return this.failed(new ArchiveFailure('invalid'));
+      (scope.allSources !== undefined && typeof scope.allSources !== 'boolean') ||
+      (scope.accountFingerprint !== undefined && (typeof scope.accountFingerprint !== 'string' || !ACCOUNT_FINGERPRINT.test(scope.accountFingerprint)))) return this.failed(new ArchiveFailure('invalid'));
     try {
       return await this.locked(async () => {
-        const clearAll = scope.allSources === true && scope.provider === undefined;
+        const clearAll = scope.allSources === true && scope.provider === undefined && scope.accountFingerprint === undefined;
         const temporaries = await this.temporaries();
         // An interrupted write may contain several sources; a scoped clear cannot safely retain it.
         if (!clearAll && temporaries.length) throw new ArchiveFailure('invalid');
         let current;
         try { current = await this.read(); }
         catch (error) {
-          if (!(error instanceof ArchiveFailure && error.status === 'invalid' && scope.allSources && !scope.provider)) throw error;
+          if (!(error instanceof ArchiveFailure && error.status === 'invalid' && clearAll)) throw error;
           current = { ...empty(), bytes: 0 };
         }
         const entries = current.entries.filter(entry => !((scope.allSources || entry.sourceKey === this.sourceKey) &&
-          (scope.provider === undefined || entry.provider === scope.provider)));
+          (scope.provider === undefined || entry.provider === scope.provider) &&
+          (scope.accountFingerprint === undefined || weeklyEstimateAccountFingerprint(this.salt, entry.provider, entry.accountScopeKey) === scope.accountFingerprint)));
         const observedNow = Date.now();
         if (!timestamp(observedNow) || current.generation >= Number.MAX_SAFE_INTEGER) throw new ArchiveFailure('invalid');
         const fence: ClearFence = { observedThrough: observedNow,
           ...(scope.allSources ? {} : { sourceKey: this.sourceKey }),
-          ...(scope.provider === undefined ? {} : { provider: scope.provider }) };
+          ...(scope.provider === undefined ? {} : { provider: scope.provider }),
+          ...(scope.accountFingerprint === undefined ? {} : { accountFingerprint: scope.accountFingerprint }) };
         // Never weaken a receipt on clock rollback; also fence future-dated records actually removed.
         for (const old of current.clearFences) if (covers(fence, old)) fence.observedThrough = Math.max(fence.observedThrough, old.observedThrough);
         for (const old of current.entries) {
-          if (covers(fence, { sourceKey: old.sourceKey, provider: old.provider, observedThrough: 0 })) {
+          if (covers(fence, { sourceKey: old.sourceKey, provider: old.provider,
+            accountFingerprint: weeklyEstimateAccountFingerprint(this.salt, old.provider, old.accountScopeKey), observedThrough: 0 })) {
             fence.observedThrough = Math.max(fence.observedThrough, old.observedAt);
           }
         }

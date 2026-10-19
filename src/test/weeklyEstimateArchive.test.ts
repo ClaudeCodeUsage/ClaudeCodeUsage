@@ -4,10 +4,12 @@ import { mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile, mkd
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { WeeklyEstimateArchive, WeeklyEstimateInput } from '../weeklyEstimateArchive';
+import { fingerprintForStableIdentity } from '../quotaObservationStore';
 
 const SALT = 'synthetic-machine-salt';
 const SOURCE = '/synthetic/source-private-canary';
 const NOW = 1_800_000_000_000;
+const ACCOUNT_A = 'a'.repeat(64), ACCOUNT_B = 'b'.repeat(64);
 function estimate(overrides: Partial<WeeklyEstimateInput> = {}): WeeklyEstimateInput {
   return {
     provider: 'codex', windowStart: NOW - 604_800_000, resetAt: NOW,
@@ -17,6 +19,106 @@ function estimate(overrides: Partial<WeeklyEstimateInput> = {}): WeeklyEstimateI
     pricingVersion: 'api-equivalent-v1', flags: ['account-unattributed'], ...overrides,
   };
 }
+
+test('keyed estimates get source-local account ordinals under the lease and retain A-B-A across windows', async t => {
+  const { archive, file } = await fixture(t);
+  const legacy = await archive.record(estimate());
+  const original = JSON.parse(await readFile(file, 'utf8')).entries[0];
+  const a: WeeklyEstimateInput = { ...estimate(), method: 'account-delta-v1', accountScopeKey: ACCOUNT_A,
+    pricingCoverage: .25, flags: ['partial-pricing'], unlinkedEquivalentUsd: 7, linkedSourceCount: 2 };
+  assert.equal((await archive.record(a)).outcome, 'recorded');
+  const other = new WeeklyEstimateArchive(file, SALT, SOURCE);
+  assert.equal((await other.record({ ...a, accountScopeKey: ACCOUNT_B })).outcome, 'recorded');
+  assert.equal((await other.record({ ...a, resetAt: NOW + 604_800_000, observedAt: NOW + 1000 })).outcome, 'recorded');
+  const loaded = await other.load();
+  const scoped = loaded.entries.filter(row => row.accountScopeKey);
+  assert.deepEqual(scoped.map(row => row.accountNumber), [1, 2, 1]);
+  assert.equal(scoped[0].unlinkedEquivalentUsd, 7);
+  assert.equal(scoped[0].linkedSourceCount, 2);
+  assert.deepEqual(loaded.entries[0], legacy.entries[0]);
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).entries[0], original);
+  const separate = new WeeklyEstimateArchive(file, SALT, 'another-source');
+  const sourceB = await separate.record({ ...a, accountScopeKey: ACCOUNT_B });
+  assert.equal(sourceB.entries[0].accountNumber, 1);
+  assert.equal((await other.record({ ...a, accountNumber: 999 })).outcome, 'unchanged', 'caller ordinals cannot replace canonical numbering');
+  assert.equal((await other.record({ ...a, estimatedAt: NOW + 60_000 })).outcome, 'unchanged');
+});
+
+test('concurrent keyed writers assign distinct ordinals and new methods retain observation-time identities', async t => {
+  const { archive, file } = await fixture(t);
+  const other = new WeeklyEstimateArchive(file, SALT, SOURCE);
+  const input: WeeklyEstimateInput = { ...estimate(), method: 'series-prefix-v1', accountScopeKey: ACCOUNT_A };
+  await Promise.all([archive.record(input), other.record({ ...input, accountScopeKey: ACCOUNT_B })]);
+  const loaded = await archive.load();
+  assert.equal(loaded.entries.length, 2);
+  assert.deepEqual(new Set(loaded.entries.map(row => row.accountNumber)), new Set([1, 2]));
+  const fresh = await archive.record({ ...input, observedAt: NOW, estimatedAt: NOW + 1 });
+  assert.equal(fresh.outcome, 'recorded');
+  assert.equal(fresh.entries[2].revision, 2);
+});
+
+test('account numbers require a valid HMAC and optional numeric metadata fails closed on input and disk', async t => {
+  const { archive, file } = await fixture(t);
+  await archive.record(estimate());
+  const before = await readFile(file, 'utf8'), document = JSON.parse(before);
+  for (const fields of [{ accountNumber: 1 }, { accountScopeKey: 'raw-account-id', accountNumber: 1 },
+    { accountScopeKey: ACCOUNT_A, accountNumber: 0 }, { accountScopeKey: ACCOUNT_A, accountNumber: 1.5 },
+    { accountScopeKey: ACCOUNT_A, accountNumber: Infinity }, { unlinkedEquivalentUsd: -1 },
+    { unlinkedEquivalentUsd: NaN }, { unlinkedEquivalentUsd: 1e13 },
+    { linkedSourceCount: -1 }, { linkedSourceCount: 1.5 }, { linkedSourceCount: Infinity }]) {
+    assert.equal((await archive.record({ ...estimate(), ...fields } as WeeklyEstimateInput)).outcome, 'invalid');
+    assert.equal(await readFile(file, 'utf8'), before);
+    await writeFile(file, JSON.stringify({ ...document, entries: [{ ...document.entries[0], ...fields }] }));
+    assert.equal((await archive.load()).status, 'invalid');
+    await writeFile(file, before);
+  }
+});
+
+test('P2 account clear removes only the bound account across sources and fences its old observations', async t => {
+  t.mock.method(Date, 'now', () => NOW);
+  const { archive, file } = await fixture(t), other = new WeeklyEstimateArchive(file, SALT, 'another-source');
+  const a = estimate({ method: 'account-delta-v1', accountScopeKey: ACCOUNT_A });
+  const b = { ...a, accountScopeKey: ACCOUNT_B };
+  for (const target of [archive, other]) {
+    await target.record(a); await target.record(b); await target.record(estimate());
+  }
+  const fingerprint = fingerprintForStableIdentity(SALT, 'codex', 'official-account-scope-v1|' + ACCOUNT_A);
+  assert.notEqual(fingerprint, ACCOUNT_A);
+  const scope = { allSources: true, provider: 'codex' as const, accountFingerprint: fingerprint };
+  const cleared = await archive.clear(scope);
+  assert.equal(cleared.status, 'ready'); assert.equal(cleared.totalEntries, 4);
+  for (const target of [archive, other]) {
+    const after = await target.load();
+    assert.deepEqual(after.entries.map(row => row.accountScopeKey), [ACCOUNT_B, undefined]);
+    assert.equal(after.clearedThrough.codex, undefined, 'account receipts are not provider-wide cutoffs');
+    assert.equal((await target.record({ ...a, usedEquivalentUsd: 21 })).outcome, 'cleared-observation');
+    assert.equal((await target.record({ ...b, usedEquivalentUsd: 21 })).outcome, 'recorded');
+    assert.equal((await target.record(estimate({ usedEquivalentUsd: 22 }))).outcome, 'recorded');
+    assert.equal((await target.record({ ...a, observedAt: NOW + 1 })).outcome, 'recorded');
+  }
+  const before = (await archive.load()).totalEntries;
+  const unknown = { ...scope, accountFingerprint: fingerprintForStableIdentity(SALT, 'codex', 'official-account-scope-v1|' + 'c'.repeat(64)) };
+  assert.equal((await archive.clear(unknown)).status, 'ready');
+  assert.equal((await archive.load()).totalEntries, before);
+});
+
+test('account fences reject malformed fingerprints and cannot authorize overwriting corrupt archives', async t => {
+  const { archive, file } = await fixture(t);
+  await archive.record(estimate());
+  const before = await readFile(file, 'utf8'), document = JSON.parse(before);
+  for (const accountFingerprint of ['raw-account-id', ACCOUNT_A]) {
+    const scope = { allSources: true, provider: 'codex' as const, accountFingerprint };
+    assert.equal((await archive.clear(scope)).status, 'invalid');
+    assert.equal(await readFile(file, 'utf8'), before);
+    await writeFile(file, JSON.stringify({ ...document, clearFences: [{ accountFingerprint, observedThrough: NOW }] }));
+    assert.equal((await archive.load()).status, 'invalid');
+    await writeFile(file, before);
+  }
+  const accountFingerprint = fingerprintForStableIdentity(SALT, 'codex', 'official-account-scope-v1|' + ACCOUNT_A);
+  await writeFile(file, '{malformed-canary');
+  assert.equal((await archive.clear({ allSources: true, accountFingerprint })).status, 'invalid');
+  assert.equal(await readFile(file, 'utf8'), '{malformed-canary');
+});
 async function fixture(t: { after(fn: () => Promise<void>): void }, options = {}) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'ccu-estimate-archive-')));
   t.after(() => rm(root, { recursive: true, force: true }));
