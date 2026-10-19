@@ -84,13 +84,22 @@ test('early reset labels the actual closed boundary, retains its old schedule an
   assert.match(table, /Boundary uncertain/);
 }));
 
-test('unknown cycle start and legacy unassigned references never invent reset-minus-seven-days', () => run(() => {
+test('known initial cycle keeps its unknown start while legacy unassigned references disclose a seven-day UTC bucket', () => run(() => {
   const unknown = entry(); unknown.quotaCycle.startAt = null; unknown.quotaCycle.startLowerAt = null;
   const legacy = entry(2); delete legacy.quotaCycle; delete legacy.quotaEpoch; delete legacy.accountNumber;
   legacy.method = 'series-prefix-v1'; legacy.observedAt -= 1000;
   const html = owner([unknown, legacy]).renderWeeklyValuePanel('codex');
-  assert.match(html, /Cycle start unknown/); assert.match(html, /Reference estimate · not an account cycle/);
-  assert.match(html, /Unassigned/); assert.doesNotMatch(html, /Oct 19, 2026|private-source|private-account/);
+  const titles = [...html.matchAll(/role="img" aria-label="([^"]*)"/g)].map(row => row[1]);
+  assert.equal(titles.length, 2);
+  const known = titles.find(title => title.includes('Account 1'))!;
+  assert.match(known, /Cycle start unknown/); assert.doesNotMatch(known, /Oct 19, 2026|7-day reference/);
+  const reference = titles.find(title => title.includes('Unassigned'))!;
+  assert.match(reference, /Unassigned · Low · Reference estimate · not an account cycle/);
+  assert.match(reference, /7-day reference period \(UTC\): Oct 19, 2026, 00:00 – Oct 26, 2026, 00:00 UTC/);
+  assert.match(reference, /Observed reset: Oct 26, 2026/);
+  assert.match(reference, /Inferred used \(estimate\): \$40\.00.*Unused estimate: \$60\.00/);
+  assert.doesNotMatch(reference, /Cycle start unknown|reset occurred within/);
+  assert.doesNotMatch(html, /private-source|private-account/);
 }));
 
 test('Codex defaults to at most 48 cycles rather than eight observations or days', () => run(() => {
@@ -117,11 +126,13 @@ test('uncalibrated audit rows remain readable without adding another cycle bar',
   assert.match(records, /<td class="cost-cell">—<\/td>/);
 }));
 
-test('unknown accounts use a compact axis marker while full attribution remains in the tooltip', () => run(() => {
+test('unknown reference accounts use a compact seven-day marker while full attribution remains in the tooltip', () => run(() => {
   const unknown = entry(); unknown.accountNumber = undefined; unknown.quotaCycle.referenceOnly = true;
   const html = owner([unknown]).renderWeeklyValuePanel('codex');
-  assert.match(html, /<span>\d{1,2}\/\d{1,2}<\/span><span>\?<\/span>/);
+  assert.match(html, /<span>\d{1,2}\/\d{1,2}<\/span><span>7d<\/span>/);
   assert.ok(html.includes(I18n.t.weeklyValue.accountUnassigned));
+  assert.match(html, /Low · Reference estimate · not an account cycle/);
+  assert.match(html, /7-day reference period \(UTC\)/);
 }));
 
 test('numbered legacy references remain explicitly low confidence and never claim a current account cycle', () => run(() => {
@@ -137,8 +148,18 @@ test('numbered legacy references remain explicitly low confidence and never clai
     const html = p.renderWeeklyValuePanel('codex');
     const title = html.match(/role="img" aria-label="([^"]*)"/)?.[1] ?? '';
     assert.match(title, /Account 1.*Low · Reference estimate · not an account cycle/);
-    assert.match(title, /Cycle start unknown/);
-    assert.doesNotMatch(title, /Current period|Oct 19, 2026/);
+    if (epoch && !projectedCycle) {
+      // An epoch without a projected cycle is not an explicit legacy reference.
+      assert.match(title, /Cycle start unknown/);
+      assert.doesNotMatch(title, /7-day reference period|Oct 19, 2026/);
+    } else {
+      assert.match(title, /7-day reference period \(UTC\): Oct 19, 2026, 00:00 – Oct 26, 2026, 00:00 UTC/);
+      assert.match(title, /Observed reset: Oct 26, 2026/);
+      assert.match(labels(html).join(''), /<span>7d<\/span>/);
+      assert.doesNotMatch(title, /Cycle start unknown|reset occurred within/);
+    }
+    assert.match(title, /Inferred used \(estimate\): \$40\.00.*Unused estimate: \$60\.00/);
+    assert.doesNotMatch(title, /Current period/);
     assert.doesNotMatch(labels(html).join(''), /Current/);
     const records = html.split('<tbody>')[1];
     assert.match(records, /Low · Reference estimate · not an account cycle/);

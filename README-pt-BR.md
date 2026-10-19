@@ -83,6 +83,7 @@ reduzir os totais mostrados; por padrão, o limite do Codex é a última observa
 
 - **Comparação de cotas Codex por ciclo** — ciclos históricos entre duas redefinições da mesma conta,
   com uma barra por conta local/ciclo usando a última estimativa válida. O ciclo pode durar menos de sete dias.
+  Sem detalhes do ciclo, usam-se intervalos de referência de 7 dias identificados; as barras ficam mais próximas.
   São estimativas aproximadas, não faturas.
   Defina `showWeeklyEquivalentValue` como false para ocultar a comparação.
   `codex.officialQuota.enabled` vem desativado; lê um daemon em execução, que pode contatar a OpenAI.

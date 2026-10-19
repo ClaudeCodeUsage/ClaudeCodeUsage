@@ -7711,6 +7711,15 @@ export class UsageWebviewProvider {
     }).format(new Date(value));
     const bound = (upper: number, lower: number | null): string => lower === upper ? date(upper) :
       valid(lower) && lower < upper ? '(' + date(lower) + ' – ' + date(upper) + ']' : '≤ ' + date(upper);
+    if (cycle?.fallbackDays === 7 && valid(cycle.startAt) && valid(cycle.endAt)) {
+      const utc = (value: number): string => new Intl.DateTimeFormat(I18n.getLocale(), {
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+        timeZone: 'UTC', hourCycle: 'h23',
+      }).format(new Date(value));
+      const observedReset = valid(cycle.scheduledResetAt) ? cycle.scheduledResetAt : scheduledResetAt;
+      return copy.fallbackCycle + ': ' + utc(cycle.startAt) + ' – ' + utc(cycle.endAt) + ' UTC' +
+        (valid(observedReset) ? ' · ' + copy.fallbackObservedReset + ': ' + date(observedReset) : '');
+    }
     const parts = [cycle && valid(cycle.startAt)
       ? copy.cycleStart + ': ' + bound(cycle.startAt, cycle.startLowerAt) : copy.cycleStartUnknown];
     if (cycle?.closed && valid(cycle.endAt)) parts.push(copy.cycleEnd + ': ' + bound(cycle.endAt, cycle.endLowerAt));
@@ -7975,7 +7984,7 @@ export class UsageWebviewProvider {
       const shortDate = parts.find(part => part.type === 'month')!.value + '/' + parts.find(part => part.type === 'day')!.value;
       const number = this.weeklyAccountNumber(point.accountNumber);
       const account = number === undefined ? '?' : '#' + number;
-      const marker = [account, point.current && cycle && !cycle.closed && !cycle.referenceOnly
+      const marker = cycle?.fallbackDays === 7 ? copy.fallbackCycleShort : [account, point.current && cycle && !cycle.closed && !cycle.referenceOnly
         ? copy.currentPeriodShort : ''].filter(Boolean).join(' · ');
       const title = periodLabel(point) + ' · ' + copy.estimateAsOf + ': ' + dateLabel(point.observedAt!);
       return '<div class="hc-xlabel" title="' + this.escapeHtml(title) + '"><span>' + this.escapeHtml(shortDate) +
@@ -13700,7 +13709,16 @@ export class UsageWebviewProvider {
 
       [data-weekly-estimate-chart] .hc-col,
       [data-weekly-estimate-chart] .hc-xlabel {
-        width: 64px;
+        width: 44px;
+      }
+
+      [data-weekly-estimate-chart] .hc-bars,
+      [data-weekly-estimate-chart] .hc-xlabels {
+        gap: 2px;
+      }
+
+      [data-weekly-estimate-chart] .stack-bar {
+        width: 36px;
       }
 
       [data-weekly-estimate-chart] .hc-xlabel > span {

@@ -30,13 +30,13 @@ test('a real irregular reset is graphed without snapping it into the current sev
   assert.equal(rows.length,2);assert.equal(rows[0].resetAt,R+2*H);assert.equal(rows[0].windowStart,entry.windowStart);
   assert.equal(rows[1].usedEquivalentUsd,12);assert.equal(rows[1].unusedEquivalentUsd,null);
 });
-test('latest sample per reset is selected once, while overlapping real windows remain separate and only latest observation is current',()=>{
+test('unassigned daily reset references select one latest snapshot for their seven-day fallback period',()=>{
   const snapshots=[snapshot({observedAt:N-2*H,fullEquivalentUsd:200,unusedEquivalentUsd:150}),snapshot(),
     snapshot({resetAt:R+2*H,windowStart:R+2*H-7*D,observedAt:N-3*H,fullEquivalentUsd:50,unusedEquivalentUsd:30})];
   const rows=projectWeeklyEstimateChart('codex',[usage()],snapshots,{now:N});
-  assert.equal(rows.length,2);assert.equal(rows[0].fullEquivalentUsd,100);
+  assert.equal(rows.length,1);assert.equal(rows[0].fullEquivalentUsd,100);
   assert.equal(rows[0].resetAt,R);assert.equal(rows[0].current,false);
-  assert.equal(rows[1].resetAt,R+2*H);assert.equal(rows[1].current,false);
+  assert.equal(rows[0].quotaCycle?.fallbackDays,7);
 });
 test('newer unavailable sample does not relabel a saved older estimate as current',()=>{
   const rows=projectWeeklyEstimateChart('codex',[usage()],[snapshot(),snapshot({observedAt:N,

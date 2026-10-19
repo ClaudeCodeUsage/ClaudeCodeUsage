@@ -1759,6 +1759,9 @@ export interface WeeklyValueCopy {
   cycleStartUnknown: string;
   cycleBoundaryUncertain: string;
   scheduledReset: string;
+  fallbackCycle: string;
+  fallbackCycleShort: string;
+  fallbackObservedReset: string;
   cycleChartNote: string;
   cycleIndexedSubtotal: string;
   description: string;
@@ -2856,7 +2859,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     cycleIndexedSubtotal: 'Indexing is incomplete; cycle estimates use only indexed usage.',
     cycleStart: 'Cycle start', cycleEnd: 'Cycle end', cycleStartUnknown: 'Cycle start unknown',
     cycleBoundaryUncertain: 'Boundary uncertain · reset occurred within the indicated bounds', scheduledReset: 'Scheduled reset',
-    cycleChartNote: 'One bar per account and reset-to-reset cycle, using its latest estimate; cycle length varies. Up to 48 cycles are shown. Unknown assignments remain reference estimates.',
+    fallbackCycle: '7-day reference period (UTC)', fallbackCycleShort: '7d', fallbackObservedReset: 'Observed reset',
+    cycleChartNote: 'Known account cycles follow resets; unknown cycles use fixed 7-day reference periods (Monday 00:00 UTC to the next Monday). Each account or unassigned group keeps only the latest valid estimate per period, never a sum. Up to 48 periods are shown.',
     description: 'Rough conversion from locally priced API-equivalent amounts and quota percentages. Unpriced usage is not extrapolated from token coverage; not an official balance, bill or cash value.',
     period: 'Period', periodDetails: 'Period details', currentPeriod: 'Current period', currentPeriodShort: 'Current', resetsAt: 'resets',
     usedValue: 'Used equivalent', fullValue: 'Cycle total (estimate)', unusedValue: 'Unused estimate',
@@ -2902,7 +2906,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     cycleIndexedSubtotal: '索引尚未完成；周期估值仅以已索引用量为依据。',
     cycleStart: '周期开始', cycleEnd: '周期结束', cycleStartUnknown: '周期起点未知',
     cycleBoundaryUncertain: '边界不确定 · 重置发生于所示范围内', scheduledReset: '计划重置',
-    cycleChartNote: '每账号每个相邻重置周期一柱，采用该周期末次估值；周期长度不固定。最多显示 48 个周期，未知归属保留为参考估值。',
+    fallbackCycle: '7天参考周期（UTC）', fallbackCycleShort: '7天', fallbackObservedReset: '原观测重置时间',
+    cycleChartNote: '已知账号周期按相邻重置划分；未知周期按固定7天参考周期划分（UTC 周一 00:00 至下周一）。每个账号或未归属组在各周期仅保留末次有效估值，不相加。最多显示 48 个周期。',
     description: '按本机已定价 API 金额与额度比例粗略换算；未定价部分不按 Token 覆盖比例补价。不是官方余额、账单或现金价值。',
     period: '周期', periodDetails: '周期详情', currentPeriod: '当前周期', currentPeriodShort: '当前', resetsAt: '重置于',
     usedValue: '已用等价值', fullValue: '周期总额（估值）', unusedValue: '未用估值',
@@ -2948,7 +2953,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     cycleIndexedSubtotal: '索引尚未完成；週期估值僅以已索引用量為依據。',
     cycleStart: '週期開始', cycleEnd: '週期結束', cycleStartUnknown: '週期起點未知',
     cycleBoundaryUncertain: '邊界不確定 · 重設發生於所示範圍內', scheduledReset: '預定重設',
-    cycleChartNote: '每帳號每個相鄰重設週期一柱，採用該週期末次估值；週期長度不固定。最多顯示 48 個週期，未知歸屬保留為參考估值。',
+    fallbackCycle: '7天參考週期（UTC）', fallbackCycleShort: '7天', fallbackObservedReset: '原觀測重設時間',
+    cycleChartNote: '已知帳號週期按相鄰重設劃分；未知週期按固定7天參考週期劃分（UTC 週一 00:00 至下週一）。每個帳號或未歸屬組在各週期僅保留末次有效估值，不相加。最多顯示 48 個週期。',
     description: '依本機已定價 API 金額與額度比例粗略換算；未定價部分不依 Token 涵蓋比例補價。不是官方餘額、帳單或現金價值。',
     period: '週期', periodDetails: '週期詳情', currentPeriod: '目前週期', currentPeriodShort: '目前', resetsAt: '重設於',
     usedValue: '已用等價值', fullValue: '週期總額（估值）', unusedValue: '未用估值',
@@ -2994,7 +3000,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     cycleIndexedSubtotal: '索引作成は未完了です。周期の推定は索引済みの使用量のみに基づきます。',
     cycleStart: '周期の開始', cycleEnd: '周期の終了', cycleStartUnknown: '周期の開始時点は不明',
     cycleBoundaryUncertain: '境界は不確か · リセットは表示範囲内で発生', scheduledReset: '予定リセット',
-    cycleChartNote: 'アカウントごとに連続するリセット間の周期を最新推定値の棒で示します。周期の長さは一定ではなく、最大48周期を表示します。帰属不明の値は参考推定として保持します。',
+    fallbackCycle: '7日間の参考期間（UTC）', fallbackCycleShort: '7日', fallbackObservedReset: '観測されたリセット',
+    cycleChartNote: '既知のアカウント周期はリセット間、不明な周期は固定7日間の参考期間（UTC月曜00:00から翌月曜）で区切ります。アカウントまたは未帰属グループごとに各期間の最新の有効な推定値のみを保持し、合算しません。最大48期間を表示します。',
     description: 'ローカルの価格適用済み API 等価額と枠の使用割合から概算します。価格不明分を Token の価格適用率から補いません。公式残高、請求額、現金価値ではありません。',
     period: '期間', periodDetails: '期間の詳細', currentPeriod: '現在の期間', currentPeriodShort: '現在', resetsAt: 'リセット',
     usedValue: '使用済み等価値', fullValue: '周期総額（推定）', unusedValue: '未使用推定額',
@@ -3040,7 +3047,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     cycleIndexedSubtotal: '인덱싱이 끝나지 않아 주기 추정에는 인덱싱된 사용량만 사용됩니다.',
     cycleStart: '주기 시작', cycleEnd: '주기 종료', cycleStartUnknown: '주기 시작 시점 알 수 없음',
     cycleBoundaryUncertain: '경계 불확실 · 재설정은 표시된 범위 안에서 발생', scheduledReset: '예정된 재설정',
-    cycleChartNote: '계정별 연속 재설정 사이의 주기마다 최신 추정값을 한 막대로 표시하며 주기 길이는 다릅니다. 최대 48개 주기를 표시합니다. 귀속 미확인 값은 참고 추정치로 유지합니다.',
+    fallbackCycle: '7일 참고 기간 (UTC)', fallbackCycleShort: '7일', fallbackObservedReset: '관측된 재설정',
+    cycleChartNote: '확인된 계정 주기는 재설정 사이로, 알 수 없는 주기는 고정 7일 참고 기간(UTC 월요일 00:00부터 다음 월요일)으로 구분합니다. 계정 또는 미귀속 그룹별로 각 기간의 마지막 유효 추정값만 유지하며 합산하지 않습니다. 최대 48개 기간을 표시합니다.',
     description: '로컬에서 가격이 적용된 API 등가액과 한도 비율로 대략 환산합니다. 가격 미적용분은 Token 가격 적용률로 보충하지 않습니다. 공식 잔액, 청구액 또는 현금 가치가 아닙니다.',
     period: '기간', periodDetails: '기간 세부 정보', currentPeriod: '현재 기간', currentPeriodShort: '현재', resetsAt: '재설정',
     usedValue: '사용 등가치', fullValue: '주기 총액(추정)', unusedValue: '미사용 추정액',
@@ -3086,7 +3094,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     cycleIndexedSubtotal: 'A indexação está incompleta; as estimativas por ciclo usam apenas o uso indexado.',
     cycleStart: 'Início do ciclo', cycleEnd: 'Fim do ciclo', cycleStartUnknown: 'Início do ciclo desconhecido',
     cycleBoundaryUncertain: 'Limite incerto · a redefinição ocorreu dentro do intervalo indicado', scheduledReset: 'Redefinição prevista',
-    cycleChartNote: 'Uma barra por conta e ciclo entre redefinições, com a estimativa mais recente; a duração varia. Até 48 ciclos são exibidos. Atribuições desconhecidas permanecem como estimativas de referência.',
+    fallbackCycle: 'Período de referência de 7 dias (UTC)', fallbackCycleShort: '7d', fallbackObservedReset: 'Redefinição observada',
+    cycleChartNote: 'Ciclos de contas conhecidas seguem as redefinições; ciclos desconhecidos usam períodos fixos de referência de 7 dias (segunda 00:00 UTC até a próxima segunda). Cada conta ou grupo não atribuído mantém apenas a última estimativa válida por período, sem somar. Até 48 períodos são exibidos.',
     description: 'Conversão aproximada dos valores locais equivalentes à API com preço conhecido e das porcentagens de cota. O uso sem preço não é extrapolado pela cobertura de tokens; não é saldo oficial, fatura nem valor em dinheiro.',
     period: 'Período', periodDetails: 'Detalhes do período', currentPeriod: 'Período atual', currentPeriodShort: 'Atual', resetsAt: 'reinicia em',
     usedValue: 'Equivalente usado', fullValue: 'Total do ciclo (estimado)', unusedValue: 'Valor não utilizado estimado',
@@ -3132,7 +3141,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     cycleIndexedSubtotal: 'Die Indizierung ist unvollständig; Zyklusschätzungen nutzen nur indizierte Nutzung.',
     cycleStart: 'Zyklusbeginn', cycleEnd: 'Zyklusende', cycleStartUnknown: 'Zyklusbeginn unbekannt',
     cycleBoundaryUncertain: 'Grenze ungewiss · Reset innerhalb der angegebenen Grenzen', scheduledReset: 'Geplanter Reset',
-    cycleChartNote: 'Ein Balken je Konto und Zyklus zwischen zwei Resets mit der neuesten Schätzung; die Dauer variiert. Bis zu 48 Zyklen werden angezeigt. Unbekannte Zuordnungen bleiben Referenzschätzungen.',
+    fallbackCycle: '7-Tage-Referenzzeitraum (UTC)', fallbackCycleShort: '7T', fallbackObservedReset: 'Beobachteter Reset',
+    cycleChartNote: 'Bekannte Kontozyklen folgen den Resets; unbekannte Zyklen nutzen feste 7-Tage-Referenzzeiträume (Montag 00:00 UTC bis zum nächsten Montag). Je Konto oder nicht zugeordneter Gruppe bleibt nur die letzte gültige Schätzung pro Zeitraum erhalten, ohne Addition. Bis zu 48 Zeiträume werden angezeigt.',
     description: 'Grobe Umrechnung aus lokal bepreisten API-Gegenwerten und Kontingentprozentsätzen. Unbepreiste Nutzung wird nicht anhand der Token-Preisabdeckung hochgerechnet; kein offizielles Guthaben, keine Rechnung und kein Barwert.',
     period: 'Zeitraum', periodDetails: 'Zeitraumdetails', currentPeriod: 'Aktueller Zeitraum', currentPeriodShort: 'Aktuell', resetsAt: 'Reset',
     usedValue: 'Genutzter Gegenwert', fullValue: 'Zyklussumme (Schätzung)', unusedValue: 'Ungenutzter Schätzwert',
@@ -3178,7 +3188,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     cycleIndexedSubtotal: 'Pengindeksan belum selesai; estimasi siklus hanya memakai penggunaan yang sudah diindeks.',
     cycleStart: 'Awal siklus', cycleEnd: 'Akhir siklus', cycleStartUnknown: 'Awal siklus tidak diketahui',
     cycleBoundaryUncertain: 'Batas tidak pasti · pengaturan ulang terjadi dalam rentang yang ditunjukkan', scheduledReset: 'Pengaturan ulang terjadwal',
-    cycleChartNote: 'Satu batang per akun dan siklus antara dua pengaturan ulang, memakai estimasi terbaru; panjang siklus bervariasi. Maksimal 48 siklus ditampilkan. Atribusi yang tidak diketahui tetap menjadi estimasi referensi.',
+    fallbackCycle: 'Periode referensi 7 hari (UTC)', fallbackCycleShort: '7h', fallbackObservedReset: 'Pengaturan ulang teramati',
+    cycleChartNote: 'Siklus akun yang diketahui mengikuti pengaturan ulang; siklus tak diketahui memakai periode referensi tetap 7 hari (Senin 00:00 UTC hingga Senin berikutnya). Setiap akun atau kelompok tanpa atribusi hanya menyimpan estimasi valid terakhir per periode, tanpa dijumlahkan. Maksimal 48 periode ditampilkan.',
     description: 'Konversi kasar dari nilai ekuivalen API lokal yang memiliki harga dan persentase kuota. Penggunaan tanpa harga tidak diekstrapolasi dari cakupan token; bukan saldo resmi, tagihan, atau nilai tunai.',
     period: 'Periode', periodDetails: 'Detail periode', currentPeriod: 'Periode saat ini', currentPeriodShort: 'Saat ini', resetsAt: 'reset',
     usedValue: 'Ekuivalen terpakai', fullValue: 'Total siklus (estimasi)', unusedValue: 'Estimasi belum terpakai',

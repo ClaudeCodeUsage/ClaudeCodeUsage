@@ -8,7 +8,8 @@ const reasons = [
   'estimateAccountUnknown', 'estimatePartialPricing', 'estimateBoundarySplit',
   'estimatePartialHistory', 'estimateObservationChanged',
 ] as const;
-const chartFields = ['chartUsedValue', 'chartUnusedValue', 'chartEstimateNote'] as const;
+const chartFields = ['chartUsedValue', 'chartUnusedValue', 'chartEstimateNote',
+  'fallbackCycle', 'fallbackCycleShort', 'fallbackObservedReset', 'cycleChartNote'] as const;
 const estimateMarkers: Record<SupportedLanguage, RegExp> = {
   en: /estimate/i, 'de-DE': /schätz/i, 'zh-TW': /估值/, 'zh-CN': /估值/,
   ja: /推定/, ko: /추정/, 'pt-BR': /estimad/i, id: /estimasi/i,
@@ -33,6 +34,9 @@ for (const locale of locales) {
       }
       assert.equal(Reflect.get(copy, 'chartUsedValue'), copy.usedValue);
       assert.equal(Reflect.get(copy, 'chartUnusedValue'), copy.estimateUnused);
+      assert.match(copy.cycleChartNote, /48/, 'retain the chart display cap');
+      assert.match(Reflect.get(copy, 'fallbackCycle') as string, /UTC/, 'reference bucket timezone is explicit');
+      assert.match(Reflect.get(copy, 'fallbackCycleShort') as string, /7/, 'compact marker identifies seven days');
     } finally {
       I18n.setLanguage(previous);
     }
@@ -65,6 +69,7 @@ test('Chinese copy distinguishes factual caveats from an unavailable conversion 
     assert.match(chartNote, /无观测.*仅.*本机已用/);
     assert.match(chartNote, /重叠窗口.*不能相加/);
     assert.match(copy.multiAccount, /未核实.*混用.*偏差/);
+    assert.match(copy.cycleChartNote, /已知.*重置.*未知.*固定.*7.*末次有效.*不相加/);
     assert.doesNotMatch(copy.boundaryApproximation, /停止新增|缺少精确/);
   } finally {
     I18n.setLanguage(previous);

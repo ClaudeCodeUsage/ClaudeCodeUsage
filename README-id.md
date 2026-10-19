@@ -151,6 +151,7 @@ untuk batas cakupan tanggal, ekspor, penyimpanan, dan kuota.
 
 - **Perbandingan kuota Codex per siklus** — bandingkan siklus historis antara dua reset akun yang sama,
   satu batang per akun lokal/siklus memakai estimasi valid terakhir. Siklus dapat lebih pendek dari tujuh hari.
+  Jika detail siklus tidak tersedia, gunakan interval referensi 7 hari berlabel; jarak antarbatang dipersempit.
   Atur `showWeeklyEquivalentValue` ke false untuk menyembunyikan perbandingan.
   `codex.officialQuota.enabled` nonaktif secara default; membaca daemon yang berjalan dan dapat menghubungi OpenAI.
   Identitas kuota tidak membuktikan kepemilikan pemakaian. Lihat [data lokal dan privasi](LOCAL-DATA.md).

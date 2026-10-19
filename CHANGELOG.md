@@ -18,8 +18,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 - **Codex cycle quota reconciliation** — compare historical reset-to-reset cycles,
   one bar per local account/cycle using its last valid monetary observation. Cycles
   can be shorter than seven days; daily usage, calibration segments and login visits
-  do not create separate bars. Early resets close the previous cycle; unknown starts
-  remain unknown. Complete local usage and pre-reset snapshots stay separate.
+  do not create separate bars. Early resets close the previous cycle; uncertain
+  real reset boundaries remain explicit. When cycle details are missing, legacy
+  reference-only estimates use labelled, non-overlapping seven-day reference buckets
+  starting Monday at 00:00 UTC, assigned by their original observation time.
+  Each account or unassigned group contributes only its last valid estimate per
+  bucket, never a bar per day or a sum of overlapping USD estimates. These display
+  buckets do not invent real resets or change archived times, amounts or ownership.
+  Complete local usage and pre-reset snapshots stay separate.
   Compatible ten-minute samples can calibrate with a continuity
   warning; switches, blur and resets require fresh baselines without bridging gaps.
   Compatible earlier intervals can retain their percentage-weighted contribution.
@@ -38,8 +44,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   one observation snapshot, with total height matching the existing estimate.
   A closed cycle retains the last observed unused estimate, which need not be zero.
   Claude retains its existing grid behavior; Codex shows up to 48 cycles with
-  horizontal scrolling, short date labels on at most two lines and full boundary
-  details in tooltips/tables. Headers identify estimates and monetary cells omit
+  horizontal scrolling and tighter column/bar spacing. Short date labels use at
+  most two lines, with `fallback7d` on the second line for reference buckets and
+  full boundary details in tooltips/tables. Headers identify estimates and monetary cells omit
   repeated ≈ markers. Existing percentage-change snapshots carry the latest admitted
   interval and cumulative USD/percentage-point/Token evidence; the same archive stops
   writing at 4096 entries / 1 MiB without eviction, retaining its clear fences,

@@ -166,7 +166,8 @@ AI 个性化仍为可选项。自备 `advice.apiKey` 后，默认请求只含聚
 - 单次请求 Token 归因优先采用有效的 `last_token_usage` component；其中 `total_tokens` 表示活跃上下文大小，不是该请求的用量。只有完整的 total-plus-last 数字签名能证明同一伪名 rate-limit 来源或紧邻记录发生重放时才去重；缺少 last snapshot 时回退为 cumulative lineage high-water。升级后会自动重建一次索引，期间持续显示已索引小计。
 
 - **Codex 周期额度对比**——对比同账号两次 reset 之间的历史周期，每账号／周期一柱，
-  采用末次有效估值；周期可短于七天。`codex.officialQuota.enabled` 默认关闭；
+  采用末次有效估值；周期可短于七天。缺少周期详情时使用明确标注的七天参考桶，柱间距收紧。
+  `codex.officialQuota.enabled` 默认关闭；
   读取已运行的 daemon，可能访问 OpenAI，额度身份不证明用量归属。
   将 `showWeeklyEquivalentValue` 设为 false 可隐藏对比。
   详见[本地数据与隐私](LOCAL-DATA.zh-CN.md)。

@@ -64,6 +64,7 @@ const server = createServer(async (request, response) => {
       'weekly-rough-partial',
       'weekly-accounts',
       'weekly-cycles',
+      'weekly-reference-cycles',
       'weekly-claude-completed',
       'weekly-quota-pace',
       'unknown-models',

@@ -89,6 +89,7 @@ die Codex-Quote bleibt standardmäßig die letzte lokale Beobachtung.
 
 - **Codex-Quotenvergleich nach Zyklus** — historische Zyklen zwischen zwei Resets desselben Kontos,
   ein Balken je lokalem Konto/Zyklus mit dem letzten gültigen groben Schätzwert. Zyklen können kürzer als sieben Tage sein.
+  Bei fehlenden Zyklusdetails gelten gekennzeichnete 7-Tage-Referenzintervalle; die Balkenabstände sind kleiner.
   Kalibrierbelege bleiben im lokalen Archiv.
   Mit `showWeeklyEquivalentValue` auf false lässt sich der Vergleich ausblenden.
   `codex.officialQuota.enabled` ist standardmäßig aus; Abfragen nutzen einen laufenden Daemon und können

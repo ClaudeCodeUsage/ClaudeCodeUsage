@@ -166,6 +166,7 @@ For patch-level detail, see [CHANGELOG.md](CHANGELOG.md).
 
 - **Codex cycle quota comparison** — compare historical reset-to-reset cycles,
   one bar per local account/cycle using its last valid estimate. Cycles can be shorter than seven days.
+  Missing cycle details use labelled 7-day reference buckets; bar spacing is tighter.
   Set `showWeeklyEquivalentValue` to false to hide the comparison.
   `codex.officialQuota.enabled` defaults off; reads use an existing daemon and may contact
   OpenAI. Quota identity does not prove usage ownership. See [local data and privacy](LOCAL-DATA.md).

@@ -6,7 +6,7 @@ import type { WeeklyValueInputs } from './weeklyValue';
 import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation } from './codexQuotaEpoch';
 import { copyCodexCalibrationEvidence, codexCalibrationEvidenceFitsEstimate } from './codexCalibrationEvidence';
 import type { QuotaObservationV2 } from './quotaObservationStore';
-import { withCodexQuotaCycles } from './codexQuotaCycles';
+import { codexFallbackQuotaCycle, withCodexQuotaCycles } from './codexQuotaCycles';
 
 export interface WeeklyEstimateDisplayEntry extends LocalWeeklyEstimate {
   /** Public reference-price version retained with its historical numeric snapshot. */
@@ -122,7 +122,9 @@ function merge(saved: InternalEntry[], live: InternalEntry[]): InternalEntry[] {
   }
   const representatives = new Map<string, InternalEntry>();
   for (const value of [...rows.values()].reverse().sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt)) {
-    const key = JSON.stringify([value.provider, value.accountScopeKey ?? null, value.quotaEpoch?.startedAt ?? null,
+    const fallback = value.provider === 'codex' && value.accountScopeKey === undefined && value.quotaEpoch === undefined;
+    const key = fallback ? JSON.stringify(['codex', 'seven-day-reference', codexFallbackQuotaCycle(value).id,
+      value.fullEquivalentUsd === null ? 'withheld' : 'full']) : JSON.stringify([value.provider, value.accountScopeKey ?? null, value.quotaEpoch?.startedAt ?? null,
       value.quotaEpoch === undefined ? value.resetAt : null, value.method, value.pricingVersion ?? null,
       value.fullEquivalentUsd === null ? 'withheld' : 'full']);
     if (!representatives.has(key)) representatives.set(key, value);

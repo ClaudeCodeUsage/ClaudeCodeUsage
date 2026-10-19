@@ -1714,18 +1714,27 @@ new cycles. Primary local usage remains in its existing dashboard views.
 `codexQuotaCycles.ts` combines official P2 reset checkpoints with saved `quotaEpoch`
 metadata into display-only `quotaCycle` bounds: `startAt`/`startLowerAt`,
 `endAt`/`endLowerAt`, `closed` and `scheduledResetAt`. Early resets truncate the
-previous cycle; uncertain bounds remain explicit. An unknown initial start is
-never filled with reset minus seven days. Legacy unassigned estimates retain
-their cycle reference without acquiring an account label.
+previous cycle; uncertain real reset bounds remain explicit rather than being
+invented as reset minus seven days. Where cycle details are missing, legacy
+`referenceOnly` estimates are assigned by their original `observedAt` to fixed,
+non-overlapping seven-day reference buckets starting Monday at 00:00 UTC.
+These display-only buckets carry `quotaCycle.fallbackDays?: 7`; they do not
+assert real reset boundaries or alter original `observedAt`, `resetAt` or archived
+amounts. Known reset cycles take precedence, including early-reset truncation.
+Accounts remain separate, and unassigned groups do not acquire account labels.
 
 `selectCodexCycleEstimates` selects the last valid monetary observation per
-account/cycle for `weeklyEstimateChart.ts`. Both segments retain that snapshot:
+account/cycle for `weeklyEstimateChart.ts`; for reference buckets it selects the
+last valid estimate per account or unassigned group per bucket. Old references
+never create one bar per day, and overlapping USD estimates are never summed.
+Both segments retain that snapshot:
 blue estimated used = F - R, green estimated unused = R, total height = F.
 Closed does not mean exhausted: the last observed R need not be zero. Archived
 amounts are not recalculated. The table distinguishes inferred used from
 calibration evidence; account cycles are not summed. Up to 48 cycles scroll
-horizontally, with short dates on at most two axis lines and full boundary details
-in tooltips/tables. Claude retains its existing grid and actual-used columns.
+horizontally with tighter column/bar spacing. Short dates use at most two axis
+lines, with a localized seven-day marker on the second line for reference buckets; tooltips/tables
+retain full boundary details. Claude retains its existing grid and actual-used columns.
 Current requires fresh matching account/epoch evidence when official reads are
 enabled; unassigned, stale or closed cycles cannot acquire that marker.
 

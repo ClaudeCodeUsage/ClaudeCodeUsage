@@ -14,7 +14,18 @@ for (const [theme, width] of [['light', 1280], ['dark', 320]]) {
     const chart = page.locator('#all [data-weekly-estimate-chart]');
     const labels = chart.locator('.hc-xlabel'), bars = chart.locator('.stack-bar');
     await expect(labels).toHaveCount(48); await expect(bars).toHaveCount(48);
-    await expect(chart.locator('.table-hint').first()).toContainText('cycle length varies');
+    const geometry = await bars.evaluateAll(nodes => nodes.map(node => {
+      const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, width: rect.width };
+    }));
+    for (let index = 1; index < geometry.length; index++) {
+      expect(geometry[index].left - geometry[index - 1].right).toBeGreaterThanOrEqual(0);
+      expect(geometry[index].left - geometry[index - 1].right).toBeLessThanOrEqual(10);
+    }
+    expect(geometry[0].width).toBe(36);
+    const columns = await chart.locator('.hc-col').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
+    const axisWidths = await labels.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
+    expect(columns).toEqual(axisWidths);
+    await expect(chart.locator('.table-hint').first()).toContainText('fixed 7-day reference periods');
     for (const label of await labels.all()) {
       const lines = label.locator(':scope > span'); await expect(lines).toHaveCount(2);
       await expect(lines.first()).toHaveText(/^\d{1,2}\/\d{1,2}$/);
@@ -39,7 +50,7 @@ for (const [theme, width] of [['light', 1280], ['dark', 320]]) {
     const details = page.locator('#all .weekly-estimate-details');
     await details.locator(':scope > summary').click();
     await expect(details.locator('tbody tr')).toHaveCount(53);
-    await expect(details).toContainText('Cycle start unknown');
+    await expect(details).toContainText('7-day reference period (UTC)');
     await expect(details).toContainText('Reference estimate · not an account cycle');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     expect(external).toEqual([]); expect(errors).toEqual([]);
@@ -48,5 +59,50 @@ for (const [theme, width] of [['light', 1280], ['dark', 320]]) {
     const screenshot = testInfo.outputPath(`weekly-cycles-${theme}-${width}.png`);
     await chart.screenshot({ path: screenshot, animations: 'disabled' });
     await testInfo.attach('cycle-chart', { path: screenshot, contentType: 'image/png' });
+  });
+}
+
+const referenceLocales = [
+  ['en', '7d', '7-day reference period (UTC)', 'Observed reset'],
+  ['zh-CN', '7天', '7天参考周期（UTC）', '原观测重置时间'],
+  ['zh-TW', '7天', '7天參考週期（UTC）', '原觀測重設時間'],
+  ['de-DE', '7T', '7-Tage-Referenzzeitraum (UTC)', 'Beobachteter Reset'],
+  ['ja', '7日', '7日間の参考期間（UTC）', '観測されたリセット'],
+  ['ko', '7일', '7일 참고 기간 (UTC)', '관측된 재설정'],
+  ['pt-BR', '7d', 'Período de referência de 7 dias (UTC)', 'Redefinição observada'],
+  ['id', '7h', 'Periode referensi 7 hari (UTC)', 'Pengaturan ulang teramati'],
+];
+for (const [locale, short, period, reset] of referenceLocales) {
+  test(`${locale}: 24 days of daily legacy resets render only four stable reference periods`, async ({ page }, testInfo) => {
+    await openCodex(page, { fixture: 'weekly-reference-cycles', codexOnly: true, locale,
+      theme: 'dark', width: 320 });
+    await page.locator('#tab-all').click();
+    const chart = page.locator('#all [data-weekly-estimate-chart]');
+    const bars = chart.locator('.stack-bar'), labels = chart.locator('.hc-xlabel');
+    await expect(bars).toHaveCount(4); await expect(labels).toHaveCount(4);
+    await expect(labels.locator(':scope > span:first-child')).toHaveText(['6/29', '7/6', '7/13', '7/20']);
+    await expect(labels.locator(':scope > span:last-child')).toHaveText([short, short, short, short]);
+    for (const label of await labels.all()) await expect(label.locator(':scope > span')).toHaveCount(2);
+    for (const bar of await bars.all()) {
+      const title = await bar.getAttribute('title');
+      expect(title).toContain(period); expect(title).toContain(reset);
+      await expect(bar).toHaveAccessibleName(title);
+    }
+    const details = page.locator('#all .weekly-estimate-details');
+    await details.locator('summary').click();
+    await expect(details.locator('tbody tr')).toHaveCount(5);
+    await expect(details).toContainText(period); await expect(details).toContainText(reset);
+    const geometry = await bars.evaluateAll(nodes => nodes.map(node => {
+      const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right };
+    }));
+    for (let index = 1; index < geometry.length; index++) {
+      expect(geometry[index].left - geometry[index - 1].right).toBeLessThanOrEqual(10);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    if (locale === 'en' || locale === 'zh-CN') {
+      const screenshot = testInfo.outputPath(`weekly-reference-${locale}.png`);
+      await chart.screenshot({ path: screenshot, animations: 'disabled' });
+      await testInfo.attach('reference-chart', { path: screenshot, contentType: 'image/png' });
+    }
   });
 }

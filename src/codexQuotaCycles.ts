@@ -16,6 +16,8 @@ export interface CodexQuotaCycle {
   boundaryUncertain: boolean;
   /** Legacy references without a recoverable account/reset episode. */
   referenceOnly?: boolean;
+  /** Explicit synthetic grouping, not an observed subscription/reset boundary. */
+  fallbackDays?: 7;
 }
 
 const WEEK = 604_800_000, TOLERANCE = 300_000;
@@ -23,14 +25,28 @@ const time = (n: unknown): n is number => typeof n === 'number' && Number.isSafe
 export function copyCodexQuotaCycle(value: unknown): CodexQuotaCycle | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const v = value as CodexQuotaCycle;
-  if (!time(v.id) || !time(v.endAt) || !time(v.scheduledResetAt) || v.endAt <= v.id ||
+  if ((v.fallbackDays !== undefined && (v.fallbackDays !== 7 || v.referenceOnly !== true ||
+      v.startAt === null || v.endAt - v.startAt !== WEEK || v.id !== v.startAt)) ||
+    !time(v.id) || !time(v.endAt) || !time(v.scheduledResetAt) || v.endAt <= v.id ||
     v.scheduledResetAt <= v.id || typeof v.closed !== 'boolean' || typeof v.boundaryUncertain !== 'boolean' ||
     (v.startAt !== null && (!time(v.startAt) || v.startAt > v.id)) ||
     (v.startLowerAt !== null && (!time(v.startLowerAt) || v.startAt === null || v.startLowerAt > v.startAt)) ||
     (v.endLowerAt !== null && (!time(v.endLowerAt) || v.endLowerAt > v.endAt))) return undefined;
   return { id: v.id, startAt: v.startAt, startLowerAt: v.startLowerAt, endAt: v.endAt,
     endLowerAt: v.endLowerAt, closed: v.closed, scheduledResetAt: v.scheduledResetAt,
-    boundaryUncertain: v.boundaryUncertain, referenceOnly: v.referenceOnly === true };
+    boundaryUncertain: v.boundaryUncertain, referenceOnly: v.referenceOnly === true,
+    ...(v.fallbackDays === 7 ? { fallbackDays: 7 as const } : {}) };
+}
+/** UTC Monday calendar buckets are a stable, explicitly synthetic fallback.
+ * Group measurements by observation time, never their drifting future resets. */
+export function codexFallbackQuotaCycle(entry: Pick<LocalWeeklyEstimate, 'observedAt' | 'resetAt'>,
+  now = Date.now()): CodexQuotaCycle {
+  const day = new Date(entry.observedAt);
+  const startAt = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()) -
+    ((day.getUTCDay() + 6) % 7) * 86_400_000;
+  return { id: startAt, startAt, startLowerAt: null, endAt: startAt + WEEK, endLowerAt: null,
+    closed: startAt + WEEK <= now, scheduledResetAt: entry.resetAt,
+    boundaryUncertain: true, referenceOnly: true, fallbackDays: 7 };
 }
 interface Checkpoint { epoch: CodexQuotaEpoch; lastObservedAt: number }
 export function withCodexQuotaCycles(
@@ -123,9 +139,7 @@ export function withCodexQuotaCycles(
     const id = aliases.get(entry) ?? entry.quotaEpoch?.startedAt;
     const cycle = entry.accountScopeKey && id !== undefined
       ? books.get(entry.accountScopeKey)?.get(id) : undefined;
-    return { ...entry, quotaCycle: cycle ?? { id: entry.quotaEpoch?.startedAt ?? entry.observedAt,
-      startAt: null, startLowerAt: null, endAt: entry.resetAt, endLowerAt: entry.resetAt,
-      closed: entry.resetAt <= now, scheduledResetAt: entry.resetAt, boundaryUncertain: true, referenceOnly: true } };
+    return { ...entry, quotaCycle: cycle ?? codexFallbackQuotaCycle(entry, now) };
   });
 }
 
@@ -138,11 +152,14 @@ export function selectCodexCycleEstimates(entries: readonly LocalWeeklyEstimate[
   const ordered = entries.filter(entry => entry.provider === 'codex' && entry.fullEquivalentUsd !== null &&
     Number.isFinite(entry.fullEquivalentUsd) && entry.fullEquivalentUsd > 0 && entry.unusedEquivalentUsd !== null &&
     Number.isFinite(entry.unusedEquivalentUsd) && entry.unusedEquivalentUsd >= 0 && entry.unusedEquivalentUsd <= entry.fullEquivalentUsd)
+    .map(entry => entry.quotaCycle?.referenceOnly && entry.quotaCycle.fallbackDays !== 7 || (!entry.quotaCycle && !entry.quotaEpoch)
+      ? { ...entry, quotaCycle: codexFallbackQuotaCycle(entry) } : entry)
     .sort((a, b) => b.observedAt - a.observedAt || rank(b) - rank(a) || b.estimatedAt - a.estimatedAt);
   const account = (entry: LocalWeeklyEstimate) => entry.accountScopeKey ?? entry.accountNumber;
   for (const entry of ordered) {
     if (!chosen.some(old => account(old) === account(entry) &&
-      (old.quotaCycle && entry.quotaCycle && !old.quotaCycle.referenceOnly && !entry.quotaCycle.referenceOnly
+      (old.quotaCycle?.fallbackDays === 7 && entry.quotaCycle?.fallbackDays === 7
+        ? old.quotaCycle.id === entry.quotaCycle.id : old.quotaCycle && entry.quotaCycle && !old.quotaCycle.referenceOnly && !entry.quotaCycle.referenceOnly
         ? old.quotaCycle.id === entry.quotaCycle.id : old.quotaEpoch !== undefined || entry.quotaEpoch !== undefined
         ? (old.quotaCycle?.id ?? old.quotaEpoch?.startedAt) === (entry.quotaCycle?.id ?? entry.quotaEpoch?.startedAt)
         : Math.abs(old.resetAt - entry.resetAt) <= TOLERANCE))) chosen.push(entry);

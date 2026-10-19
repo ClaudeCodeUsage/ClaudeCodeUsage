@@ -110,8 +110,8 @@ async function expectAccountTable(page) {
       await expect(line).toHaveCSS('white-space', 'nowrap');
       await expect(line).toHaveCSS('text-overflow', 'ellipsis');
     }
-    await expect(label).toHaveAttribute('title', /Cycle start unknown|Cycle start:/);
-    await expect(label).toHaveAttribute('title', /Scheduled reset:.*As of observation:/);
+    await expect(label).toHaveAttribute('title', /Cycle start unknown|Cycle start:|7-day reference period \(UTC\)/);
+    await expect(label).toHaveAttribute('title', /(?:Scheduled reset:|Observed reset:).*As of observation:/);
   }
   for (const text of await section.locator('td').allTextContents()) expect(text).not.toContain('≈');
   expect(await page.content()).not.toMatch(/a{64}|b{64}|accountScopeKey|private-hmac|synthetic-history/);
