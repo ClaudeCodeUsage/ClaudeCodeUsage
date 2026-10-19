@@ -546,7 +546,7 @@ function completedHistorySnapshot(snapshot) {
   return snapshot;
 }
 
-function weeklyRoughPartialSnapshot(snapshot) {
+function weeklyRoughPartialSnapshot(snapshot, earlierPeriod = false) {
   const day = 86_400_000, hour = 3_600_000;
   const observedAt = CODEX_WEBVIEW_NOW - 2 * hour;
   const resetAt = CODEX_WEBVIEW_NOW + day;
@@ -557,7 +557,22 @@ function weeklyRoughPartialSnapshot(snapshot) {
   });
   // Inputs only: the production timeline keeps the $80/$40 rows unique;
   // production rough conversion computes each half-overlap at observation.
-  // A different observed reset is deliberately retained as conflicting evidence.
+  // Different observed resets in the same UTC week remain sample evidence;
+  // the display selects only its latest valid reference estimate.
+  const observations = [
+    { provider: 'codex', seriesKey: 'synthetic-unattributed',
+      observedAt: observedAt - hour, resetAt: resetAt + 2 * hour, usedPercent: 25 },
+    { provider: 'codex', seriesKey: 'synthetic-unattributed', observedAt, resetAt, usedPercent: 25 },
+  ];
+  const rows = [usage(start - day, start + day, 80), usage(observedAt - hour, observedAt + hour, 40)];
+  if (earlierPeriod) {
+    // Reproduce the earlier $146.67/$110 sample in the previous UTC week.
+    // Shift both its observation and supporting intervals, preserving amounts.
+    observations.push({ ...observations[0], observedAt: observations[0].observedAt - 7 * day,
+      resetAt: observations[0].resetAt - 7 * day });
+    rows.push(...rows.map(row => ({ ...row, timestamp: row.timestamp - 7 * day,
+      intervalStart: row.intervalStart - 7 * day, intervalEnd: row.intervalEnd - 7 * day })));
+  }
   return {
     ...snapshot,
     coverage: {
@@ -570,12 +585,8 @@ function weeklyRoughPartialSnapshot(snapshot) {
     },
     weeklyValueInputs: {
       localHistoryComplete: false,
-      observations: [
-        { provider: 'codex', seriesKey: 'synthetic-unattributed',
-          observedAt: observedAt - hour, resetAt: resetAt + 2 * hour, usedPercent: 25 },
-        { provider: 'codex', seriesKey: 'synthetic-unattributed', observedAt, resetAt, usedPercent: 25 },
-      ],
-      usage: [usage(start - day, start + day, 80), usage(observedAt - hour, observedAt + hour, 40)],
+      observations,
+      usage: rows,
     },
   };
 }
@@ -666,8 +677,8 @@ exports.renderHarness = async function renderHarness({
       : fixture === 'weekly-reference-cycles'
       ? require('./weekly-cycle-fixture.cjs').weeklyReferenceFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
       : undefined;
-    const snapshot = accountFixture ? accountFixture.snapshot : fixture === 'weekly-rough-partial'
-      ? weeklyRoughPartialSnapshot(baseSnapshot)
+    const snapshot = accountFixture ? accountFixture.snapshot : fixture === 'weekly-rough-partial' || fixture === 'weekly-rough-cross-week'
+      ? weeklyRoughPartialSnapshot(baseSnapshot, fixture === 'weekly-rough-cross-week')
       : fixture === 'weekly-usage-only'
       ? {
           ...baseSnapshot,

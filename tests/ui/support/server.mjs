@@ -62,6 +62,7 @@ const server = createServer(async (request, response) => {
       'persisted-details',
       'weekly-usage-only',
       'weekly-rough-partial',
+      'weekly-rough-cross-week',
       'weekly-accounts',
       'weekly-cycles',
       'weekly-reference-cycles',
