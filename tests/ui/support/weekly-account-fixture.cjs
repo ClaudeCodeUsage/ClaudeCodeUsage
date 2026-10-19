@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { SettingsStore } = require('../../../out/settings.js');
 const { CodexAccountEstimator } = require('../../../out/codexAccountEstimate.js');
+const { captureCodexCalibrationPricebook } = require('../../../out/codexCalibrationEvidence.js');
 const { WeeklyEstimateCoordinator } = require('../../../out/weeklyEstimateCoordinator.js');
 const { buildLocalWeeklyEstimates } = require('../../../out/weeklyEstimate.js');
 const sessions = new Map();
@@ -26,8 +27,10 @@ function calibrated(accountScopeKey, observedAt, resetAt, increment) {
   const sample = (time, percent) => ({ accountScopeKey, sourceScopeKey, requestedAt: time - 10,
     observedAt: time, resetAt, usedPercent: percent, quotaEpoch });
   const inputs = (time, percent, usd, tokens) => ({ localHistoryComplete: true,
+    calibrationPricebook: captureCodexCalibrationPricebook(['gpt-5']),
     observations: [{ provider: 'codex', sourceKey, seriesKey: sourceKey, observedAt: time, resetAt, usedPercent: percent }],
-    usage: [{ sourceKey, timestamp: time, equivalentUsd: usd, pricedTokens: tokens, totalTokens: tokens }] });
+    usage: [{ sourceKey, timestamp: time, intervalStart: before - 1, intervalEnd: time,
+      equivalentUsd: usd, pricedTokens: tokens, totalTokens: tokens }] });
   estimator.observe(sample(before, 20), inputs(before, 20, 10, 100), 'openai-v1');
   const result = estimator.observe(sample(observedAt, 40), inputs(observedAt, 40, 10 + increment, 200), 'openai-v1');
   if (!result) throw new Error('Synthetic account calibration failed');
