@@ -546,6 +546,40 @@ function completedHistorySnapshot(snapshot) {
   return snapshot;
 }
 
+function weeklyRoughPartialSnapshot(snapshot) {
+  const day = 86_400_000, hour = 3_600_000;
+  const observedAt = CODEX_WEBVIEW_NOW - 2 * hour;
+  const resetAt = CODEX_WEBVIEW_NOW + day;
+  const start = resetAt - 7 * day;
+  const usage = (intervalStart, intervalEnd, equivalentUsd) => ({
+    timestamp: intervalEnd, intervalStart, intervalEnd, equivalentUsd,
+    pricedTokens: 92, totalTokens: 100,
+  });
+  // Inputs only: the production timeline keeps the $80/$40 rows unique;
+  // production rough conversion computes each half-overlap at observation.
+  // A different observed reset is deliberately retained as conflicting evidence.
+  return {
+    ...snapshot,
+    coverage: {
+      ...snapshot.coverage,
+      complete: false,
+      period: {
+        ...snapshot.coverage.period,
+        allTime: { ...snapshot.coverage.period.allTime, complete: false },
+      },
+    },
+    weeklyValueInputs: {
+      localHistoryComplete: false,
+      observations: [
+        { provider: 'codex', seriesKey: 'synthetic-unattributed',
+          observedAt: observedAt - hour, resetAt: resetAt + 2 * hour, usedPercent: 25 },
+        { provider: 'codex', seriesKey: 'synthetic-unattributed', observedAt, resetAt, usedPercent: 25 },
+      ],
+      usage: [usage(start - day, start + day, 80), usage(observedAt - hour, observedAt + hour, 40)],
+    },
+  };
+}
+
 function effortStatisticsFixture(empty = false) {
   const t = (inputTotal, outputTotal) => ({ inputTotal, outputTotal, cachedInput: 0, cacheWriteInput: 0 });
   const file = (key, models, efforts, parentSessionKey, role = 'root') => {
@@ -624,7 +658,9 @@ exports.renderHarness = async function renderHarness({
         : fixture === 'unknown-models'
           ? unknownModelCodexWebviewFixture()
           : codexWebviewFixture();
-    const snapshot = fixture === 'weekly-usage-only'
+    const snapshot = fixture === 'weekly-rough-partial'
+      ? weeklyRoughPartialSnapshot(baseSnapshot)
+      : fixture === 'weekly-usage-only'
       ? {
           ...baseSnapshot,
           weeklyValueInputs: {

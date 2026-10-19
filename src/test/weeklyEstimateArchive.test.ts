@@ -450,3 +450,59 @@ test('partial-history is an allowlisted flag preserved without promoting a missi
   assert.deepEqual(entry.flags, ['account-unattributed', 'partial-history']);
   assert.equal(entry.fullEquivalentUsd, null);
 });
+
+test('rough-prefix-v2 numeric snapshots retain low-confidence flags and partial coverage across reload', async t => {
+  const { archive, file } = await fixture(t);
+  const method = 'rough-prefix-v2';
+  const flags: WeeklyEstimateInput['flags'] = ['account-unattributed', 'partial-pricing',
+    'boundary-uncertain', 'partial-history', 'counter-change', 'reconstructed'];
+  for (const provider of ['claude', 'codex'] as const) {
+    const result = await archive.record(estimate({ provider, method, pricingCoverage: .25,
+      unusedEquivalentUsd: 0, flags }));
+    assert.equal(result.outcome, 'recorded');
+  }
+  const loaded = await new WeeklyEstimateArchive(file, SALT, SOURCE).load();
+  assert.equal(loaded.totalEntries, 2);
+  for (const entry of loaded.entries) {
+    assert.equal(entry.method, method);
+    assert.equal(entry.fullEquivalentUsd, 100);
+    assert.equal(entry.unusedEquivalentUsd, 0);
+    assert.equal(entry.pricingCoverage, .25);
+    assert.deepEqual(new Set(entry.flags), new Set(flags));
+  }
+});
+
+test('rough method and public pricing revisions preserve original history and deduplicate unchanged refreshes', async t => {
+  const { archive, file } = await fixture(t);
+  const legacy = await archive.record(estimate({ method: 'legacy-prefix-ratio' }));
+  const rough = estimate({ method: 'rough-prefix-v2',
+    pricingCoverage: .5, flags: ['partial-pricing'] });
+  const first = await archive.record(rough);
+  assert.equal(first.outcome, 'recorded');
+  assert.notEqual(first.entries[1].windowKey, legacy.entries[0].windowKey);
+  const revised = await archive.record({ ...rough, pricingVersion: 'openai-v2' });
+  assert.equal(revised.outcome, 'recorded');
+  assert.equal(revised.entries[2].revision, 2);
+  assert.equal(revised.entries[2].windowKey, first.entries[1].windowKey);
+  const body = await readFile(file, 'utf8');
+  assert.equal((await archive.record({ ...rough, pricingVersion: 'openai-v2', estimatedAt: NOW + 60_000 })).outcome, 'unchanged');
+  assert.equal(await readFile(file, 'utf8'), body);
+  assert.deepEqual((await archive.load()).entries.slice(0, 2), first.entries);
+});
+
+test('rough snapshots keep generation and durable original-observation clear fences', async t => {
+  t.mock.method(Date, 'now', () => NOW);
+  const { archive, file } = await fixture(t);
+  const rough = estimate({ method: 'rough-prefix-v2', pricingCoverage: 0,
+    flags: ['partial-pricing', 'boundary-uncertain', 'partial-history', 'counter-change'] });
+  const seeded = await archive.record(rough);
+  assert.equal(seeded.outcome, 'recorded');
+  const cleared = await archive.clear({ allSources: true, provider: 'codex' });
+  const body = await readFile(file, 'utf8');
+  assert.equal((await archive.record({ ...rough, observedAt: NOW + 1 }, { expectedGeneration: seeded.generation! })).outcome, 'stale-generation');
+  const reload = new WeeklyEstimateArchive(file, SALT, SOURCE);
+  assert.equal((await reload.record({ ...rough, estimatedAt: NOW + 60_000 }, { expectedGeneration: cleared.generation! })).outcome, 'cleared-observation');
+  assert.equal(await readFile(file, 'utf8'), body);
+  assert.equal((await reload.record({ ...rough, observedAt: NOW + 1, estimatedAt: NOW + 2 },
+    { expectedGeneration: cleared.generation! })).outcome, 'recorded');
+});

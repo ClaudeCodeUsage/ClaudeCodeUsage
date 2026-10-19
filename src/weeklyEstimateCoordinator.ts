@@ -44,7 +44,7 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
     !(value.fullEquivalentUsd === null || bounded(value.fullEquivalentUsd)) ||
     !(value.unusedEquivalentUsd === null || bounded(value.unusedEquivalentUsd)) ||
     !(value.utilizationPercent === null || bounded(value.utilizationPercent, 100)) || !bounded(value.pricingCoverage, 1) ||
-    !['legacy-prefix-ratio', 'paired-delta', 'owned-window'].includes(value.method) ||
+    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window'].includes(value.method) ||
     !Array.isArray(value.flags) || value.flags.length > 12 || !value.flags.every(flag => FLAGS.includes(flag))) return undefined;
   if (value.pricingVersion !== undefined && (typeof value.pricingVersion !== 'string' || value.pricingVersion.length > 32 ||
     !/^(?:[a-z]{1,16}-){0,2}v\d{1,4}(?:\.\d{1,4}){0,3}$/.test(value.pricingVersion))) return undefined;
@@ -64,8 +64,9 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
 }
 function full(value: LocalWeeklyEstimate): boolean {
   return value.fullEquivalentUsd !== null && value.fullEquivalentUsd > 0 && value.unusedEquivalentUsd !== null &&
-    value.pricingCoverage === 1 && !value.flags.some(flag => flag === 'boundary-uncertain' || flag === 'counter-change' ||
-      flag === 'partial-pricing' || flag === 'partial-history');
+    (value.method === 'rough-prefix-v2' || (value.pricingCoverage === 1 &&
+      !value.flags.some(flag => flag === 'boundary-uncertain' || flag === 'counter-change' ||
+        flag === 'partial-pricing' || flag === 'partial-history')));
 }
 function merge(saved: WeeklyEstimateDisplayEntry[], live: WeeklyEstimateDisplayEntry[]): WeeklyEstimateDisplayEntry[] {
   const rows = new Map<string, WeeklyEstimateDisplayEntry>();

@@ -164,13 +164,12 @@ For patch-level detail, see [CHANGELOG.md](CHANGELOG.md).
 - Codex **Today** means the current calendar day in the configured timezone. It adds exact hourly API-equivalent cost beside a separate token-composition view; daily and monthly primary charts also default to API-equivalent cost while token composition stays separately visible. Only exact known-model prices contribute, so unknown models remain unpriced and pricing coverage stays visible. The additive, schema-3-compatible hourly sidecar keeps sparse buckets for the rolling last 30 days, is checkpointed and resumable, evicts day 31, and serves date expansion without reading JSONL on click. Codex monthly charts and tables list months oldest-first.
 - Request-level attribution prefers valid `last_token_usage` components; its `total_tokens` is active-context size, not request usage. A full numeric total-plus-last signature suppresses only proven replay from the same pseudonymous rate-limit source or an immediately adjacent duplicate. Missing last snapshots fall back to cumulative lineage high-water. Upgrading triggers one automatic reindex, while the indexed subtotal remains visible throughout the pass.
 
-Weekly API-equivalent bars count local usage once. Separate rough as-of estimates
-use actual observed resets; reconstructed, unattributed history can qualify before
-100% use. The archive retains prior snapshots when new inference is blocked by
-known account/window changes, dropping or conflicting counters, uncertain boundaries
-or partial pricing. Values stay frozen at the original observation, not a live
-balance or official account capacity. Preview is local and offline.
-See [local data and privacy](LOCAL-DATA.md) for methods, retention and clearing.
+Weekly API-equivalent bars count actual local usage once. Separate rough as-of estimates
+show total and unused value when the observed percentage is positive and known priced
+usage is positive, including partial-price or incomplete histories with low-confidence
+labels. Boundary allocation assumes uniform activity in time only for the estimate;
+counter decreases start new segments. The archive retains original snapshots, not live
+balances or official account capacity. See [local data and privacy](LOCAL-DATA.md).
 
 Usage bars align to a seven-day grid, with Monday-to-Monday UTC fallback; this does not reconstruct unobserved resets. Quota percentages retain their original observation time and reset. The panel stays on by default (`showWeeklyEquivalentValue`).
 - Switching to Codex keeps the established Today / Last 30 days / All time / Sessions / Projects / Content / Settings structure, relabelled where Codex semantics differ. Both providers use the same render functions, HTML classes, charts, tables, spacing, and responsive rules; their time-series charts stay width-aligned while dense content scrolls inside its own region. Codex recommendations use indexed 30-day structural evidence.

@@ -9,7 +9,7 @@ test('one incomplete cycle retains a clearly rough reconstructed as-of estimate,
   const [e]=buildLocalWeeklyEstimates('codex',sample(),{now:T+1});
   assert.equal(e.fullEquivalentUsd,100);assert.equal(e.unusedEquivalentUsd,60);
   assert.equal(e.usedEquivalentUsd,40);assert.equal(e.observedAt,T);
-  assert.equal(e.method,'legacy-prefix-ratio');assert.ok(e.flags.includes('account-unattributed'));
+  assert.equal(e.method,'rough-prefix-v2');assert.ok(e.flags.includes('account-unattributed'));
   assert.ok(e.flags.includes('reconstructed'));
 });
 test('usage after a quota sample never changes its historical estimate or observed unused value',()=>{
@@ -24,7 +24,7 @@ test('different reset schedules retain their actual boundaries without summing o
   const entries=buildLocalWeeklyEstimates('codex',inputs,{now:T+2});
   assert.deepEqual(entries.map(e=>e.resetAt).sort(),[R,R+D]);
   assert.equal(entries.find(e=>e.resetAt===R)?.fullEquivalentUsd,100,'a later change does not rewrite an earlier as-of comparison');
-  assert.equal(entries.find(e=>e.resetAt===R+D)?.fullEquivalentUsd,null);
+  assert.equal(entries.find(e=>e.resetAt===R+D)?.fullEquivalentUsd,100,'independent rough comparisons are not added to usage totals');
   assert.ok(entries.find(e=>e.resetAt===R+D)?.flags.includes('counter-change'));
   assert.equal(inputs.usage.length,1);
 });
@@ -44,31 +44,35 @@ test('paired calibration requires explicit precision and exact endpoint allocati
   assert.equal(paired.usedEquivalentUsd,30);
   assert.equal(paired.calibrationStart,T-D);
   inputs.observations[0].percentageErrorBound=-.5;
-  assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].method,'legacy-prefix-ratio');
+  assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].method,'rough-prefix-v2');
   delete inputs.observations[0].percentageErrorBound;
-  assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].method,'legacy-prefix-ratio');
+  assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].method,'rough-prefix-v2');
 });
 
-test('partial pricing, empty usage and conflicting same-time counters do not create full capacity',()=>{
+test('partial pricing and conflicting counters retain marked rough values, while empty usage remains unknown',()=>{
   const inputs=sample();inputs.usage[0].pricedTokens=99;
-  assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].fullEquivalentUsd,null);
+  assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].fullEquivalentUsd,100);
   inputs.usage=[];
   assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].fullEquivalentUsd,null);
   inputs.usage=sample().usage;
   inputs.observations.push({...inputs.observations[0],usedPercent:80});
-  assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].fullEquivalentUsd,null);
+  const [conflict]=buildLocalWeeklyEstimates('codex',inputs,{now:T+1});
+  assert.equal(conflict.fullEquivalentUsd,50);assert.ok(conflict.flags.includes('counter-change'));
 });
 test('same-reset counter regression withdraws a current candidate rather than blending epochs',()=>{
   const inputs=sample();inputs.observations.unshift({...inputs.observations[0],usedPercent:80,observedAt:T-1});
   assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].fullEquivalentUsd,null);
 });
-test('crossing a reset or sample boundary does not allocate a daily bucket proportionally',()=>{
+test('crossing a reset uses a labelled uniform-time estimate without changing the source aggregate',()=>{
   const inputs=sample();inputs.usage[0].intervalStart=R-8*D;inputs.usage[0].intervalEnd=T-1000;
   const [entry]=buildLocalWeeklyEstimates('codex',inputs,{now:T+1});
-  assert.equal(entry.fullEquivalentUsd,null);assert.ok(entry.flags.includes('boundary-uncertain'));
+  const expected=100*(6*D-1000)/(7*D-1000);
+  assert.ok(Math.abs(entry.fullEquivalentUsd!-expected)<1e-9);
+  assert.ok(entry.flags.includes('boundary-uncertain'));
+  assert.equal(inputs.usage[0].equivalentUsd,40);
 });
-test('invalid, future, tiny or saturated quota samples never produce a numerical total',()=>{
-  for(const percent of [-1,NaN,101,0,1,100]){
+test('invalid, future and zero-denominator quota samples never invent a numerical total',()=>{
+  for(const percent of [-1,NaN,101,0]){
     const inputs=sample();inputs.observations[0].usedPercent=percent;
     assert.ok(buildLocalWeeklyEstimates('codex',inputs,{now:T+1}).every(e=>e.fullEquivalentUsd===null));
   }
@@ -83,7 +87,8 @@ test('reset jitter must not give a precise paired result after excluding known c
   inputs.usage=[{timestamp:start+120_000,equivalentUsd:10,pricedTokens:100,totalTokens:100},
     {timestamp:T-1000,equivalentUsd:30,pricedTokens:100,totalTokens:100}];
   const [entry]=buildLocalWeeklyEstimates('codex',inputs,{now:T+1});
-  assert.equal(entry.fullEquivalentUsd,null);
+  assert.equal(entry.fullEquivalentUsd,75);
+  assert.equal(entry.method,'rough-prefix-v2');assert.equal(entry.fullRange,undefined);
   assert.ok(entry.flags.includes('boundary-uncertain'));
 });
 
@@ -92,10 +97,10 @@ test('positive money without priced tokens cannot enter a fully-priced numerator
   assert.equal(buildLocalWeeklyEstimates('codex',inputs,{now:T+1})[0].fullEquivalentUsd,null);
 });
 
-test('a known incomplete local index withdraws conversion without discarding sample usage',()=>{
+test('a known incomplete local index labels the rough conversion without discarding sample usage',()=>{
   const inputs=sample();inputs.localHistoryComplete=false;
   const [entry]=buildLocalWeeklyEstimates('codex',inputs,{now:T+1});
-  assert.equal(entry.fullEquivalentUsd,null);assert.equal(entry.usedEquivalentUsd,40);
+  assert.equal(entry.fullEquivalentUsd,100);assert.equal(entry.usedEquivalentUsd,40);
   assert.ok(entry.flags.includes('partial-history'));
 });
 

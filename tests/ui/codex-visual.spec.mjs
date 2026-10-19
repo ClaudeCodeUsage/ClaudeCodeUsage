@@ -687,22 +687,22 @@ test('weekly allowance value uses the shared all-time chart and exposes uncertai
     hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex',
   });
   await expect(panel).toBeVisible();
-  await expect(panel).toContainText('not an official balance, bill, or cash value');
-  await expect(panel).toContainText('The local history graph counts each logged usage record once');
-  await expect(panel).toContainText('separate estimate table contains independent rough conversion records');
-  await expect(panel).toContainText('— means unavailable, not zero');
-  await expect(panel).toContainText('Neither the history graph nor the estimate table splits by account');
-  await expect(panel).toContainText('Daily aggregates crossing a reset are counted once');
+  await expect(panel).toContainText('not an official balance, bill or cash value');
+  await expect(panel).toContainText('The graph counts local used amounts once');
+  await expect(panel).toContainText('Table amounts are frozen as of their respective observations and must not be added');
+  await expect(panel).toContainText('Unpriced usage is not extrapolated from token coverage');
+  await expect(panel).toContainText('Account ownership is unverified');
+  await expect(panel).toContainText('Cross-boundary samples are split by time overlap');
   const details = panel.locator('.weekly-value-details');
   await expect(details).not.toHaveAttribute('open', '');
   await expect(details.getByText('Period details', { exact: true })).toBeVisible();
   await expect(details.locator('.daily-table-container')).toBeHidden();
   await details.locator('summary').click();
   await expect(details.locator('.daily-table-container')).toBeVisible();
-  await expect(details.locator('tbody')).toContainText('Usage only · Boundary approx.');
+  await expect(details.locator('tbody')).toContainText('Low · Rough conversion');
   await expect(panel.locator('.hc-col')).toHaveCount(2);
   await expect(details.locator('tbody tr')).toHaveCount(2);
-  await expect(details.locator('thead')).toContainText('Full allowance est.');
+  await expect(details.locator('thead')).toContainText('Rough total estimate');
   await expect(details.locator('thead')).toContainText('Priced coverage');
   await expect(details.locator('tbody')).toContainText('Current period');
   await expect(details.locator('tbody')).toContainText('resets');
@@ -712,9 +712,9 @@ test('weekly allowance value uses the shared all-time chart and exposes uncertai
   const bars = panel.locator('.hc-col');
   await expect(bars.last().locator('.seg-cache-read')).toHaveCount(0);
   const currentRow = details.locator('tbody tr').filter({ hasText: 'Current period' });
-  await expect(currentRow.locator('td').nth(3)).toHaveText('—');
-  await expect(currentRow.locator('td').nth(4)).toHaveText('—');
-  await expect(currentRow.locator('td').nth(5)).toContainText('Usage only');
+  await expect(currentRow.locator('td').nth(3)).toHaveText('≈$62.50');
+  await expect(currentRow.locator('td').nth(4)).toHaveText('≈$50.00');
+  await expect(currentRow.locator('td').nth(5)).toContainText('Low · Rough conversion');
   await expect(currentRow.locator('td').nth(2)).toContainText(' · ');
 });
 
@@ -843,9 +843,9 @@ test('historical weekly estimates remain rough as-of records and preserve their 
   await page.locator('#tab-all').click();
   const details=page.locator('#all .weekly-estimate-details');
   await details.locator('summary').click();
-  await expect(details).toContainText('account ownership is unproven');
+  await expect(details).toContainText('Account unverified');
   await expect(details).toContainText('Historical reconstruction');
-  await expect(details).toContainText('Rough prefix conversion');
+  await expect(details).toContainText('Rough conversion');
   await expect(details.locator('tbody tr')).toHaveCount(1);
   await expect(details.locator('tbody td').nth(4)).not.toHaveText('—');
   await expect.poll(()=>page.evaluate(()=>JSON.parse(localStorage.getItem('__ccu-vscode-state')??'{}').openDetails??[]))
@@ -861,5 +861,5 @@ test('historical weekly estimates remain rough as-of records and preserve their 
   await expect(page.locator('#all .weekly-estimate-details')).toHaveAttribute('open','');
   await page.reload();
   await expect(page.locator('#all .weekly-estimate-details')).toHaveAttribute('open','');
-  await expect(page.locator('#all .weekly-estimate-details')).toContainText('Rough prefix conversion');
+  await expect(page.locator('#all .weekly-estimate-details')).toContainText('Rough conversion');
 });

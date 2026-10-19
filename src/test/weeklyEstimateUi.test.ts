@@ -32,3 +32,28 @@ test('unavailable archive has a visible unsaved notice while keeping this render
   assert.ok(html.includes(I18n.t.weeklyValue.archiveUnavailable));
   assert.match(html,/role="status"/);
 });
+
+test('partial pricing and index coverage still show approximate total/unused in both existing tables without stacking old unused on live usage',()=>{
+  const old=I18n.getCurrentLanguage(),clock=Date.now;Date.now=()=>T+1;
+  try{
+    I18n.setLanguage('en');const p=owner();
+    p.weeklyValueInputs=()=>({observations:[{provider:'codex',seriesKey:'unknown',observedAt:T,resetAt:R,usedPercent:25}],
+      usage:[{timestamp:T-1000,equivalentUsd:25,pricedTokens:92,totalTokens:100}],localHistoryComplete:false});
+    p.weeklyValuePoints=()=>[{provider:'codex',seriesKey:'unknown',windowStart:R-7*86_400_000,resetAt:R,
+      current:true,usedEquivalentUsd:400,fullEquivalentUsd:null,unusedEquivalentUsd:null,utilizationPercent:25,
+      observedAt:T,pricingCoverage:.92,observationGapMs:1,confidence:'usage-only',basis:'reset-aligned-usage'}];
+    p.setting=(_name:string,fallback:unknown)=>fallback;
+    p.codexView={periodCoverage:{allTime:{complete:false}}};
+    const html=p.renderWeeklyValuePanel('codex');
+    const history=html.split('<details class="weekly-value-details">')[1].split('</details>')[0];
+    assert.ok(history.includes('≈'+I18n.formatCurrency(100)));
+    assert.ok(history.includes('≈'+I18n.formatCurrency(75)));
+    assert.ok(history.includes(I18n.formatCurrency(400)),'live used subtotal remains separate');
+    const records=html.split('<details class="weekly-estimate-details"')[1];
+    assert.ok(records.includes('≈'+I18n.formatCurrency(100)));
+    assert.ok(records.includes('≈'+I18n.formatCurrency(75)));
+    assert.ok(records.includes(I18n.t.weeklyValue.roughEstimate));
+    assert.ok(!html.includes('<div class="stack-seg seg-cache-read"'),'as-of unused is not stacked on current usage');
+    assert.doesNotMatch(records,/\.000Z/,'system timezone must use localized date formatting, not ISO exception fallback');
+  }finally{Date.now=clock;I18n.setLanguage(old);}
+});

@@ -50,6 +50,7 @@ const server = createServer(async (request, response) => {
       'root-over-limit',
       'persisted-details',
       'weekly-usage-only',
+      'weekly-rough-partial',
       'weekly-claude-completed',
       'weekly-quota-pace',
       'unknown-models',

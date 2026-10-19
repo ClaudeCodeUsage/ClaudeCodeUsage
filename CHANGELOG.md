@@ -8,9 +8,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Fixed
 - **Weekly allowance snapshots** — separate rough estimates at actual observed
-  resets from unique local usage bars. Keep prior archived snapshots when new
-  evidence blocks inference, freeze values at the original observation, and
-  avoid presenting them as live balances or verified account capacity.
+  resets from unique local usage graphs. Positive observed use and known priced
+  value now support total/unused estimates with low-confidence disclosures for
+  partial evidence, segmented counter drops and explicit uniform-time boundary
+  allocation. Snapshots stay frozen; older preview readers reject archives
+  containing the new method, so preserve the archive before rolling back.
 - **Rewriting a transcript re-read the whole history (#99)** — a mid-file edit
   or truncation (`/rewind`, session repair, an external touch) tripped the
   source-mutation guard and every file was rebuilt from its body. The rewrite

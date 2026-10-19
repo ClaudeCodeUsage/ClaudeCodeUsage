@@ -81,13 +81,12 @@ não são somados entre si. Registros ausentes ou ainda não indexados podem
 reduzir os totais mostrados; o limite do Codex é a última observação local.
 
 
-As barras semanais equivalentes de API contam o uso local uma única vez. Estimativas aproximadas
-separadas usam resets realmente observados e ficam congeladas no momento da observação original.
-O histórico sem atribuição de conta pode ser estimado com rótulo de reconstrução; não exige uso de
-100%. Mudanças conhecidas de conta/janela, contadores em queda ou conflitantes, limites incertos ou
-preços parciais impedem novas inferências, mas o arquivo preserva os snapshots anteriores.
-Não são saldo ao vivo nem capacidade oficial da conta; a prévia é local e offline.
-Veja [dados locais e privacidade](LOCAL-DATA.md) para métodos, retenção e exclusão.
+Os gráficos semanais equivalentes de API contam o uso local real uma vez. Estimativas aproximadas
+separadas ficam congeladas no momento da observação original e mostram total/restante quando o
+percentual válido e o uso com preço conhecido são positivos. Preços ou históricos parciais mantêm
+o aviso de baixa confiança. A divisão de limites só serve à estimativa e assume atividade uniforme
+no tempo; quedas do contador iniciam novos segmentos. O arquivo preserva snapshots originais,
+não um saldo ao vivo ou capacidade oficial. Veja [dados locais e privacidade](LOCAL-DATA.md).
 
 As barras de uso seguem uma grade de sete dias, ou segunda a segunda em UTC sem reset válido; isso não reconstrói resets não observados. Os percentuais de cota preservam o horário observado e o reset original. O painel continua ativo por padrão (`showWeeklyEquivalentValue`).
 

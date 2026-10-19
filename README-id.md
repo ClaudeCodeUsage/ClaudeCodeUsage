@@ -149,13 +149,12 @@ untuk batas cakupan tanggal, ekspor, penyimpanan, dan kuota.
 - **Hari Ini** pada Codex berarti hari kalender saat ini dalam zona waktu yang dikonfigurasi. Tampilan ini menambahkan biaya ekuivalen API per jam yang tepat di samping tampilan komposisi Token yang terpisah. Grafik utama harian dan bulanan juga memakai biaya ekuivalen API sebagai default, sementara komposisi Token tetap tersedia secara terpisah. Hanya harga model yang dikenal dan cocok tepat yang dihitung; model tak dikenal tetap tanpa harga dan cakupan harga selalu terlihat. Sidecar per jam yang bersifat tambahan dan kompatibel dengan schema 3 menyimpan bucket tanggal / jam yang jarang untuk 30 hari bergulir, mendukung checkpoint dan resume, membuang hari ke-31, dan membuka tanggal tanpa membaca JSONL. Grafik dan tabel bulanan Codex menampilkan bulan dari yang paling lama ke yang terbaru.
 - Atribusi Token per permintaan memprioritaskan component `last_token_usage` yang valid; `total_tokens` di dalamnya adalah ukuran konteks aktif, bukan penggunaan permintaan. Signature numerik lengkap total-plus-last hanya menghapus replay yang terbukti berasal dari sumber rate-limit pseudonim yang sama atau record yang tepat bersebelahan. Jika last snapshot tidak ada, parser kembali ke cumulative lineage high-water. Setelah upgrade, indeks dibangun ulang otomatis satu kali dan subtotal terindeks tetap terlihat selama prosesnya.
 
-Batang mingguan ekuivalen API menghitung pemakaian lokal sekali saja. Estimasi kasar terpisah dibuat
-per reset yang benar-benar diamati dan dibekukan saat pengamatan asli. Riwayat tanpa atribusi akun
-dapat diberi label rekonstruksi; tidak perlu mencapai pemakaian 100%. Perubahan akun/jendela yang
-diketahui, penghitung turun atau bertentangan, batas tidak pasti atau harga parsial menghalangi
-inferensi baru, tetapi arsip mempertahankan snapshot sebelumnya. Ini bukan saldo langsung atau
-kapasitas akun resmi; pratinjau berjalan lokal dan offline.
-Lihat [data lokal dan privasi](LOCAL-DATA.md) untuk metode, retensi, dan penghapusan.
+Grafik mingguan ekuivalen API menghitung pemakaian lokal nyata sekali saja. Estimasi kasar terpisah
+dibekukan saat pengamatan asli dan menampilkan total/sisa bila persentase valid serta nilai pemakaian
+dengan harga diketahui positif. Harga atau riwayat parsial tetap ditandai berkeyakinan rendah.
+Pembagian batas hanya untuk estimasi, dengan asumsi aktivitas merata sepanjang waktu; penurunan
+penghitung memulai segmen baru. Arsip menyimpan snapshot asli, bukan saldo langsung atau kapasitas resmi.
+Lihat [data lokal dan privasi](LOCAL-DATA.md).
 
 Batang pemakaian memakai kisi tujuh hari, atau Senin-ke-Senin UTC tanpa reset yang valid; ini tidak merekonstruksi reset yang belum diamati. Persentase kuota menyimpan waktu pengamatan dan reset asli. Panel tetap aktif secara default (`showWeeklyEquivalentValue`).
 - Beralih ke Codex tetap memakai struktur Hari Ini / 30 Hari Terakhir / Sepanjang Waktu / Sesi / Proyek / Konten / Settings yang sudah ada, dengan label yang disesuaikan pada makna Codex. Kedua penyedia memakai render function, HTML class, grafik, tabel, jarak, dan aturan responsif yang sama; grafik deret waktunya tetap sejajar lebarnya, sedangkan konten padat hanya bergulir di areanya sendiri. Rekomendasi Codex memakai bukti struktural 30 hari yang telah diindeks.

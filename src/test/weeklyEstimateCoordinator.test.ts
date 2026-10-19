@@ -7,6 +7,8 @@ import { execFileSync } from 'node:child_process';
 import { WeeklyEstimateCoordinator } from '../weeklyEstimateCoordinator';
 import { WeeklyEstimateArchive, WeeklyEstimateInput } from '../weeklyEstimateArchive';
 import { buildLocalWeeklyEstimates } from '../weeklyEstimate';
+import * as estimateProducer from '../weeklyEstimate';
+import type { LocalWeeklyEstimate } from '../weeklyEstimate';
 import type { WeeklyValueInputs } from '../weeklyValue';
 
 const DAY = 86_400_000, RESET = 1_800_000_000_000, OBSERVED = RESET - DAY, NOW = OBSERVED + 1000;
@@ -19,6 +21,15 @@ function inputs(): WeeklyValueInputs {
 }
 function stored(): WeeklyEstimateInput {
   return { ...buildLocalWeeklyEstimates('codex', inputs(), { now: NOW })[0], pricingVersion: options.pricingVersion };
+}
+function snapshot(overrides: Partial<LocalWeeklyEstimate> = {}): LocalWeeklyEstimate {
+  return { provider: 'codex', windowStart: RESET - 7 * DAY, resetAt: RESET, observedAt: OBSERVED,
+    estimatedAt: NOW, usedEquivalentUsd: 40, fullEquivalentUsd: 100, unusedEquivalentUsd: 60,
+    utilizationPercent: 40, pricingCoverage: 1, method: 'legacy-prefix-ratio',
+    flags: ['account-unattributed', 'reconstructed'], ...overrides };
+}
+function roughSnapshot(overrides: Partial<LocalWeeklyEstimate> = {}): LocalWeeklyEstimate {
+  return snapshot({ method: 'rough-prefix-v2', ...overrides });
 }
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'ccu-estimate-coordinator-')));
@@ -101,14 +112,14 @@ test('source change suppresses stale callbacks and excludes the previous source 
   assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries.length, 1);
 });
 
-test('withheld live totals never replace a saved valid snapshot, and only valid full estimates are recorded', async t => {
+test('genuine null-withheld totals never replace a saved snapshot or create a used-only archive record', async t => {
   const { file } = await fixture(t);
   const coordinator = new WeeklyEstimateCoordinator(file, SALT);
   const data = inputs();
   coordinator.project('codex', data, options);
   await coordinator.flush();
   const withheld = inputs();
-  withheld.usage[0].pricedTokens = 50;
+  withheld.usage = [];
   const same = coordinator.project('codex', withheld, options);
   assert.equal(same.entries[0].fullEquivalentUsd, 100);
   assert.ok(same.entries[0].flags.includes('partial-pricing'));
@@ -318,11 +329,11 @@ test('another coordinator clear fences an already loaded in-flight writer and ol
   assert.equal((await archive.load()).totalEntries, 1);
 });
 
-test('same-observation counter and boundary retractions union display flags without rewriting saved history', async t => {
+test('same-observation counter and boundary rough revisions retain flags without rewriting original snapshots', async t => {
   const { file } = await fixture(t);
   const coordinator = new WeeklyEstimateCoordinator(file, SALT);
   coordinator.project('codex', inputs(), options); await coordinator.flush();
-  const before = await readFile(file, 'utf8');
+  const original = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries[0];
   const counter = inputs();
   counter.observations.push({ ...counter.observations[0], usedPercent: 80 });
   const boundary = inputs();
@@ -330,11 +341,16 @@ test('same-observation counter and boundary retractions union display flags with
   boundary.usage[0].intervalEnd = OBSERVED - 1000;
   for (const [data, flag] of [[counter, 'counter-change'], [boundary, 'boundary-uncertain']] as const) {
     const [row] = coordinator.project('codex', data, options).entries;
-    assert.equal(row.fullEquivalentUsd, 100);
-    assert.ok(row.flags.includes(flag)); assert.ok(row.flags.includes('stale-observation'));
+    assert.equal(row.method, 'rough-prefix-v2');
+    assert.ok(row.fullEquivalentUsd !== null && row.fullEquivalentUsd > 0);
+    assert.ok(row.unusedEquivalentUsd !== null && row.unusedEquivalentUsd >= 0);
+    assert.ok(row.flags.includes(flag));
     assert.equal(row.pricingVersion, options.pricingVersion);
     await coordinator.flush();
-    assert.equal(await readFile(file, 'utf8'), before);
+    const storedRows = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+    assert.deepEqual(storedRows[0], original);
+    assert.equal(storedRows[storedRows.length - 1].fullEquivalentUsd, row.fullEquivalentUsd);
+    assert.ok(storedRows[storedRows.length - 1].flags.includes(flag));
   }
 });
 
@@ -478,10 +494,11 @@ test('local-history completeness changes invalidate the memo with unchanged usag
   const data = inputs(); data.localHistoryComplete = false;
   const usage = data.usage, observations = data.observations;
   const incomplete = coordinator.project('codex', data, options);
-  assert.equal(incomplete.entries[0].fullEquivalentUsd, null);
+  assert.equal(incomplete.entries[0].method, 'rough-prefix-v2');
+  assert.equal(incomplete.entries[0].fullEquivalentUsd, 100);
   assert.ok(incomplete.entries[0].flags.includes('partial-history'));
   await coordinator.flush();
-  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
   data.localHistoryComplete = true;
   const complete = coordinator.project('codex', data, options);
   assert.strictEqual(data.usage, usage); assert.strictEqual(data.observations, observations);
@@ -489,29 +506,37 @@ test('local-history completeness changes invalidate the memo with unchanged usag
   assert.ok(!complete.entries[0].flags.includes('partial-history'));
   assert.ok(complete.entries[0].flags.includes('account-unattributed'));
   await coordinator.flush();
-  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
+  const rows = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.equal(rows.length, 2);
+  assert.ok(rows[0].flags.includes('partial-history'));
+  assert.ok(!rows[1].flags.includes('partial-history'));
 });
 
-test('known incomplete history withdraws a saved same-observation estimate only in the display copy', async t => {
+test('known incomplete history saves a marked rough revision and keeps the prior snapshot immutable', async t => {
   const { file } = await fixture(t);
   const coordinator = new WeeklyEstimateCoordinator(file, SALT);
   const data = inputs(); data.localHistoryComplete = true;
   coordinator.project('codex', data, options); await coordinator.flush();
-  const before = await readFile(file, 'utf8');
+  const original = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries[0];
   data.localHistoryComplete = false;
-  const [withdrawn] = coordinator.project('codex', data, options).entries;
-  assert.equal(withdrawn.fullEquivalentUsd, 100);
-  assert.ok(withdrawn.flags.includes('partial-history'));
-  assert.ok(withdrawn.flags.includes('stale-observation'));
+  const [rough] = coordinator.project('codex', data, options).entries;
+  assert.equal(rough.method, 'rough-prefix-v2');
+  assert.equal(rough.fullEquivalentUsd, 100);
+  assert.ok(rough.flags.includes('partial-history'));
+  assert.ok(!rough.flags.includes('stale-observation'));
   await coordinator.flush();
-  assert.equal(await readFile(file, 'utf8'), before);
+  const saved = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.equal(saved.length, 2);
+  assert.deepEqual(saved[0], original);
+  assert.ok(saved[1].flags.includes('partial-history'));
+  const afterRevision = await readFile(file, 'utf8');
   delete data.localHistoryComplete;
   const [legacy] = coordinator.project('codex', data, options).entries;
   assert.equal(legacy.fullEquivalentUsd, 100);
   assert.ok(!legacy.flags.includes('partial-history'));
   assert.ok(legacy.flags.includes('account-unattributed'));
   await coordinator.flush();
-  assert.equal(await readFile(file, 'utf8'), before);
+  assert.equal(await readFile(file, 'utf8'), afterRevision);
 });
 
 test('semantic deduplication still permits a fresh identical-valued observation after another window clears', async t => {
@@ -543,4 +568,111 @@ test('an unchanged-valued newer observation is acknowledged even when archive ke
   }
   assert.equal(records, accepted);
   assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
+});
+
+test('rough numeric snapshots with partial-pricing, boundary, history and counter flags are saved and reloaded', async t => {
+  const { file } = await fixture(t);
+  let live = roughSnapshot();
+  t.mock.method(estimateProducer, 'buildLocalWeeklyEstimates', (_provider: unknown, data: WeeklyValueInputs) => data.observations.length ? [live] : []);
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  const cases: Array<Partial<LocalWeeklyEstimate>> = [
+    { flags: ['partial-pricing'], pricingCoverage: .25 },
+    { flags: ['boundary-uncertain'] }, { flags: ['partial-history'] }, { flags: ['counter-change'] },
+    { flags: ['account-unattributed', 'partial-pricing', 'boundary-uncertain', 'partial-history', 'counter-change'],
+      pricingCoverage: 0, unusedEquivalentUsd: 0 },
+  ];
+  for (const [i, change] of cases.entries()) {
+    live = roughSnapshot({ ...change, observedAt: OBSERVED + i });
+    const projected = coordinator.project('codex', inputs(), options);
+    assert.ok(projected.entries.some(entry => entry.method === live.method && entry.observedAt === live.observedAt));
+    await coordinator.flush();
+    const loaded = await new WeeklyEstimateArchive(file, SALT, SOURCE).load();
+    assert.equal(loaded.totalEntries, i + 1);
+    assert.equal(loaded.entries[i].fullEquivalentUsd, 100);
+    assert.equal(loaded.entries[i].unusedEquivalentUsd, live.unusedEquivalentUsd);
+    assert.deepEqual(new Set(loaded.entries[i].flags), new Set(live.flags));
+  }
+  const empty = { observations: [], usage: [] };
+  const restart = new WeeklyEstimateCoordinator(file, SALT);
+  restart.project('codex', empty, options); await restart.flush();
+  const saved = restart.project('codex', empty, options).entries;
+  assert.equal(saved.length, cases.length);
+  assert.equal(saved[0].method, live.method);
+  assert.equal(saved[0].pricingCoverage, 0);
+  assert.equal(saved[0].unusedEquivalentUsd, 0);
+  assert.doesNotMatch(JSON.stringify(saved), /sourceKey|windowKey|accountScopeKey|raw-series|raw-source/);
+});
+
+test('rough admission preserves legacy-method guards and never records used-only or invalid numeric estimates', async t => {
+  const { file } = await fixture(t);
+  let live = snapshot();
+  t.mock.method(estimateProducer, 'buildLocalWeeklyEstimates', () => [live]);
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  for (const method of ['legacy-prefix-ratio', 'paired-delta', 'owned-window'] as const) {
+    for (const flags of [['partial-pricing'], ['boundary-uncertain'], ['partial-history'], ['counter-change']] as LocalWeeklyEstimate['flags'][]) {
+      live = snapshot({ method, flags });
+      coordinator.project('codex', inputs(), options); await coordinator.flush();
+    }
+    live = snapshot({ method, pricingCoverage: .5 });
+    coordinator.project('codex', inputs(), options); await coordinator.flush();
+  }
+  const invalid: Array<Partial<LocalWeeklyEstimate>> = [
+    { fullEquivalentUsd: null, unusedEquivalentUsd: null }, { fullEquivalentUsd: 100, unusedEquivalentUsd: null },
+    { fullEquivalentUsd: 0, unusedEquivalentUsd: 0 }, { fullEquivalentUsd: NaN }, { fullEquivalentUsd: Infinity },
+    { unusedEquivalentUsd: -1 }, { unusedEquivalentUsd: Infinity }, { usedEquivalentUsd: -1 },
+  ];
+  for (const values of invalid) {
+    live = roughSnapshot(values);
+    coordinator.project('codex', inputs(), options); await coordinator.flush();
+  }
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
+  live = roughSnapshot({ pricingCoverage: .1, flags: ['partial-history'], unusedEquivalentUsd: 0 });
+  coordinator.project('codex', inputs(), options); await coordinator.flush();
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
+});
+
+test('rough semantic acknowledgements avoid clock-only I/O but retain pricing and numeric revisions', async t => {
+  const { file } = await fixture(t);
+  let live = roughSnapshot({ pricingCoverage: .25, flags: ['partial-pricing', 'partial-history'] });
+  t.mock.method(estimateProducer, 'buildLocalWeeklyEstimates', () => [live]);
+  const original = WeeklyEstimateArchive.prototype.record;
+  let records = 0;
+  t.mock.method(WeeklyEstimateArchive.prototype, 'record', function(this: WeeklyEstimateArchive,
+    ...args: Parameters<WeeklyEstimateArchive['record']>) { records++; return original.apply(this, args); });
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  const data = inputs();
+  coordinator.project('codex', data, options); await coordinator.flush();
+  assert.equal(records, 1);
+  for (let minute = 1; minute <= 3; minute++) {
+    live = { ...live, estimatedAt: NOW + minute * 60_000, flags: [...live.flags.filter(flag => flag !== 'stale-observation'), 'stale-observation'] };
+    coordinator.project('codex', data, { ...options, now: NOW + minute * 60_000 }); await coordinator.flush();
+  }
+  assert.equal(records, 1);
+  coordinator.project('codex', data, { ...options, pricingVersion: 'openai-v2' }); await coordinator.flush();
+  assert.equal(records, 2);
+  live = { ...live, usedEquivalentUsd: 50, fullEquivalentUsd: 125, unusedEquivalentUsd: 75 };
+  coordinator.project('codex', inputs(), { ...options, pricingVersion: 'openai-v2' }); await coordinator.flush();
+  assert.equal(records, 3);
+  const loaded = await new WeeklyEstimateArchive(file, SALT, SOURCE).load();
+  assert.equal(loaded.totalEntries, 3);
+  assert.deepEqual(loaded.entries.map(entry => entry.revision), [1, 2, 3]);
+  assert.equal(loaded.entries[0].fullEquivalentUsd, 100);
+});
+
+test('genuine null-withheld rough retractions preserve saved numbers and union display-only warning flags', async t => {
+  const { file } = await fixture(t);
+  let live = roughSnapshot();
+  t.mock.method(estimateProducer, 'buildLocalWeeklyEstimates', () => [live]);
+  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
+  coordinator.project('codex', inputs(), options); await coordinator.flush();
+  const before = await readFile(file, 'utf8');
+  for (const flag of ['boundary-uncertain', 'partial-pricing', 'partial-history', 'counter-change'] as const) {
+    live = roughSnapshot({ fullEquivalentUsd: null, unusedEquivalentUsd: null, flags: [flag] });
+    const [retained] = coordinator.project('codex', inputs(), options).entries;
+    assert.equal(retained.fullEquivalentUsd, 100);
+    assert.ok(retained.flags.includes(flag));
+    assert.ok(retained.flags.includes('stale-observation'));
+    await coordinator.flush();
+    assert.equal(await readFile(file, 'utf8'), before);
+  }
 });

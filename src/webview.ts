@@ -127,7 +127,7 @@ import {
   WeeklyValuePoint,
   WeeklyValueInputs,
 } from './weeklyValue';
-import { buildLocalWeeklyEstimates, LocalWeeklyEstimate } from './weeklyEstimate';
+import { buildLocalWeeklyEstimates, weeklyEstimateForPoint, LocalWeeklyEstimate } from './weeklyEstimate';
 
 export interface WeeklyEstimatePanelProjection {
   entries: LocalWeeklyEstimate[];
@@ -7625,31 +7625,47 @@ export class UsageWebviewProvider {
     return inputs ? buildWeeklyValueTimeline(provider, inputs, { now: Date.now() }) : [];
   }
 
-  private renderWeeklyEstimateRecords(provider: SettingProvider): string {
+  private weeklyEstimateProjection(provider: SettingProvider): WeeklyEstimatePanelProjection {
     const inputs = this.weeklyValueInputs(provider) ?? { observations: [], usage: [] };
-    const now = Date.now(), copy = I18n.t.weeklyValue;
-    const projection = this.weeklyEstimateProjector?.(provider, inputs, now) ?? {
+    const now = Date.now();
+    return this.weeklyEstimateProjector?.(provider, inputs, now) ?? {
       entries: buildLocalWeeklyEstimates(provider, inputs, { now }), status: 'ready' as const,
     };
+  }
+
+  private weeklyEstimateReasons(entry: LocalWeeklyEstimate): string {
+    const copy=I18n.t.weeklyValue,reasons:string[]=[];
+    if(entry.flags.includes('account-unattributed'))reasons.push(copy.estimateAccountUnknown);
+    if(entry.flags.includes('partial-pricing'))reasons.push(copy.estimatePartialPricing+' ('+this.formatPercent(entry.pricingCoverage)+')');
+    if(entry.flags.includes('boundary-uncertain'))reasons.push(copy.estimateBoundarySplit);
+    if(entry.flags.includes('partial-history'))reasons.push(copy.estimatePartialHistory);
+    if(entry.flags.includes('counter-change'))reasons.push(copy.estimateObservationChanged);
+    return reasons.join(' · ');
+  }
+
+  private renderWeeklyEstimateRecords(provider: SettingProvider, supplied?: WeeklyEstimatePanelProjection): string {
+    const projection=supplied??this.weeklyEstimateProjection(provider),copy=I18n.t.weeklyValue;
     const esc = (value: string): string => this.escapeHtml(value);
     const date = (value: number): string => {
       try { return new Intl.DateTimeFormat(I18n.getLocale(), { year: 'numeric', month: 'short', day: 'numeric',
-        hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() }).format(new Date(value)); }
+        hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined }).format(new Date(value)); }
       catch { return new Date(value).toISOString(); }
     };
-    const money = (value: number | null): string => value === null ? '—' : esc(I18n.formatCurrency(value));
+    const money = (value: number | null): string => value === null ? '—' : '≈'+esc(I18n.formatCurrency(value));
     const rows = projection.entries.map(entry => {
-      const method = entry.fullEquivalentUsd === null || entry.flags.some(flag =>
-        flag === 'counter-change' || flag === 'boundary-uncertain' || flag === 'partial-pricing' || flag === 'partial-history') ? copy.estimateBlocked :
+      const method = entry.fullEquivalentUsd === null ? copy.estimateBlocked :
         entry.method === 'paired-delta' ? copy.pairedEstimate : copy.roughEstimate;
+      const reasons=this.weeklyEstimateReasons(entry);
       const range = entry.fullRange ? '<br><span class="model-details">' + money(entry.fullRange.lower) +
         ' – ' + money(entry.fullRange.upper) + '</span>' : '';
       return '<tr><td class="date-cell">' + esc(date(entry.resetAt)) + '</td><td class="date-cell">' +
         (entry.calibrationStart === undefined ? '' : esc(date(entry.calibrationStart)) + ' – ') +
-        esc(date(entry.observedAt)) + '</td><td class="cost-cell">' + money(entry.usedEquivalentUsd) +
+        esc(date(entry.observedAt)) + '</td><td class="cost-cell">' +
+        (entry.method==='rough-prefix-v2'&&entry.flags.includes('boundary-uncertain')?'≈':'')+esc(I18n.formatCurrency(entry.usedEquivalentUsd)) +
         '</td><td class="number-cell">' + (entry.utilizationPercent === null ? '—' : this.formatPercent(entry.utilizationPercent / 100)) +
         '</td><td class="cost-cell">' + money(entry.fullEquivalentUsd) + range +
         '</td><td class="cost-cell">' + money(entry.unusedEquivalentUsd) + '</td><td>' + esc(method) +
+        (reasons?'<br><span class="model-details">'+esc(reasons)+'</span>':'')+
         (entry.flags.includes('stale-observation') ? '<br><span class="model-details">' + esc(copy.estimateStale) + '</span>' : '') +
         (entry.flags.includes('reconstructed') ? '<br><span class="model-details">' + esc(copy.reconstructedEstimate) + '</span>' : '') +
         '</td></tr>';
@@ -7674,6 +7690,7 @@ export class UsageWebviewProvider {
     }
     const copy = I18n.t.weeklyValue;
     const points = this.weeklyValuePoints(provider);
+    const estimates=this.weeklyEstimateProjection(provider);
     const providerLabel = provider === 'codex'
       ? I18n.t.providers.codexBeta
       : I18n.t.providers.claude;
@@ -7696,7 +7713,7 @@ export class UsageWebviewProvider {
       return '<div class="daily-breakdown"><div class="section-header"><h3>' +
         heading + '</h3></div><p class="table-hint">' + notes + '</p>' +
         '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div>' +
-        this.renderWeeklyEstimateRecords(provider) + '</div>';
+        this.renderWeeklyEstimateRecords(provider,estimates) + '</div>';
     }
 
     const dateLabel = (value: number, short = false, dateOnly = false): string => {
@@ -7717,7 +7734,7 @@ export class UsageWebviewProvider {
                 hour: '2-digit' as const,
                 minute: '2-digit' as const,
               }),
-          timeZone: I18n.getTimezone(),
+          timeZone: I18n.getTimezone() || undefined,
         }).format(new Date(value));
       } catch {
         return new Date(value).toISOString().slice(0, 10);
@@ -7801,20 +7818,26 @@ export class UsageWebviewProvider {
       '<div class="hc-bars">' + bars + '</div></div><div class="hc-xlabels">' +
       xlabels + '</div></div></div></div></div>';
     const dash = '—';
-    const tableRows = points.map((point) =>
+    const tableRows = points.map((point) => {
+      const estimate=point.fullEquivalentUsd===null?weeklyEstimateForPoint(point,estimates.entries):undefined;
+      const full=estimate?.fullEquivalentUsd??point.fullEquivalentUsd;
+      const unused=estimate?.unusedEquivalentUsd??point.unusedEquivalentUsd;
+      const percent=estimate?.utilizationPercent??point.utilizationPercent;
+      const observed=estimate?.observedAt??point.observedAt;
+      return (
       '<tr><td class="date-cell">' + this.escapeHtml(periodLabel(point)) + '</td>' +
       '<td class="cost-cell">' +
       (point.usageAvailable === false ? dash : I18n.formatCurrency(point.usedEquivalentUsd)) + '</td>' +
       '<td class="number-cell">' +
-      (point.utilizationPercent === null ? dash : this.formatPercent(point.utilizationPercent / 100) +
-        (point.observedAt === undefined ? '' : ' · ' + this.escapeHtml(dateLabel(point.observedAt)))) + '</td>' +
+      (percent === null ? dash : this.formatPercent(percent / 100) +
+        (observed === undefined ? '' : ' · ' + this.escapeHtml(dateLabel(observed)))) + '</td>' +
       '<td class="cost-cell">' +
-      (point.fullEquivalentUsd === null ? dash : I18n.formatCurrency(point.fullEquivalentUsd)) + '</td>' +
+      (full === null ? dash : (estimate?'≈':'')+I18n.formatCurrency(full)) + '</td>' +
       '<td class="cost-cell">' +
-      (point.unusedEquivalentUsd === null ? dash : I18n.formatCurrency(point.unusedEquivalentUsd)) + '</td>' +
-      '<td>' + this.escapeHtml(confidenceLabel(point)) + '</td>' +
-      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td></tr>',
-    ).join('');
+      (unused === null ? dash : (estimate?'≈':'')+I18n.formatCurrency(unused)) + '</td>' +
+      '<td>' + this.escapeHtml(estimate?copy.low+' · '+copy.roughEstimate:confidenceLabel(point)) + '</td>' +
+      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td></tr>'
+    );}).join('');
     return '<div class="daily-breakdown"><div class="section-header"><h3>' + heading +
       '</h3></div><p class="table-hint">' + notes + '</p>' + chart +
       '<details class="weekly-value-details"><summary>' + this.escapeHtml(copy.periodDetails) +
@@ -7823,7 +7846,7 @@ export class UsageWebviewProvider {
       '<th>' + this.escapeHtml(copy.utilization) + '</th><th>' + this.escapeHtml(copy.fullValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.unusedValue) + '</th><th>' + this.escapeHtml(copy.confidence) + '</th>' +
       '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th></tr></thead><tbody>' +
-      tableRows + '</tbody></table></div></details>' + this.renderWeeklyEstimateRecords(provider) + '</div>';
+      tableRows + '</tbody></table></div></details>' + this.renderWeeklyEstimateRecords(provider,estimates) + '</div>';
   }
 
   /** Claude's legacy Share Card remains a provider-truthful presentation inside
@@ -12248,6 +12271,14 @@ export class UsageWebviewProvider {
       .weekly-value-details, .weekly-estimate-details {
         margin-top: var(--ccu-space-3);
         border-top: 1px solid var(--ccu-border);
+      }
+
+      .weekly-value-details .date-cell, .weekly-estimate-details .date-cell {
+        white-space: normal;
+      }
+
+      .weekly-estimate-details .model-details {
+        color: var(--vscode-foreground);
       }
 
       .weekly-value-details > summary, .weekly-estimate-details > summary {

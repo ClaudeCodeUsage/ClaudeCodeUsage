@@ -9,7 +9,7 @@ export const WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES = 4096;
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_BYTES = 1024 * 1024;
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_CLEAR_FENCES = 128;
 export type WeeklyEstimateProvider = 'claude' | 'codex';
-export type WeeklyEstimateMethod = 'legacy-prefix-ratio' | 'paired-delta' | 'owned-window';
+export type WeeklyEstimateMethod = 'legacy-prefix-ratio' | 'rough-prefix-v2' | 'paired-delta' | 'owned-window';
 export type WeeklyEstimateFlag = 'account-unattributed' | 'boundary-uncertain' | 'partial-pricing'
   | 'stale-observation' | 'counter-change' | 'reconstructed' | 'partial-history';
 
@@ -97,7 +97,7 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     !(value.unusedEquivalentUsd === null || money(value.unusedEquivalentUsd)) ||
     !(value.utilizationPercent === null || number(value.utilizationPercent, 100)) ||
     !number(value.pricingCoverage, 1) ||
-    !['legacy-prefix-ratio', 'paired-delta', 'owned-window'].includes(value.method as string) ||
+    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window'].includes(value.method as string) ||
     typeof value.pricingVersion !== 'string' || value.pricingVersion.length > 32 || !VERSION.test(value.pricingVersion) ||
     !(value.accountScopeKey === undefined || (typeof value.accountScopeKey === 'string' && HEX.test(value.accountScopeKey))) ||
     !Array.isArray(value.flags) || value.flags.length > 12 ||

@@ -320,13 +320,12 @@ drill-down. See [CHANGELOG.md](CHANGELOG.md) for patch-by-patch details.
 ### Weekly estimates and provider boundaries
 
 
-Weekly API-equivalent bars count local usage once. Separate rough as-of estimates
-use actual observed resets; reconstructed, unattributed history can qualify before
-100% use. The archive retains prior snapshots when new inference is blocked by
-known account/window changes, dropping or conflicting counters, uncertain boundaries
-or partial pricing. Used and unused values stay frozen at the original observation,
-not a live balance or official account capacity. Preview is local and offline.
-See [local data and privacy](LOCAL-DATA.md) for methods, retention and clearing.
+Weekly API-equivalent bars count actual local usage once. Separate rough as-of estimates
+show total and unused value when the observed percentage is positive and known priced
+usage is positive, including partial-price or incomplete histories with low-confidence
+labels. Boundary allocation assumes uniform activity in time only for the estimate;
+counter decreases start new segments. The archive retains original snapshots, not live
+balances or official account capacity. See [local data and privacy](LOCAL-DATA.md).
 
 Usage bars align to a seven-day grid, with Monday-to-Monday UTC fallback; this does not reconstruct unobserved resets. Quota percentages retain their original observation time and reset. The panel stays on by default (`showWeeklyEquivalentValue`).
 
