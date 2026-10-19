@@ -1,6 +1,7 @@
 import { lstat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { immutableCodexAchievementFiles } from '../../codexAchievementRevision';
+import { captureCodexCalibrationPricebook } from '../../codexCalibrationEvidence';
 
 import {
   ProviderLimitSnapshot,
@@ -222,6 +223,7 @@ function codexWeeklyValueInputs(
 ): WeeklyValueInputs {
   const currentObservations: WeeklyQuotaObservation[] = [];
   const usage: WeeklyValueInputs['usage'] = [];
+  const pricedModels = new Set<string>();
   const seenObservations = new Set<string>();
   const fileHistory: CodexQuotaObservation[] = [];
   for (const file of files) {
@@ -306,6 +308,7 @@ function codexWeeklyValueInputs(
       const intervalStart = slice.firstObservedAt ?? timestamp;
       const intervalEnd = slice.lastObservedAt ?? timestamp;
       for (const [model, tokens] of Object.entries(slice.byModel)) {
+        pricedModels.add(model);
         usage.push(equivalentUsageFromProviderTokens(
           timestamp,
           model,
@@ -317,7 +320,8 @@ function codexWeeklyValueInputs(
       }
     }
   }
-  return { observations, usage };
+  const calibrationPricebook = captureCodexCalibrationPricebook(pricedModels);
+  return { observations, usage, ...(calibrationPricebook ? { calibrationPricebook } : {}) };
 }
 
 function snapshotFromIndex(
@@ -325,9 +329,8 @@ function snapshotFromIndex(
   sessionTitles: Map<string, string> = new Map(),
   currentManifestVerified = false,
 ): CodexProviderSnapshot {
-  const canonicalFileKeys = classifyCodexSessionDuplicates(
-    index.files,
-  ).canonicalFileKeys;
+  const deduplication = classifyCodexSessionDuplicates(index.files);
+  const canonicalFileKeys = deduplication.canonicalFileKeys;
   const contributions = [...canonicalFileKeys]
     .map((fileKey) => index.files[fileKey])
     .filter((file): file is CodexIndexV1['files'][string] => file !== undefined);
@@ -408,11 +411,14 @@ function snapshotFromIndex(
     qualityFlags: qualityCounts(contributions),
     limits,
     limit: limits[0] ?? null,
-    weeklyValueInputs: codexWeeklyValueInputs(
+    weeklyValueInputs: { ...codexWeeklyValueInputs(
       usageContributions,
       index.quotaHistory ?? [],
       index.coverage.period.timeZone,
-    ),
+    ), calibrationSourceScope: {
+      verified: currentManifestVerified && index.coverage.complete && index.coverage.period.allTime.complete,
+      excludedSourceKeys: [...deduplication.ambiguousFileKeys].sort(),
+    } },
     hourlyCoverage,
     todayCoverage: index.coverage.today,
     todayPartial: !index.coverage.today.complete,

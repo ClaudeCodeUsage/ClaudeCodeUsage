@@ -28,7 +28,7 @@ test('currency preset reaches Codex summaries, charts, weekly values, and settin
     hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex',
   });
   await expect(weekly.locator('.hc-yaxis .hc-yval').first()).toHaveText(/^≈EUR \d/);
-  await weekly.locator('.weekly-value-details summary').click();
+  await weekly.locator('.weekly-estimate-details summary').click();
   await expect(weekly.locator('tbody .cost-cell').first()).toHaveText(/^EUR \d/);
   for(const cell of await weekly.locator('tbody td').all())await expect(cell).not.toContainText('≈');
 

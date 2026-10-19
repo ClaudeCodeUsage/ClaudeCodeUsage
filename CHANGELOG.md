@@ -16,17 +16,31 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ### Fixed
 - **Codex weekly quota reconciliation** — keep complete local usage separate from
-  account/epoch estimates, retain pre-reset snapshots and prevent mixed chart/table
-  amounts. Compatible ten-minute samples can calibrate with a continuity warning;
-  account switches and resets never bridge monetary intervals. Older quota facts
-  remain labelled as observations, and repeated samples no longer crowd earlier
-  cycles out of the estimate view. Historical account ownership remains unproven.
+  account × quotaEpoch estimates and retain pre-reset snapshots. The quota comparison
+  removes the duplicate local seven-day chart/details and shows only account/window
+  equivalent estimates. Compatible ten-minute samples can calibrate with a continuity
+  warning; switches, blur and resets require fresh baselines without bridging gaps.
+  Compatible earlier intervals can retain their percentage-weighted contribution.
+  Existing schema-1 snapshots retain fixed calibration evidence and the exact model
+  rates/parser/period versions used; changed rates break the baseline even under the
+  same pricing label. Restart reads frozen history without restoring calibration.
+  Older records stay intact without invented evidence or account ownership.
+  Complete indexing can now calibrate from verified unambiguous sources despite
+  historical identity ambiguity, preserving primary totals and quality flags.
+  Receipts count excluded sources and disclose partial history. Detectable closed-bucket
+  revisions and pre-baseline backfill are excluded; daily aggregates still support
+  only a low-confidence proxy. Clear fences also check calibration start, preventing
+  another instance's old sums from returning with a later timestamp; its next sample
+  retires affected sums and establishes a fresh baseline.
 - **Weekly allowance chart and labels** — show estimated used and unused from
   one observation snapshot, with total height matching the existing estimate.
-  Claude retains its existing grid behavior; Codex local usage is now independent
-  of overlapping estimate windows.
-  Tables keep actual usage, label estimate columns and remove repeated ≈ markers
-  from monetary cells; source statistics and archived estimates are unchanged.
+  Claude retains its existing grid behavior; Codex compares account/window estimates
+  without local-usage buckets. Headers identify estimates and monetary cells omit
+  repeated ≈ markers. Existing percentage-change snapshots carry the latest admitted
+  interval and cumulative USD/percentage-point/Token evidence; the same archive stops
+  writing at 4096 entries / 1 MiB without eviction, retaining its clear fences,
+  cross-process lease and atomic 0600 replacement. No new data file, log scan,
+  network request or credential access is added by evidence capture.
 - **Weekly allowance snapshots** — separate rough estimates at actual observed
   resets from primary local usage accounting. Positive observed use and known priced
   value now support total/unused estimates with low-confidence disclosures for

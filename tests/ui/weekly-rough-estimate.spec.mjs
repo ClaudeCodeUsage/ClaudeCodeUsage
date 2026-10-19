@@ -87,23 +87,13 @@ async function open(page, options = {}) {
 }
 
 async function reveal(page) {
-  await history(page).locator(':scope > summary').click();
   await details(page).locator(':scope > summary').click();
-  await expect(history(page)).toHaveAttribute('open', '');
+  await expect(history(page)).toHaveCount(0);
   await expect(details(page)).toHaveAttribute('open', '');
 }
 
 async function expectAmounts(page, locale) {
-  const current = history(page).locator('tbody tr').filter({ hasText: copy[locale].current });
-  await expect(current).toHaveCount(1);
-  await expect(current.locator('td').nth(1)).toHaveText('$40.00');
-  for (const index of [2, 3, 4]) await expect(current.locator('td').nth(index)).toHaveText('—');
-  await expect(current.locator('td').nth(5)).toHaveText(copy[locale].usageOnly);
-  await expect(current.locator('td').nth(6)).toHaveText('92%');
-  // Estimate status is explicit in both tables' localized headers, rather than
-  // repeated as an approximation symbol in every money cell.
-  await expect(history(page).locator('thead th').nth(3)).toHaveText(copy[locale].full);
-  await expect(history(page).locator('thead th').nth(4)).toHaveText(copy[locale].unused);
+  await expect(history(page)).toHaveCount(0);
   await expect(details(page).locator('thead th').nth(2)).toHaveText(copy[locale].inferred);
   await expect(details(page).locator('thead th').nth(6)).toHaveText(copy[locale].sample);
   await expect(details(page).locator('thead th').nth(4)).toHaveText(copy[locale].full);
@@ -131,7 +121,7 @@ async function expectAmounts(page, locale) {
   await expect(otherRecord.locator('td').nth(6)).toHaveText('$36.67');
   const method = record.locator('td').nth(7);
   await expect(method).toContainText(copy[locale].rough);
-  const reasons = method.locator('.model-details').first();
+  const reasons = method.locator('.model-details').filter({ hasText: copy[locale].reasons[0] });
   for (const reason of copy[locale].reasons) await expect(reasons).toContainText(reason);
   await expect(reasons).toContainText('92%');
   expect((await reasons.textContent()).split(' · ')).toHaveLength(5);
@@ -141,14 +131,8 @@ async function expectAmounts(page, locale) {
     for (const reason of copy.en.reasons) await expect(reasons).not.toContainText(reason);
   }
 
-  // The fixed local calendar grid retains the complete $80/$40 inputs once.
-  // Quota windows remain separate estimates with their own chart scale.
-  await expect(history(page).locator('tbody tr')).toHaveCount(2);
-  await expect(history(page).locator('tbody tr td:nth-child(2)')).toHaveText(['$40.00', '$80.00']);
-  const actualChart = panel(page).locator('[data-weekly-actual-chart]');
-  await expect(actualChart.locator('h4')).toContainText(copy[locale].local);
-  await expect(actualChart.locator('.stack-bar')).toHaveCount(2);
-  await expect(actualChart.locator('.stack-seg.seg-cache-read')).toHaveCount(0);
+  await expect(panel(page).locator('[data-weekly-actual-chart]')).toHaveCount(0);
+  await expect(panel(page).locator('.composition-chart')).toHaveCount(1);
   const estimatedChart = panel(page).locator('[data-weekly-estimate-chart]');
   const bars = estimatedChart.locator('.hc-bars .stack-bar');
   await expect(bars).toHaveCount(2);
@@ -172,13 +156,13 @@ async function expectAmounts(page, locale) {
   await expect(main.locator('.seg-input')).toHaveCSS('height', '30px');
   await expect(main.locator('.seg-cache-read')).toHaveCSS('height', '90px');
   await expect(main).toHaveCSS('height', '120px');
-  // Current follows the latest observation, not the greatest reset timestamp.
-  expect(await main.getAttribute('title')).toContain(copy[locale].current);
+  // Legacy unassigned references never claim the current account cycle.
+  expect(await main.getAttribute('title')).not.toContain(copy[locale].current);
   expect(await other.getAttribute('title')).not.toContain(copy[locale].current);
   const labels = estimatedChart.locator('.hc-xlabel');
   await expect(labels).toHaveCount(2);
   const mainIndex = await bars.evaluateAll(nodes => nodes.findIndex(node => node.title.includes('$240.00')));
-  await expect(labels.nth(mainIndex)).toHaveText(copy[locale].currentShort);
+  expect(await labels.nth(mainIndex).textContent()).not.toBe(copy[locale].currentShort);
   expect(await labels.nth(1 - mainIndex).textContent()).not.toBe(copy[locale].currentShort);
 }
 
@@ -303,14 +287,14 @@ for (const [locale, theme, width] of [
     expect(geometry.panelFits).toBe(true);
     expect(geometry.clipped).toEqual([]);
     expect(Math.min(...geometry.fonts)).toBeGreaterThanOrEqual(11);
-    expect(geometry.scrollers).toHaveLength(2);
+    expect(geometry.scrollers).toHaveLength(1);
     for (const scroller of geometry.scrollers) {
       expect(scroller.width).toBeGreaterThan(0);
       expect(scroller.scrollWidth).toBeGreaterThan(scroller.width);
       expect(scroller.overflowX).toBe('auto');
       expect(scroller.tabIndex).toBe(0);
     }
-    for (const scroller of [history(page), details(page)]) {
+    for (const scroller of [details(page)]) {
       const table = scroller.locator('.daily-table-container');
       await table.focus();
       const before = await table.evaluate(node => node.scrollLeft);
@@ -361,13 +345,9 @@ for (const theme of ['light', 'dark', 'highContrast']) {
       documentId: window.__ccuPostedMessages.find(row => row.command === 'localDataClientReady').documentId }));
     expect(after.documentId).toBe(before.documentId);
     expect(Math.abs(after.top - before.top)).toBeLessThanOrEqual(1);
-    // Reopen the read-only period table if it does not persist; this test owns
-    // only the interactive state of the estimate-record disclosure.
-    if (await history(page).getAttribute('open') === null) await history(page).locator(':scope > summary').click();
     await expectAmounts(page, 'en');
     await page.reload({ waitUntil: 'load' });
     await expect(details(page)).toHaveAttribute('open', '');
-    if (await history(page).getAttribute('open') === null) await history(page).locator(':scope > summary').click();
     await expectAmounts(page, 'en');
   });
 }

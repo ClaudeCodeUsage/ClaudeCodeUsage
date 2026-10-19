@@ -81,12 +81,11 @@ não são somados entre si. Registros ausentes ou ainda não indexados podem
 reduzir os totais mostrados; por padrão, o limite do Codex é a última observação local.
 
 
-- **Cota Codex opcional e estimativas aproximadas** — `codex.officialQuota.enabled` vem desativado.
-  Lê um daemon local já em execução e guarda snapshots numerados localmente no momento da observação em arquivo.
-  A identidade da cota não prova a atribuição do uso; o daemon pode contatar a OpenAI.
-  Veja [dados locais e privacidade](LOCAL-DATA.md).
-
-Períodos antigos sem observação mostram apenas uso real numa grade de sete dias, ou segunda a segunda em UTC sem reset válido; resets não observados não são reconstruídos. Percentuais de cota preservam o horário observado e o reset original. O painel continua ativo por padrão (`showWeeklyEquivalentValue`).
+- **Comparação de cotas Codex** — estimativas aproximadas no momento da observação por conta local ×
+  quotaEpoch, com evidências de calibração em arquivo, substituem o gráfico e os detalhes locais de sete dias duplicados.
+  Defina `showWeeklyEquivalentValue` como false para ocultar a comparação.
+  `codex.officialQuota.enabled` vem desativado; lê um daemon em execução, que pode contatar a OpenAI.
+  A identidade da cota não prova a atribuição do uso. Veja [dados locais e privacidade](LOCAL-DATA.md).
 
 ## Instalação e privacidade
 

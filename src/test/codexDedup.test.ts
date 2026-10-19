@@ -87,6 +87,7 @@ test('an exact verified active/archive pair keeps the active contribution', () =
 
   assert.deepEqual([...exact.canonicalFileKeys], ['active-key']);
   assert.deepEqual([...exact.exactDuplicateFileKeys], ['archive-key']);
+  assert.deepEqual([...(exact as any).ambiguousFileKeys], []);
   assert.equal(exact.ambiguousSessionGroups, 0);
 });
 
@@ -100,6 +101,7 @@ test('a token-total mismatch retains both copies as one ambiguous group', () => 
   assert.equal(ambiguous.ambiguousSessionGroups, 1);
   assert.deepEqual([...ambiguous.canonicalFileKeys], ['active-key', 'archive-key']);
   assert.equal(ambiguous.exactDuplicateFileKeys.size, 0);
+  assert.deepEqual([...ambiguous.ambiguousFileKeys], ['active-key', 'archive-key']);
 });
 
 test('equal totals with different authoritative day distributions are not exact duplicates', () => {

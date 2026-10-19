@@ -4,6 +4,8 @@ import type { CodexFileContribution } from './codexIndex';
 export interface CodexDeduplication {
   canonicalFileKeys: Set<string>;
   exactDuplicateFileKeys: Set<string>;
+  /** Runtime-only exclusion for calibration, never removal from usage totals. */
+  ambiguousFileKeys: Set<string>;
   ambiguousSessionGroups: number;
 }
 
@@ -83,6 +85,7 @@ export function classifyCodexSessionDuplicates(
 ): CodexDeduplication {
   const canonicalFileKeys = new Set(Object.keys(files));
   const exactDuplicateFileKeys = new Set<string>();
+  const ambiguousFileKeys = new Set<string>();
   const groups = new Map<string, CodexDeduplicationCandidate[]>();
 
   for (const [recordKey, contribution] of Object.entries(files)) {
@@ -120,11 +123,13 @@ export function classifyCodexSessionDuplicates(
       continue;
     }
     ambiguousSessionGroups += 1;
+    for (const candidate of group) ambiguousFileKeys.add(candidate.recordKey);
   }
 
   return {
     canonicalFileKeys,
     exactDuplicateFileKeys,
+    ambiguousFileKeys,
     ambiguousSessionGroups,
   };
 }

@@ -21,9 +21,10 @@ function historyInputs(snapshot, now) {
 
 function calibrated(accountScopeKey, observedAt, resetAt, increment) {
   const estimator = new CodexAccountEstimator(), sourceScopeKey = 'c'.repeat(64), sourceKey = 'synthetic-delta';
-  const sample = (time, percent) => ({ accountScopeKey, sourceScopeKey, requestedAt: time - 10,
-    observedAt: time, resetAt, usedPercent: percent });
   const before = observedAt - 120_000;
+  const quotaEpoch = { startedAt: before, resetAnchorAt: resetAt, startLowerAt: null, reason: 'initial' };
+  const sample = (time, percent) => ({ accountScopeKey, sourceScopeKey, requestedAt: time - 10,
+    observedAt: time, resetAt, usedPercent: percent, quotaEpoch });
   const inputs = (time, percent, usd, tokens) => ({ localHistoryComplete: true,
     observations: [{ provider: 'codex', sourceKey, seriesKey: sourceKey, observedAt: time, resetAt, usedPercent: percent }],
     usage: [{ sourceKey, timestamp: time, equivalentUsd: usd, pricedTokens: tokens, totalTokens: tokens }] });
@@ -41,9 +42,11 @@ async function publicProjection(inputs, now) {
   const second = calibrated('b'.repeat(64), observedAt, resetAt, 40);
   const options = { sourceNamespace: 'synthetic-weekly-accounts', pricingVersion: 'openai-v1', now };
   try {
-    coordinator.project('codex', inputs, { ...options, accountEstimates: [first], activeAccountScopeKey: first.accountScopeKey });
+    coordinator.project('codex', inputs, { ...options, accountEstimates: [first], activeAccountScopeKey: first.accountScopeKey,
+      activeQuotaEpochStartedAt: first.quotaEpoch.startedAt });
     await coordinator.flush();
-    const next = { ...options, accountEstimates: [first, second], activeAccountScopeKey: second.accountScopeKey };
+    const next = { ...options, accountEstimates: [first, second], activeAccountScopeKey: second.accountScopeKey,
+      activeQuotaEpochStartedAt: second.quotaEpoch.startedAt };
     coordinator.project('codex', inputs, next); await coordinator.flush();
     const projection = coordinator.project('codex', inputs, next);
     if (projection.status !== 'ready' || projection.activeAccountNumber !== 2 ||
@@ -51,7 +54,7 @@ async function publicProjection(inputs, now) {
       projection.entries.find(entry => entry.accountNumber === 2)?.fullEquivalentUsd !== 200 ||
       JSON.stringify(projection).includes('accountScopeKey')) throw new Error('Synthetic public projection invalid');
     return { projection, quota: { status: 'ready', accountNumber: projection.activeAccountNumber,
-      usedPercent: 40, resetAt, observedAt } };
+      usedPercent: 40, resetAt, observedAt, quotaEpochStartedAt: second.quotaEpoch.startedAt } };
   } finally {
     coordinator.dispose();
     // The only disk writes belong to this freshly generated isolated fixture root.

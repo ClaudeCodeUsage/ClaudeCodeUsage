@@ -24,6 +24,8 @@ function entry(method = 'account-delta-v1', accountNumber: unknown = 2): any {
   return { provider: 'codex', windowStart: R - 7 * 86_400_000, resetAt: R, observedAt: T, estimatedAt: T + 1,
     usedEquivalentUsd: 25, fullEquivalentUsd: 100, unusedEquivalentUsd: 75, utilizationPercent: 25,
     pricingCoverage: 1, flags: [], method, accountNumber,
+    ...(method === 'account-delta-v1' ? { quotaEpoch: { startedAt: T - 120_000,
+      resetAnchorAt: R, startLowerAt: null, reason: 'initial' } } : {}),
     sourceKey: 'raw-private-id', accountScopeKey: 'private-hmac-must-not-render' };
 }
 function owner(enabled = true, entries: any[] = []) {
@@ -35,7 +37,7 @@ function owner(enabled = true, entries: any[] = []) {
   p.weeklyValuePoints = () => [{ provider: 'codex', seriesKey: 'raw-private-id', windowStart: R - 7 * 86_400_000,
     resetAt: R, current: true, usedEquivalentUsd: 400, fullEquivalentUsd: null, unusedEquivalentUsd: null,
     utilizationPercent: 25, observedAt: T, pricingCoverage: 1, observationGapMs: 1,
-    confidence: 'usage-only', basis: 'reset-aligned-usage' }];
+    confidence: 'usage-only', basis: 'calendar-usage' }];
   p.codexView = { periodCoverage: { allTime: { complete: true } } };
   return { p, projection };
 }
@@ -72,6 +74,7 @@ for (let index = 0; index < locales.length; index++) {
     const html = p.renderWeeklyValuePanel('codex'), quota = status(html);
     assert.ok(quota.includes(titles[index])); assert.match(quota, /25%/);
     assert.ok(quota.includes(collecting[index])); assert.match(quota, /2/);
+    assert.ok(!html.includes(I18n.t.weeklyValue.calendarFallback), 'an official reset must not be contradicted by a calendar fallback');
     assert.doesNotMatch(html, /raw-private-id|private-hmac-must-not-render|accountScopeKey/);
     const records = owner(true, [entry(), entry('series-prefix-v1', null)]).p.renderWeeklyEstimateRecords('codex');
     assert.ok(records.includes('<td>' + accounts[index] + '</td>'));
@@ -82,15 +85,13 @@ for (let index = 0; index < locales.length; index++) {
   }));
 }
 
-test('account delta labels its proxy, appends an account column and leaves actual local usage unassigned', () => english(() => {
+test('account delta labels its proxy and account alongside unassigned reference estimates', () => english(() => {
   const { p } = owner(true, [entry(), entry('series-prefix-v1', null)]);
   const html = p.renderWeeklyValuePanel('codex');
   assert.doesNotMatch(status(html), /Collecting samples/);
   assert.match(html, /Account quota delta · local usage proxy/);
   assert.match(html, /Local-series estimate \(account unverified\)/);
-  const history = html.split('<details class="weekly-value-details">')[1].split('</details>')[0];
-  assert.match(history, /<th>Account<\/th>/); assert.match(history, /\$400\.00/);
-  assert.match(history, /<td>Unassigned<\/td>/); assert.doesNotMatch(history, /<td>Account 2<\/td>/);
+  assert.doesNotMatch(html, /weekly-value-details|weekly-actual-chart/);
   const records = html.split('<details class="weekly-estimate-details"')[1];
   assert.match(records, /<th>Account<\/th>/); assert.match(records, /<td>Account 2<\/td>/);
   assert.match(records, /<td>Unassigned<\/td>/);
@@ -109,8 +110,8 @@ test('latest invalid, previous reset or other-account delta does not imply curre
 test('an official quota epoch requires calibration from that same observed segment', () => english(() => {
   const startedAt = T - 120_000;
   for (const epoch of [undefined, { startedAt: startedAt - 60_000 }, { startedAt }]) {
-    const sample = { ...entry(), ...(epoch ? { quotaEpoch: { ...epoch, resetAnchorAt: R,
-      startLowerAt: null, reason: 'counter-drop' } } : {}) };
+    const sample = { ...entry(), quotaEpoch: epoch ? { ...epoch, resetAnchorAt: R,
+      startLowerAt: null, reason: 'counter-drop' } : undefined };
     const { p, projection } = owner(true, [sample]);
     projection.officialQuota.quotaEpochStartedAt = startedAt;
     const quota = status(p.renderWeeklyValuePanel('codex'));
@@ -204,11 +205,11 @@ test('chart current marker follows the identified service account and retires wh
   assert.doesNotMatch(chart(), /Current/);
 }));
 
-test('unassigned historical bars retain the compact original period label without a repeated account suffix',()=>english(()=>{
+test('unassigned historical bars explicitly disclose reference status and low confidence',()=>english(()=>{
   const {p}=owner(false,[{...entry('series-prefix-v1'),accountNumber:undefined}]);
   const html=p.renderWeeklyValuePanel('codex');
-  const labels=[...html.matchAll(/<div class="hc-xlabel">([^<]*)<\/div>/g)].map(row=>row[1]);
-  assert.ok(labels.length>0);assert.ok(labels.every(label=>!label.includes(' · Unassigned')));
+  const labels=[...html.matchAll(/aria-label="([^"]*)"/g)].map(row=>row[1]);
+  assert.ok(labels.length>0);assert.ok(labels.every(label=>label.includes('Unassigned · Low · Reference estimate')));
   assert.match(html,/<td>Unassigned<\/td>/,'the table still discloses missing ownership');
 }));
 

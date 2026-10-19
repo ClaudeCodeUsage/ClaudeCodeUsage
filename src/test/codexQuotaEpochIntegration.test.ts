@@ -24,7 +24,8 @@ function sample(t: number, p: number, quotaEpoch = epoch(), accountScopeKey = A)
 }
 function inputs(t: number, p: number, usd: number, resetAt = R): WeeklyValueInputs {
   return { localHistoryComplete: true,
-    usage: [{ sourceKey: 'same-client', timestamp: t - 1, equivalentUsd: usd, pricedTokens: usd * 10, totalTokens: usd * 10 }],
+    usage: [{ sourceKey: 'same-client', timestamp: t - 1, intervalStart: T - M, intervalEnd: t - 1,
+      equivalentUsd: usd, pricedTokens: usd * 10, totalTokens: usd * 10 }],
     observations: [{ provider: 'codex', sourceKey: 'same-client', seriesKey: 'codex', observedAt: t - 1, usedPercent: p, resetAt }] };
 }
 function estimate(quotaEpoch = epoch(), overrides: Partial<WeeklyEstimateInput> = {}): WeeklyEstimateInput & LocalWeeklyEstimate {
@@ -190,12 +191,16 @@ test('chart keeps old and new same-reset epochs and uses active account+epoch fo
   assert.equal(stale[0].current, false);
 });
 
-test('identified official account never marks an unassigned rough snapshot as current', () => {
+test('unassigned rough snapshots retain estimates but never claim current account status with or without identity', () => {
   const rough: LocalWeeklyEstimate = { ...estimate(), quotaEpoch: undefined, accountScopeKey: undefined,
     method: 'rough-prefix-v2', flags: [] };
   assert.equal(projectWeeklyEstimateChart('codex', [], [rough], { now: T + 2 * M,
     accountIdentityAvailable: true, activeQuotaEpochStartedAt: T })[0].current, false);
-  assert.equal(projectWeeklyEstimateChart('codex', [], [rough], { now: T + 2 * M })[0].current, true);
+  const [legacy] = projectWeeklyEstimateChart('codex', [], [rough], { now: T + 2 * M });
+  assert.equal(legacy.current, false);
+  assert.equal(legacy.fullEquivalentUsd, rough.fullEquivalentUsd);
+  assert.equal(legacy.unusedEquivalentUsd, rough.unusedEquivalentUsd);
+  assert.equal(legacy.usedEquivalentUsd, rough.fullEquivalentUsd! - rough.unusedEquivalentUsd!);
   assert.equal(projectWeeklyEstimateChart('codex', [], [rough], { now: T + 2 * M,
     accountIdentityAvailable: false })[0].current, false);
 });

@@ -87,12 +87,11 @@ Fehlende oder noch nicht indizierte Protokolle können die Anzeige verkleinern;
 die Codex-Quote bleibt standardmäßig die letzte lokale Beobachtung.
 
 
-- **Optionale Codex-Quote und grobe Schätzungen** — `codex.officialQuota.enabled` ist standardmäßig aus.
-  Ein bereits laufender lokaler Daemon liefert Werte; Momentaufnahmen zum Beobachtungszeitpunkt bleiben
-  mit lokalen Nummern im Archiv. Quotenidentität beweist keine Nutzungszuordnung; der Daemon kann OpenAI
-  kontaktieren. Siehe [Lokale Daten und Datenschutz](LOCAL-DATA.md).
-
-Ältere Zeiträume ohne Beobachtung zeigen nur Verbrauch im Siebentageraster, ohne verwertbaren Reset Montag bis Montag UTC; unbeobachtete Resets werden nicht rekonstruiert. Quotenprozente behalten Beobachtungszeitpunkt und ursprünglichen Reset. Der Bereich bleibt standardmäßig an (`showWeeklyEquivalentValue`).
+- **Codex-Quotenvergleich** — grobe Äquivalente zum Beobachtungszeitpunkt nach lokaler Kontonummer ×
+  quotaEpoch mit Kalibrierungsbelegen im Archiv statt doppelter lokaler Siebentagegrafik und Details.
+  Mit `showWeeklyEquivalentValue` auf false lässt sich der Vergleich ausblenden.
+  `codex.officialQuota.enabled` ist standardmäßig aus; Abfragen nutzen einen laufenden Daemon und können
+  OpenAI kontaktieren. Quotenidentität beweist keine Nutzungszuordnung. Siehe [Datenschutz](LOCAL-DATA.md).
 
 ## Installation und Datenschutz
 

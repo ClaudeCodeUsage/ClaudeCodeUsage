@@ -2,6 +2,7 @@ import { calculateCostFromPricing, getExactModelPricing } from './pricing';
 import { ClaudeApiUsageResponse, ClaudeUsageRecord } from './types';
 import { normalizeQuotaWindows } from './quotaWindows';
 import { ProviderTokenCounts, UsageProvider } from './providers/providerTypes';
+import type { CodexCalibrationPricebook } from './codexCalibrationEvidence';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_CLUSTER_MS = 5 * 60 * 1000;
@@ -58,6 +59,10 @@ export interface WeeklyEquivalentUsage {
 export interface WeeklyValueInputs {
   observations: WeeklyQuotaObservation[];
   usage: WeeklyEquivalentUsage[];
+  /** Exact current rate snapshot, attached by the existing numeric Codex adapter. */
+  calibrationPricebook?: CodexCalibrationPricebook;
+  /** Runtime census only. Does not change usage totals or identify an account. */
+  calibrationSourceScope?: { verified: boolean; excludedSourceKeys: readonly string[] };
   /** Known local indexing completeness, not complete account/device coverage. */
   localHistoryComplete?: boolean;
   /** Runtime-only proof of complete account-scoped usage for this exact window.

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import { fingerprintForStableIdentity } from './quotaObservationStore';
 import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation, CodexQuotaEpoch } from './codexQuotaEpoch';
+import { CodexCalibrationEvidence, copyCodexCalibrationEvidence, codexCalibrationEvidenceFitsEstimate } from './codexCalibrationEvidence';
 
 export const WEEKLY_ESTIMATE_ARCHIVE_FILE = 'weekly-estimates-v1.json';
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES = 4096;
@@ -33,6 +34,7 @@ export interface WeeklyEstimateInput {
   pricingVersion: string;
   /** Original paired-delta measurement interval and conditional range, never identity proof. */
   calibrationStart?: number;
+  calibrationEvidence?: CodexCalibrationEvidence;
   fullRange?: { lower: number; upper: number };
   /** Optional machine-local 64 lowercase hex key. This is never ownership/identity proof. */
   accountScopeKey?: string;
@@ -133,6 +135,10 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     value.accountScopeKey === undefined || value.method !== 'account-delta-v1' ||
     !codexQuotaEpochFitsObservation(quotaEpoch, value.observedAt, value.resetAt, value.windowStart,
       value.calibrationStart as number | undefined))) return undefined;
+  const calibrationEvidence = copyCodexCalibrationEvidence(value.calibrationEvidence);
+  if (value.calibrationEvidence !== undefined && (!calibrationEvidence || value.provider !== 'codex' ||
+    value.method !== 'account-delta-v1' || !codexCalibrationEvidenceFitsEstimate(calibrationEvidence,
+      value as unknown as WeeklyEstimateInput))) return undefined;
   if (value.fullRange !== undefined && (!object(value.fullRange) || !money(value.fullRange.lower) ||
     !money(value.fullRange.upper) || value.fullRange.lower <= 0 || value.fullEquivalentUsd === null ||
     value.fullRange.lower > value.fullEquivalentUsd || value.fullRange.upper < value.fullEquivalentUsd)) return undefined;
@@ -150,6 +156,7 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     } }),
     ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey as string }),
     ...(quotaEpoch === undefined ? {} : { quotaEpoch }),
+    ...(calibrationEvidence === undefined ? {} : { calibrationEvidence }),
     ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber as number }),
     ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd as number }),
     ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount as number }),
@@ -290,7 +297,8 @@ export class WeeklyEstimateArchive {
       }
       const through = cutoff(clearFences, raw.sourceKey, input.provider,
         weeklyEstimateAccountFingerprint(this.salt, input.provider, input.accountScopeKey));
-      if (through !== undefined && input.observedAt <= through) throw new ArchiveFailure('invalid');
+      if (through !== undefined && (input.observedAt <= through ||
+        (input.method === 'account-delta-v1' && input.calibrationStart !== undefined && input.calibrationStart <= through))) throw new ArchiveFailure('invalid');
       const key = raw.windowKey;
       const previous = windows.get(key);
       const signature = semanticKey(input);
@@ -388,7 +396,8 @@ export class WeeklyEstimateArchive {
         }
         const through = cutoff(current.clearFences, this.sourceKey, input.provider,
           weeklyEstimateAccountFingerprint(this.salt, input.provider, input.accountScopeKey));
-        if (through !== undefined && input.observedAt <= through) {
+        if (through !== undefined && (input.observedAt <= through ||
+          (input.method === 'account-delta-v1' && input.calibrationStart !== undefined && input.calibrationStart <= through))) {
           return { ...this.result(current, current.bytes), outcome: 'cleared-observation' as const };
         }
         // Incoming ordinals are display hints only. Canonical numbering is source-local and leased.

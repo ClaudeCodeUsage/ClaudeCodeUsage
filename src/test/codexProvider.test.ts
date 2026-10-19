@@ -200,6 +200,26 @@ function workerResult(index = partialIndex()): CodexWorkerResult {
   };
 }
 
+test('complete current census exposes ambiguous calibration exclusions without changing usage totals or identity quality', async t => {
+  const index = duplicateIndex(true), own = contribution('independent-key', 'sessions');
+  own.aggregate.session.sessionKey = 'independent-session'; own.parserState.sessionKey = 'independent-session';
+  index.files[own.fileKey] = own;
+  index.coverage.period.allTime.complete = true;
+  const client = new FakeClient([{ ...workerResult(index), failedFiles: 0 }]);
+  const provider = new CodexProvider({ enabled: true, codexHome: '/synthetic-not-read',
+    indexPath: '/synthetic-not-written/index.json', salt: 'synthetic', timeZone: 'UTC' }, () => client);
+  t.mock.method(provider, 'isAvailable', async () => true);
+  t.mock.method((provider as any).sessionTitleCache, 'load', async () => new Map());
+  try {
+    const result = await provider.refresh(), scope = result.snapshot.weeklyValueInputs?.calibrationSourceScope;
+    assert.equal(scope?.verified, true);
+    assert.deepEqual(scope?.excludedSourceKeys, ['active-key', 'archive-key']);
+    assert.equal(result.snapshot.coverage.identity.complete, false);
+    assert.equal(result.snapshot.total.inputTotal, 240);
+    assert.equal(result.outcome, 'partial');
+  } finally { provider.dispose(); }
+});
+
 function calendarWitnessIndex(prefixEvents = 0): CodexIndexV1 {
   const index = partialIndex();
   const file = Object.values(index.files)[0];

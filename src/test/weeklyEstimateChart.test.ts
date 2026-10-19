@@ -35,7 +35,7 @@ test('latest sample per reset is selected once, while overlapping real windows r
     snapshot({resetAt:R+2*H,windowStart:R+2*H-7*D,observedAt:N-3*H,fullEquivalentUsd:50,unusedEquivalentUsd:30})];
   const rows=projectWeeklyEstimateChart('codex',[usage()],snapshots,{now:N});
   assert.equal(rows.length,2);assert.equal(rows[0].fullEquivalentUsd,100);
-  assert.equal(rows[0].resetAt,R);assert.equal(rows[0].current,true);
+  assert.equal(rows[0].resetAt,R);assert.equal(rows[0].current,false);
   assert.equal(rows[1].resetAt,R+2*H);assert.equal(rows[1].current,false);
 });
 test('newer unavailable sample does not relabel a saved older estimate as current',()=>{
@@ -64,4 +64,19 @@ test('same-reset accounts remain separate chart comparisons and only the identif
   assert.equal(rows.find(r=>r.accountNumber===2)!.current,false);
   const unknown=projectWeeklyEstimateChart('codex',[],[snapshot({accountNumber:1})],{now:N,accountIdentityAvailable:false});
   assert.equal(unknown[0].current,false);
+});
+
+test('Codex unassigned and pre-epoch estimates never become a current account cycle',()=>{
+  for(const entry of [snapshot(),snapshot({method:'account-delta-v1',accountNumber:1})]){
+    const [point]=projectWeeklyEstimateChart('codex',[],[entry],{now:N,
+      activeAccountNumber:1,accountIdentityAvailable:true});
+    assert.equal(point.current,false);
+    assert.equal(point.fullEquivalentUsd,100);
+  }
+});
+
+test('Claude preserves its existing current estimate and local usage fallback',()=>{
+  const [point]=projectWeeklyEstimateChart('claude',[],[snapshot({provider:'claude'})],{now:N});
+  assert.equal(point.current,true);
+  assert.equal(projectWeeklyEstimateChart('claude',[{...usage(),provider:'claude'}],[],{now:N})[0].usedEquivalentUsd,400);
 });

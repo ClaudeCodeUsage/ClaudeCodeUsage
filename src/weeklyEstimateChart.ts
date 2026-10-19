@@ -43,7 +43,9 @@ export function projectWeeklyEstimateChart(
   }
   const estimated:WeeklyEstimateChartPoint[]=chosen.map(entry=>({
     provider,seriesKey:'observed-window',windowStart:entry.windowStart,resetAt:entry.resetAt,
-    current:entry.observedAt===latestObserved&&entry.resetAt>now&&
+    current:(provider!=='codex'||(entry.method==='account-delta-v1'&&entry.quotaEpoch!==undefined&&
+      entry.accountNumber!==undefined&&Number.isSafeInteger(entry.accountNumber)&&entry.accountNumber>0))&&
+      entry.observedAt===latestObserved&&entry.resetAt>now&&
       (entry.accountNumber===undefined
         ? options.accountIdentityAvailable===undefined&&options.activeQuotaEpochStartedAt===undefined
         : options.accountIdentityAvailable===true&&options.activeAccountNumber===entry.accountNumber)&&

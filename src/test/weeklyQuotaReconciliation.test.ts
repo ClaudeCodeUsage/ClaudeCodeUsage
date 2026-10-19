@@ -79,8 +79,7 @@ function barLabels(html: string): string[] {
 
 function money(amount: number): string { return I18n.formatCurrency(amount).replace(/^≈/, ''); }
 
-// Both charts reuse the established composition/stack classes; data attributes
-// make local usage and quota conversion independently inspectable.
+// The retained comparison reuses the established composition/stack classes.
 function chart(html: string, name: string): string {
   const start = new RegExp('<div\\b[^>]*\\bdata-' + name + '(?=[\\s=>])[^>]*>').exec(html);
   assert.ok(start, `data-${name} must identify a separate chart with its own meaning`);
@@ -93,25 +92,20 @@ function chart(html: string, name: string): string {
   assert.fail(`data-${name} must have a complete chart wrapper`);
 }
 
-test('complete local actual 953.87 remains a visible used-only bar beside the older quota estimate', () => display(() => {
+test('Codex retains one estimate comparison and removes duplicate local chart and period details', () => display(() => {
   const html = fixture().owner.renderWeeklyValuePanel('codex');
-  const label = barLabels(html).find(value => value.includes(money(ACTUAL)));
-  assert.ok(label, 'a real accessible bar must retain local actual $953.87 when an overlapping estimate exists');
-  assert.ok(!label.includes(money(FULL)) && !label.includes(money(UNUSED)),
-    'the local actual bar must not stack the incompatible estimated unused amount');
-  const actualChart = chart(html, 'weekly-actual-chart');
-  assert.ok(barLabels(actualChart).some(value => value.includes(money(ACTUAL))));
-  assert.doesNotMatch(actualChart, /class="stack-seg seg-cache-read"/);
+  assert.doesNotMatch(html, /weekly-actual-chart|weekly-value-details/);
+  assert.equal((html.match(/class="composition-chart"/g) ?? []).length, 1);
+  assert.ok(chart(html, 'weekly-estimate-chart'));
+  assert.match(html, /data-persist="weekly-estimate-codex"/);
 }));
 
-test('local actual table cannot borrow incompatible total, unused or percentage from an estimate', () => display(() => {
-  const html = fixture().owner.renderWeeklyValuePanel('codex');
-  const [actual] = rows(details(html, 'weekly-value-details'));
-  assert.equal(actual[1], money(ACTUAL));
-  assert.equal(actual[3], '—', 'local actual $953.87 has no compatible full-value estimate');
-  assert.equal(actual[4], '—', 'local actual $953.87 cannot borrow estimated unused $351.62');
-  assert.equal(actual[2], '—', '71% belongs to the estimate observation, not the complete local actual');
-  assert.equal(actual[7], I18n.t.weeklyValue.accountUnassigned);
+test('Codex does not compute a duplicate local calendar timeline or display its reset fallback', () => display(() => {
+  const f = fixture();
+  f.owner.weeklyValuePoints = () => assert.fail('Codex comparison needs only estimate snapshots');
+  const html = f.owner.renderWeeklyValuePanel('codex');
+  assert.ok(!html.includes(I18n.t.weeklyValue.calendarFallback));
+  assert.ok(details(html, 'weekly-estimate-details'));
 }));
 
 test('independent estimate chart and table preserve used + unused = total at the same snapshot', () => display(() => {
@@ -142,7 +136,7 @@ test('all locales retain unassigned ownership and omit approximation symbols fro
     I18n.setLanguage(locale); I18n.setCurrencyDisplay(currency);
     const f = fixture(), html = f.owner.renderWeeklyValuePanel('codex');
     assert.doesNotMatch(html, /fixture-local-series|accountScopeKey|sourceKey/);
-    const tables = [details(html, 'weekly-value-details'), details(html, 'weekly-estimate-details')];
+    const tables = [details(html, 'weekly-estimate-details')];
     for (const table of tables) for (const row of rows(table)) {
       assert.equal(row[row.length - 1], I18n.t.weeklyValue.accountUnassigned,
         'complete indexing and source continuity do not identify an account');
@@ -168,18 +162,16 @@ test('account delta interval evidence remains separate from inferred whole-cycle
     [60, 90, 150].every(amount => label.includes(money(amount)))));
 }));
 
-test('historical local actual 6059 is never replaced by an overlapping estimate', () => display(() => {
+test('historical estimates remain visible without a second local statistics surface', () => display(() => {
   const f = fixture(), history = { ...f.point, resetAt: RESET - 7 * DAY,
     windowStart: RESET - 14 * DAY, current: false, usedEquivalentUsd: 6059 };
   f.owner.weeklyValuePoints = () => [f.point, history];
   f.projection.entries.push({ ...f.projection.entries[1], resetAt: history.resetAt,
     windowStart: history.windowStart, observedAt: history.resetAt - 3_600_000 });
   const html = f.owner.renderWeeklyValuePanel('codex');
-  const labels = barLabels(chart(html, 'weekly-actual-chart'));
-  for (const amount of [ACTUAL, 6059]) assert.ok(labels.some(label => label.includes(money(amount))));
-  const actual = rows(details(html, 'weekly-value-details'));
-  assert.deepEqual(actual.map(row => row[1]), [money(ACTUAL), money(6059)]);
-  assert.ok(actual.every(row => row[3] === '—' && row[4] === '—'));
+  assert.equal(barLabels(chart(html, 'weekly-estimate-chart')).length, 2);
+  assert.equal(rows(details(html, 'weekly-estimate-details')).length, 3);
+  assert.doesNotMatch(html, /weekly-actual-chart|weekly-value-details/);
 }));
 
 test('Codex local seven-day buckets and total stay identical when the quota reset changes', () => display(() => {
@@ -201,7 +193,7 @@ test('Codex local seven-day buckets and total stay identical when the quota rese
     point.fullEquivalentUsd === null && point.unusedEquivalentUsd === null));
 }));
 
-test('Codex keeps eight visible local bars and all available seven-day rows in details', () => display(() => {
+test('Codex with local usage but no estimates keeps records and an empty state without local bars', () => display(() => {
   const p: any = Object.create(Provider.prototype);
   p.setting = (_key: string, fallback: unknown) => fallback;
   p.weeklyValueInputs = () => ({ observations: [], localHistoryComplete: true,
@@ -209,10 +201,24 @@ test('Codex keeps eight visible local bars and all available seven-day rows in d
       equivalentUsd: 1, pricedTokens: 1, totalTokens: 1 })) });
   p.weeklyEstimateProjection = () => ({ status: 'ready', entries: [] });
   const html = p.renderWeeklyValuePanel('codex');
-  assert.equal(barLabels(chart(html, 'weekly-actual-chart')).length, 8);
-  assert.equal(rows(details(html, 'weekly-value-details')).length, 15);
-  assert.ok(chart(html, 'weekly-actual-chart').includes('Local 7-day usage · Unassigned'));
-  assert.doesNotMatch(html, /weekly-estimate-chart/);
+  assert.doesNotMatch(html, /weekly-actual-chart|weekly-value-details|weekly-estimate-chart/);
+  assert.match(html, /class="no-data"/);
+  assert.equal(rows(details(html, 'weekly-estimate-details')).length, 0);
+}));
+
+test('unassigned legacy estimates retain numbers with low confidence and no current-account cycle claim in all locales', () => display(() => {
+  for (const locale of locales) {
+    I18n.setLanguage(locale);
+    const html = fixture().owner.renderWeeklyValuePanel('codex'), copy = I18n.t.weeklyValue;
+    const labels = barLabels(chart(html, 'weekly-estimate-chart'));
+    assert.equal(labels.length, 1);
+    assert.ok(labels[0].includes(copy.accountUnassigned));
+    assert.ok(labels[0].includes(copy.low));
+    assert.ok(!labels[0].includes(copy.currentPeriod));
+    assert.ok(!labels[0].includes(copy.currentPeriodShort));
+    assert.ok(labels[0].includes(money(FULL)));
+    assert.ok(details(html, 'weekly-estimate-details').includes(copy.low));
+  }
 }));
 
 test('same-reset quota segments retain their first-observed starts and cautious reasons in eight locales', () => display(() => {

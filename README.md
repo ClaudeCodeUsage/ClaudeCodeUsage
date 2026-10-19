@@ -73,7 +73,7 @@ Today, Last 30 days, months, models, effort, and all-time totals.*
 
 *Quota observations retain their observation timestamps and original resets.
 Blue used and green unused estimates share one original observation. The table
-keeps actual local usage separate; rough archived values retain their evidence
+distinguishes calibration samples from inferred used estimates; archived values retain their evidence
 limits and do not show a live account balance.*
 
 ![Combined Claude and Codex heatmap in English, light theme](images/v2.3.1/compare-heatmap-en-light.png)
@@ -320,12 +320,11 @@ drill-down. See [CHANGELOG.md](CHANGELOG.md) for patch-by-patch details.
 ### Weekly estimates and provider boundaries
 
 
-- **Optional Codex quota and rough estimates** — `codex.officialQuota.enabled` defaults off.
-  Read an already-running local daemon; locally numbered as-of snapshots stay in the archive.
-  Quota identity does not prove usage ownership, and daemon reads may contact OpenAI.
-  See [local data and privacy](LOCAL-DATA.md).
-
-Older usage-only periods use a seven-day display grid, with Monday-to-Monday UTC fallback; unobserved resets are not reconstructed. Quota percentages retain their original observation time and reset. The panel stays on by default (`showWeeklyEquivalentValue`).
+- **Codex quota comparison** — compare rough as-of equivalents by local account × quotaEpoch,
+  with archived calibration evidence, replacing duplicate local seven-day charts/details.
+  Set `showWeeklyEquivalentValue` to false to hide the comparison.
+  `codex.officialQuota.enabled` defaults off; reads use an existing daemon and may contact
+  OpenAI. Quota identity does not prove usage ownership. See [local data and privacy](LOCAL-DATA.md).
 
 ### Dashboard, indexing, and privacy
 

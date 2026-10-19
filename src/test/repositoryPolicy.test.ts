@@ -1004,6 +1004,7 @@ test('weekly value documentation separates rough as-of estimates from local usag
       'codex.officialQuota.enabled', 'codexAccountEstimate.ts', 'account-delta-v1', 'series-prefix-v1',
       'codex-official-api', 'codexQuotaCaptureFromOfficialSample', 'accountScopeKey', 'accountNumber',
       'unlinkedEquivalentUsd', 'linkedSourceCount', 'codexQuotaEpoch.ts', 'quotaEpoch',
+      'codexCalibrationEvidence.ts', 'calibrationEvidence',
       'initialize', 'initialized', 'account/rateLimits/read']) {
       assert.ok(document.includes('`' + field + '`'), file + ' must document ' + field);
     }
@@ -1020,8 +1021,8 @@ test('weekly value documentation separates rough as-of estimates from local usag
     assert.ok(contract.includes('showWeeklyQuotaPace'), file);
     const facts = file.endsWith('zh-CN.md') ? [
       /同一观测快照.{0,40}F\s*-\s*R.{0,30}绿色.{0,30}=\s*R.{0,20}总高\s*=\s*F/,
-      /不能隐藏.{0,20}本机/,
-      /稳定.{0,20}日历/,
+      /移除重复的本机七日用量图/,
+      /账号.{0,40}(?:分段|周期)/,
       /65分钟/,
       /不新增估值推断或持久化/,
       /估值.{0,20}表头.{0,30}金额单元格.{0,30}不再.{0,20}≈/,
@@ -1047,8 +1048,8 @@ test('weekly value documentation separates rough as-of estimates from local usag
       /观测时间戳.{0,20}原始重置时刻/,
     ] : [
       /same observation snapshot.{0,40}F\s*-\s*R.{0,30}green.{0,30}=\s*R.{0,30}total height\s*=\s*F/i,
-      /(?:cannot suppress.{0,30}local chart|no estimated window suppresses local bars)/i,
-      /stable calendar grid/i,
+      /duplicate local seven-day usage chart and detail table are removed/i,
+      /account.{0,40}(?:epoch|cycle)/i,
       /65 minutes/i,
       /no new estimate inference or persistence/i,
       /headers.{0,30}estimates.{0,30}monetary cells.{0,30}omit.{0,30}≈/i,
@@ -1091,7 +1092,7 @@ test('weekly value documentation separates rough as-of estimates from local usag
     for (const concept of concepts) assert.match(document, concept, file);
     assert.ok(document.includes('showWeeklyEquivalentValue'), file);
     assert.ok(document.includes('codex.officialQuota.enabled'), file);
-    assert.ok(document.includes('UTC'), file);
+    // The removed local calendar-week fallback no longer belongs in README copy.
   }
 });
 

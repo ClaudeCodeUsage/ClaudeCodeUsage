@@ -46,6 +46,7 @@ Codex effort 统计及仅累计范围的金额新活动收据已完成接入。
 | `claudeApiClient.ts` | 既有 Claude OAuth／额度请求及最近成功请求所用凭证的运行期单向身份信号；周节奏只读取该信号，不新增请求或凭证查询。 |
 | `providers/codex/codexOfficialQuota.ts`、`codexQuotaWebSocket.ts` | 主动启用后，通过有界 WebSocket-over-stdio 代理读取已运行的本地 daemon；仅初始化及额度读取 RPC，绝不启动 daemon、登录或读取凭据文件。 |
 | `codexAccountEstimate.ts` | 仅运行期连续官方样本／本机增量校准；额度身份不证明本地用量归属。 |
+| `codexCalibrationEvidence.ts` | 纯函数复制固定校准证据及精确公开模型费率／parser／period 版本，供估算器、协调器和既有归档校验复用；无 I/O。 |
 | `quotaObservationStore.ts` | 严格数值／匿名观测捕获、来源白名单、既有有界压缩及租约内清除；官方 Codex 样本与未归属本地日志证据分开保留。 |
 | `dataLoader.ts` | 为精确兼容保留的 Claude 解析、校验、归因和内容分析 primitive。 |
 | `claudeIncrementalIndex.ts` | 生产环境 Claude 内存 per-file 索引：append-tail 解析、精确跨文件 response 去重、受影响 group 聚合、内容分析 contribution 和已物化 dashboard row。 |
@@ -1091,16 +1092,23 @@ Windows 验收；正常实例前后状态核对和后台启动要求见辅助模
 元数据只记录首次观测、固定重置锚点、可选边界下界及谨慎的原因，不冒充手动重置精确时间。
 已识别的官方计数任何下降均另开窗口，其他来源保留原有阈值。切号与失焦断开金额基线，
 但可保留有界的同账号／分段／定价有效区间累计；返回后建立新基线，不跨接中间用量。
-失败、来源／索引／定价失效、清除及重启会结束运行期校准。分段有效、索引完整且本地见证
+失败、来源／索引／定价失效、清除及重启会结束运行期校准，归档证据不恢复重启前基线；
+实际模型费率变化即使公开定价版本标签同名也断开基线。分段有效、索引完整且本地见证
 一致时，允许最多65分钟间隔，超过五分钟标记连续性风险；无分段的旧调用仍限五分钟。
 不新增定时器、监听触发的网络请求或原始日志扫描。未到重置时间的旧额度保留原时刻并标旧，
 不再冒充当前身份。最近观测连续性与金额基线分开维护：有效、未饱和且百分比
 不变的读取只更新 `lastObserved`，保留原金额基线；持续读取即使累计超过五分钟，
 也不丢弃等待百分比变化的原有用量。
-只有当前索引、全部时段及身份覆盖均完整（`coverage.identity.complete`）时可校准；
-索引重建或 `indexGeneration` 变化会重置基线。未匹配或冲突的本地来源不计入。
-每个获准区间须增加至少 1 个百分点，且末次低于 100%。同一连续区间组内，兼容的
-获准区间合并计算：`linkedLocalDeltaUsd` 是其已连接本地已定价金额增量之和
+校准仍要求当前 manifest 已核验、当前及全部时段索引完整。历史 `ambiguousSessionGroups`
+可使全扫描完成后的 `coverage.identity.complete` 仍为 false；该全局标记不再阻断已核验的
+无歧义子集。dedup 提供仅运行期的 `ambiguousFileKeys`，provider 附带已核验的
+`calibrationSourceScope` 排除集，估算器只使用无歧义来源。主统计及身份质量标记保持原样，
+不将子集冒充完整账号用量；收据只保存 `excludedSources` 数量、不保存被排除键，有排除时
+提示 `partial-history`。索引重建、`indexGeneration` 或排除集变化须建立新基线。
+未匹配／冲突来源、可识别的已封闭历史桶变更及基线前（含基线时刻）迟到回填不参与校准。
+每个获准区间须增加至少 1 个百分点，且末次低于 100%。同账号／分段／定价下兼容的
+获准区间合并计算，可包括切号或失焦前保留的有效区间，但不跨过渡缺口；按百分点增量
+加权，`linkedLocalDeltaUsd` 是其已连接本地已定价金额增量之和
 （ΣlinkedUSD），`deltaPercent` 是相应百分点增量之和（ΣdeltaP），而非仅取最新配对：
 
 ```text
@@ -1109,6 +1117,7 @@ R = F * (1 - p / 100)
 ```
 
 这是按额度作用域分组的本机增量代理估算，不是已证明归属的账号总额或完整跨设备金额。
+日聚合内部无法区分的迟到事件仍无法排除，因此维持低可信 proxy，不证明逐请求时序或精度。
 `usedEquivalentUsd` 是获准校准区间的增量之和，`calibrationStart` 保留该组首个获准
 区间的起始观测；未用估价冻结
 在同一观测时点。不扣减后续本地用量来生成实时余额。daemon 成功读取只证明协议可用；
@@ -1138,17 +1147,17 @@ R = F * (1 - p / 100)
 独立 `WeeklyEquivalentUsage.accountSeriesKey` 与 `inputs.accountUsageCoverage`
 证明。`showWeeklyQuotaPace` 仍是独立的时间进度预测。
 
-Codex 完整本机七日统计与额度估值分开展示。本机桶使用不随账号／重置变化的稳定日历
-网格，不代表订阅周期；图与表保留全部已索引用量，不借用另一范围的百分比、总额或未用值。
+Codex 额度对比仅保留账号 × `quotaEpoch` 的额度等价估值，移除重复的本机七日用量图
+及明细表；主要本地用量仍可在仪表板既有统计视图查看。
 `weeklyEstimateChart.ts` 按本地账号与明确额度分段选择最新有效估值，旧记录仍按重置簇分组。
 两个色段来自同一观测快照：蓝色已用估值 = F - R，绿色未用估值 = R，柱总高 = F。
 配对增量为 30、F = 150、R = 90 时蓝色为 60，不是 30，不能把当前实际已用加到旧未用上。
-只有未改变的 Claude 路径继续去掉重叠展示桶。独立 Codex 估值图不接收本机桶，不能隐藏
-本机图。估值表以 F−R 表示推算已用，另列校准样本金额。账号窗口可重叠，不相加；
+Claude 路径保留既有展示网格及实际已用列。Codex 估值图不接收本机桶，估值表以 F−R
+表示推算已用，另列校准样本金额。账号窗口可重叠，不相加；
 启用官方读取后，只有新鲜且匹配账号、分段的证据可标当前，未归属或旧观测不能获得该标记。
 
-柱图不新增估值推断或持久化，不改变主要本地统计。表格实际已用列独立保留，估值在
-表头注明，金额单元格不再逐项显示 ≈。每个额度百分比都保留观测时间戳和原始重置时刻。
+柱图不新增估值推断或持久化，不改变主要本地统计。估值在表头注明，金额单元格不再
+逐项显示 ≈。每个额度百分比都保留观测时间戳和原始重置时刻。
 公开账号标签只是本机序号，不是身份或账号名称；当前额度身份仍不证明本地用量归属。
 
 `quotaObservationStore.ts` 通过 `codexQuotaCaptureFromOfficialSample` 接受
@@ -1157,9 +1166,17 @@ Codex 完整本机七日统计与额度估值分开展示。本机桶使用不�
 邮箱、套餐或凭据。沿用 schema-2 的保留、压缩与清除，本地日志捕获仍未归属并独立保留。
 旧 schema-2 读取器拒绝未知来源枚举，兼容仅为单向，不是 schema 降级。
 
-`weeklyEstimateArchive.ts` 在 `weekly-estimates-v1.json` 保留固定数值／枚举 DTO：
+`weeklyEstimateArchive.ts` 在既有 schema-1 的 `weekly-estimates-v1.json` 保留固定字段 DTO：
 原始时间、金额、定价覆盖率／版本、方法／标志、可选校准范围、
-`unlinkedEquivalentUsd`、`linkedSourceCount` 及可选的严格校验 `quotaEpoch` 数值／枚举元数据。
+`unlinkedEquivalentUsd`、`linkedSourceCount`、可选的严格校验 `quotaEpoch` 数值／枚举元数据，
+以及新获准 `account-delta-v1` 估值的可选 `calibrationEvidence`。
+`codexCalibrationEvidence.ts` 仅复制固定字段：最新获准区间的前后观测及请求时间、
+起终百分比、增量 USD、已定价／全部 Token、已连接来源数、`excludedSources` 数量及连续性
+gap 布尔值；累计
+区间数、ΣdeltaUSD、ΣdeltaP 及已定价／全部 Token；以及该次估值采用的精确公开模型
+输入／缓存输入／输出费率和 parser／period 版本。归档的每个百分点变化点保留当时证据。
+无证据的旧记录继续有效，不补造证据或身份；历史金额按冻结值读回，不重新定价或恢复
+运行期基线。证据捕获复用已物化聚合，不新增数据文件、日志扫描、网络请求或凭据访问。
 新窗口键区分同一 reset 的重置前后分段，缺少该字段的旧键分支保持不变。
 既有内部 `accountScopeKey` 现已使用，
 来源内的本机 `accountNumber` 在共享租约内分配并持久化。来源／窗口键及账号作用域
@@ -1175,7 +1192,9 @@ Codex 完整本机七日统计与额度估值分开展示。本机桶使用不�
 `weeklyEstimateCoordinator.ts` 维护有界缓存投影及排队归档；投影不读取原始日志或
 新增网络请求。先选择各周期代表，再应用48条显示上限，近期密集观测不会挤掉旧周期；
 宿主校准直接排队到既有写入器，不依赖页面渲染。按所选账号清除时使用内部 fingerprint 与持久观测截止屏障，保留其他
-账号和未归属记录；供应商／全部历史清除亦涵盖归档，旧排队观测不能恢复已清数据。
+账号和未归属记录；供应商／全部历史清除亦涵盖归档。对 `account-delta-v1`，屏障同时检查
+`calibrationStart` 与 `observedAt`，其他实例的旧累计不能凭更晚观测时间重新进入。
+宿主在下一次采样时退役该账号受影响的运行期累计，重新建立基线；旧排队观测不能恢复已清数据。
 未变化投影不因时间经过重复归档 I/O。依赖、主要摄取／索引 schema、包版本及默认开启
 的 `showWeeklyEquivalentValue` 展示设置保持不变。
 

@@ -7763,6 +7763,7 @@ export class UsageWebviewProvider {
         ? projectWeeklyEstimateChart('codex', [], [entry], { now: Date.now() })[0]?.usedEquivalentUsd ?? null
         : entry.usedEquivalentUsd;
       const epoch = provider === 'codex' ? entry.quotaEpoch : undefined;
+      const reference = provider === 'codex' && (!epoch || this.weeklyAccountNumber(entry.accountNumber) === undefined);
       const segment = epoch && Number.isFinite(epoch.startedAt) && epoch.startedAt > 0 && epoch.startedAt <= 8.64e15
         ? '<br><span class="model-details">' + esc(copy.observationSegment + ' ' + date(epoch.startedAt) +
           (epoch.reason === 'reset-change' ? ' · ' + copy.quotaChanged :
@@ -7775,6 +7776,7 @@ export class UsageWebviewProvider {
         '</td><td class="cost-cell">' + money(entry.fullEquivalentUsd) + range +
         '</td><td class="cost-cell">' + money(entry.unusedEquivalentUsd) + '</td>' +
         (provider === 'codex' ? '<td class="cost-cell">' + money(entry.usedEquivalentUsd) + '</td>' : '') + '<td>' + esc(method) +
+        (reference ? '<br><span class="model-details">' + esc(copy.low + ' · ' + copy.estimateReference) + '</span>' : '') +
         (reasons?'<br><span class="model-details">'+esc(reasons)+'</span>':'')+
         (entry.flags.includes('stale-observation') ? '<br><span class="model-details">' + esc(copy.estimateStale) + '</span>' : '') +
         (entry.flags.includes('reconstructed') ? '<br><span class="model-details">' + esc(copy.reconstructedEstimate) + '</span>' : '') +
@@ -7804,7 +7806,7 @@ export class UsageWebviewProvider {
       return '';
     }
     const copy = I18n.t.weeklyValue;
-    const points = this.weeklyValuePoints(provider);
+    const points = provider === 'codex' ? [] : this.weeklyValuePoints(provider);
     const estimates=this.weeklyEstimateProjection(provider);
     const observedChartPoints=projectWeeklyEstimateChart(provider,provider === 'codex' ? [] : points,estimates.entries,{now:Date.now(),limit:8,
       ...(provider === 'codex' && this.setting<boolean>('codex.officialQuota.enabled', false) ? {
@@ -7826,7 +7828,7 @@ export class UsageWebviewProvider {
         : []),
       ...(provider === 'codex' ? [copy.multiAccount] : []),
       ...(provider === 'codex' && this.setting<boolean>('codex.officialQuota.enabled', false) ? [copy.accountUsageScope] : []),
-      ...(provider === 'codex' && points.some((point) => point.boundaryUncertain)
+      ...(provider === 'codex' && estimates.entries.some(entry => entry.flags.includes('boundary-uncertain'))
         ? [copy.boundaryApproximation]
         : []),
       ...(provider === 'codex' && this.codexView && !this.codexView.periodCoverage.allTime.complete
@@ -7836,7 +7838,7 @@ export class UsageWebviewProvider {
     if (points.length === 0 && observedChartPoints.length === 0) {
       return '<div class="daily-breakdown"><div class="section-header"><h3>' +
         heading + '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' +
-        '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div>' +
+        '<div class="no-data"><p>' + this.escapeHtml(provider === 'codex' ? copy.estimateBlocked : copy.noData) + '</p></div>' +
         this.renderWeeklyEstimateRecords(provider,estimates) + '</div>';
     }
 
@@ -7888,9 +7890,16 @@ export class UsageWebviewProvider {
         ? this.weeklyAccountLabel(point.accountNumber) : '';
       const epoch = provider === 'codex' && point.asOfEstimate && point.quotaEpoch && Number.isFinite(point.quotaEpoch.startedAt) &&
         point.quotaEpoch.startedAt > 0 && point.quotaEpoch.startedAt <= 8.64e15 ? point.quotaEpoch : undefined;
+      if (provider === 'codex' && point.asOfEstimate && (!epoch || !account)) {
+        if (short) return dateLabel(point.resetAt, true);
+        return [account || copy.accountUnassigned, copy.low, copy.estimateReference,
+          copy.resetsAt + ' ' + dateLabel(point.resetAt, short)].join(' · ');
+      }
       if (short && epoch) return [point.current ? copy.currentPeriodShort : '', account, segmentDate(epoch.startedAt)]
         .filter(Boolean).join(' · ');
-      return periodBaseLabel(point, short) + (account ? ' · ' + account : '') +
+      return (provider === 'codex'
+        ? [point.current ? copy.currentPeriod : '', account, copy.resetsAt + ' ' + dateLabel(point.resetAt)].filter(Boolean).join(' · ')
+        : periodBaseLabel(point, short)) +
         (epoch ? ' · ' + copy.observationSegment + ' ' + dateLabel(epoch.startedAt) +
           (epoch.reason === 'reset-change' ? ' · ' + copy.quotaChanged :
             epoch.reason === 'counter-drop' ? ' · ' + copy.counterDecreased : '') : '');
@@ -7908,7 +7917,7 @@ export class UsageWebviewProvider {
         default: return copy.usageOnly;
       }
     };
-    const renderChart = (chartPoints: ReturnType<typeof projectWeeklyEstimateChart>, kind?: 'actual' | 'estimate'): string => {
+    const renderChart = (chartPoints: ReturnType<typeof projectWeeklyEstimateChart>, kind?: 'estimate'): string => {
     const maxValue = Math.max(
       1,
       ...chartPoints.map((point) =>
@@ -7948,8 +7957,7 @@ export class UsageWebviewProvider {
       '<span class="legend-item"><span class="legend-dot ' + cls + '"></span>' +
       this.escapeHtml(label) + '</span>';
     return '<div class="composition-chart"' + (kind ? ' data-weekly-' + kind + '-chart' : '') + '>' +
-      (kind ? '<h4>' + this.escapeHtml(kind === 'actual'
-        ? copy.localActualTitle + ' · ' + copy.accountUnassigned : copy.estimateChartTitle) + '</h4>' : '') + '<div class="stack-legend">' +
+      (kind ? '<h4>' + this.escapeHtml(copy.estimateChartTitle) + '</h4>' : '') + '<div class="stack-legend">' +
       legend('seg-input', kind === 'estimate' ? copy.inferredUsed : copy.chartUsedValue) +
       (chartPoints.some((point) => point.unusedEquivalentUsd !== null)
         ? legend('seg-cache-read', copy.chartUnusedValue)
@@ -7961,22 +7969,26 @@ export class UsageWebviewProvider {
       '<div class="hc-main"><div class="hc-scroll" tabindex="0"><div class="hc-plot">' +
       '<div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>' +
       '<div class="hc-bars">' + bars + '</div></div><div class="hc-xlabels">' +
-      xlabels + '</div></div></div></div></div>' + (kind === 'actual' ? '' : '<p class="table-hint">' +
-        this.escapeHtml(kind === 'estimate' ? copy.estimateReconciliationNote : copy.chartEstimateNote) + '</p>');
+      xlabels + '</div></div></div></div></div>' + '<p class="table-hint">' +
+        (kind === 'estimate' && chartPoints.some(point => !point.quotaEpoch || this.weeklyAccountNumber(point.accountNumber) === undefined)
+          ? this.escapeHtml(copy.low + ' · ' + copy.estimateReference) + '<br>' : '') +
+        this.escapeHtml(kind === 'estimate' ? copy.estimateReconciliationNote : copy.chartEstimateNote) + '</p>';
     };
-    const chart = provider === 'codex'
-      ? (points.length ? renderChart(points.slice(0, 8).map(point => ({ ...point,
-          fullEquivalentUsd: null, unusedEquivalentUsd: null, asOfEstimate: false })).reverse(), 'actual') : '')
-      : renderChart(observedChartPoints);
+    const chart = provider === 'codex' ? '' : renderChart(observedChartPoints);
     const estimateChart = provider === 'codex' && observedChartPoints.length
       ? renderChart(observedChartPoints, 'estimate') : '';
+    if (provider === 'codex') {
+      return '<div class="daily-breakdown"><div class="section-header"><h3>' + heading +
+        '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' +
+        estimateChart + this.renderWeeklyEstimateRecords(provider, estimates) + '</div>';
+    }
     const dash = '—';
     const tableRows = points.map((point) => {
-      const estimate=provider !== 'codex' && point.fullEquivalentUsd===null?weeklyEstimateForPoint(point,estimates.entries):undefined;
-      const full=provider === 'codex' ? null : estimate?.fullEquivalentUsd??point.fullEquivalentUsd;
-      const unused=provider === 'codex' ? null : estimate?.unusedEquivalentUsd??point.unusedEquivalentUsd;
-      const percent=provider === 'codex' ? null : estimate?.utilizationPercent??point.utilizationPercent;
-      const observed=provider === 'codex' ? undefined : estimate?.observedAt??point.observedAt;
+      const estimate=point.fullEquivalentUsd===null?weeklyEstimateForPoint(point,estimates.entries):undefined;
+      const full=estimate?.fullEquivalentUsd??point.fullEquivalentUsd;
+      const unused=estimate?.unusedEquivalentUsd??point.unusedEquivalentUsd;
+      const percent=estimate?.utilizationPercent??point.utilizationPercent;
+      const observed=estimate?.observedAt??point.observedAt;
       return (
       '<tr><td class="date-cell">' + this.escapeHtml(periodLabel(point)) + '</td>' +
       '<td class="cost-cell">' +
@@ -7989,20 +8001,16 @@ export class UsageWebviewProvider {
       '<td class="cost-cell">' +
       (unused === null ? dash : this.weeklyTableCurrency(unused)) + '</td>' +
       '<td>' + this.escapeHtml(estimate ? copy.low + ' · ' + this.weeklyEstimateMethod(estimate) : confidenceLabel(point)) + '</td>' +
-      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td>' +
-      (provider === 'codex' ? '<td>' + this.escapeHtml(copy.accountUnassigned) + '</td>' : '') + '</tr>'
+      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td></tr>'
     );}).join('');
     return '<div class="daily-breakdown"><div class="section-header"><h3>' + heading +
       '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' + chart +
-      '<details class="weekly-value-details"><summary>' + this.escapeHtml(provider === 'codex'
-        ? copy.localActualTitle + ' · ' + copy.periodDetails : copy.periodDetails) +
-      '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table"' +
-      (provider === 'codex' ? ' data-weekly-table-provider="codex"' : '') + '><thead><tr>' +
+      '<details class="weekly-value-details"><summary>' + this.escapeHtml(copy.periodDetails) +
+      '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
       '<th>' + this.escapeHtml(copy.period) + '</th><th>' + this.escapeHtml(copy.usedValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.utilization) + '</th><th>' + this.escapeHtml(copy.fullValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.unusedValue) + '</th><th>' + this.escapeHtml(copy.confidence) + '</th>' +
-      '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th>' +
-      (provider === 'codex' ? '<th>' + this.escapeHtml(copy.accountColumn) + '</th>' : '') + '</tr></thead><tbody>' +
+      '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th></tr></thead><tbody>' +
       tableRows + '</tbody></table></div></details>' + estimateChart + this.renderWeeklyEstimateRecords(provider,estimates) + '</div>';
   }
 

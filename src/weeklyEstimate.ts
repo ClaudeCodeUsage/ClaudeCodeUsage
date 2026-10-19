@@ -1,5 +1,6 @@
 import type { UsageProvider } from './providers/providerTypes';
 import type { CodexQuotaEpoch } from './codexQuotaEpoch';
+import type { CodexCalibrationEvidence } from './codexCalibrationEvidence';
 import type { WeeklyEquivalentUsage, WeeklyQuotaObservation, WeeklyValueInputs, WeeklyValuePoint } from './weeklyValue';
 
 const WEEK=604_800_000, RESET_TOLERANCE=300_000;
@@ -21,6 +22,7 @@ export interface LocalWeeklyEstimate {
   accountScopeKey?:string;
   quotaEpoch?:CodexQuotaEpoch;
   calibrationStart?:number;
+  calibrationEvidence?:CodexCalibrationEvidence;
   /** Conditional time/percentage measurement range, NOT an account-capacity confidence interval. */
   fullRange?:{lower:number;upper:number};
 }

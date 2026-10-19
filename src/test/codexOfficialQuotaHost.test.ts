@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import {ResourceOwnershipRegistry} from '../resourceOwnership';
 import {CodexAccountEstimator} from '../codexAccountEstimate';
+import {captureCodexCalibrationPricebook} from '../codexCalibrationEvidence';
 import {createEmptyQuotaObservationStore, mergeQuotaCaptures} from '../quotaObservationStore';
 const loader=require('node:module'),original=loader._load;
 loader._load=function(name:string,...args:unknown[]){return name==='vscode'?{env:{}}:original.call(this,name,...args);};
@@ -108,12 +109,16 @@ test('a successful account calibration queues archive work without requiring a d
   e.weeklyEstimateCoordinator={project:(_provider:string,_inputs:unknown,options:any)=>{
     queued++;assert.equal(options.accountEstimates.length,1);
     assert.equal(options.accountEstimates[0].fullEquivalentUsd,150);
+    assert.equal(options.accountEstimates[0].calibrationEvidence.interval.deltaUsd,30);
+    assert.equal(options.accountEstimates[0].calibrationEvidence.accumulated.deltaPercent,20);
+    assert.equal(options.accountEstimates[0].calibrationEvidence.pricebook.rates[0].model,'gpt-5');
     assert.equal(options.activeQuotaEpochStartedAt,T);
   }};
   const view=()=>({currentManifestVerified:true,coverage:{complete:true,identity:{complete:true}},
     periodCoverage:{allTime:{complete:true}},weeklyValueInputs:{
+      calibrationPricebook:captureCodexCalibrationPricebook(['gpt-5']),
       observations:[{provider:'codex',sourceKey:'synthetic',observedAt:now-1,resetAt:R,usedPercent:percent}],
-      usage:[{sourceKey:'synthetic',timestamp:now-1,equivalentUsd:usd,pricedTokens:usd,totalTokens:usd}],
+      usage:[{sourceKey:'synthetic',timestamp:now-1,intervalStart:T-60_000,intervalEnd:now-1,equivalentUsd:usd,pricedTokens:usd,totalTokens:usd}],
     }});
   e.codexView=view();await e.refreshOfficialCodexQuota('manual');assert.equal(queued,0);
   now+=60_000;percent=40;usd=130;e.codexView=view();await e.refreshOfficialCodexQuota('manual');
@@ -129,4 +134,32 @@ test('an older unexpired quota remains a labelled historical observation rather 
   assert.equal(state.observedAt,T);assert.equal(state.usedPercent,25);
   Date.now=()=>R+1;assert.equal(e.officialQuotaPublicState().status,'unavailable');
  }finally{Date.now=clock;}
+});
+
+test('global identity ambiguity permits only the verified exclusion subset, never an unverified bypass',async()=>{
+ const clock=Date.now;
+ try{for(const verified of [false,true]){
+  let now=T,percent=20,usd=100;Date.now=()=>now;
+  const{e}=fixture();let store=createEmptyQuotaObservationStore();
+  e.officialQuotaReader=async()=>({...sample,requestedAt:now-10,observedAt:now,usedPercent:percent});
+  e.quotaObservationRepository={append:async(captures:any[])=>{
+    store=mergeQuotaCaptures(store,captures,{salt:e.quotaFingerprintSalt,now});return store;
+  }};
+  const view=()=>({currentManifestVerified:true,coverage:{complete:true,identity:{complete:false}},
+    periodCoverage:{allTime:{complete:true}},weeklyValueInputs:{
+      calibrationPricebook:captureCodexCalibrationPricebook(['gpt-5']),
+      calibrationSourceScope:{verified,excludedSourceKeys:['ambiguous']},
+      observations:['own','ambiguous'].map(sourceKey=>({provider:'codex',sourceKey,
+        observedAt:now-1,resetAt:R,usedPercent:percent})),
+      usage:['own','ambiguous'].map(sourceKey=>({sourceKey,timestamp:now-1,intervalStart:T-60_000,
+        intervalEnd:now-1,equivalentUsd:sourceKey==='own'?usd:usd*10,pricedTokens:usd*100,totalTokens:usd*100})),
+    }});
+  e.codexView=view();await e.refreshOfficialCodexQuota('manual');
+  now+=60_000;percent=40;usd=130;e.codexView=view();await e.refreshOfficialCodexQuota('manual');
+  assert.equal(e.officialQuotaEstimates.length,verified?1:0);
+  if(verified){const result=e.officialQuotaEstimates[0];
+    assert.equal(result.fullEquivalentUsd,150);assert.equal(result.calibrationEvidence.interval.excludedSources,1);
+    assert.ok(result.flags.includes('partial-history'));
+  }
+ }}finally{Date.now=clock;}
 });

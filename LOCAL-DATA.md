@@ -21,7 +21,7 @@ credential, account-separation or explicit-network-consent restrictions.
 | Claude usage records | Claude Code's local `projects/**/*.jsonl` | Runtime usage records and an in-memory per-file index; bounded prompt samples only when content analysis is enabled | Released on window reload/exit. Data controls never touch source logs; the separately opt-in Session Actions feature may move one exactly confirmed log to the OS trash (recoverable) | None unless the user separately previews and sends an advice request |
 | Codex usage records | `.jsonl` and `.jsonl.zst` regular files recursively under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` | A schema-3 incremental index of pseudonymous file keys, decoded offsets, numeric usage, dates, model/effort, sanitized structural aggregates, and optional compressed-source fingerprints/EOF marker | Until rebuild, explicit clear, schema replacement, or host removal | None |
 | Codex titles | Exactly `$CODEX_HOME/session_index.jsonl` | `id → thread_name` is streamed for runtime display; titles are not written to the index | Runtime only | None |
-| Weekly estimate preview | Existing local aggregates and local/opt-in official quota samples | `weekly-estimates-v1.json`: fixed numeric/enum snapshots, pricing version, optional calibration range, internal account HMAC, leased source-local account ordinal and linked/unlinked diagnostics | Revisions preserve history; 4096 entries / 1 MiB stop new writes, no eviction. Selected-account clear preserves other/unassigned records; provider/all clear includes the archive | Calculation/chart projection has no network; optional official sample acquisition uses the daemon boundary below |
+| Weekly estimate preview | Existing local aggregates and local/opt-in official quota samples | `weekly-estimates-v1.json`: fixed-field snapshots, optional calibration evidence with public model rates/parser/period versions, internal account HMAC, leased source-local account ordinal and linked/unlinked diagnostics | Revisions preserve history; 4096 entries / 1 MiB stop new writes, no eviction. Selected-account clear preserves other/unassigned records; provider/all clear includes the archive | Calculation/chart/evidence projection has no network; optional official sample acquisition uses the daemon boundary below |
 | Quota observations | Claude official response, structured Codex local events or opt-in `codex-official-api` sample | Provider, machine-local anonymous scope, original observed/reset times, fractions, window identity, source, confidence and flags; no raw account ID/email | At most 180 days and 512 observations per provider/account/period after compaction; clear separately or with all derived data | Enabled Claude lookup contacts Anthropic and may refresh its credentials. Optional Codex read can contact OpenAI through the existing daemon, whose authentication may refresh; the extension reads no Codex credentials |
 | Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy/palette/provider/metric/show-amounts controls, gallery filter/size, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
 | Heatmap artifact (2.5.0) | At most 366 selected materialized civil-day aggregates | One accepted immutable SVG/Markdown artifact, opaque document-bound preview ID, source references and whitelisted config/quality identity | Runtime only; replaced/retired on control, source, pricing or display change, reset or disposal | None; preview/local export adds no source-log reads or network requests |
@@ -151,7 +151,9 @@ time. Any identified official percentage decrease starts a new window; other
 sources retain their existing threshold. Switch/blur breaks the monetary baseline
 without bridging intervening use; bounded compatible account/epoch/price sums can
 be retained. Full clearing, source/index invalidation and restart clear runtime
-calibration. Valid epoch intervals may span up to 65 minutes with complete indexes
+calibration; archived evidence never restores a pre-restart baseline. Actual model-rate
+changes break the baseline even if the public pricing-version label is unchanged.
+Valid epoch intervals may span up to 65 minutes with complete indexes
 and consistent local witnesses; over five minutes adds a continuity warning.
 Legacy callers retain the five-minute cap. Unexpired older quota observations
 retain their original timestamp and a stale marker, not current account authority.
@@ -160,12 +162,22 @@ separately from that baseline: a valid unsaturated unchanged-percentage read upd
 `lastObserved` while preserving the original monetary baseline. Continuous
 unchanged reads can therefore span more than five minutes without discarding
 the work awaiting a percentage increase.
-Calibration requires complete current-index,
-all-time and identity coverage (`coverage.identity.complete`); index rebuilds or
-`indexGeneration` changes reset the baseline. Unmatched or conflicting local
-sources are excluded. Each admitted interval must have an increase of at least
+Calibration requires a verified current manifest and complete current/all-time
+indexing. Historical `ambiguousSessionGroups` can leave `coverage.identity.complete`
+false after a full scan; that global flag no longer blocks an otherwise verified
+unambiguous subset. Deduplication supplies runtime-only `ambiguousFileKeys`, and the
+provider attaches the verified `calibrationSourceScope` exclusion set. The estimator
+uses only unambiguous sources; primary totals and identity quality flags stay intact,
+and the subset is never presented as complete account usage. Receipts retain only
+the `excludedSources` count, not excluded keys; exclusions add `partial-history`.
+Index rebuilds, `indexGeneration` or exclusion-set changes require a fresh baseline.
+Unmatched or conflicting sources, detectable revisions to already-closed historical
+buckets and late backfill at/before the baseline are excluded from calibration.
+Each admitted interval must have an increase of at least
 one percentage point and end below 100%. Compatible admitted intervals within
-the continuous run are aggregated: `linkedLocalDeltaUsd` is the sum of their
+the same account/epoch/price scope are aggregated, including compatible earlier
+intervals retained across a switch or blur, but never the transition gap:
+`linkedLocalDeltaUsd` is the sum of their
 linked local priced increments (ΣlinkedUSD), and `deltaPercent` is the sum of
 their matching percentage-point increases (ΣdeltaP), not just the latest pair:
 
@@ -175,7 +187,9 @@ R = F * (1 - p / 100)
 ```
 
 This is a quota-scoped local incremental proxy, not an owned account total or a
-complete cross-device amount. `usedEquivalentUsd` is the sum of admitted
+complete cross-device amount. Late events indistinguishable within a daily aggregate
+remain unresolved: this low-confidence proxy does not establish per-request timing
+or precision. `usedEquivalentUsd` is the sum of admitted
 calibration increments, and `calibrationStart` preserves the run's first
 admitted interval start. The unused estimate
 is frozen at the same as-of sample. Never subtract later local usage to create
@@ -218,23 +232,23 @@ independent `WeeklyEquivalentUsage.accountSeriesKey` and
 `inputs.accountUsageCoverage` proof needed for `owned-window`.
 `showWeeklyQuotaPace` remains a separate elapsed-time forecast.
 
-Codex complete local seven-day usage is rendered separately on a stable calendar
-grid, not subscription/account cycles. No estimated window suppresses local bars,
-and the actual table borrows no quota percentages, totals or unused values.
+The Codex quota comparison contains only account × `quotaEpoch` equivalent
+estimates; the duplicate local seven-day usage chart and detail table are removed.
+Primary local usage remains available in its existing dashboard views.
 `weeklyEstimateChart.ts` selects the latest valid estimate per local account and
 explicit quota epoch (legacy entries keep reset-cluster grouping). Both segments share the same
 observation snapshot: blue estimated used = F - R, green estimated unused = R,
 total height = F. A paired delta of 30 with F = 150 and R = 90 gives blue 60,
-not 30. Never add current actual usage to old unused value. Suppress old
-display-grid buckets only on the unchanged Claude path. The Codex estimate chart
+not 30. Never add current actual usage to old unused value. The unchanged Claude
+path retains its display grid and actual-used columns. The Codex estimate chart
 receives no local buckets; its table distinguishes inferred used F−R from interval
 evidence USD. Account windows overlap and are not summed. When official reads are
 enabled, current requires fresh matching account/epoch evidence, never unassigned
 or stale samples.
 
 The chart performs no new estimate inference or persistence and does not
-change primary local statistics. Table actual-used columns remain separate;
-estimate column headers identify estimates, while monetary cells omit ≈.
+change primary local statistics. Estimate column headers identify estimates,
+while monetary cells omit ≈.
 Every quota percentage retains its observed timestamp and original reset.
 Public account labels are local ordinal numbers, not identities or account
 names. Current quota identity still does not prove local usage ownership.
@@ -248,10 +262,22 @@ retention, compaction and clearing apply; local-log captures stay unattributed
 and separate. An older schema-2 reader rejects the unknown source enum:
 compatibility is one-way, not a schema downgrade.
 
-`weeklyEstimateArchive.ts` retains fixed numeric/enum DTOs in
+`weeklyEstimateArchive.ts` retains fixed-field DTOs in the existing schema-1
 `weekly-estimates-v1.json`: original times, amounts, pricing coverage/version,
 method/flags, optional calibration range, `unlinkedEquivalentUsd` and
-`linkedSourceCount`, and optional validated `quotaEpoch` numeric/enum metadata.
+`linkedSourceCount`, optional validated `quotaEpoch` numeric/enum metadata, and
+optional `calibrationEvidence` for new admitted `account-delta-v1` estimates.
+`codexCalibrationEvidence.ts` copies only fixed fields: the latest admitted interval's
+before/after observation and request times, start/end percentages, incremental USD,
+priced/all Tokens, linked-source count, `excludedSources` count and continuity-gap
+boolean; cumulative interval
+count, ΣdeltaUSD, ΣdeltaP and priced/all Tokens; and the exact public model input,
+cached-input and output rates plus parser/period versions used for that estimate.
+Each archived percentage-change point retains that evidence. Older records without
+it remain valid and receive no invented evidence or identity. Frozen historical
+amounts are read back without repricing or restoring runtime calibration. Evidence
+capture reuses materialized aggregates: no new data file, log scan, network request
+or credential access.
 Epoch-aware keys distinguish same-reset pre/post-drop records while the absent-field
 legacy key branch stays unchanged. The existing internal `accountScopeKey` is now used;
 source-local `accountNumber` is assigned and persisted under the shared lease.
@@ -275,7 +301,11 @@ Cycle representatives are selected before the 48-row display cap. Host calibrati
 queues the existing writer directly rather than relying on dashboard rendering.
 Selected-account clearing uses internal fingerprint and durable cutoff fences,
 preserving other accounts and unassigned records. Provider/all-history clears
-also cover the archive; queued stale observations cannot restore cleared data.
+also cover the archive. For `account-delta-v1`, the fence checks `calibrationStart`
+as well as `observedAt`: another instance's old accumulated evidence cannot re-enter
+with a later observation timestamp. At its next sample the host retires that account's
+affected runtime sums and establishes a fresh baseline; queued stale observations
+cannot restore cleared data.
 Unchanged projections do not repeat archive I/O merely as time passes.
 Dependencies, primary ingestion/index schema, package version and the
 default-on `showWeeklyEquivalentValue` display setting are unchanged.

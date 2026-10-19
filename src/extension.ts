@@ -5066,9 +5066,12 @@ export class ClaudeCodeUsageExtension {
         const scopedSample:OfficialQuotaSample={...sample,...(quotaEpoch?{quotaEpoch}:{})};
         this.officialQuotaSample=scopedSample;this.officialQuotaStatus='ready';
         const view=this.codexView;
-        if(view?.weeklyValueInputs&&quotaEpoch){
+        if(view?.weeklyValueInputs?.calibrationPricebook&&quotaEpoch){
+          const cutoff=this.weeklyEstimateCoordinator?.calibrationCutoff?.('codex','codex|'+home,sample.accountScopeKey);
+          if(cutoff!==undefined)this.officialAccountEstimator.invalidateThrough(sample.accountScopeKey,cutoff);
           const estimate=this.officialAccountEstimator.observe(scopedSample,{...view.weeklyValueInputs,
-            localHistoryComplete:view.currentManifestVerified===true&&view.coverage.complete&&view.coverage.identity.complete&&
+            localHistoryComplete:view.currentManifestVerified===true&&view.coverage.complete&&
+              (view.coverage.identity.complete||view.weeklyValueInputs.calibrationSourceScope?.verified===true)&&
               view.periodCoverage.allTime.complete},this.weeklyEstimatePricingVersion());
           if(estimate){
             const pricingVersion=this.weeklyEstimatePricingVersion();

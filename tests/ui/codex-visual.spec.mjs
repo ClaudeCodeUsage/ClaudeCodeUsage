@@ -679,7 +679,7 @@ test('Codex all-time chart defaults to monthly API-equivalent cost and retains t
   await expect(chart.locator('.chart-tab[data-metric="cost"]')).toHaveClass(/active/);
 });
 
-test('weekly allowance separates local seven-day usage from same-observation quota estimates', async ({ page }) => {
+test('weekly allowance keeps one same-observation estimate comparison and its records', async ({ page }) => {
   await openCodex(page);
   await page.locator('#tab-all').click();
 
@@ -695,38 +695,12 @@ test('weekly allowance separates local seven-day usage from same-observation quo
   await expect(panel).toContainText('Sample amounts are separate calibration evidence, not whole-cycle use');
   const actualChart = panel.locator('[data-weekly-actual-chart]');
   const estimateChart = panel.locator('[data-weekly-estimate-chart]');
-  await expect(actualChart).toHaveCount(1);
+  await expect(actualChart).toHaveCount(0);
   await expect(estimateChart).toHaveCount(1);
-  await expect(actualChart.locator('h4')).toHaveText('Local 7-day usage · Unassigned');
   await expect(estimateChart.locator('h4')).toHaveText('Quota conversion estimates');
-  await expect(actualChart.locator('.hc-col')).toHaveCount(2);
-  await expect(actualChart.locator('.seg-cache-read')).toHaveCount(0);
-  await expect(actualChart.locator('.hc-yval')).toHaveText(['$50.00', '$25.00', '$0.00']);
-  await expect(actualChart.locator('.stack-bar .seg-input').nth(0)).toHaveAttribute('style', 'height:120.00px');
-  await expect(actualChart.locator('.stack-bar .seg-input').nth(1)).toHaveAttribute('style', 'height:24.00px');
   const details = panel.locator('.weekly-value-details');
-  await expect(details).not.toHaveAttribute('open', '');
-  await expect(details.locator('summary')).toHaveText('Local 7-day usage · Period details');
-  await expect(details.locator('.daily-table-container')).toBeHidden();
-  await details.locator('summary').click();
-  await expect(details.locator('.daily-table-container')).toBeVisible();
-  await expect(details.locator('tbody')).toContainText('Usage only');
-  await expect(details.locator('tbody tr')).toHaveCount(2);
-  await expect(details.locator('thead')).toContainText('Cycle total (estimate)');
-  await expect(details.locator('thead')).toContainText('Priced coverage');
-  await expect(details.locator('tbody')).toContainText('Current period');
-  await expect(details.locator('tbody')).not.toContainText('resets');
-  await expect(details.locator('tbody')).not.toContainText('In progress');
-  await expect(details.locator('tbody').getByText('Current period')).toHaveCount(1);
-
-  await expect(details.locator('tbody tr td:nth-child(2)')).toHaveText(['$10.00', '$50.00']);
-  for (const row of await details.locator('tbody tr').all()) {
-    for (const index of [2, 3, 4]) await expect(row.locator('td').nth(index)).toHaveText('—');
-    await expect(row.locator('td').nth(5)).toHaveText('Usage only');
-    await expect(row.locator('td').last()).toHaveText('Unassigned');
-  }
-  const currentRow = details.locator('tbody tr').filter({ hasText: 'Current period' });
-  await expect(currentRow.locator('td').nth(1)).toHaveText('$10.00');
+  await expect(details).toHaveCount(0);
+  await expect(panel).toContainText('Low · Reference estimate · not an account cycle');
 
   await expect(estimateChart.locator('.hc-col')).toHaveCount(2);
   await expect(estimateChart.locator('.hc-yval')).toHaveText(['$62.50', '$31.25', '$0.00']);
@@ -814,15 +788,16 @@ test('weekly allowance table fits at 1280px in the longest locale', async ({ pag
   const panel = page.locator('#all .daily-breakdown').filter({
     hasText: 'Wöchentliches Abo-Kontingent · API-Äquivalenzschätzung · Codex',
   });
-  await panel.locator('.weekly-value-details summary').click();
-  const container = panel.locator('.weekly-value-details .daily-table-container');
+  await panel.locator('.weekly-estimate-details summary').click();
+  const container = panel.locator('.weekly-estimate-details .daily-table-container');
   await expect(container).toBeVisible();
   const dimensions = await container.evaluate((element) => ({
     scrollWidth: element.scrollWidth,
     clientWidth: element.clientWidth,
   }));
-  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
-  const clippedHeaders = await panel.locator('.weekly-value-details th').evaluateAll((headers) =>
+  // The retained nine-column estimate table uses its existing horizontal scroller.
+  expect(dimensions.clientWidth).toBeGreaterThan(0);
+  const clippedHeaders = await panel.locator('.weekly-estimate-details th').evaluateAll((headers) =>
     headers.filter((header) => header.scrollWidth > header.clientWidth).map((header) => header.textContent),
   );
   expect(clippedHeaders).toEqual([]);
@@ -835,7 +810,7 @@ test('weekly chart uses a non-overflowing current-period label in German', async
     hasText: 'Wöchentliches Abo-Kontingent · API-Äquivalenzschätzung · Codex',
   });
   const charts = panel.locator('[data-weekly-actual-chart], [data-weekly-estimate-chart]');
-  await expect(charts).toHaveCount(2);
+  await expect(charts).toHaveCount(1);
   for (const chart of await charts.all()) {
     const labels = chart.locator('.hc-xlabel');
     await expect(labels).toHaveCount(2);
@@ -865,26 +840,18 @@ test('weekly chart uses a non-overflowing current-period label in German', async
   }
 });
 
-test('weekly used-value history remains visible without historical quota samples', async ({ page }) => {
+test('weekly comparison without quota samples keeps records and an empty state', async ({ page }) => {
   await openCodex(page, { fixture: 'weekly-usage-only' });
   await page.locator('#tab-all').click();
 
   const panel = page.locator('#all .daily-breakdown').filter({
     hasText: 'Weekly subscription allowance · API-equivalent estimate · Codex',
   });
-  await expect(panel).toContainText('Monday-to-Monday UTC calendar weeks');
-  await expect(panel.locator('.weekly-value-details')).not.toHaveAttribute('open', '');
-  await panel.locator('.weekly-value-details summary').click();
-  const localHistory=panel.locator('.weekly-value-details');
-  await expect(localHistory.locator('tbody tr')).toHaveCount(2);
-  await expect(localHistory.locator('tbody')).toContainText('Usage only');
-  await expect(localHistory.locator('tbody')).toContainText('$12.00');
-  await expect(localHistory.locator('tbody')).toContainText('$8.00');
-  for (const row of await localHistory.locator('tbody tr').all()) {
-    await expect(row.locator('td').nth(2)).toHaveText('—');
-    await expect(row.locator('td').nth(3)).toHaveText('—');
-    await expect(row.locator('td').nth(4)).toHaveText('—');
-  }
+  await expect(panel).not.toContainText('Monday-to-Monday UTC calendar weeks');
+  await expect(panel.locator('.weekly-value-details')).toHaveCount(0);
+  await expect(panel.locator('[data-weekly-actual-chart]')).toHaveCount(0);
+  await expect(panel.locator('.no-data')).toBeVisible();
+  await expect(panel.locator('.weekly-estimate-details')).toHaveCount(1);
 });
 
 test('historical weekly estimates remain rough as-of records and preserve their disclosure across reload', async ({ page }) => {

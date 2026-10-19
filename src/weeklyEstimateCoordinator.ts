@@ -4,6 +4,7 @@ import { WeeklyEstimateArchive, WeeklyEstimateArchiveResult, WeeklyEstimateClear
   weeklyEstimateAccountFingerprint, sameWeeklyEstimateQuotaPoint } from './weeklyEstimateArchive';
 import type { WeeklyValueInputs } from './weeklyValue';
 import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation } from './codexQuotaEpoch';
+import { copyCodexCalibrationEvidence, codexCalibrationEvidenceFitsEstimate } from './codexCalibrationEvidence';
 
 export interface WeeklyEstimateDisplayEntry extends LocalWeeklyEstimate {
   /** Public reference-price version retained with its historical numeric snapshot. */
@@ -76,6 +77,9 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
     !codexQuotaEpochFitsObservation(quotaEpoch, value.observedAt, value.resetAt, value.windowStart,
       value.calibrationStart))) return undefined;
   const range = value.fullRange;
+  const calibrationEvidence = copyCodexCalibrationEvidence(value.calibrationEvidence);
+  if (value.calibrationEvidence !== undefined && (!calibrationEvidence || provider !== 'codex' ||
+    value.method !== 'account-delta-v1' || !codexCalibrationEvidenceFitsEstimate(calibrationEvidence, value))) return undefined;
   if (range !== undefined && (!range || !bounded(range.lower) || range.lower <= 0 || !bounded(range.upper) ||
     value.fullEquivalentUsd === null || range.lower > value.fullEquivalentUsd || range.upper < value.fullEquivalentUsd)) return undefined;
   return { provider, windowStart: value.windowStart, resetAt: value.resetAt, observedAt: value.observedAt,
@@ -87,6 +91,7 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
     ...(value.calibrationStart === undefined ? {} : { calibrationStart: value.calibrationStart }),
     ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey }),
     ...(quotaEpoch === undefined ? {} : { quotaEpoch }),
+    ...(calibrationEvidence === undefined ? {} : { calibrationEvidence }),
     ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber }),
     ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd }),
     ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount }),
@@ -132,7 +137,8 @@ function semanticKey(value: WeeklyEstimateInput | Evidence): string {
 }
 function cleared(state: State, entry: InternalEntry | WeeklyEstimateInput, salt: string): boolean {
   const fingerprint = weeklyEstimateAccountFingerprint(salt, entry.provider, entry.accountScopeKey);
-  return entry.observedAt <= Math.max(state.clearedThrough ?? -1,
+  const beginning = entry.method === 'account-delta-v1' ? Math.min(entry.observedAt, entry.calibrationStart ?? Infinity) : entry.observedAt;
+  return beginning <= Math.max(state.clearedThrough ?? -1,
     fingerprint === undefined ? -1 : state.accountClearedThrough[fingerprint] ?? -1);
 }
 function visible(state: State, entries: InternalEntry[], salt: string): InternalEntry[] {
@@ -155,6 +161,16 @@ export class WeeklyEstimateCoordinator {
   private disposed = false;
   constructor(private readonly filePath: string, private readonly salt: string,
     private readonly onChanged?: () => void) {}
+
+  /** Already loaded durable fences only; never introduces render-time I/O. */
+  calibrationCutoff(provider: WeeklyEstimateProvider, sourceNamespace: string, accountScopeKey: string): number | undefined {
+    const state = this.states.get(provider);
+    if (!state || state.source !== sourceNamespace) return undefined;
+    const fingerprint = weeklyEstimateAccountFingerprint(this.salt, provider, accountScopeKey);
+    const through = Math.max(state.clearedThrough ?? -1,
+      fingerprint === undefined ? -1 : state.accountClearedThrough[fingerprint] ?? -1);
+    return through >= 0 ? through : undefined;
+  }
 
   private retained(state: State): boolean { return !this.disposed && state.epoch === (this.epochs.get(state.provider) ?? 0); }
   private active(state: State): boolean { return this.retained(state) && this.states.get(state.provider) === state; }
