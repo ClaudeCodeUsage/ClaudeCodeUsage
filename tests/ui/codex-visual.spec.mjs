@@ -718,7 +718,7 @@ test('weekly allowance value uses the shared all-time chart and exposes uncertai
   await expect(currentRow.locator('td').nth(2)).toContainText(' · ');
 });
 
-test('a completed Claude observation cannot assign unowned local usage to an account', async ({ page }) => {
+test('a completed Claude weekly observation shows rough values without assigning local usage to an account', async ({ page }) => {
   await openClaude(page, { fixture: 'weekly-claude-completed' });
   await page.locator('#tab-all').click();
 
@@ -729,7 +729,11 @@ test('a completed Claude observation cannot assign unowned local usage to an acc
   await expect(panel.locator('.weekly-value-details')).not.toHaveAttribute('open', '');
   await panel.locator('.weekly-value-details summary').click();
   await expect(panel.locator('.weekly-value-details tbody tr')).toHaveCount(1);
-  await expect(panel.locator('.weekly-value-details tbody tr td').nth(4)).toHaveText('—');
+  await expect(panel.locator('.weekly-value-details tbody tr td').nth(3)).toHaveText('≈$6.00');
+  await expect(panel.locator('.weekly-value-details tbody tr td').nth(4)).toHaveText('≈$3.00');
+  await expect(panel.locator('.weekly-value-details tbody tr td').nth(5)).toContainText('Low · Rough conversion');
+  await panel.locator('.weekly-estimate-details summary').click();
+  await expect(panel.locator('.weekly-estimate-details')).toContainText('Account unverified');
 });
 
 test('weekly allowance value can be hidden without hiding Codex API-equivalent cost', async ({ page }) => {
