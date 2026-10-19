@@ -78,7 +78,7 @@ only the separate publish action can perform that network operation.
 | `apiHeatmapDaily.ts`, `pricing.ts#getCurrentEstimatePricing` | Read-only ≤366-date projection with per-projection memoized, in-memory selected-model/component rate admission; preserves current cost scalars, excludes generic unknown-model fallback coverage and adds no network/corpus reads. |
 | `apiHeatmap.ts`, `apiHeatmapCopy.ts` | Whitelisted provider/metric configuration and canonical local SVG/Markdown artifact; Token default, explicit amounts, separate provider monetary panels and eight-locale artifact copy. |
 | `quotaPace.ts`, `quotaPaceAdapters.ts`, `quotaPaceSource.ts` | Pure cycle-average calculation, ≤16-window numeric adapters and runtime account/window continuity owner using original successful quota observations; no I/O, timers or persisted history. |
-| `weeklyEstimate.ts`, `weeklyEstimateArchive.ts`, `weeklyEstimateCoordinator.ts` | Rough as-of estimates separate from unique local usage bars; fixed-field bounded archive and memoized numeric projections with coalesced archive work. The extension owns storage/lifecycle; preview adds no source reads, timers or network. |
+| `weeklyEstimate.ts`, `weeklyEstimateArchive.ts`, `weeklyEstimateCoordinator.ts`, `weeklyEstimateChart.ts` | Rough as-of estimates and chart projections independent of primary local usage accounting; fixed-field bounded archive and memoized numeric projections with coalesced archive work. The extension owns storage/lifecycle; preview adds no source reads, timers or network. |
 | `providers/codex/codexHourProof.ts` | Bounded UTC positive-output hour proof tied to canonical files, verified offsets, current identity and lineage. Optional old-checkpoint proof migration never resets primary totals. |
 | `providers/codex/codexAchievementOrigin.ts` | Runtime-only main-tail Token and frozen-reference-money lower bounds; known native per-event pricing, affected aggregate-difference admission, settled canonical lineages and fixed copied worker DTOs. No persistent index fields or extra source reads. |
 | `adviceEffectiveness/contract.ts`, `adapters.ts`, and `payload.ts` | Strict observation/evidence/recommendation/action/result contracts, privacy-rebuilding provider adapters, and canonical aggregate/personalization payloads. |
@@ -1591,12 +1591,25 @@ helper README for normal-state before/after and background-launch requirements.
 
 ## Weekly estimate preview and archive
 
-Weekly API-equivalent history reuses already-aggregated local token usage.
-Non-overlapping graph buckets count each usage row once. A seven-day grid is
-display alignment, not an actual historical reset schedule; without a usable
-reset, grouping uses Monday-to-Monday UTC weeks. Unobserved resets cannot be
-reconstructed. The graph shows unique actual local usage only: it does not split
-daily usage proportionally or stack current usage on an old unused estimate.
+Weekly API-equivalent history reuses already-aggregated local usage without
+changing primary usage statistics. `weeklyEstimateChart.ts` selects the latest valid
+available estimate for each actual reset window. Both colored segments come
+from that same observation snapshot: blue estimated used = F - R, green estimated
+unused = R, and total height = F. A paired calibration delta is not whole-window
+used value: with delta 30, F = 150 and R = 90, blue is 60, not 30.
+Never stack current local actual usage on an older unused estimate.
+
+Older unobserved periods retain non-overlapping usage-only bars. Suppress old
+display-grid buckets that overlap an actual observed window, so they do not
+appear a second time. The seven-day grid is display alignment, with
+Monday-to-Monday UTC fallback, not a reconstructed historical reset schedule.
+Different actual windows can overlap; their bars are separate comparisons that
+must not be summed and do not identify separate accounts. Only the latest
+observation can be marked current while its reset is still future.
+
+The chart only projects existing estimates into display segments; it performs
+no new estimate inference or persistence and changes neither the original usage
+statistics nor the archive. Unobserved resets cannot be reconstructed.
 
 `weeklyEstimate.ts` builds `LocalWeeklyEstimate` snapshots at actual observed
 resets. The `rough-prefix-v2` method supplies a reconstructed, explicitly rough
@@ -1620,7 +1633,7 @@ reaching 100% is not required.
 Only the rough estimator's numerator may apportion a boundary-crossing daily
 bucket by the fraction of its time interval overlapping the estimate interval.
 This is an explicit uniform-in-time assumption, not measured event timing;
-retain the boundary/low-confidence disclosure. Actual usage graphs and primary
+retain the boundary/low-confidence disclosure. Actual usage records and primary
 totals are never split or duplicated by that calculation. Counter decreases
 start a new observation segment; usage and percentage evidence are matched
 within that segment rather than blended across the decrease. A 100% segment
@@ -1641,7 +1654,11 @@ Unknown error bounds cannot be inferred from decimal formatting: fall back to
 
 Both weekly tables supplement their evidence from the same actual reset and
 observation snapshot with an available rough estimate; a display-grid match is
-insufficient. Each value remains frozen at the original observation:
+insufficient. The original actual-used table column is preserved; estimate
+column headers identify estimates, and monetary cells omit the repeated ≈ marker.
+Removing that marker does not improve confidence or replace actual table usage
+with the chart's blue estimated-used segment.
+Each value remains frozen at the original observation:
 sample-local recorded usage (or the paired increment), full equivalent and
 unused equivalent. For example, U = USD 74 at an observed 74% gives a rough
 total of USD 100 and unused equivalent of USD 26.

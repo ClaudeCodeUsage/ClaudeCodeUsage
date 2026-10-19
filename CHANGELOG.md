@@ -7,8 +7,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Fixed
+- **Weekly allowance chart and labels** — show estimated used and unused from
+  one observation snapshot, with total height matching the existing estimate.
+  Retain older usage-only periods without duplicating overlapping grid buckets.
+  Tables keep actual usage, label estimate columns and remove repeated ≈ markers
+  from monetary cells; source statistics and archived estimates are unchanged.
 - **Weekly allowance snapshots** — separate rough estimates at actual observed
-  resets from unique local usage graphs. Positive observed use and known priced
+  resets from primary local usage accounting. Positive observed use and known priced
   value now support total/unused estimates with low-confidence disclosures for
   partial evidence, segmented counter drops and explicit uniform-time boundary
   allocation. Snapshots stay frozen; older preview readers reject archives

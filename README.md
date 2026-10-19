@@ -72,9 +72,9 @@ Today, Last 30 days, months, models, effort, and all-time totals.*
 ![Codex weekly allowance estimate in English, dark theme](images/v2.3.1/codex-weekly-estimate-en-dark.png)
 
 *Quota observations retain their observation timestamps and original resets.
-Local usage bars and rough archived estimates are separate. Estimates describe
-the original observation, with attribution and evidence limits visible; they
-do not show a live account balance.*
+Blue used and green unused estimates share one original observation. The table
+keeps actual local usage separate; rough archived values retain their evidence
+limits and do not show a live account balance.*
 
 ![Combined Claude and Codex heatmap in English, light theme](images/v2.3.1/compare-heatmap-en-light.png)
 
@@ -320,14 +320,14 @@ drill-down. See [CHANGELOG.md](CHANGELOG.md) for patch-by-patch details.
 ### Weekly estimates and provider boundaries
 
 
-Weekly API-equivalent bars count actual local usage once. Separate rough as-of estimates
-show total and unused value when the observed percentage is positive and known priced
-usage is positive, including partial-price or incomplete histories with low-confidence
-labels. Boundary allocation assumes uniform activity in time only for the estimate;
-counter decreases start new segments. The archive retains original snapshots, not live
-balances or official account capacity. See [local data and privacy](LOCAL-DATA.md).
+Weekly charts show blue estimated used and green estimated unused from the same
+observation snapshot. Separate rough as-of values retain low-confidence labels;
+overlapping real windows are not additive account quotas. Tables keep actual
+local usage, identify estimates in column headers and omit ≈ from amount cells.
+The archive keeps original snapshots, not live balances.
+See [local data and privacy](LOCAL-DATA.md).
 
-Usage bars align to a seven-day grid, with Monday-to-Monday UTC fallback; this does not reconstruct unobserved resets. Quota percentages retain their original observation time and reset. The panel stays on by default (`showWeeklyEquivalentValue`).
+Older usage-only periods use a seven-day display grid, with Monday-to-Monday UTC fallback; unobserved resets are not reconstructed. Quota percentages retain their original observation time and reset. The panel stays on by default (`showWeeklyEquivalentValue`).
 
 ### Dashboard, indexing, and privacy
 

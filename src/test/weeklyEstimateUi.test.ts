@@ -32,8 +32,17 @@ test('unavailable archive has a visible unsaved notice while keeping this render
   assert.ok(html.includes(I18n.t.weeklyValue.archiveUnavailable));
   assert.match(html,/role="status"/);
 });
+test('converted weekly table cells omit the approximation sign without changing the global currency formatter',()=>{
+  const currency=I18n.getCurrencyDisplay().code,clock=Date.now;Date.now=()=>T+1;
+  try{
+    I18n.setCurrencyDisplay('EUR');
+    const html=owner().renderWeeklyEstimateRecords('codex'),body=html.split('<tbody>')[1].split('</tbody>')[0];
+    assert.match(body,/EUR/);assert.doesNotMatch(body,/≈/);
+    assert.match(I18n.formatCurrency(100),/^≈EUR /);
+  }finally{Date.now=clock;I18n.setCurrencyDisplay(currency);}
+});
 
-test('partial pricing and index coverage still show approximate total/unused in both existing tables without stacking old unused on live usage',()=>{
+test('estimated headers replace per-cell approximation signs and graph stacks same-observation components',()=>{
   const old=I18n.getCurrentLanguage(),clock=Date.now;Date.now=()=>T+1;
   try{
     I18n.setLanguage('en');const p=owner();
@@ -46,14 +55,17 @@ test('partial pricing and index coverage still show approximate total/unused in 
     p.codexView={periodCoverage:{allTime:{complete:false}}};
     const html=p.renderWeeklyValuePanel('codex');
     const history=html.split('<details class="weekly-value-details">')[1].split('</details>')[0];
-    assert.ok(history.includes('≈'+I18n.formatCurrency(100)));
-    assert.ok(history.includes('≈'+I18n.formatCurrency(75)));
+    assert.ok(history.includes(I18n.formatCurrency(100)));
+    assert.ok(history.includes(I18n.formatCurrency(75)));assert.doesNotMatch(history,/≈/);
+    assert.ok(history.includes(I18n.t.weeklyValue.fullValue));assert.ok(history.includes(I18n.t.weeklyValue.unusedValue));
     assert.ok(history.includes(I18n.formatCurrency(400)),'live used subtotal remains separate');
     const records=html.split('<details class="weekly-estimate-details"')[1];
-    assert.ok(records.includes('≈'+I18n.formatCurrency(100)));
-    assert.ok(records.includes('≈'+I18n.formatCurrency(75)));
+    assert.ok(records.includes(I18n.formatCurrency(100)));
+    assert.ok(records.includes(I18n.formatCurrency(75)));assert.doesNotMatch(records,/≈/);
     assert.ok(records.includes(I18n.t.weeklyValue.roughEstimate));
-    assert.ok(!html.includes('<div class="stack-seg seg-cache-read"'),'as-of unused is not stacked on current usage');
+    assert.match(html,/<div class="stack-seg seg-input" style="height:30\.00px">/);
+    assert.match(html,/<div class="stack-seg seg-cache-read" style="height:90\.00px">/);
+    assert.match(html,/role="img"/);assert.match(html,/aria-label=/);
     assert.doesNotMatch(records,/\.000Z/,'system timezone must use localized date formatting, not ISO exception fallback');
   }finally{Date.now=clock;I18n.setLanguage(old);}
 });

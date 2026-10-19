@@ -30,20 +30,28 @@ const panel = page => page.locator('#all .daily-breakdown').filter({ has: page.l
 // missing translation silently fall back to English on both sides of a test.
 const copy = {
   en: { current: 'Current period', rough: 'Rough conversion', blocked: 'No usable conversion sample',
+    currentShort: 'Current', full: 'Cycle total (estimate)', unused: 'Unused estimate', sample: 'Sample estimate', used: 'Used equivalent', asOf: 'As of observation',
     reasons: ['Account unverified', 'Priced portion only', 'Boundary split', 'Indexing incomplete', 'Quota observation changed'] },
   'de-DE': { current: 'Aktueller Zeitraum', rough: 'Grobe Umrechnung', blocked: 'Keine nutzbare Umrechnungsstichprobe',
+    currentShort: 'Aktuell', full: 'Zyklussumme (Schätzung)', unused: 'Ungenutzter Schätzwert', sample: 'Stichprobenschätzwert', used: 'Genutzter Gegenwert', asOf: 'Zum Beobachtungszeitpunkt',
     reasons: ['Kontozuordnung ungeprüft', 'Nur bepreister Anteil', 'Zeitanteilige Aufteilung', 'Indizierung unvollständig', 'Kontingentbeobachtung geändert'] },
   'zh-TW': { current: '目前週期', rough: '粗略換算', blocked: '暫無可用換算樣本',
+    currentShort: '目前', full: '週期總額（估值）', unused: '未用估值', sample: '樣本估值', used: '已用等價值', asOf: '截至觀測',
     reasons: ['帳號未核實', '僅已定價部分', '邊界分攤', '索引未完成', '額度觀測變化'] },
   'zh-CN': { current: '当前周期', rough: '粗略换算', blocked: '暂无可用换算样本',
+    currentShort: '当前', full: '周期总额（估值）', unused: '未用估值', sample: '样本估值', used: '已用等价值', asOf: '截至观测',
     reasons: ['账号未核实', '仅已定价部分', '边界分摊', '索引未完成', '额度观测变化'] },
   ja: { current: '現在の期間', rough: '概算換算', blocked: '利用可能な換算サンプルなし',
+    currentShort: '現在', full: '周期総額（推定）', unused: '未使用推定額', sample: 'サンプル推定額', used: '使用済み等価値', asOf: '観測時点',
     reasons: ['アカウント未確認', '価格適用分のみ', '境界で按分', '索引未完了', '枠の観測値が変化'] },
   ko: { current: '현재 기간', rough: '대략적 환산', blocked: '사용 가능한 환산 표본 없음',
+    currentShort: '현재', full: '주기 총액(추정)', unused: '미사용 추정액', sample: '표본 추정액', used: '사용 등가치', asOf: '관측 시점',
     reasons: ['계정 미확인', '가격 적용분만', '경계 분할', '인덱싱 미완료', '한도 관측값 변경'] },
   'pt-BR': { current: 'Período atual', rough: 'Conversão aproximada', blocked: 'Nenhuma amostra utilizável para conversão',
+    currentShort: 'Atual', full: 'Total do ciclo (estimado)', unused: 'Valor não utilizado estimado', sample: 'Valor da amostra (estimado)', used: 'Equivalente usado', asOf: 'Na observação',
     reasons: ['Conta não verificada', 'Somente parte com preço', 'Rateio na fronteira', 'Indexação incompleta', 'Observação de cota alterada'] },
   id: { current: 'Periode saat ini', rough: 'Konversi kasar', blocked: 'Belum ada sampel konversi yang dapat digunakan',
+    currentShort: 'Saat ini', full: 'Total siklus (estimasi)', unused: 'Estimasi belum terpakai', sample: 'Estimasi sampel', used: 'Ekuivalen terpakai', asOf: 'Saat pengamatan',
     reasons: ['Akun belum terverifikasi', 'Hanya bagian dengan harga', 'Pembagian pada batas', 'Pengindeksan belum selesai', 'Pengamatan kuota berubah'] },
 };
 
@@ -82,22 +90,36 @@ async function expectAmounts(page, locale) {
   await expect(current).toHaveCount(1);
   await expect(current.locator('td').nth(1)).toHaveText('$120.00');
   await expect(current.locator('td').nth(2)).toContainText('25%');
-  await expect(current.locator('td').nth(3)).toHaveText('≈$240.00');
-  await expect(current.locator('td').nth(4)).toHaveText('≈$180.00');
+  await expect(current.locator('td').nth(3)).toHaveText('$240.00');
+  await expect(current.locator('td').nth(4)).toHaveText('$180.00');
   await expect(current.locator('td').nth(5)).toContainText(copy[locale].rough);
   await expect(current.locator('td').nth(6)).toHaveText('92%');
+  // Estimate status is explicit in both tables' localized headers, rather than
+  // repeated as an approximation symbol in every money cell.
+  await expect(history(page).locator('thead th').nth(3)).toHaveText(copy[locale].full);
+  await expect(history(page).locator('thead th').nth(4)).toHaveText(copy[locale].unused);
+  await expect(details(page).locator('thead th').nth(2)).toHaveText(copy[locale].sample);
+  await expect(details(page).locator('thead th').nth(4)).toHaveText(copy[locale].full);
+  await expect(details(page).locator('thead th').nth(5)).toHaveText(copy[locale].unused);
+  for (const text of await panel(page).locator('td').allTextContents()) expect(text).not.toContain('≈');
 
   // The conflicting reset is retained as a separate observation, never added
   // to the main period. Select the real sample by its computed full amount.
   await expect(details(page).locator('tbody tr')).toHaveCount(2);
   const record = details(page).locator('tbody tr').filter({
-    has: page.getByRole('cell', { name: '≈$240.00', exact: true }),
+    has: page.getByRole('cell', { name: '$240.00', exact: true }),
   });
   await expect(record).toHaveCount(1);
-  await expect(record.locator('td').nth(2)).toHaveText('≈$60.00');
+  await expect(record.locator('td').nth(2)).toHaveText('$60.00');
   await expect(record.locator('td').nth(3)).toHaveText('25%');
   await expect(record.locator('td').nth(4)).toHaveText(await current.locator('td').nth(3).textContent());
   await expect(record.locator('td').nth(5)).toHaveText(await current.locator('td').nth(4).textContent());
+  const otherRecord = details(page).locator('tbody tr').filter({
+    has: page.getByRole('cell', { name: '$146.67', exact: true }),
+  });
+  await expect(otherRecord).toHaveCount(1);
+  await expect(otherRecord.locator('td').nth(2)).toHaveText('$36.67');
+  await expect(otherRecord.locator('td').nth(5)).toHaveText('$110.00');
   const method = record.locator('td').nth(6);
   await expect(method).toContainText(copy[locale].rough);
   const reasons = method.locator('.model-details').first();
@@ -110,18 +132,44 @@ async function expectAmounts(page, locale) {
     for (const reason of copy.en.reasons) await expect(reasons).not.toContainText(reason);
   }
 
-  // Uniform-overlap allocation belongs only to the rough numerator. The graph
-  // counts both complete source amounts once and never stacks old unused.
+  // The actual-usage table retains both complete input amounts once. The chart
+  // instead shows one latest valid snapshot per real reset; overlapping window
+  // estimates are separate bars, not a sum or another actual-usage ledger.
   await expect(history(page).locator('tbody tr')).toHaveCount(1);
-  await expect(panel(page).locator('.hc-bars .stack-bar')).toHaveCount(1);
-  await expect(panel(page).locator('.hc-bars .stack-bar')).toHaveAttribute('title', /\$120\.00$/);
-  await expect(panel(page).locator('.hc-yaxis .hc-yval').first()).toHaveText('$120.00');
-  await expect(panel(page).locator('.stack-seg.seg-cache-read')).toHaveCount(0);
-  await expect(panel(page).locator('.stack-legend .legend-item')).toHaveCount(1);
+  const bars = panel(page).locator('.hc-bars .stack-bar');
+  await expect(bars).toHaveCount(2);
+  await expect(panel(page).locator('.hc-yaxis .hc-yval')).toHaveText(['$240.00', '$120.00', '$0.00']);
+  await expect(panel(page).locator('.stack-seg.seg-input')).toHaveCount(2);
+  await expect(panel(page).locator('.stack-seg.seg-cache-read')).toHaveCount(2);
+  await expect(panel(page).locator('.stack-legend .legend-item')).toHaveText([copy[locale].used, copy[locale].unused]);
+  const main = panel(page).locator('.hc-bars .stack-bar[title*="$240.00"]');
+  const other = panel(page).locator('.hc-bars .stack-bar[title*="$146.67"]');
+  await expect(main).toHaveCount(1);
+  await expect(other).toHaveCount(1);
+  for (const [bar, amounts] of [[main, ['$240.00', '$60.00', '$180.00']], [other, ['$146.67', '$36.67', '$110.00']]]) {
+    await expect(bar).toHaveAttribute('role', 'img');
+    const title = await bar.getAttribute('title');
+    for (const value of [...amounts, copy[locale].full, copy[locale].used, copy[locale].unused, copy[locale].asOf]) {
+      expect(title).toContain(value);
+    }
+    await expect(bar).toHaveAttribute('aria-label', title);
+    await expect(bar).toHaveAccessibleName(title);
+  }
+  await expect(main.locator('.seg-input')).toHaveCSS('height', '30px');
+  await expect(main.locator('.seg-cache-read')).toHaveCSS('height', '90px');
+  await expect(main).toHaveCSS('height', '120px');
+  // Current follows the latest observation, not the greatest reset timestamp.
+  expect(await main.getAttribute('title')).toContain(copy[locale].current);
+  expect(await other.getAttribute('title')).not.toContain(copy[locale].current);
+  const labels = panel(page).locator('.hc-xlabel');
+  await expect(labels).toHaveCount(2);
+  const mainIndex = await bars.evaluateAll(nodes => nodes.findIndex(node => node.title.includes('$240.00')));
+  await expect(labels.nth(mainIndex)).toHaveText(copy[locale].currentShort);
+  expect(await labels.nth(1 - mainIndex).textContent()).not.toBe(copy[locale].currentShort);
 }
 
 for (const locale of Object.keys(copy)) {
-  test(`${locale}: partial pricing/history and reset conflict retain ≈$240/≈$180 with short reasons`, async ({ page }) => {
+  test(`${locale}: plain money cells, estimate headers and two as-of bars retain $240/$180 with short reasons`, async ({ page }) => {
     await open(page, { locale });
     await reveal(page);
     await expectAmounts(page, locale);
@@ -221,6 +269,9 @@ for (const [locale, theme, width] of [
     expect(result.incomplete.filter(row => row.id === 'color-contrast')).toEqual([]);
     await reveal(page);
     await expectAmounts(page, locale);
+    for(const cell of await details(page).locator('tbody tr td:last-child').all()){
+      expect(await cell.evaluate(node=>node.clientWidth)).toBeGreaterThanOrEqual(140);
+    }
     const geometry = await panel(page).evaluate(node => {
       const texts = [...node.querySelectorAll('h3,summary,.table-hint')];
       const scrollers = [...node.querySelectorAll('.daily-table-container')];
@@ -308,8 +359,8 @@ test('existing weekly-value switch hides rough amounts and records while retaini
   await open(page, { weeklyValue: false });
   await expect(history(page)).toHaveCount(0);
   await expect(details(page)).toHaveCount(0);
-  await expect(page.locator('#all')).not.toContainText('≈$240.00');
-  await expect(page.locator('#all')).not.toContainText('≈$180.00');
+  await expect(page.locator('#all')).not.toContainText('$240.00');
+  await expect(page.locator('#all')).not.toContainText('$180.00');
   await expect(page.locator('#all .summary-grid .summary-item').first()).toContainText('API-equivalent cost');
   await page.locator('#tab-settings').click();
   await expect(page.locator('#set_showWeeklyEquivalentValue')).not.toBeChecked();

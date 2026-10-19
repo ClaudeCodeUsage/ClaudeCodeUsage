@@ -29,7 +29,8 @@ test('currency preset reaches Codex summaries, charts, weekly values, and settin
   });
   await expect(weekly.locator('.hc-yaxis .hc-yval').first()).toHaveText(/^≈EUR \d/);
   await weekly.locator('.weekly-value-details summary').click();
-  await expect(weekly.locator('tbody .cost-cell').first()).toHaveText(/^≈EUR \d/);
+  await expect(weekly.locator('tbody .cost-cell').first()).toHaveText(/^EUR \d/);
+  for(const cell of await weekly.locator('tbody td').all())await expect(cell).not.toContainText('≈');
 
   await page.locator('#tab-settings').click();
   await expect(page.locator('#set_displayCurrency')).toHaveValue('EUR');

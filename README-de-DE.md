@@ -87,15 +87,14 @@ Fehlende oder noch nicht indizierte Protokolle können die Anzeige verkleinern;
 die Codex-Quote bleibt die letzte lokale Beobachtung.
 
 
-Wöchentliche API-Äquivalenzgrafiken zählen tatsächlichen lokalen Verbrauch einmal. Separate grobe
-Schätzungen bleiben zum ursprünglichen Beobachtungszeitpunkt eingefroren und zeigen Gesamt-/Restwert,
-wenn ein gültiger Prozentsatz und bekannter bepreister Verbrauch positiv sind. Teilweise Preise oder
-Historien bleiben mit niedriger Verlässlichkeit sichtbar. Nur die Schätzung verteilt Grenzanteile unter
-Annahme zeitlich gleichmäßiger Aktivität; Zählerrückgänge beginnen neue Segmente. Das Archiv behält
-Originalaufnahmen, kein Live-Guthaben oder offizielles Kontolimit.
+Wöchentliche Balken zeigen geschätzten Verbrauch blau und geschätzten Rest grün aus derselben
+Momentaufnahme zum Beobachtungszeitpunkt. Grobe Werte bleiben als unsicher gekennzeichnet;
+überlappende reale Fenster werden nicht als Kontolimit addiert. Tabellen behalten den tatsächlichen
+lokalen Verbrauch, kennzeichnen Schätzspalten im Kopf und lassen ≈ in Betragszellen weg.
+Das Archiv behält Originalaufnahmen, kein Live-Guthaben.
 Siehe [Lokale Daten und Datenschutz](LOCAL-DATA.md).
 
-Verbrauchsbalken folgen einem Siebentageraster, ohne verwertbaren Reset Montag bis Montag UTC; unbeobachtete Resets werden nicht rekonstruiert. Quotenprozente behalten Beobachtungszeitpunkt und ursprünglichen Reset. Der Bereich bleibt standardmäßig an (`showWeeklyEquivalentValue`).
+Ältere Zeiträume ohne Beobachtung zeigen nur Verbrauch im Siebentageraster, ohne verwertbaren Reset Montag bis Montag UTC; unbeobachtete Resets werden nicht rekonstruiert. Quotenprozente behalten Beobachtungszeitpunkt und ursprünglichen Reset. Der Bereich bleibt standardmäßig an (`showWeeklyEquivalentValue`).
 
 ## Installation und Datenschutz
 

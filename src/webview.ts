@@ -128,6 +128,7 @@ import {
   WeeklyValueInputs,
 } from './weeklyValue';
 import { buildLocalWeeklyEstimates, weeklyEstimateForPoint, LocalWeeklyEstimate } from './weeklyEstimate';
+import { projectWeeklyEstimateChart } from './weeklyEstimateChart';
 
 export interface WeeklyEstimatePanelProjection {
   entries: LocalWeeklyEstimate[];
@@ -7643,6 +7644,11 @@ export class UsageWebviewProvider {
     return reasons.join(' · ');
   }
 
+  private weeklyTableCurrency(value: number): string {
+    // The column heading carries estimate semantics, including display FX.
+    return I18n.formatCurrency(value).replace(/^≈/,'');
+  }
+
   private renderWeeklyEstimateRecords(provider: SettingProvider, supplied?: WeeklyEstimatePanelProjection): string {
     const projection=supplied??this.weeklyEstimateProjection(provider),copy=I18n.t.weeklyValue;
     const esc = (value: string): string => this.escapeHtml(value);
@@ -7651,7 +7657,7 @@ export class UsageWebviewProvider {
         hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined }).format(new Date(value)); }
       catch { return new Date(value).toISOString(); }
     };
-    const money = (value: number | null): string => value === null ? '—' : '≈'+esc(I18n.formatCurrency(value));
+    const money = (value: number | null): string => value === null ? '—' : esc(this.weeklyTableCurrency(value));
     const rows = projection.entries.map(entry => {
       const method = entry.fullEquivalentUsd === null ? copy.estimateBlocked :
         entry.method === 'paired-delta' ? copy.pairedEstimate : copy.roughEstimate;
@@ -7661,7 +7667,7 @@ export class UsageWebviewProvider {
       return '<tr><td class="date-cell">' + esc(date(entry.resetAt)) + '</td><td class="date-cell">' +
         (entry.calibrationStart === undefined ? '' : esc(date(entry.calibrationStart)) + ' – ') +
         esc(date(entry.observedAt)) + '</td><td class="cost-cell">' +
-        (entry.method==='rough-prefix-v2'&&entry.flags.includes('boundary-uncertain')?'≈':'')+esc(I18n.formatCurrency(entry.usedEquivalentUsd)) +
+        esc(this.weeklyTableCurrency(entry.usedEquivalentUsd)) +
         '</td><td class="number-cell">' + (entry.utilizationPercent === null ? '—' : this.formatPercent(entry.utilizationPercent / 100)) +
         '</td><td class="cost-cell">' + money(entry.fullEquivalentUsd) + range +
         '</td><td class="cost-cell">' + money(entry.unusedEquivalentUsd) + '</td><td>' + esc(method) +
@@ -7691,6 +7697,7 @@ export class UsageWebviewProvider {
     const copy = I18n.t.weeklyValue;
     const points = this.weeklyValuePoints(provider);
     const estimates=this.weeklyEstimateProjection(provider);
+    const chartPoints=projectWeeklyEstimateChart(provider,points,estimates.entries,{now:Date.now(),limit:8}).reverse();
     const providerLabel = provider === 'codex'
       ? I18n.t.providers.codexBeta
       : I18n.t.providers.claude;
@@ -7709,7 +7716,7 @@ export class UsageWebviewProvider {
         ? [copy.indexedSubtotal]
         : []),
     ].map((line) => this.escapeHtml(line)).join('<br>');
-    if (points.length === 0) {
+    if (points.length === 0 && chartPoints.length === 0) {
       return '<div class="daily-breakdown"><div class="section-header"><h3>' +
         heading + '</h3></div><p class="table-hint">' + notes + '</p>' +
         '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div>' +
@@ -7767,7 +7774,6 @@ export class UsageWebviewProvider {
         default: return copy.usageOnly;
       }
     };
-    const chartPoints = points.slice(0, 8).reverse();
     const maxValue = Math.max(
       1,
       ...chartPoints.map((point) =>
@@ -7789,9 +7795,11 @@ export class UsageWebviewProvider {
       const usedLabel = point.usageAvailable === false
         ? '—'
         : I18n.formatCurrency(point.usedEquivalentUsd);
-      const title = `${periodLabel(point)} · ${copy.usedValue}: ${usedLabel}`;
-      return '<div class="hc-col"><div class="stack-bar" title="' +
-        this.escapeHtml(title) + '">' +
+      const title = point.asOfEstimate
+        ? `${periodLabel(point)} · ${copy.estimateAsOf}: ${dateLabel(point.observedAt!)} · ${copy.fullValue}: ${I18n.formatCurrency(point.fullEquivalentUsd!)} · ${copy.chartUsedValue}: ${usedLabel} · ${copy.chartUnusedValue}: ${I18n.formatCurrency(point.unusedEquivalentUsd!)}`
+        : `${periodLabel(point)} · ${copy.usedValue}: ${usedLabel}`;
+      return '<div class="hc-col"><div class="stack-bar" role="img" aria-label="' +
+        this.escapeHtml(title) + '" title="' + this.escapeHtml(title) + '">' +
         '<div class="stack-seg seg-input" style="height:' + usedHeight.toFixed(2) + 'px"></div>' +
         (point.unusedEquivalentUsd !== null
           ? '<div class="stack-seg seg-cache-read" style="height:' + unusedHeight.toFixed(2) + 'px"></div>'
@@ -7805,9 +7813,9 @@ export class UsageWebviewProvider {
       '<span class="legend-item"><span class="legend-dot ' + cls + '"></span>' +
       this.escapeHtml(label) + '</span>';
     const chart = '<div class="composition-chart"><div class="stack-legend">' +
-      legend('seg-input', copy.usedValue) +
+      legend('seg-input', copy.chartUsedValue) +
       (chartPoints.some((point) => point.unusedEquivalentUsd !== null)
-        ? legend('seg-cache-read', copy.unusedValue)
+        ? legend('seg-cache-read', copy.chartUnusedValue)
         : '') +
       '</div><div class="hc-wrap"><div class="hc-yaxis"><span class="hc-yval">' +
       I18n.formatCurrency(maxValue) + '</span><span class="hc-yval">' +
@@ -7816,7 +7824,7 @@ export class UsageWebviewProvider {
       '<div class="hc-main"><div class="hc-scroll" tabindex="0"><div class="hc-plot">' +
       '<div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>' +
       '<div class="hc-bars">' + bars + '</div></div><div class="hc-xlabels">' +
-      xlabels + '</div></div></div></div></div>';
+      xlabels + '</div></div></div></div></div><p class="table-hint">'+this.escapeHtml(copy.chartEstimateNote)+'</p>';
     const dash = '—';
     const tableRows = points.map((point) => {
       const estimate=point.fullEquivalentUsd===null?weeklyEstimateForPoint(point,estimates.entries):undefined;
@@ -7827,14 +7835,14 @@ export class UsageWebviewProvider {
       return (
       '<tr><td class="date-cell">' + this.escapeHtml(periodLabel(point)) + '</td>' +
       '<td class="cost-cell">' +
-      (point.usageAvailable === false ? dash : I18n.formatCurrency(point.usedEquivalentUsd)) + '</td>' +
+      (point.usageAvailable === false ? dash : this.weeklyTableCurrency(point.usedEquivalentUsd)) + '</td>' +
       '<td class="number-cell">' +
       (percent === null ? dash : this.formatPercent(percent / 100) +
         (observed === undefined ? '' : ' · ' + this.escapeHtml(dateLabel(observed)))) + '</td>' +
       '<td class="cost-cell">' +
-      (full === null ? dash : (estimate?'≈':'')+I18n.formatCurrency(full)) + '</td>' +
+      (full === null ? dash : this.weeklyTableCurrency(full)) + '</td>' +
       '<td class="cost-cell">' +
-      (unused === null ? dash : (estimate?'≈':'')+I18n.formatCurrency(unused)) + '</td>' +
+      (unused === null ? dash : this.weeklyTableCurrency(unused)) + '</td>' +
       '<td>' + this.escapeHtml(estimate?copy.low+' · '+copy.roughEstimate:confidenceLabel(point)) + '</td>' +
       '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td></tr>'
     );}).join('');
@@ -12279,6 +12287,10 @@ export class UsageWebviewProvider {
 
       .weekly-estimate-details .model-details {
         color: var(--vscode-foreground);
+      }
+
+      .weekly-estimate-details th:last-child, .weekly-estimate-details td:last-child {
+        min-width: 140px;
       }
 
       .weekly-value-details > summary, .weekly-estimate-details > summary {

@@ -688,8 +688,8 @@ test('weekly allowance value uses the shared all-time chart and exposes uncertai
   });
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('not an official balance, bill or cash value');
-  await expect(panel).toContainText('The graph counts local used amounts once');
-  await expect(panel).toContainText('Table amounts are frozen as of their respective observations and must not be added');
+  await expect(panel).toContainText('blue used and green unused amounts share the same observation');
+  await expect(panel).toContainText('overlapping windows must not be added');
   await expect(panel).toContainText('Unpriced usage is not extrapolated from token coverage');
   await expect(panel).toContainText('Account ownership is unverified');
   await expect(panel).toContainText('Cross-boundary samples are split by time overlap');
@@ -702,7 +702,7 @@ test('weekly allowance value uses the shared all-time chart and exposes uncertai
   await expect(details.locator('tbody')).toContainText('Low · Rough conversion');
   await expect(panel.locator('.hc-col')).toHaveCount(2);
   await expect(details.locator('tbody tr')).toHaveCount(2);
-  await expect(details.locator('thead')).toContainText('Rough total estimate');
+  await expect(details.locator('thead')).toContainText('Cycle total (estimate)');
   await expect(details.locator('thead')).toContainText('Priced coverage');
   await expect(details.locator('tbody')).toContainText('Current period');
   await expect(details.locator('tbody')).toContainText('resets');
@@ -710,10 +710,12 @@ test('weekly allowance value uses the shared all-time chart and exposes uncertai
   await expect(details.locator('tbody').getByText('Current period')).toHaveCount(1);
 
   const bars = panel.locator('.hc-col');
-  await expect(bars.last().locator('.seg-cache-read')).toHaveCount(0);
+  await expect(bars.last().locator('.seg-cache-read')).toHaveCount(1);
+  await expect(bars.last().locator('.seg-input')).toHaveAttribute('style','height:24.00px');
+  await expect(bars.last().locator('.seg-cache-read')).toHaveAttribute('style','height:96.00px');
   const currentRow = details.locator('tbody tr').filter({ hasText: 'Current period' });
-  await expect(currentRow.locator('td').nth(3)).toHaveText('≈$62.50');
-  await expect(currentRow.locator('td').nth(4)).toHaveText('≈$50.00');
+  await expect(currentRow.locator('td').nth(3)).toHaveText('$62.50');
+  await expect(currentRow.locator('td').nth(4)).toHaveText('$50.00');
   await expect(currentRow.locator('td').nth(5)).toContainText('Low · Rough conversion');
   await expect(currentRow.locator('td').nth(2)).toContainText(' · ');
 });
@@ -725,12 +727,12 @@ test('a completed Claude weekly observation shows rough values without assigning
   const panel = page.locator('#all .daily-breakdown').filter({
     hasText: 'Weekly subscription allowance · API-equivalent estimate · Claude',
   });
-  await expect(panel.locator('.hc-col .seg-cache-read')).toHaveCount(0);
+  await expect(panel.locator('.hc-col .seg-cache-read')).toHaveCount(1);
   await expect(panel.locator('.weekly-value-details')).not.toHaveAttribute('open', '');
   await panel.locator('.weekly-value-details summary').click();
   await expect(panel.locator('.weekly-value-details tbody tr')).toHaveCount(1);
-  await expect(panel.locator('.weekly-value-details tbody tr td').nth(3)).toHaveText('≈$6.00');
-  await expect(panel.locator('.weekly-value-details tbody tr td').nth(4)).toHaveText('≈$3.00');
+  await expect(panel.locator('.weekly-value-details tbody tr td').nth(3)).toHaveText('$6.00');
+  await expect(panel.locator('.weekly-value-details tbody tr td').nth(4)).toHaveText('$3.00');
   await expect(panel.locator('.weekly-value-details tbody tr td').nth(5)).toContainText('Low · Rough conversion');
   await panel.locator('.weekly-estimate-details summary').click();
   await expect(panel.locator('.weekly-estimate-details')).toContainText('Account unverified');
