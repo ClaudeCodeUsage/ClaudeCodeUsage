@@ -48,7 +48,7 @@ export function codexFallbackQuotaCycle(entry: Pick<LocalWeeklyEstimate, 'observ
     closed: startAt + WEEK <= now, scheduledResetAt: entry.resetAt,
     boundaryUncertain: true, referenceOnly: true, fallbackDays: 7 };
 }
-interface Checkpoint { epoch: CodexQuotaEpoch; lastObservedAt: number }
+interface Checkpoint { epoch: CodexQuotaEpoch; lastObservedAt: number; displayResetAt?: number }
 export function withCodexQuotaCycles(
   entries: readonly LocalWeeklyEstimate[], observations: readonly QuotaObservationV2[],
   fingerprint: (key: string) => string | undefined, now = Date.now(),
@@ -71,6 +71,7 @@ export function withCodexQuotaCycles(
       time(row.observedAt) && row.observedAt <= now && time(row.resetAt) && row.resetAt > row.observedAt &&
       Array.isArray(row.flags) && !row.flags.includes('clock-anomaly')).sort((a, b) => a.observedAt - b.observedAt);
     const windows = new Map<string, QuotaObservationV2[]>();
+    const officialWindows = new Map<number, QuotaObservationV2[]>();
     for (const row of rows) { const list = windows.get(row.windowId) ?? []; list.push(row); windows.set(row.windowId, list); }
     for (const window of windows.values()) {
       const first = window[0], last = window[window.length - 1];
@@ -86,11 +87,13 @@ export function withCodexQuotaCycles(
       const anchor = retained && retained.startedAt < epoch.startedAt && !explicitReset ? retained : epoch;
       checkpoints.set(anchor.startedAt, { epoch: anchor,
         lastObservedAt: Math.max(last.observedAt, checkpoints.get(anchor.startedAt)?.lastObservedAt ?? 0) });
+      if (first.observedAt === anchor.startedAt) officialWindows.set(anchor.startedAt, window);
       // Compaction may remove an old first observation. Bind an archived sample
       // only to the official window actually containing it, never by reset alone.
       for (const entry of matching) aliases.set(entry, anchor.startedAt);
     }
-    const canonical = new Map<number, number>(), ordered: Checkpoint[] = [];
+    const canonical = new Map<number, number>();
+    let ordered: Checkpoint[] = [];
     for (const point of [...checkpoints.values()].sort((a, b) => a.epoch.startedAt - b.epoch.startedAt)) {
       const previous = ordered[ordered.length - 1];
       // A retained/restarted first observation is not evidence of another reset.
@@ -102,16 +105,63 @@ export function withCodexQuotaCycles(
         previous.lastObservedAt = Math.max(previous.lastObservedAt, point.lastObservedAt);
       } else { ordered.push(point); canonical.set(point.epoch.startedAt, point.epoch.startedAt); }
     }
+    // A moving deadline while the official counter still reports zero does not
+    // prove another reset. Alias only this provisional display history; raw P2,
+    // calibration epochs, anchors and frozen amounts are never changed.
+    const snapshots = new Map<number, LocalWeeklyEstimate[]>();
+    for (const entry of scoped) {
+      const raw = aliases.get(entry) ?? entry.quotaEpoch?.startedAt;
+      const id = raw === undefined ? undefined : canonical.get(raw);
+      if (id !== undefined) { const list = snapshots.get(id) ?? []; list.push(entry); snapshots.set(id, list); }
+    }
+    const proof = (point: Checkpoint) => {
+      // The official source, verified attribution and matching fingerprint gate
+      // above is authoritative here, as in epoch derivation. A retained legacy
+      // account-ambiguous annotation does not negate that explicit evidence.
+      // Preserve every flag; this display alias grants no local-usage ownership.
+      const observed = officialWindows.get(point.epoch.startedAt);
+      if (!observed?.length || observed[0].observedAt !== point.epoch.startedAt ||
+        observed[observed.length - 1].observedAt !== point.lastObservedAt || !observed.every((row, index) =>
+          row.schemaVersion === 2 && Number.isFinite(row.usedFraction) && row.usedFraction >= 0 && row.usedFraction <= 1 &&
+          Number.isFinite(row.remainingFraction) && Math.abs(row.remainingFraction - (1 - row.usedFraction)) <= 1e-12 &&
+          Math.abs(row.resetAt! - point.epoch.resetAnchorAt) <= TOLERANCE && row.resetAt! - row.observedAt <= WEEK &&
+          (index === 0 || row.usedFraction >= observed[index - 1].usedFraction))) return undefined;
+      const positiveAt = observed.find(row => row.usedFraction > 0)?.observedAt ?? Infinity;
+      if ((snapshots.get(point.epoch.startedAt) ?? []).some(entry => entry.observedAt < positiveAt &&
+        (entry.utilizationPercent !== 0 || entry.usedEquivalentUsd !== 0 || entry.fullEquivalentUsd !== null ||
+          entry.unusedEquivalentUsd !== null || (entry.unlinkedEquivalentUsd ?? 0) !== 0 ||
+          entry.calibrationEvidence !== undefined || entry.windowEvidence !== undefined))) return undefined;
+      return { first: observed[0], last: observed[observed.length - 1], zero: positiveAt === Infinity };
+    };
+    const display: Checkpoint[] = [], displayIds = new Map<number, number>();
+    let previousProof: ReturnType<typeof proof>;
+    for (const point of ordered) {
+      const currentProof = proof(point), previous = display[display.length - 1];
+      if (previous && previousProof?.zero && currentProof && point.epoch.reason === 'reset-change' &&
+        currentProof.first.captureReason === 'reset-at-change' &&
+        currentProof.first.providerWindowFingerprint === previousProof.last.providerWindowFingerprint &&
+        currentProof.first.observedAt > previousProof.last.observedAt &&
+        point.epoch.startLowerAt === previousProof.last.observedAt &&
+        currentProof.first.observedAt < previousProof.last.resetAt!) {
+        displayIds.set(point.epoch.startedAt, previous.epoch.startedAt);
+        previous.lastObservedAt = point.lastObservedAt;
+        previous.displayResetAt = currentProof.zero ? currentProof.last.resetAt! : point.epoch.resetAnchorAt;
+      } else { display.push(point); displayIds.set(point.epoch.startedAt, point.epoch.startedAt); }
+      previousProof = currentProof;
+    }
+    for (const [raw, id] of canonical) canonical.set(raw, displayIds.get(id) ?? id);
+    ordered = display;
     for (const entry of scoped) {
       const id = aliases.get(entry) ?? entry.quotaEpoch?.startedAt;
       if (id !== undefined && canonical.has(id)) aliases.set(entry, canonical.get(id)!);
     }
     const starts = ordered.map((point, index) => {
       const q = point.epoch, previous = ordered[index - 1];
+      const previousReset = previous?.displayResetAt ?? previous?.epoch.resetAnchorAt;
       if (q.reason === 'scheduled-reset' && q.startLowerAt !== null) return { at: q.startLowerAt, lower: q.startLowerAt };
-      if (previous && previous.epoch.resetAnchorAt <= q.startedAt &&
-        Math.abs(q.resetAnchorAt - previous.epoch.resetAnchorAt - WEEK) <= TOLERANCE) {
-        return { at: previous.epoch.resetAnchorAt, lower: previous.epoch.resetAnchorAt };
+      if (previousReset !== undefined && previousReset <= q.startedAt &&
+        Math.abs(q.resetAnchorAt - previousReset - WEEK) <= TOLERANCE) {
+        return { at: previousReset, lower: previousReset };
       }
       if (q.reason === 'reset-change' || q.reason === 'counter-drop') return {
         at: q.startedAt, lower: q.startLowerAt ?? previous?.lastObservedAt ?? null };
@@ -120,7 +170,8 @@ export function withCodexQuotaCycles(
     const cycles = new Map<number, CodexQuotaCycle>();
     for (let i = 0; i < ordered.length; i++) {
       const current = ordered[i], next = ordered[i + 1], start = starts[i], nextStart = starts[i + 1];
-      let endAt = current.epoch.resetAnchorAt, endLowerAt: number | null = endAt;
+      const scheduledResetAt = current.displayResetAt ?? current.epoch.resetAnchorAt;
+      let endAt = scheduledResetAt, endLowerAt: number | null = endAt;
       if (next && nextStart.at !== null && nextStart.at <= endAt) {
         endAt = nextStart.at; endLowerAt = nextStart.lower;
       } else if (next && next.epoch.startedAt < endAt) {
@@ -129,8 +180,8 @@ export function withCodexQuotaCycles(
       if (endAt <= current.epoch.startedAt) continue;
       cycles.set(current.epoch.startedAt, { id: current.epoch.startedAt, startAt: start.at, startLowerAt: start.lower,
         endAt, endLowerAt, closed: next !== undefined || endAt <= now,
-        scheduledResetAt: current.epoch.resetAnchorAt,
-        boundaryUncertain: start.at === null || start.lower === null || start.at !== start.lower || endLowerAt !== endAt });
+        scheduledResetAt,
+        boundaryUncertain: current.displayResetAt !== undefined || start.at === null || start.lower === null || start.at !== start.lower || endLowerAt !== endAt });
     }
     books.set(account, cycles);
   }

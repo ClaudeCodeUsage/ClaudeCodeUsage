@@ -35,6 +35,11 @@ test('a pending new cycle has a missing-value marker, never a tiny or zero capac
   assert.match(html, /data-cycle-pending/); assert.match(html, /待校准/);
   assert.doesNotMatch(html, /class="stack-seg seg-cache-read"/);
 }));
+test('an official identity checkpoint without calibration does not invent a zero-dollar sample', () => run(() => {
+  const html = owner([entry({ usedEquivalentUsd: 0, fullEquivalentUsd: null, unusedEquivalentUsd: null })]).renderWeeklyValuePanel('codex');
+  assert.doesNotMatch(html, /<dd>\$0\.00<\/dd>/);
+  assert.match(html, /样本估值<\/dt><dd>—<\/dd>/);
+}));
 test('source conflict presentation is numeric-only and does not infer an account from a reset', () => {
   const local = [{ provider: 'codex' as const, seriesKey: 'codex', sourceKey: 'private-canary', observedAt: N,
     resetAt: R + 18 * 3600000, usedPercent: 16 }];
@@ -74,4 +79,13 @@ test('an older cycle evidence disclosure keeps its key when a new cycle is inser
     quotaCycle: { ...old.quotaCycle, id: N - 30000, endAt: R + 3600000, scheduledResetAt: R + 3600000 } });
   const after = owner([old, next]).renderWeeklyEstimateRecords('codex');
   assert.ok(after.includes('data-persist="' + before + '"'));
+}));
+test('cycle rendering never reads or serializes the runtime source census', () => run(() => {
+  const p = owner([entry()]);
+  const inputs = { usage: [], observations: [] };
+  Object.defineProperty(inputs, 'codexCalibrationCensus', { enumerable: true,
+    get() { throw new Error('runtime source revisions must stay out of client rendering'); } });
+  p.codexView.weeklyValueInputs = inputs;
+  const html = p.renderWeeklyValuePanel('codex');
+  assert.doesNotMatch(html, /codexCalibrationCensus|sourceKey|revision/);
 }));

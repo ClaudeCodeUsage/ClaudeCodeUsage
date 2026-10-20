@@ -30,6 +30,13 @@ export function projectWeeklyEstimateChart(
       codexQuotaEpochFitsObservation(entry.quotaEpoch,entry.observedAt,entry.resetAt,entry.windowStart,entry.calibrationStart)));
   const all=snapshots.filter(metadata);
   const latestObserved=Math.max(-Infinity,...all.map(entry=>entry.observedAt));
+  // The active raw calibration epoch may be a discarded zero checkpoint in a
+  // shared display cycle. Resolve it from all valid snapshots, never from a
+  // matching reset/account alone or just the selected monetary representative.
+  const activeCycles=new Set(all.filter(entry=>entry.accountNumber===options.activeAccountNumber&&
+    entry.quotaEpoch?.startedAt===options.activeQuotaEpochStartedAt)
+    .map(entry=>copyCodexQuotaCycle(entry.quotaCycle)?.id).filter((id):id is number=>id!==undefined));
+  const activeDisplayId=activeCycles.size===1?[...activeCycles][0]:undefined;
   const valid=all.filter(entry=>entry.fullEquivalentUsd!==null&&Number.isFinite(entry.fullEquivalentUsd)&&
     entry.fullEquivalentUsd>0&&entry.unusedEquivalentUsd!==null&&Number.isFinite(entry.unusedEquivalentUsd)&&
     entry.unusedEquivalentUsd>=0&&entry.unusedEquivalentUsd<=entry.fullEquivalentUsd);
@@ -54,7 +61,8 @@ export function projectWeeklyEstimateChart(
       (entry.accountNumber===undefined
         ? options.accountIdentityAvailable===undefined&&options.activeQuotaEpochStartedAt===undefined
         : options.accountIdentityAvailable===true&&options.activeAccountNumber===entry.accountNumber)&&
-      (options.activeQuotaEpochStartedAt===undefined||(entry.quotaCycle?.id??entry.quotaEpoch?.startedAt)===options.activeQuotaEpochStartedAt),
+      ((provider!=='codex'&&options.activeQuotaEpochStartedAt===undefined)||
+        (options.activeQuotaEpochStartedAt!==undefined&&activeDisplayId!==undefined&&entry.quotaCycle?.id===activeDisplayId)),
     usedEquivalentUsd:entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null ? 0 :
       entry.fullEquivalentUsd-entry.unusedEquivalentUsd,
     fullEquivalentUsd:entry.fullEquivalentUsd,unusedEquivalentUsd:entry.unusedEquivalentUsd,

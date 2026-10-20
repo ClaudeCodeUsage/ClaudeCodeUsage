@@ -7644,13 +7644,21 @@ export class UsageWebviewProvider {
       this.weeklyUsageCache.pricing !== getPricingLastFetched() || this.weeklyUsageCache.backend !== getPricingBackend())) {
       this.weeklyUsageCache = { records: this.allRecords, pricing: getPricingLastFetched(), backend: getPricingBackend(), usage: claudeWeeklyEquivalentUsage(this.allRecords) };
     }
-    return provider === 'codex'
-      ? this.codexView?.weeklyValueInputs ? { ...this.codexView.weeklyValueInputs,
-          localHistoryComplete: this.codexView.periodCoverage.allTime.complete } : undefined
-      : {
-          observations: this.claudeWeeklyQuotaHistory,
-          usage: this.weeklyUsageCache!.usage,
-        };
+    if (provider === 'codex') {
+      const input = this.codexView?.weeklyValueInputs;
+      // The runtime source-revision authority belongs only to the official
+      // estimator. Keep presentation inputs explicit; never read/spread it.
+      return input ? { usage: input.usage, observations: input.observations,
+        codexQuotaCheckpoints: input.codexQuotaCheckpoints,
+        codexQuotaCheckpointsComplete: input.codexQuotaCheckpointsComplete,
+        codexQuotaIncompleteResets: input.codexQuotaIncompleteResets,
+        codexQuotaIncompleteRanges: input.codexQuotaIncompleteRanges,
+        calibrationPricebook: input.calibrationPricebook,
+        calibrationSourceScope: input.calibrationSourceScope,
+        accountUsageCoverage: input.accountUsageCoverage,
+        localHistoryComplete: this.codexView!.periodCoverage.allTime.complete } : undefined;
+    }
+    return { observations: this.claudeWeeklyQuotaHistory, usage: this.weeklyUsageCache!.usage };
   }
 
   private weeklyValuePoints(provider: SettingProvider): WeeklyValuePoint[] {
@@ -7871,6 +7879,8 @@ export class UsageWebviewProvider {
       const cycle = entry.quotaCycle, description = this.weeklyCycleDescription(cycle, entry.resetAt);
       const dates = (cycle?.startAt ? this.cycleDate(cycle.startAt, true) + ' – ' : '') + this.cycleDate(cycle?.endAt ?? entry.resetAt, true);
       const evidence = entry.windowEvidence, account = entry.calibrationEvidence;
+      const sampleAvailable = evidence ? evidence.intervals > 0 : account !== undefined || entry.fullEquivalentUsd !== null ||
+        entry.method !== 'account-delta-v1' || entry.usedEquivalentUsd > 0;
       const delta = evidence?.deltaPercent ?? account?.accumulated.deltaPercent;
       const intervals = evidence?.intervals ?? account?.accumulated.intervals;
       const state = this.cycleState(entry);
@@ -7884,9 +7894,9 @@ export class UsageWebviewProvider {
       const through = evidence?.calibratedThrough ?? entry.observedAt;
       const facts = '<dl data-cycle-evidence-facts><dt>' + esc(copy.estimateMethod) + '</dt><dd>' + esc(this.weeklyEstimateMethod(entry)) +
         '</dd><dt>' + esc(copy.estimateAsOf) + '</dt><dd>' + esc((from ? this.cycleDate(from) + ' – ' : '') + this.cycleDate(through)) +
-        '</dd><dt>' + esc(copy.estimateUsed) + '</dt><dd>' + money(entry.usedEquivalentUsd) +
+        '</dd><dt>' + esc(copy.estimateUsed) + '</dt><dd>' + money(sampleAvailable ? entry.usedEquivalentUsd : null) +
         '</dd><dt>' + esc(copy.calibrationChange) + '</dt><dd>' + (delta === undefined ? '—' : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta)) +
-        '</dd><dt>' + esc(copy.pricingCoverage) + '</dt><dd>' + esc(this.formatPercent(entry.pricingCoverage)) + '</dd></dl>';
+        '</dd><dt>' + esc(copy.pricingCoverage) + '</dt><dd>' + (sampleAvailable ? esc(this.formatPercent(entry.pricingCoverage)) : '—') + '</dd></dl>';
       return '<tr data-codex-cycle-summary-row><td class="date-cell" title="' + esc(description) + '">' + esc(dates) +
         (state ? '<span class="model-details" data-cycle-state>' + esc(state) + '</span>' : '') + '</td><td>' + esc(this.weeklyAccountLabel(entry.accountNumber)) +
         '</td><td class="cost-cell">' + money(entry.fullEquivalentUsd) + '</td><td class="cost-cell">' +

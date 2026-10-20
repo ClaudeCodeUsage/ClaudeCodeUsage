@@ -194,8 +194,17 @@ test('identified quota before number assignment collects samples without inventi
 }));
 
 test('chart current marker follows the identified service account and retires when another account is collecting', () => english(() => {
-  const { p, projection } = owner(true, [entry()]); p.weeklyValuePoints = () => [];
+  const sample = entry(), before = JSON.stringify(sample);
+  const { p, projection } = owner(true, [sample]); p.weeklyValuePoints = () => [];
   const chart = () => p.renderWeeklyValuePanel('codex').match(/<div class="hc-xlabels">([\s\S]*?)<\/div><\/div>/)?.[1] ?? '';
+  // Identified account/reset equality alone is insufficient: current requires
+  // an active raw epoch that maps to this account's displayed quota cycle.
+  assert.doesNotMatch(chart(), /Current/);
+  projection.officialQuota.quotaEpochStartedAt = sample.quotaEpoch.startedAt;
+  assert.doesNotMatch(chart(), /Current/, 'official metadata alone is not the raw-to-display mapping');
+  projection.activeQuotaEpochStartedAt = sample.quotaEpoch.startedAt + 60_000;
+  assert.doesNotMatch(chart(), /Current/, 'an unmatched raw epoch cannot claim the current cycle');
+  projection.activeQuotaEpochStartedAt = sample.quotaEpoch.startedAt;
   assert.match(chart(), /<span>#2 Current<\/span>/);
   projection.activeAccountNumber = 3; projection.officialQuota.accountNumber = 3;
   assert.doesNotMatch(chart(), /Current/);
@@ -205,6 +214,7 @@ test('chart current marker follows the identified service account and retires wh
   assert.match(status(p.renderWeeklyValuePanel('codex')), /Official service account identified.*Collecting samples/);
   projection.activeAccountNumber = 2; projection.officialQuota.status = 'unavailable';
   assert.doesNotMatch(chart(), /Current/);
+  assert.equal(JSON.stringify(sample), before, 'current-state display cannot retime or rewrite the historical estimate');
 }));
 
 test('unassigned historical bars explicitly disclose reference status and low confidence',()=>english(()=>{
