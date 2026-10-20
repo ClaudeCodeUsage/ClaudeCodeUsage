@@ -302,6 +302,9 @@ function codexWeeklyValueInputs(
     if (!usageReady) {
       continue;
     }
+    // Public exact-model rates are independent of historical date attribution.
+    // Forward append calibration must not wait for period-slice reconstruction.
+    for (const model of Object.keys(file.aggregate.byModel)) pricedModels.add(model);
     const period = file.aggregate.period;
     const prefixEvents = file.lineage?.desiredPrefixEvents ?? 0;
     if (

@@ -214,6 +214,8 @@ test('provider publishes fresh forward proof without all-time history and withdr
   const first = await provider.refresh(), p = first.snapshot.weeklyValueInputs!.codexForwardCalibration!;
   assert.ok(isCodexForwardCalibration(p)); assert.equal(p.verifiedAt, T + 100);
   assert.equal(first.snapshot.weeklyValueInputs!.codexCalibrationCensus, undefined);
+  assert.ok(first.snapshot.weeklyValueInputs!.calibrationPricebook?.rates.some(rate => rate.model === 'gpt-5'),
+    'verified primary model rates do not depend on unavailable historical period slices');
   const next = await provider.refresh();
   assert.notEqual(next.snapshot.weeklyValueInputs!.codexForwardCalibration, p);
   assert.equal((await provider.loadPersistedSnapshot())!.weeklyValueInputs!.codexForwardCalibration, undefined);
