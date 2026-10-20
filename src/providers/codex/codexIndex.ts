@@ -4311,7 +4311,7 @@ function sanitizePeriodMigration(
  * Validation additionally checks bounds, model labels and numeric subsets. */
 function sanitizeCodexQuotaCheckpointDto(state: CodexQuotaCheckpointState): CodexQuotaCheckpointState {
   return {
-    version: 4, indexedThrough: state.indexedThrough, prefixEvents: state.prefixEvents,
+    version: 5, indexedThrough: state.indexedThrough, prefixEvents: state.prefixEvents,
     ranges: state.ranges.map(range => ({ from: range.from, through: range.through,
       ...(range.resetAt !== undefined ? { resetAt: range.resetAt } : {}) })),
     rangesUnlocalized: state.rangesUnlocalized, pendingGapUnknown: state.pendingGapUnknown,

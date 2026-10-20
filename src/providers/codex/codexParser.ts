@@ -115,6 +115,25 @@ function rawTokenCounts(value: unknown): CodexRawTokenCounts | null {
   };
 }
 
+/** Calibration validates the original cost components before primary's
+ * compatibility defaults/clamps. This never changes primary attribution. */
+function calibrationLastUsageIsValid(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  const count = (raw: unknown): raw is number => typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0;
+  const input = value.input_tokens, output = value.output_tokens;
+  if (!count(input) || !count(output) || !Number.isSafeInteger(input + output)) return false;
+  for (const key of ['cached_input_tokens', 'cache_read_input_tokens', 'reasoning_output_tokens']) {
+    if (Object.prototype.hasOwnProperty.call(value, key) && !count(value[key])) return false;
+  }
+  const cached = value.cached_input_tokens ?? value.cache_read_input_tokens ?? 0;
+  const reasoning = value.reasoning_output_tokens ?? 0;
+  if (Object.prototype.hasOwnProperty.call(value, 'cached_input_tokens') &&
+    Object.prototype.hasOwnProperty.call(value, 'cache_read_input_tokens') &&
+    value.cached_input_tokens !== value.cache_read_input_tokens) return false;
+  // last.total_tokens is context size, not a cost component or request sum.
+  return count(cached) && cached <= input && count(reasoning) && reasoning <= output;
+}
+
 function rawSignature(value: CodexRawTokenCounts | null): string {
   return value
     ? [
@@ -653,7 +672,10 @@ function parseTokenCount(
     };
   }
   const lineageTokenKey = signature;
-  const quotaPairingIncomplete = regressed || componentClamped || (!last && !state.highWater);
+  const hasExplicitLast = info.last_token_usage !== undefined && info.last_token_usage !== null;
+  const quotaPairingIncomplete =
+    (hasExplicitLast && !calibrationLastUsageIsValid(info.last_token_usage)) ||
+    (!last && (regressed || componentClamped || !state.highWater));
   if (!hasUsage(tokens)) {
     return { state: nextState, events: [], limit, lineageTokenKey, quotaSource,
       ...(quotaPairingIncomplete ? { quotaPairingIncomplete: true } : {}) };

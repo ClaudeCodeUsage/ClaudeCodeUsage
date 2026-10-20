@@ -63,12 +63,12 @@ test('old checkpoints replay on the existing bounded period pass while primary c
   assert.equal(migrated.index.files[key].aggregate.total.inputTotal, 1000);
   assert.equal((migrated.index.files[key] as any).quotaCheckpoints.rows[1].byModel['gpt-5'].inputTotal, 100);
 });
-test('legacy v1/v2/v3 checkpoints replay to current semantics without resetting primary counts', async t => {
+test('legacy v1/v2/v3/v4 checkpoints replay to current semantics without resetting primary counts', async t => {
   const f = await fixture(t);
   await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
   const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
   const key = Object.keys(cold.index.files)[0];
-  for (const version of [1, 2, 3]) {
+  for (const version of [1, 2, 3, 4]) {
     const raw = JSON.parse(JSON.stringify(cold.index));
     raw.files[key].quotaCheckpoints.version = version;
     delete raw.files[key].quotaCheckpoints.rows[0].baselineByModel;
@@ -108,6 +108,45 @@ test('jittered checkpoints preserve exact cold/append/reload pairing with the fi
   assert.deepEqual(state.rows.map(row => row.observedResetAt), [reset, reset + 5000, reset - 5000]);
   assert.equal(state.rows[2].byModel['gpt-5'].inputTotal, 300);
   assert.equal(appended.index.files[key].aggregate.total.inputTotal, 800);
+});
+
+test('valid last recovery below cumulative high-water survives reload and append with exact primary parity', async t => {
+  const f = await fixture(t);
+  const withTotal = (i: number, total: number, last: number) => {
+    const row = JSON.parse(record(i, last, 10 + i * 10));
+    row.payload.info.total_token_usage = { input_tokens: total, output_tokens: total / 100 };
+    return JSON.stringify(row) + '\n';
+  };
+  await writeFile(f.file, context + withTotal(1, 10000, 500) + withTotal(2, 1000, 100));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const key = Object.keys(cold.index.files)[0];
+  assert.equal(cold.index.files[key].aggregate.total.inputTotal, 600);
+  assert.equal(cold.index.files[key].parserState.highWater!.inputTokens, 10000);
+  const loaded = normalizeCodexIndex(JSON.parse(JSON.stringify(cold.index)))!;
+  const warm = await updateCodexIndex(loaded, await f.scan(), f.options);
+  assert.equal(warm.bodyReads, 0);
+  await appendFile(f.file, withTotal(3, 1200, 200));
+  const appended = await updateCodexIndex(warm.index, await f.scan(), f.options);
+  const fresh = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const file = appended.index.files[key];
+  assert.deepEqual(file.quotaCheckpoints, fresh.index.files[key].quotaCheckpoints);
+  assert.deepEqual(file.aggregate.total, fresh.index.files[key].aggregate.total);
+  assert.equal(file.aggregate.total.inputTotal, 800);
+  assert.equal(file.aggregate.total.outputTotal, 6);
+  assert.equal(file.parserState.highWater!.inputTokens, 10000);
+  assert.ok(file.qualityFlags.includes('counter-regression'));
+  assert.deepEqual(file.quotaCheckpoints!.rows.map(row => row.baseline), [true, false, false]);
+  assert.equal(file.quotaCheckpoints!.rows[2].byModel['gpt-5'].inputTotal, 300);
+  assert.deepEqual(file.quotaCheckpoints!.ranges, []);
+  const oldRaw = JSON.parse(JSON.stringify(appended.index));
+  oldRaw.files[key].quotaCheckpoints.version = 4;
+  const oldV4 = normalizeCodexIndex(oldRaw)!;
+  assert.equal(oldV4.files[key].quotaCheckpoints, undefined);
+  assert.deepEqual(oldV4.files[key].aggregate.total, file.aggregate.total);
+  const replayed = await updateCodexIndex(oldV4, await f.scan(), f.options);
+  assert.ok(replayed.bodyReads > 0);
+  assert.deepEqual(replayed.index.files[key].aggregate.total, file.aggregate.total);
+  assert.deepEqual(replayed.index.files[key].quotaCheckpoints, file.quotaCheckpoints);
 });
 test('provider publishes bounded canonical paired evidence with runtime file keys', async t => {
   const f = await fixture(t);

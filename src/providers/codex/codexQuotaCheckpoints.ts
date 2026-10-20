@@ -14,7 +14,7 @@ export interface CodexQuotaCheckpoint {
   through: number;
   resetAt: number;
   /** Original provider reset for this sample; resetAt is the segment's first
-   * reset anchor. Optional only for legacy runtime inputs, never v4 storage. */
+   * reset anchor. Optional only for legacy runtime inputs, never v5 storage. */
   observedResetAt?: number;
   usedPercent: number;
   baseline: boolean;
@@ -29,7 +29,7 @@ export interface CodexQuotaCheckpoint {
 }
 
 export interface CodexQuotaIncompleteRange { from: number; through: number; resetAt?: number }
-export const CODEX_QUOTA_CHECKPOINT_VERSION = 4;
+export const CODEX_QUOTA_CHECKPOINT_VERSION = 5;
 export const CODEX_QUOTA_GAP_LIMIT = 512;
 export const CODEX_QUOTA_RANGE_LIMIT = 65_536;
 export const CODEX_QUOTA_CHECKPOINT_LIMIT = 512;
@@ -68,7 +68,7 @@ export interface CodexQuotaCheckpointState {
 }
 
 export function createCodexQuotaCheckpointState(prefixEvents: number): CodexQuotaCheckpointState {
-  return { version: 4, indexedThrough: 0, prefixEvents, segment: 0, segmentResetAt: 0, lastEventAt: 0, source: 0,
+  return { version: 5, indexedThrough: 0, prefixEvents, segment: 0, segmentResetAt: 0, lastEventAt: 0, source: 0,
     ranges: [], rangesUnlocalized: false, pendingGapUnknown: false, activityFrom: 0, activityThrough: 0,
     observedTokens: copyTokens({ inputTotal: 0, outputTotal: 0 }),
     excludedTokens: copyTokens({ inputTotal: 0, outputTotal: 0 }),
