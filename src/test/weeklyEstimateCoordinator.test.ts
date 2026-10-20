@@ -49,8 +49,10 @@ test('extra Codex accounts keep same-reset A-B-A identities, stable labels and p
   const empty = { usage: [], observations: [] };
   const extra = (key: string, fullEquivalentUsd = 100): LocalWeeklyEstimate => ({
     ...snapshot(), method: 'account-delta-v1', accountScopeKey: key, fullEquivalentUsd,
-    unusedEquivalentUsd: fullEquivalentUsd * .6, pricingCoverage: .25,
-    unlinkedEquivalentUsd: 7, linkedSourceCount: 2, flags: ['partial-pricing', 'counter-change'],
+    // This fixture tests account isolation and persistence, not admission of an
+    // incomplete/excluded numerator. Its priced and linked evidence is usable.
+    unusedEquivalentUsd: fullEquivalentUsd * .6, pricingCoverage: 1,
+    unlinkedEquivalentUsd: 0, linkedSourceCount: 2, flags: ['account-unattributed'],
   });
   const coordinator = new WeeklyEstimateCoordinator(file, SALT);
   for (const [key, number] of [[a, 1], [b, 2], [a, 1]] as const) {
@@ -73,8 +75,28 @@ test('extra Codex accounts keep same-reset A-B-A identities, stable labels and p
   assert.equal(reloaded.entries.length, 2);
   assert.deepEqual(reloaded.entries.map(row => row.accountNumber).sort(), [1, 2]);
   assert.equal(reloaded.activeAccountNumber, 2);
-  assert.ok(reloaded.entries.every(row => row.unlinkedEquivalentUsd === 7));
+  assert.ok(reloaded.entries.every(row => row.unlinkedEquivalentUsd === 0 && row.linkedSourceCount === 2));
   assert.doesNotMatch(JSON.stringify(reloaded), /accountScopeKey|[a-f0-9]{64}/);
+});
+
+test('incomplete or excluded account-delta capacity is withheld and never archived as monetary evidence', async t => {
+  const empty = { usage: [], observations: [] }, key = 'a'.repeat(64);
+  for (const extra of [
+    { pricingCoverage: .25, flags: ['partial-pricing'] },
+    { unlinkedEquivalentUsd: 7 }, { flags: ['partial-history'] },
+  ] as Partial<LocalWeeklyEstimate>[]) {
+    const { file } = await fixture(t), coordinator = new WeeklyEstimateCoordinator(file, SALT);
+    const entry = snapshot({ method: 'account-delta-v1', accountScopeKey: key, linkedSourceCount: 2, ...extra });
+    const opts = { ...options, accountEstimates: [entry], activeAccountScopeKey: key };
+    const before = JSON.stringify(entry), projected = coordinator.project('codex', empty, opts);
+    assert.equal(projected.entries.length, 1);
+    assert.equal(projected.entries[0].fullEquivalentUsd, null);
+    assert.equal(projected.entries[0].unusedEquivalentUsd, null);
+    await coordinator.flush();
+    assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
+    assert.equal(JSON.stringify(entry), before);
+    assert.doesNotMatch(JSON.stringify(coordinator.project('codex', empty, opts)), /accountScopeKey|[a-f0-9]{64}/);
+  }
 });
 
 test('frozen account prices keep their capture version while newly produced estimates use current pricing', async t => {
@@ -127,7 +149,9 @@ test('active identity without calibration reserves no ordinal before B1 then A2 
   const { file, root } = await fixture(t), a = 'a'.repeat(64), b = 'b'.repeat(64);
   const coordinator = new WeeklyEstimateCoordinator(file, SALT), empty = { observations: [], usage: [] };
   const account = (accountScopeKey: string): WeeklyEstimateDisplayEntry => ({
-    ...snapshot({ method: 'account-delta-v1', accountScopeKey }), pricingVersion: 'api-v1',
+    ...snapshot({ method: 'account-delta-v1', accountScopeKey, quotaEpoch: {
+      startedAt: OBSERVED - 120_000, resetAnchorAt: RESET, startLowerAt: null, reason: 'initial',
+    } }), pricingVersion: 'api-v1',
   });
   const identified = { ...options, activeAccountScopeKey: a };
   assert.equal(coordinator.project('codex', empty, identified).activeAccountNumber, undefined);
@@ -144,15 +168,29 @@ test('active identity without calibration reserves no ordinal before B1 then A2 
     ...account(a), fullEquivalentUsd: null, unusedEquivalentUsd: null,
   }] };
   const withheld = coordinator.project('codex', empty, withheldA); await coordinator.flush();
-  assert.equal(withheld.activeAccountNumber, undefined);
-  assert.equal(withheld.entries.find(entry => entry.fullEquivalentUsd === null)!.accountNumber, undefined);
+  // Identity-only display above still reserves nothing. A real account/epoch
+  // checkpoint is now durable even before the cycle acquires a monetary fit.
+  assert.equal(withheld.activeAccountNumber, 2);
+  assert.equal(withheld.entries.find(entry => entry.fullEquivalentUsd === null)!.accountNumber, 2);
+  const checkpointArchive = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.deepEqual(checkpointArchive.map(entry => [entry.accountScopeKey, entry.accountNumber, entry.fullEquivalentUsd]),
+    [[b, 1, 100], [a, 2, null]]);
+  const pendingRestart = new WeeklyEstimateCoordinator(file, SALT);
+  pendingRestart.project('codex', empty, identified); await pendingRestart.flush();
+  const restoredPending = pendingRestart.project('codex', empty, identified);
+  assert.equal(restoredPending.activeAccountNumber, 2);
+  assert.equal(restoredPending.entries.find(entry => entry.accountNumber === 2)!.fullEquivalentUsd, null);
+  assert.equal(restoredPending.entries.find(entry => entry.accountNumber === 2)!.quotaEpoch?.startedAt, OBSERVED - 120_000);
+  assert.doesNotMatch(JSON.stringify(restoredPending), /accountScopeKey|[a-f0-9]{64}/);
   const calibratedA = { ...backToA, accountEstimates: [account(b), account(a)] };
   coordinator.project('codex', empty, calibratedA); await coordinator.flush();
   const view = coordinator.project('codex', empty, calibratedA);
   assert.equal(view.activeAccountNumber, 2);
   assert.deepEqual(view.entries.map(entry => entry.accountNumber).sort(), [1, 2]);
   const archived = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
-  assert.deepEqual(archived.map(entry => [entry.accountScopeKey, entry.accountNumber]), [[b, 1], [a, 2]]);
+  assert.deepEqual(archived.filter(entry => entry.fullEquivalentUsd !== null)
+    .map(entry => [entry.accountScopeKey, entry.accountNumber]), [[b, 1], [a, 2]]);
+  assert.ok(archived.some(entry => entry.accountScopeKey === a && entry.accountNumber === 2 && entry.fullEquivalentUsd === null));
   assert.doesNotMatch(JSON.stringify(view), /accountScopeKey|[a-f0-9]{64}/);
 });
 
@@ -196,7 +234,9 @@ test('scoped extra estimates are acknowledged without warm I/O and remain fenced
   t.mock.method(Date, 'now', () => NOW);
   const { file } = await fixture(t), key = 'c'.repeat(64), empty = { usage: [], observations: [] };
   const extra: LocalWeeklyEstimate = { ...roughSnapshot(), method: 'series-prefix-v1', accountScopeKey: key,
-    pricingCoverage: .5, flags: ['partial-pricing'] };
+    // A write-race fixture must reach record(); incomplete admission is tested
+    // separately and must not strand the entered/release synchronization.
+    pricingCoverage: 1, unlinkedEquivalentUsd: 0, linkedSourceCount: 1, flags: ['account-unattributed'] };
   const opts = { ...options, accountEstimates: [extra], activeAccountScopeKey: key };
   const original = WeeklyEstimateArchive.prototype.record;
   let records = 0;
@@ -358,7 +398,7 @@ test('source change suppresses stale callbacks and excludes the previous source 
   assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries.length, 1);
 });
 
-test('genuine null-withheld totals never replace a saved snapshot or create a used-only archive record', async t => {
+test('genuine null-withheld totals hold capacity without rewriting a saved snapshot or creating a used-only archive record', async t => {
   const { file } = await fixture(t);
   const coordinator = new WeeklyEstimateCoordinator(file, SALT);
   const data = inputs();
@@ -367,7 +407,10 @@ test('genuine null-withheld totals never replace a saved snapshot or create a us
   const withheld = inputs();
   withheld.usage = [];
   const same = coordinator.project('codex', withheld, options);
-  assert.equal(same.entries[0].fullEquivalentUsd, 100);
+  // A same-checkpoint retraction carries incomplete pricing, so its display is
+  // conservative. The complete monetary snapshot on disk stays frozen.
+  assert.equal(same.entries[0].fullEquivalentUsd, null);
+  assert.equal(same.entries[0].unusedEquivalentUsd, null);
   assert.ok(same.entries[0].flags.includes('partial-pricing'));
   assert.ok(same.entries[0].flags.includes('stale-observation'));
   await coordinator.flush();
@@ -378,7 +421,7 @@ test('genuine null-withheld totals never replace a saved snapshot or create a us
   await coordinator.flush();
   const rows = coordinator.project('codex', later, options).entries;
   assert.ok(rows.some(row => row.observedAt === OBSERVED && row.fullEquivalentUsd === 100));
-  assert.ok(rows.some(row => row.observedAt === OBSERVED + 100 && row.fullEquivalentUsd === null));
+  assert.equal(rows.length, 1, 'one cycle summary selects the older eligible evidence over a newer withheld sample');
   const persisted = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
   assert.equal(persisted.length, 1);
   assert.ok(!persisted[0].flags.includes('partial-pricing'));
@@ -510,8 +553,11 @@ test('a later withheld projection during loading cannot discard an earlier queue
   coordinator.project('codex', withheld, options);
   release.resolve();
   await coordinator.flush();
-  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries.length, 1);
-  assert.equal(coordinator.project('codex', withheld, options).entries[0].fullEquivalentUsd, 100);
+  const saved = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].fullEquivalentUsd, 100, 'the queued eligible snapshot still reaches disk');
+  assert.equal(coordinator.project('codex', withheld, options).entries[0].fullEquivalentUsd, null,
+    'incomplete same-checkpoint live evidence cannot promote the frozen monetary value');
 });
 
 test('paired projection saves and reloads the delta amount, calibration start and conditional range', async t => {
@@ -746,10 +792,11 @@ test('local-history completeness changes invalidate the memo with unchanged usag
   const usage = data.usage, observations = data.observations;
   const incomplete = coordinator.project('codex', data, options);
   assert.equal(incomplete.entries[0].method, 'rough-prefix-v2');
-  assert.equal(incomplete.entries[0].fullEquivalentUsd, 100);
+  assert.equal(incomplete.entries[0].fullEquivalentUsd, null);
+  assert.equal(incomplete.entries[0].unusedEquivalentUsd, null);
   assert.ok(incomplete.entries[0].flags.includes('partial-history'));
   await coordinator.flush();
-  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
   data.localHistoryComplete = true;
   const complete = coordinator.project('codex', data, options);
   assert.strictEqual(data.usage, usage); assert.strictEqual(data.observations, observations);
@@ -759,7 +806,8 @@ test('local-history completeness changes invalidate the memo with unchanged usag
   await coordinator.flush();
   const rows = (await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).entries;
   assert.equal(rows.length, 1);
-  assert.ok(rows[0].flags.includes('partial-history'));
+  assert.ok(!rows[0].flags.includes('partial-history'));
+  assert.equal(rows[0].fullEquivalentUsd, 100);
 });
 
 test('known incomplete history updates the live warning and retains the first same-percent archive snapshot', async t => {
@@ -771,7 +819,8 @@ test('known incomplete history updates the live warning and retains the first sa
   data.localHistoryComplete = false;
   const [rough] = coordinator.project('codex', data, options).entries;
   assert.equal(rough.method, 'rough-prefix-v2');
-  assert.equal(rough.fullEquivalentUsd, 100);
+  assert.equal(rough.fullEquivalentUsd, null);
+  assert.equal(rough.unusedEquivalentUsd, null);
   assert.ok(rough.flags.includes('partial-history'));
   assert.ok(!rough.flags.includes('stale-observation'));
   await coordinator.flush();
@@ -819,37 +868,42 @@ test('an unchanged-valued newer observation is acknowledged even when archive ke
   assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
 });
 
-test('rough numeric snapshots with partial-pricing, boundary, history and counter flags are saved and reloaded', async t => {
-  const { file } = await fixture(t);
+test('rough admission withholds incomplete pricing/history but saves eligible boundary and counter references', async t => {
   let live = roughSnapshot();
   t.mock.method(estimateProducer, 'buildLocalWeeklyEstimates', (_provider: unknown, data: WeeklyValueInputs) => data.observations.length ? [live] : []);
-  const coordinator = new WeeklyEstimateCoordinator(file, SALT);
-  const cases: Array<Partial<LocalWeeklyEstimate>> = [
-    { flags: ['partial-pricing'], pricingCoverage: .25 },
-    { flags: ['boundary-uncertain'] }, { flags: ['partial-history'] }, { flags: ['counter-change'] },
-    { flags: ['account-unattributed', 'partial-pricing', 'boundary-uncertain', 'partial-history', 'counter-change'],
-      pricingCoverage: 0, unusedEquivalentUsd: 0 },
+  const cases: Array<[Partial<LocalWeeklyEstimate>, boolean]> = [
+    [{ flags: ['partial-pricing'], pricingCoverage: .25 }, false],
+    [{ flags: ['boundary-uncertain'] }, true], [{ flags: ['partial-history'] }, false], [{ flags: ['counter-change'] }, true],
+    [{ flags: ['account-unattributed', 'partial-pricing', 'boundary-uncertain', 'partial-history', 'counter-change'],
+      pricingCoverage: 0, unusedEquivalentUsd: 0 }, false],
   ];
-  for (const [i, change] of cases.entries()) {
+  for (const [i, [change, admitted]] of cases.entries()) {
+    const { file } = await fixture(t), coordinator = new WeeklyEstimateCoordinator(file, SALT);
     live = roughSnapshot({ ...change, observedAt: OBSERVED + i, utilizationPercent: 40 + i });
     const projected = coordinator.project('codex', inputs(), options);
-    assert.ok(projected.entries.some(entry => entry.method === live.method && entry.observedAt === live.observedAt));
+    assert.equal(projected.entries.length, 1);
+    assert.equal(projected.entries[0].observedAt, live.observedAt);
+    assert.equal(projected.entries[0].fullEquivalentUsd, admitted ? 100 : null);
+    assert.equal(projected.entries[0].unusedEquivalentUsd, admitted ? live.unusedEquivalentUsd : null);
     await coordinator.flush();
     const loaded = await new WeeklyEstimateArchive(file, SALT, SOURCE).load();
-    assert.equal(loaded.totalEntries, i + 1);
-    assert.equal(loaded.entries[i].fullEquivalentUsd, 100);
-    assert.equal(loaded.entries[i].unusedEquivalentUsd, live.unusedEquivalentUsd);
-    assert.deepEqual(new Set(loaded.entries[i].flags), new Set(live.flags));
+    assert.equal(loaded.totalEntries, admitted ? 1 : 0);
+    if (admitted) {
+      assert.equal(loaded.entries[0].fullEquivalentUsd, 100);
+      assert.equal(loaded.entries[0].unusedEquivalentUsd, live.unusedEquivalentUsd);
+      assert.deepEqual(new Set(loaded.entries[0].flags), new Set(live.flags));
+    }
+    const empty = { observations: [], usage: [] }, restart = new WeeklyEstimateCoordinator(file, SALT);
+    restart.project('codex', empty, options); await restart.flush();
+    const saved = restart.project('codex', empty, options).entries;
+    assert.equal(saved.length, admitted ? 1 : 0);
+    if (admitted) {
+      assert.equal(saved[0].method, live.method);
+      assert.equal(saved[0].pricingCoverage, 1);
+      assert.equal(saved[0].unusedEquivalentUsd, live.unusedEquivalentUsd);
+    }
+    assert.doesNotMatch(JSON.stringify(saved), /sourceKey|windowKey|accountScopeKey|raw-series|raw-source/);
   }
-  const empty = { observations: [], usage: [] };
-  const restart = new WeeklyEstimateCoordinator(file, SALT);
-  restart.project('codex', empty, options); await restart.flush();
-  const saved = restart.project('codex', empty, options).entries;
-  assert.equal(saved.length, 1);
-  assert.equal(saved[0].method, live.method);
-  assert.equal(saved[0].pricingCoverage, 0);
-  assert.equal(saved[0].unusedEquivalentUsd, 0);
-  assert.doesNotMatch(JSON.stringify(saved), /sourceKey|windowKey|accountScopeKey|raw-series|raw-source/);
 });
 
 test('rough admission preserves legacy-method guards and never records used-only or invalid numeric estimates', async t => {
@@ -877,12 +931,17 @@ test('rough admission preserves legacy-method guards and never records used-only
   assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
   live = roughSnapshot({ pricingCoverage: .1, flags: ['partial-history'], unusedEquivalentUsd: 0 });
   coordinator.project('codex', inputs(), options); await coordinator.flush();
+  assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 0);
+  live = roughSnapshot({ unusedEquivalentUsd: 0 });
+  coordinator.project('codex', inputs(), options); await coordinator.flush();
   assert.equal((await new WeeklyEstimateArchive(file, SALT, SOURCE).load()).totalEntries, 1);
 });
 
 test('rough semantic acknowledgements avoid clock-only I/O and retain pricing while coalescing same-percent numeric revisions', async t => {
   const { file } = await fixture(t);
-  let live = roughSnapshot({ pricingCoverage: .25, flags: ['partial-pricing', 'partial-history'] });
+  // Keep admission valid so this test continues to exercise actual writes,
+  // clock-only acknowledgement, pricing revisions and frozen archive values.
+  let live = roughSnapshot();
   t.mock.method(estimateProducer, 'buildLocalWeeklyEstimates', () => [live]);
   const original = WeeklyEstimateArchive.prototype.record;
   let records = 0;
@@ -908,7 +967,7 @@ test('rough semantic acknowledgements avoid clock-only I/O and retain pricing wh
   assert.equal(loaded.entries[0].fullEquivalentUsd, 100);
 });
 
-test('genuine null-withheld rough retractions preserve saved numbers and union display-only warning flags', async t => {
+test('genuine null-withheld rough retractions preserve archive bytes and withhold incomplete display capacity', async t => {
   const { file } = await fixture(t);
   let live = roughSnapshot();
   t.mock.method(estimateProducer, 'buildLocalWeeklyEstimates', () => [live]);
@@ -918,7 +977,10 @@ test('genuine null-withheld rough retractions preserve saved numbers and union d
   for (const flag of ['boundary-uncertain', 'partial-pricing', 'partial-history', 'counter-change'] as const) {
     live = roughSnapshot({ fullEquivalentUsd: null, unusedEquivalentUsd: null, flags: [flag] });
     const [retained] = coordinator.project('codex', inputs(), options).entries;
-    assert.equal(retained.fullEquivalentUsd, 100);
+    const incomplete = flag === 'partial-pricing' || flag === 'partial-history';
+    assert.equal(retained.fullEquivalentUsd, incomplete ? null : 100);
+    assert.equal(retained.unusedEquivalentUsd, incomplete ? null : 60);
+    assert.equal(retained.observedAt, OBSERVED);
     assert.ok(retained.flags.includes(flag));
     assert.ok(retained.flags.includes('stale-observation'));
     await coordinator.flush();

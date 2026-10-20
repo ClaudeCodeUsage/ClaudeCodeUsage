@@ -136,6 +136,7 @@ export function withCodexQuotaCycles(
   }
   return entries.map(entry => {
     if (entry.provider !== 'codex') return { ...entry };
+    if (entry.windowEvidence) return { ...entry, quotaCycle: { ...entry.windowEvidence.cycle } };
     const id = aliases.get(entry) ?? entry.quotaEpoch?.startedAt;
     const cycle = entry.accountScopeKey && id !== undefined
       ? books.get(entry.accountScopeKey)?.get(id) : undefined;
@@ -143,26 +144,67 @@ export function withCodexQuotaCycles(
   });
 }
 
-/** One latest monetary observation per account/reset cycle, not per method,
- * price revision, sampling interval, calendar day or login visit. */
-export function selectCodexCycleEstimates(entries: readonly LocalWeeklyEstimate[]): LocalWeeklyEstimate[] {
+/** Admission is separate from archive validity: old snapshots remain frozen,
+ * but incomplete numerators and tiny new calibrations cannot price capacity. */
+export function codexCycleAmountEligible(entry: LocalWeeklyEstimate): boolean {
+  if (entry.fullEquivalentUsd === null || !Number.isFinite(entry.fullEquivalentUsd) || entry.fullEquivalentUsd <= 0 ||
+    entry.unusedEquivalentUsd === null || !Number.isFinite(entry.unusedEquivalentUsd) || entry.unusedEquivalentUsd < 0 ||
+    entry.unusedEquivalentUsd > entry.fullEquivalentUsd ||
+    (entry.method === 'series-prefix-v1' || entry.method === 'account-delta-v1') && (entry.unlinkedEquivalentUsd ?? 0) > 0 ||
+    entry.flags.includes('partial-history') || entry.pricingCoverage !== 1) return false;
+  if (entry.windowEvidence) return entry.windowEvidence.complete && entry.windowEvidence.excludedUsd === 0 &&
+    entry.windowEvidence.deltaPercent >= 5 && entry.windowEvidence.pricedTokens === entry.windowEvidence.totalTokens;
+  if (entry.calibrationEvidence) return entry.calibrationEvidence.accumulated.deltaPercent >= 5 &&
+    entry.calibrationEvidence.accumulated.pricedTokens === entry.calibrationEvidence.accumulated.totalTokens;
+  if (entry.method === 'legacy-prefix-ratio' || entry.method === 'paired-delta' || entry.method === 'owned-window') {
+    return !entry.flags.some(flag => flag === 'boundary-uncertain' || flag === 'counter-change' || flag === 'partial-pricing');
+  }
+  return !entry.flags.includes('partial-pricing');
+}
+export function compareCodexCycleEvidence(a: LocalWeeklyEstimate, b: LocalWeeklyEstimate): number {
+  const strength = (entry: LocalWeeklyEstimate) => entry.windowEvidence?.deltaPercent ??
+    entry.calibrationEvidence?.accumulated.deltaPercent ?? 0;
+  return Number(codexCycleAmountEligible(b)) - Number(codexCycleAmountEligible(a)) ||
+    strength(b) - strength(a) || b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt;
+}
+/** One summary per cycle, including pending cycles. Quality precedes recency;
+ * a selected amount retains its own percentage and original as-of time. */
+export function selectCodexCycleEstimates(entries: readonly LocalWeeklyEstimate[], now = Number.POSITIVE_INFINITY): LocalWeeklyEstimate[] {
   const chosen: LocalWeeklyEstimate[] = [];
+  const localCycles = new Map<string | number, { cycle: CodexQuotaCycle; at: number }>();
+  for (const entry of entries) {
+    const key = entry.localWindowKey ?? entry.localWindowNumber, cycle = entry.quotaCycle ?? entry.windowEvidence?.cycle;
+    if (key === undefined || !cycle) continue;
+    const old = localCycles.get(key);
+    if (!old || old.cycle.fallbackDays === 7 && cycle.fallbackDays !== 7 ||
+      old.cycle.fallbackDays === cycle.fallbackDays && entry.estimatedAt > old.at) localCycles.set(key, { cycle, at: entry.estimatedAt });
+  }
   const rank = (entry: LocalWeeklyEstimate) => entry.method === 'account-delta-v1' ? 5 : entry.method === 'series-prefix-v1' ? 4 :
     entry.method === 'paired-delta' ? 3 : entry.method === 'rough-prefix-v2' ? 2 : 1;
-  const ordered = entries.filter(entry => entry.provider === 'codex' && entry.fullEquivalentUsd !== null &&
-    Number.isFinite(entry.fullEquivalentUsd) && entry.fullEquivalentUsd > 0 && entry.unusedEquivalentUsd !== null &&
-    Number.isFinite(entry.unusedEquivalentUsd) && entry.unusedEquivalentUsd >= 0 && entry.unusedEquivalentUsd <= entry.fullEquivalentUsd)
-    .map(entry => entry.quotaCycle?.referenceOnly && entry.quotaCycle.fallbackDays !== 7 || (!entry.quotaCycle && !entry.quotaEpoch)
-      ? { ...entry, quotaCycle: codexFallbackQuotaCycle(entry) } : entry)
-    .sort((a, b) => b.observedAt - a.observedAt || rank(b) - rank(a) || b.estimatedAt - a.estimatedAt);
-  const account = (entry: LocalWeeklyEstimate) => entry.accountScopeKey ?? entry.accountNumber;
+  const ordered = entries.filter(entry => entry.provider === 'codex' && time(entry.windowStart) && time(entry.resetAt) &&
+    entry.windowStart < entry.resetAt && time(entry.observedAt) && entry.observedAt >= entry.windowStart &&
+    entry.observedAt < entry.resetAt && entry.observedAt <= now &&
+    (entry.fullEquivalentUsd === null && entry.unusedEquivalentUsd === null ||
+      typeof entry.fullEquivalentUsd === 'number' && Number.isFinite(entry.fullEquivalentUsd) && entry.fullEquivalentUsd > 0 &&
+      typeof entry.unusedEquivalentUsd === 'number' && Number.isFinite(entry.unusedEquivalentUsd) &&
+      entry.unusedEquivalentUsd >= 0 && entry.unusedEquivalentUsd <= entry.fullEquivalentUsd))
+    .map(entry => {
+      const key = entry.localWindowKey ?? entry.localWindowNumber, cycle = key === undefined ? undefined : localCycles.get(key)?.cycle;
+      if (cycle) return { ...entry, quotaCycle: { ...cycle } };
+      return !entry.windowEvidence && (entry.quotaCycle?.referenceOnly && entry.quotaCycle.fallbackDays !== 7 || (!entry.quotaCycle && !entry.quotaEpoch))
+        ? { ...entry, quotaCycle: codexFallbackQuotaCycle(entry) } : entry;
+    })
+    .sort((a, b) => compareCodexCycleEvidence(a, b) || rank(b) - rank(a));
+  const account = (entry: LocalWeeklyEstimate) => entry.accountScopeKey ?? entry.accountNumber ??
+    (entry.quotaCycle?.fallbackDays === 7 ? undefined : entry.localWindowKey ?? entry.localWindowNumber);
   for (const entry of ordered) {
     if (!chosen.some(old => account(old) === account(entry) &&
       (old.quotaCycle?.fallbackDays === 7 && entry.quotaCycle?.fallbackDays === 7
         ? old.quotaCycle.id === entry.quotaCycle.id : old.quotaCycle && entry.quotaCycle && !old.quotaCycle.referenceOnly && !entry.quotaCycle.referenceOnly
         ? old.quotaCycle.id === entry.quotaCycle.id : old.quotaEpoch !== undefined || entry.quotaEpoch !== undefined
         ? (old.quotaCycle?.id ?? old.quotaEpoch?.startedAt) === (entry.quotaCycle?.id ?? entry.quotaEpoch?.startedAt)
-        : Math.abs(old.resetAt - entry.resetAt) <= TOLERANCE))) chosen.push(entry);
+        : Math.abs(old.resetAt - entry.resetAt) <= TOLERANCE))) chosen.push(codexCycleAmountEligible(entry) ? entry :
+          { ...entry, fullEquivalentUsd: null, unusedEquivalentUsd: null, fullRange: undefined });
   }
   return chosen;
 }

@@ -271,6 +271,8 @@ function latestBefore(
     .filter((item) =>
       item.provider === capture.provider &&
       item.periodType === capture.periodType &&
+      item.source === capture.source &&
+      item.accountAttribution === capture.accountAttribution &&
       item.observedAt <= capture.observedAt &&
       item.accountFingerprint === stableFingerprint,
     )
@@ -281,7 +283,7 @@ function latestBefore(
   return eligible[eligible.length - 1];
 }
 
-function latestProviderPeriodBefore(
+function latestAnonymousChannelBefore(
   observations: readonly QuotaObservationV2[],
   capture: QuotaCapture,
 ): QuotaObservationV2 | undefined {
@@ -289,6 +291,8 @@ function latestProviderPeriodBefore(
     .filter((item) =>
       item.provider === capture.provider &&
       item.periodType === capture.periodType &&
+      item.source === capture.source &&
+      item.accountAttribution === 'unattributed' &&
       item.observedAt <= capture.observedAt,
     )
     .sort((left, right) =>
@@ -509,10 +513,19 @@ function persistedBoundaryEvidence(
     current.resetAt !== null &&
     Math.abs(previous.resetAt - current.resetAt) > RESET_CLUSTER_MS
   ) return 'reset-at-change';
-  if (previous.usedFraction - current.usedFraction >= usageDropThreshold) {
+  if ((current.source === 'codex-official-api' && previous.usedFraction > current.usedFraction) ||
+    previous.usedFraction - current.usedFraction >= usageDropThreshold) {
     return 'usage-drop';
   }
   return null;
+}
+
+/** Anonymous local reset epochs share only a local evidence channel. All
+ * identified evidence compares within the same account, attribution and source. */
+function boundarySeriesKey(item: QuotaObservationV2): string {
+  const account = item.source === 'codex-local-structured-event' && item.accountAttribution === 'unattributed'
+    ? 'anonymous-local-channel' : item.accountFingerprint;
+  return [item.provider, item.periodType, item.source, item.accountAttribution, account].join('|');
 }
 
 function annotateBoundaries(
@@ -525,19 +538,19 @@ function annotateBoundaries(
     left.periodType.localeCompare(right.periodType) ||
     left.windowId.localeCompare(right.windowId),
   );
-  const previousByProviderPeriod = new Map<string, QuotaObservationV2>();
+  const previousBySeries = new Map<string, QuotaObservationV2>();
+  const previousByChannel = new Map<string, QuotaObservationV2>();
   return ordered.map((item) => {
-    const providerPeriodKey = `${item.provider}|${item.periodType}`;
-    const previousForProvider = previousByProviderPeriod.get(providerPeriodKey);
-    // A reset can be observed across anonymous Codex epochs, so retain its
-    // boundary evidence for deterministic replay. Account changes are handled
-    // independently below and always remain explicitly ambiguous.
-    const inferred = previousForProvider
-      ? persistedBoundaryEvidence(previousForProvider, item, usageDropThreshold)
+    const seriesKey = boundarySeriesKey(item);
+    const previous = previousBySeries.get(seriesKey);
+    const channelKey = [item.provider, item.periodType, item.source, item.accountAttribution].join('|');
+    const previousInChannel = previousByChannel.get(channelKey);
+    const inferred = previous
+      ? persistedBoundaryEvidence(previous, item, usageDropThreshold)
       : null;
     const crossesAccountEpoch = Boolean(
-      previousForProvider &&
-      previousForProvider.accountFingerprint !== item.accountFingerprint,
+      item.accountAttribution !== 'verified-local-signal' && previousInChannel &&
+      previousInChannel.accountFingerprint !== item.accountFingerprint,
     );
     const normalized = {
       ...item,
@@ -547,7 +560,8 @@ function annotateBoundaries(
         ...(crossesAccountEpoch ? ['account-ambiguous' as const] : []),
       ]),
     };
-    previousByProviderPeriod.set(providerPeriodKey, normalized);
+    previousBySeries.set(seriesKey, normalized);
+    previousByChannel.set(channelKey, normalized);
     return normalized;
   });
 }
@@ -598,11 +612,11 @@ export function mergeQuotaCaptures(
     // Local Codex logs do not expose a safe stable account identity. Their reset windows
     // intentionally use separate unattributed epochs, but a resetAt/window
     // transition still remains useful low-confidence reset evidence. Consult
-    // the preceding provider-period observation only for boundary detection;
+    // the preceding anonymous local-channel observation only for boundary detection;
     // never reuse its fingerprint or combine account-level estimates.
     const boundaryPrevious = previous ?? (
-      capture.accountAttribution === 'unattributed'
-        ? latestProviderPeriodBefore(observations, capture)
+      capture.source === 'codex-local-structured-event' && capture.accountAttribution === 'unattributed'
+        ? latestAnonymousChannelBefore(observations, capture)
         : undefined
     );
     const currentProviderWindowFingerprint = providerWindowFingerprint(
@@ -661,7 +675,7 @@ export function deriveQuotaResetEvents(
   const previousBySeries = new Map<string, QuotaObservationV2>();
   for (let index = 0; index < ordered.length; index += 1) {
     const current = ordered[index];
-    const seriesKey = `${current.provider}|${current.periodType}`;
+    const seriesKey = boundarySeriesKey(current);
     const previous = previousBySeries.get(seriesKey);
     previousBySeries.set(seriesKey, current);
     if (!previous || previous.windowId === current.windowId) continue;

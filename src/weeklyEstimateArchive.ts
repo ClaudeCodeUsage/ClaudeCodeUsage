@@ -6,6 +6,7 @@ import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import { fingerprintForStableIdentity } from './quotaObservationStore';
 import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation, CodexQuotaEpoch } from './codexQuotaEpoch';
 import { CodexCalibrationEvidence, copyCodexCalibrationEvidence, codexCalibrationEvidenceFitsEstimate } from './codexCalibrationEvidence';
+import { CodexWindowEvidence, copyCodexWindowEvidence, codexWindowEvidenceFits } from './codexWindowEvidence';
 
 export const WEEKLY_ESTIMATE_ARCHIVE_FILE = 'weekly-estimates-v1.json';
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES = 4096;
@@ -35,6 +36,8 @@ export interface WeeklyEstimateInput {
   /** Original paired-delta measurement interval and conditional range, never identity proof. */
   calibrationStart?: number;
   calibrationEvidence?: CodexCalibrationEvidence;
+  windowEvidence?: CodexWindowEvidence;
+  localWindowKey?: string;
   fullRange?: { lower: number; upper: number };
   /** Optional machine-local 64 lowercase hex key. This is never ownership/identity proof. */
   accountScopeKey?: string;
@@ -136,6 +139,11 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     !codexQuotaEpochFitsObservation(quotaEpoch, value.observedAt, value.resetAt, value.windowStart,
       value.calibrationStart as number | undefined))) return undefined;
   const calibrationEvidence = copyCodexCalibrationEvidence(value.calibrationEvidence);
+  const windowEvidence = copyCodexWindowEvidence(value.windowEvidence);
+  if (value.localWindowKey !== undefined && (typeof value.localWindowKey !== 'string' || !HEX.test(value.localWindowKey))) return undefined;
+  if (value.windowEvidence !== undefined && (!windowEvidence || value.provider !== 'codex' ||
+    value.method !== 'series-prefix-v1' || value.localWindowKey === undefined ||
+    !codexWindowEvidenceFits(windowEvidence, value as unknown as WeeklyEstimateInput))) return undefined;
   if (value.calibrationEvidence !== undefined && (!calibrationEvidence || value.provider !== 'codex' ||
     value.method !== 'account-delta-v1' || !codexCalibrationEvidenceFitsEstimate(calibrationEvidence,
       value as unknown as WeeklyEstimateInput))) return undefined;
@@ -157,6 +165,8 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey as string }),
     ...(quotaEpoch === undefined ? {} : { quotaEpoch }),
     ...(calibrationEvidence === undefined ? {} : { calibrationEvidence }),
+    ...(windowEvidence === undefined ? {} : { windowEvidence }),
+    ...(value.localWindowKey === undefined ? {} : { localWindowKey: value.localWindowKey as string }),
     ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber as number }),
     ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd as number }),
     ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount as number }),
@@ -172,9 +182,14 @@ function semanticKey(input: WeeklyEstimateInput): string {
 /** Official epoch snapshots retain the first as-of point at each percentage
  * change for each method/price. Legacy snapshots keep their original signatures. */
 export function sameWeeklyEstimateQuotaPoint(left: WeeklyEstimateInput, right: WeeklyEstimateInput): boolean {
+  if (left.localWindowKey !== right.localWindowKey) return false;
   if (left.provider !== 'codex' || right.provider !== 'codex' || left.accountScopeKey !== right.accountScopeKey ||
     left.method !== right.method || left.pricingVersion !== right.pricingVersion ||
     left.utilizationPercent !== right.utilizationPercent) return false;
+  if (left.fullEquivalentUsd === null && right.fullEquivalentUsd === null) {
+    return left.localWindowKey !== undefined && left.localWindowKey === right.localWindowKey ||
+      left.quotaEpoch !== undefined && right.quotaEpoch !== undefined && left.quotaEpoch.startedAt === right.quotaEpoch.startedAt;
+  }
   if (left.fullEquivalentUsd === null || left.fullEquivalentUsd <= 0 || left.unusedEquivalentUsd === null ||
     right.fullEquivalentUsd === null || right.fullEquivalentUsd <= 0 || right.unusedEquivalentUsd === null) return false;
   if (left.quotaEpoch !== undefined || right.quotaEpoch !== undefined) return left.quotaEpoch !== undefined &&
@@ -212,6 +227,7 @@ export class WeeklyEstimateArchive {
     return createHmac('sha256', this.salt).update(JSON.stringify(values)).digest('hex');
   }
   private windowKey(sourceKey: string, value: WeeklyEstimateInput): string {
+    if (value.localWindowKey !== undefined) return this.hmac(['paired-window-v1', sourceKey, value.localWindowKey]);
     if (value.quotaEpoch !== undefined) return this.hmac(['weekly-estimate-window-v2', sourceKey, value.provider,
       value.method, value.accountScopeKey, value.quotaEpoch.startedAt]);
     return this.hmac(['weekly-estimate-window-v1', sourceKey, value.provider, value.resetAt,
@@ -298,11 +314,12 @@ export class WeeklyEstimateArchive {
       const through = cutoff(clearFences, raw.sourceKey, input.provider,
         weeklyEstimateAccountFingerprint(this.salt, input.provider, input.accountScopeKey));
       if (through !== undefined && (input.observedAt <= through ||
+        (input.windowEvidence !== undefined && input.windowEvidence.from <= through) ||
         (input.method === 'account-delta-v1' && input.calibrationStart !== undefined && input.calibrationStart <= through))) throw new ArchiveFailure('invalid');
       const key = raw.windowKey;
       const previous = windows.get(key);
       const signature = semanticKey(input);
-      const tuple = JSON.stringify(input.quotaEpoch === undefined
+      const tuple = JSON.stringify(input.localWindowKey !== undefined ? [raw.sourceKey, input.provider, input.localWindowKey] : input.quotaEpoch === undefined
         ? [raw.sourceKey, input.provider, input.resetAt, input.method, input.accountScopeKey ?? null]
         : [raw.sourceKey, input.provider, input.method, input.accountScopeKey, input.quotaEpoch]);
       if (raw.revision !== (previous?.revision ?? 0) + 1 || previous?.signatures.has(signature) ||
@@ -397,6 +414,7 @@ export class WeeklyEstimateArchive {
         const through = cutoff(current.clearFences, this.sourceKey, input.provider,
           weeklyEstimateAccountFingerprint(this.salt, input.provider, input.accountScopeKey));
         if (through !== undefined && (input.observedAt <= through ||
+          (input.windowEvidence !== undefined && input.windowEvidence.from <= through) ||
           (input.method === 'account-delta-v1' && input.calibrationStart !== undefined && input.calibrationStart <= through))) {
           return { ...this.result(current, current.bytes), outcome: 'cleared-observation' as const };
         }

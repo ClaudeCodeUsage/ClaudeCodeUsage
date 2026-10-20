@@ -87,12 +87,12 @@ test('same-source late historical additions cannot masquerade as a new calibrati
     intervalEnd: T - 2 * M, equivalentUsd: 900, pricedTokens: 9000, totalTokens: 9000 });
   assert.equal(e.observe(sample(T + M, 30), late, 'api-v1'), undefined);
 });
-test('verified calibration scope excludes ambiguous sources without dropping unrelated current increments', () => {
+test('verified calibration scope permits static ambiguous history when the current numerator is complete', () => {
   const e = new CodexAccountEstimator();
   const scoped = (t: number, p: number, usd: number) => ({ ...inputs(t, p, usd),
     calibrationSourceScope: { verified: true, excludedSourceKeys: ['ambiguous-canary'] },
-    usage: [...inputs(t, p, usd).usage, { sourceKey: 'ambiguous-canary', timestamp: t - 1,
-      intervalStart: T - M, intervalEnd: t - 1, equivalentUsd: usd * 10, pricedTokens: usd * 100, totalTokens: usd * 100 }],
+    usage: [...inputs(t, p, usd).usage, { sourceKey: 'ambiguous-canary', timestamp: T - 1,
+      intervalStart: T - M, intervalEnd: T - 1, equivalentUsd: 1000, pricedTokens: 10000, totalTokens: 10000 }],
     observations: [...inputs(t, p, usd).observations, { provider: 'codex' as const, seriesKey: 'codex',
       sourceKey: 'ambiguous-canary', observedAt: t - 1, resetAt: R, usedPercent: p }] });
   e.observe(sample(T, 20), scoped(T, 20, 100), 'api-v1');

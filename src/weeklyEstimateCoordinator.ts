@@ -3,10 +3,14 @@ import { WeeklyEstimateArchive, WeeklyEstimateArchiveResult, WeeklyEstimateClear
   WeeklyEstimateInput, WeeklyEstimateProvider, WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES,
   weeklyEstimateAccountFingerprint, sameWeeklyEstimateQuotaPoint } from './weeklyEstimateArchive';
 import type { WeeklyValueInputs } from './weeklyValue';
-import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation } from './codexQuotaEpoch';
+import { createHmac } from 'node:crypto';
+import { buildCodexWindowEstimates } from './codexWindowEstimate';
+import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation, codexQuotaEpochFromObservations } from './codexQuotaEpoch';
 import { copyCodexCalibrationEvidence, codexCalibrationEvidenceFitsEstimate } from './codexCalibrationEvidence';
 import type { QuotaObservationV2 } from './quotaObservationStore';
-import { codexFallbackQuotaCycle, withCodexQuotaCycles } from './codexQuotaCycles';
+import { codexFallbackQuotaCycle, withCodexQuotaCycles, selectCodexCycleEstimates,
+  compareCodexCycleEvidence, codexCycleAmountEligible } from './codexQuotaCycles';
+import { copyCodexWindowEvidence, codexWindowEvidenceFits } from './codexWindowEvidence';
 
 export interface WeeklyEstimateDisplayEntry extends LocalWeeklyEstimate {
   /** Public reference-price version retained with its historical numeric snapshot. */
@@ -30,6 +34,10 @@ type Evidence = InternalEntry;
 type Memo = {
   usage: WeeklyValueInputs['usage']; observations: WeeklyValueInputs['observations'];
   localHistoryComplete: WeeklyValueInputs['localHistoryComplete'];
+  checkpoints?: WeeklyValueInputs['codexQuotaCheckpoints'];
+  checkpointsComplete?: boolean;
+  incompleteResets?: readonly number[];
+  incompleteRanges?: WeeklyValueInputs['codexQuotaIncompleteRanges'];
   pricingVersion: string; minute: number; live: InternalEntry[];
   accountEstimates?: readonly WeeklyEstimateDisplayEntry[]; activeAccountScopeKey?: string;
   activeQuotaEpochStartedAt?: number;
@@ -82,6 +90,10 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
       value.calibrationStart))) return undefined;
   const range = value.fullRange;
   const calibrationEvidence = copyCodexCalibrationEvidence(value.calibrationEvidence);
+  const windowEvidence = copyCodexWindowEvidence(value.windowEvidence);
+  if (value.localWindowKey !== undefined && !HEX.test(value.localWindowKey)) return undefined;
+  if (value.windowEvidence !== undefined && (!windowEvidence || provider !== 'codex' ||
+    value.method !== 'series-prefix-v1' || value.localWindowKey === undefined || !codexWindowEvidenceFits(windowEvidence, value))) return undefined;
   if (value.calibrationEvidence !== undefined && (!calibrationEvidence || provider !== 'codex' ||
     value.method !== 'account-delta-v1' || !codexCalibrationEvidenceFitsEstimate(calibrationEvidence, value))) return undefined;
   if (range !== undefined && (!range || !bounded(range.lower) || range.lower <= 0 || !bounded(range.upper) ||
@@ -96,6 +108,8 @@ function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimatePro
     ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey }),
     ...(quotaEpoch === undefined ? {} : { quotaEpoch }),
     ...(calibrationEvidence === undefined ? {} : { calibrationEvidence }),
+    ...(windowEvidence === undefined ? {} : { windowEvidence }),
+    ...(value.localWindowKey === undefined ? {} : { localWindowKey: value.localWindowKey }),
     ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber }),
     ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd }),
     ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount }),
@@ -110,7 +124,7 @@ function full(value: Pick<WeeklyEstimateInput, 'fullEquivalentUsd' | 'unusedEqui
 function merge(saved: InternalEntry[], live: InternalEntry[]): InternalEntry[] {
   const rows = new Map<string, InternalEntry>();
   for (const value of [...saved, ...live]) {
-    const key = JSON.stringify([value.provider, value.accountScopeKey ?? null, value.quotaEpoch?.startedAt ?? null,
+    const key = JSON.stringify([value.provider, value.accountScopeKey ?? null, value.localWindowKey ?? null, value.quotaEpoch?.startedAt ?? null,
       value.quotaEpoch === undefined ? value.resetAt : null, value.observedAt, value.method, value.pricingVersion ?? null]);
     const previous = rows.get(key);
     // A newly withheld full estimate cannot erase a saved, valid as-of snapshot.
@@ -122,15 +136,16 @@ function merge(saved: InternalEntry[], live: InternalEntry[]): InternalEntry[] {
   }
   const representatives = new Map<string, InternalEntry>();
   for (const value of [...rows.values()].reverse().sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt)) {
-    const fallback = value.provider === 'codex' && value.accountScopeKey === undefined && value.quotaEpoch === undefined;
+    const fallback = value.provider === 'codex' && value.accountScopeKey === undefined && value.quotaEpoch === undefined && !value.localWindowKey;
     const key = fallback ? JSON.stringify(['codex', 'seven-day-reference', codexFallbackQuotaCycle(value).id,
       value.fullEquivalentUsd === null ? 'withheld' : 'full']) : JSON.stringify([value.provider, value.accountScopeKey ?? null, value.quotaEpoch?.startedAt ?? null,
-      value.quotaEpoch === undefined ? value.resetAt : null, value.method, value.pricingVersion ?? null,
+      value.localWindowKey ?? null, value.quotaEpoch === undefined ? value.resetAt : null, value.method, value.pricingVersion ?? null,
       value.fullEquivalentUsd === null ? 'withheld' : 'full']);
-    if (!representatives.has(key)) representatives.set(key, value);
+    const previous = representatives.get(key);
+    if (!previous || value.provider === 'codex' && compareCodexCycleEvidence(value, previous) < 0) representatives.set(key, value);
   }
   return [...representatives.values()].sort((a, b) => b.resetAt - a.resetAt || b.observedAt - a.observedAt ||
-    b.estimatedAt - a.estimatedAt || a.method.localeCompare(b.method)).slice(0, 48)
+    b.estimatedAt - a.estimatedAt || a.method.localeCompare(b.method)).slice(0, WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES)
     .map(value => copy(value, value.provider)!);
 }
 function signature(state: State): string {
@@ -143,7 +158,8 @@ function semanticKey(value: WeeklyEstimateInput | Evidence): string {
 }
 function cleared(state: State, entry: InternalEntry | WeeklyEstimateInput, salt: string): boolean {
   const fingerprint = weeklyEstimateAccountFingerprint(salt, entry.provider, entry.accountScopeKey);
-  const beginning = entry.method === 'account-delta-v1' ? Math.min(entry.observedAt, entry.calibrationStart ?? Infinity) : entry.observedAt;
+  const beginning = entry.windowEvidence ? entry.windowEvidence.from : entry.method === 'account-delta-v1'
+    ? Math.min(entry.observedAt, entry.calibrationStart ?? Infinity) : entry.observedAt;
   return beginning <= Math.max(state.clearedThrough ?? -1,
     fingerprint === undefined ? -1 : state.accountClearedThrough[fingerprint] ?? -1);
 }
@@ -199,14 +215,37 @@ export class WeeklyEstimateCoordinator {
   }
   private projection(state: State, live: InternalEntry[], activeKey?: string, activeEpoch?: number,
     observations: readonly QuotaObservationV2[] = [], now = Date.now()): WeeklyEstimateProjection {
-    const merged = merge(state.saved, visible(state, live, this.salt));
+    const visibleLive = visible(state, live, this.salt);
+    const reconstructed = visibleLive.filter(entry => entry.windowEvidence !== undefined);
+    // A full retained-source reconstruction is authoritative for that anonymous
+    // counter window. Old frozen snapshots stay on disk, but cannot resurrect a
+    // fit whose source/lineage evidence was withdrawn by the current index.
+    const saved = state.saved.filter(entry => !entry.windowEvidence || !reconstructed.some(current =>
+      Math.abs(current.resetAt - entry.resetAt) <= 300_000));
+    const merged = merge(saved, visibleLive);
+    const paired = merged.filter(entry => entry.windowEvidence !== undefined);
+    // Reconstructed precise evidence withdraws old daily-slice extrapolations
+    // for the same reference bucket. Frozen archive bytes stay untouched.
+    for (let i = 0; i < merged.length; i++) {
+      const entry = merged[i];
+      if (entry.provider === 'codex' && !entry.accountScopeKey && !entry.windowEvidence && paired.some(other =>
+        other.windowEvidence!.cycle.id === codexFallbackQuotaCycle(entry).id || Math.abs(other.resetAt - entry.resetAt) <= 300_000)) {
+        merged[i] = { ...entry, fullEquivalentUsd: null, unusedEquivalentUsd: null };
+      }
+    }
     const cycleEntries = state.provider === 'codex' ? withCodexQuotaCycles(merged, observations,
       key => weeklyEstimateAccountFingerprint(this.salt, 'codex', key), now) : merged;
-    const entries = cycleEntries.map(entry => {
-      const { accountScopeKey, accountNumber: _hint, ...publicEntry } = entry;
-      const accountNumber = full(entry) ? this.accountNumber(state, accountScopeKey)
-        : accountScopeKey === undefined ? undefined : state.accountNumbers.get(accountScopeKey);
-      return { ...publicEntry, ...(accountNumber === undefined ? {} : { accountNumber }) };
+    const windowNumbers = new Map<string, number>();
+    for (const entry of cycleEntries.slice().sort((a, b) => a.observedAt - b.observedAt)) {
+      if (entry.localWindowKey && !windowNumbers.has(entry.localWindowKey)) windowNumbers.set(entry.localWindowKey, windowNumbers.size + 1);
+    }
+    const summaries = state.provider === 'codex' ? selectCodexCycleEstimates(cycleEntries, now)
+      .sort((a, b) => (b.quotaCycle?.endAt ?? b.resetAt) - (a.quotaCycle?.endAt ?? a.resetAt) || b.observedAt - a.observedAt).slice(0, 48) : cycleEntries.slice(0, 48);
+    const entries = summaries.map(entry => {
+      const { accountScopeKey, accountNumber: _hint, localWindowKey, ...publicEntry } = entry;
+      const accountNumber = this.accountNumber(state, accountScopeKey);
+      return { ...publicEntry, ...(accountNumber === undefined ? {} : { accountNumber }),
+        ...(localWindowKey === undefined ? {} : { localWindowNumber: windowNumbers.get(localWindowKey) }) };
     });
     // Identity alone must not reserve a number that the archive cannot honor.
     const activeAccountNumber = state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey)
@@ -214,6 +253,34 @@ export class WeeklyEstimateCoordinator {
     return { entries, status: state.status, ...(activeAccountNumber === undefined ? {} : { activeAccountNumber }),
       ...(state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey) &&
         activeEpoch !== undefined && time(activeEpoch) && activeEpoch > 0 ? { activeQuotaEpochStartedAt: activeEpoch } : {}) };
+  }
+  /** Identity/reset checkpoints exist independently of a successful monetary fit.
+   * Only an already known official scope can bind P2; reset-time equality cannot. */
+  private checkpoints(state: State, options: WeeklyEstimateProjectOptions): InternalEntry[] {
+    if (state.provider !== 'codex') return [];
+    const keys = new Set([...state.saved.map(entry => entry.accountScopeKey), options.activeAccountScopeKey,
+      ...(options.accountEstimates ?? []).map(entry => entry.accountScopeKey)].filter((key): key is string => key !== undefined && HEX.test(key)));
+    const out: InternalEntry[] = [], observations = options.quotaObservations ?? [];
+    for (const key of keys) {
+      const fp = weeklyEstimateAccountFingerprint(this.salt, 'codex', key)!;
+      const windows = new Map<string, QuotaObservationV2>();
+      for (const row of observations) if (row.provider === 'codex' && row.source === 'codex-official-api' &&
+        row.accountFingerprint === fp && row.accountAttribution === 'verified-local-signal' && row.periodType === 'seven-day' &&
+        row.observedAt <= options.now && row.resetAt !== null && row.resetAt > row.observedAt) {
+        const old = windows.get(row.windowId);
+        if (!old || row.observedAt > old.observedAt) windows.set(row.windowId, row);
+      }
+      for (const row of windows.values()) {
+        const quotaEpoch = codexQuotaEpochFromObservations(observations, fp, row.observedAt, row.resetAt!);
+        if (!quotaEpoch) continue;
+        out.push({ provider: 'codex', accountScopeKey: key, quotaEpoch,
+          windowStart: row.resetAt! - 604_800_000, resetAt: row.resetAt!, observedAt: row.observedAt,
+          estimatedAt: row.observedAt, usedEquivalentUsd: 0, fullEquivalentUsd: null, unusedEquivalentUsd: null,
+          utilizationPercent: row.usedFraction * 100, pricingCoverage: 0, method: 'account-delta-v1',
+          pricingVersion: options.pricingVersion, flags: ['account-unattributed'] });
+      }
+    }
+    return out;
   }
   private acknowledge(state: State, entry: WeeklyEstimateInput): void {
     const key = semanticKey(entry);
@@ -316,20 +383,29 @@ export class WeeklyEstimateCoordinator {
     const minute = Math.floor(options.now / 60_000);
     let memo = state.memo;
     if (!memo || memo.usage !== inputs.usage || memo.observations !== inputs.observations ||
+      memo.checkpoints !== inputs.codexQuotaCheckpoints || memo.checkpointsComplete !== inputs.codexQuotaCheckpointsComplete ||
+      memo.incompleteResets !== inputs.codexQuotaIncompleteResets ||
+      memo.incompleteRanges !== inputs.codexQuotaIncompleteRanges ||
       memo.localHistoryComplete !== inputs.localHistoryComplete || memo.pricingVersion !== options.pricingVersion || memo.minute !== minute ||
       memo.accountEstimates !== options.accountEstimates || memo.activeAccountScopeKey !== options.activeAccountScopeKey ||
       memo.activeQuotaEpochStartedAt !== options.activeQuotaEpochStartedAt || memo.quotaObservations !== options.quotaObservations) {
-      const produced = buildLocalWeeklyEstimates(provider, inputs, { now: options.now, limit: 48 })
+      const produced = (provider === 'codex' && inputs.codexQuotaCheckpoints !== undefined
+        ? buildCodexWindowEstimates(inputs, { now: options.now, minimumObservedAt: state.clearedThrough, windowKey: (resetAt, startedAt) =>
+          createHmac('sha256', this.salt).update(JSON.stringify(['paired-window-v1', options.sourceNamespace, resetAt, startedAt])).digest('hex') })
+        : buildLocalWeeklyEstimates(provider, inputs, { now: options.now, limit: 48 }))
         .map(entry => ({ ...entry, pricingVersion: options.pricingVersion }));
       // Account estimates freeze their USD and pricing evidence at capture. Only unstamped
       // legacy callers inherit the current version; a present invalid version fails copy().
       const accounts = provider === 'codex' ? (options.accountEstimates ?? []).map(entry => ({
         ...entry, pricingVersion: entry.pricingVersion === undefined ? options.pricingVersion : entry.pricingVersion,
       })) : [];
-      const live = [...produced, ...accounts]
+      const live = [...produced, ...accounts, ...this.checkpoints(state, options)]
         .map(entry => copy(entry, provider))
         .filter((entry): entry is InternalEntry => entry !== undefined);
       memo = { usage: inputs.usage, observations: inputs.observations, localHistoryComplete: inputs.localHistoryComplete,
+        checkpoints: inputs.codexQuotaCheckpoints, checkpointsComplete: inputs.codexQuotaCheckpointsComplete,
+        incompleteResets: inputs.codexQuotaIncompleteResets,
+        incompleteRanges: inputs.codexQuotaIncompleteRanges,
         pricingVersion: options.pricingVersion, accountEstimates: options.accountEstimates, activeAccountScopeKey: options.activeAccountScopeKey,
         activeQuotaEpochStartedAt: options.activeQuotaEpochStartedAt,
         quotaObservations: options.quotaObservations,
@@ -338,7 +414,8 @@ export class WeeklyEstimateCoordinator {
       state.memo = memo;
       if (!this.blocked(state) && state.archive) {
         for (const entry of live) {
-          if (!full(entry) || cleared(state, entry, this.salt)) continue;
+          const pendingCycle = provider === 'codex' && (entry.windowEvidence?.complete === true || entry.quotaEpoch !== undefined) && entry.fullEquivalentUsd === null;
+          if (!(provider === 'codex' ? codexCycleAmountEligible(entry) || pendingCycle : full(entry)) || cleared(state, entry, this.salt)) continue;
           const dto: WeeklyEstimateInput = { ...copy(entry, provider)!, pricingVersion: entry.pricingVersion ?? options.pricingVersion };
           const key = semanticKey(dto);
           if (state.acknowledged.has(key) || state.pending.has(key)) continue;

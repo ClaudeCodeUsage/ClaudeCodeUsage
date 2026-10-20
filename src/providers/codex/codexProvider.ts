@@ -21,6 +21,7 @@ import {
   codexHourProofSnapshot,
   isReadableCodexPeriod,
   isCodexUsageContributionCurrent,
+  isCodexQuotaCheckpointCurrent,
   loadCodexIndex,
 } from './codexIndex';
 import type { CanonicalCodexOutputHours } from './codexHourProof';
@@ -49,6 +50,10 @@ import { CodexSessionTitleCache } from './codexIdentity';
 import { CodexAchievementUsageDelta, CodexAchievementUsageWindow,
   copyCodexUsageWindow, copyCodexUsageDelta } from './codexAchievementOrigin';
 import { classifyCodexSessionDuplicates } from './codexDedup';
+import { CodexQuotaCheckpointSegment, CODEX_QUOTA_CHECKPOINT_SNAPSHOT_LIMIT,
+  projectCodexQuotaCheckpointSegments, CodexQuotaIncompleteRange,
+  CODEX_QUOTA_CHECKPOINT_VERSION, codexQuotaCheckpointStateRanges,
+  mergeCodexQuotaIncompleteRanges } from './codexQuotaCheckpoints';
 import {
   equivalentUsageFromProviderTokens,
   WeeklyQuotaObservation,
@@ -136,6 +141,12 @@ function displayOnlySnapshot(snapshot: CodexProviderSnapshot): CodexProviderSnap
   return {
     ...snapshot,
     currentManifestVerified: false,
+    ...(snapshot.weeklyValueInputs ? { weeklyValueInputs: {
+      ...snapshot.weeklyValueInputs, codexQuotaCheckpointsComplete: false,
+      codexQuotaIncompleteResets: undefined,
+      codexQuotaIncompleteRanges: undefined,
+      codexQuotaCheckpoints: snapshot.weeklyValueInputs.codexQuotaCheckpoints?.map(row => ({ ...row, complete: false })),
+    } } : {}),
     files: snapshot.files.map((file) => {
       const { achievementPeriodWitness: _witness, ...display } = file;
       return display;
@@ -324,6 +335,140 @@ function codexWeeklyValueInputs(
   return { observations, usage, ...(calibrationPricebook ? { calibrationPricebook } : {}) };
 }
 
+const MAX_CODEX_INCOMPLETE_RESET_ANCHORS = CODEX_QUOTA_CHECKPOINT_SNAPSHOT_LIMIT;
+const CODEX_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** A lone admitted baseline is still usable by another source's enclosing
+ * interval. Reconcile numeric vectors, rather than requiring an own delta. */
+function checkpointsCoverPrimaryTokens(file: CodexFileContribution): boolean {
+  const state = file.quotaCheckpoints;
+  if (!state) return false;
+  const fields = ['inputTotal', 'cachedInput', 'outputTotal', 'reasoningOutput'] as const;
+  const totals = { inputTotal: 0, cachedInput: 0, outputTotal: 0, reasoningOutput: 0 };
+  const add = (models: Readonly<Record<string, ProviderTokenCounts>>): boolean => {
+    for (const tokens of Object.values(models)) {
+      for (const field of fields) {
+        const value = tokens[field] ?? 0;
+        if (!Number.isSafeInteger(value) || value < 0) return false;
+        totals[field] += value;
+        if (!Number.isSafeInteger(totals[field])) return false;
+      }
+    }
+    return true;
+  };
+  if (!add({ excluded: state.excludedTokens })) return false;
+  let previous: typeof state.rows[number] | undefined;
+  for (const row of state.rows) {
+    if (previous && previous.segment !== row.segment && !add(previous.byModel)) return false;
+    if (row.baseline && (row.baselineByModel === undefined || !add(row.baselineByModel))) return false;
+    previous = row;
+  }
+  if (previous && !add(previous.byModel)) return false;
+  return fields.every(field => totals[field] === (file.aggregate.total[field] ?? 0));
+}
+
+/** Exclusions for observed windows only, never an account join or token allocation.
+ * Missing sidecars can be scoped only by a complete dated primary census. */
+function incompleteCheckpointResets(
+  index: CodexIndexV1, contributions: readonly CodexFileContribution[],
+  uncertainFiles: ReadonlySet<string>, omittedResets: ReadonlySet<number>,
+  currentManifestVerified: boolean,
+): number[] | undefined {
+  if (!currentManifestVerified || !index.coverage.complete ||
+    index.coverage.indexedFiles !== index.coverage.totalFiles ||
+    Object.keys(index.files).length !== index.coverage.totalFiles) return undefined;
+  const anchors = new Set<number>();
+  const affected = new Set<number>();
+  const add = (target: Set<number>, value: number): boolean => {
+    if (!Number.isSafeInteger(value) || value <= 0) return false;
+    target.add(value);
+    return target.size <= MAX_CODEX_INCOMPLETE_RESET_ANCHORS;
+  };
+  const fileAnchors = (file: CodexFileContribution): number[] => [
+    ...(file.quotaHistory ?? []).map(row => row.resetAt),
+    ...(file.quotaCheckpoints?.rows ?? []).map(row => row.resetAt),
+    ...[...Object.values(file.limits ?? {}), ...(file.limit ? [file.limit] : [])]
+      .flatMap(limit => weeklyQuotaObservationsFromCodexLimit(limit, file.fileKey))
+      .map(row => row.resetAt),
+  ];
+  for (const reset of omittedResets) if (!add(affected, reset) || !add(anchors, reset)) return undefined;
+  for (const row of index.quotaHistory ?? []) if (!add(anchors, row.resetAt)) return undefined;
+  for (const file of contributions) {
+    for (const reset of fileAnchors(file)) if (!add(anchors, reset)) return undefined;
+  }
+  for (const file of contributions) {
+    if (!uncertainFiles.has(file.fileKey)) continue;
+    // A checked manifest alone does not bound unread/replaced/undated source bytes.
+    if (!isCodexUsageContributionCurrent(file) || file.offset !== file.size ||
+      file.discardingOversizedLine || file.lineageReconciliation || file.periodMigration ||
+      file.lineage?.appliedPrefixEvents !== file.lineage?.desiredPrefixEvents ||
+      file.qualityFlags.some(flag => ['stale-file', 'stale-reset-required',
+        'oversized-jsonl-line', 'invalid-event-timestamp'].includes(flag))) return undefined;
+    const period = file.aggregate.period;
+    if (!period || period.indexedThrough !== file.offset ||
+      !isReadableCodexPeriod(file, index.coverage.period.timeZone) ||
+      !isCurrentCodexPeriodLineage(period, file.lineage?.desiredPrefixEvents ?? 0)) return undefined;
+    const fields = ['inputTotal', 'cachedInput', 'outputTotal', 'reasoningOutput'] as const;
+    const totals = { inputTotal: 0, cachedInput: 0, outputTotal: 0, reasoningOutput: 0 };
+    const bounds: Array<{ from: number; through: number }> = [];
+    for (const slice of Object.values(period.days)) {
+      for (const field of fields) {
+        const count = slice.total[field] ?? 0;
+        if (!Number.isSafeInteger(count) || count < 0) return undefined;
+        totals[field] += count;
+        if (!Number.isSafeInteger(totals[field])) return undefined;
+      }
+      if (slice.total.inputTotal + slice.total.outputTotal === 0) continue;
+      const from = slice.firstObservedAt, through = slice.lastObservedAt;
+      if (!Number.isSafeInteger(from) || !Number.isSafeInteger(through) ||
+        from! <= 0 || through! < from!) return undefined;
+      bounds.push({ from: from!, through: through! });
+    }
+    // A merely readable subset cannot prove that the undated remainder is old.
+    if (fields.some(field => totals[field] !== (file.aggregate.total[field] ?? 0))) return undefined;
+    for (const reset of fileAnchors(file)) if (!add(affected, reset)) return undefined;
+    for (const reset of anchors) {
+      if (bounds.some(bound => bound.from <= reset + CODEX_QUOTA_RESET_CLUSTER_MS &&
+        bound.through >= reset - CODEX_WEEK_MS - CODEX_QUOTA_RESET_CLUSTER_MS)) {
+        if (!add(affected, reset)) return undefined;
+      }
+    }
+  }
+  return [...affected].sort((a, b) => a - b);
+}
+
+/** Negative time evidence only. No missing USD is allocated to any window. */
+function incompleteCheckpointRanges(
+  index: CodexIndexV1, contributions: readonly CodexFileContribution[],
+  ambiguous: ReadonlySet<string>, omitted: readonly CodexQuotaIncompleteRange[],
+  currentManifestVerified: boolean,
+): CodexQuotaIncompleteRange[] | undefined {
+  if (!currentManifestVerified || !index.coverage.complete ||
+    index.coverage.indexedFiles !== index.coverage.totalFiles ||
+    Object.keys(index.files).length !== index.coverage.totalFiles) return undefined;
+  const ranges = [...omitted];
+  const fields = ['inputTotal', 'cachedInput', 'outputTotal', 'reasoningOutput'] as const;
+  for (const file of contributions) {
+    const state = file.quotaCheckpoints;
+    if (!isCodexUsageContributionCurrent(file) || file.offset !== file.size || file.discardingOversizedLine ||
+      file.lineageReconciliation || file.lineage?.appliedPrefixEvents !== file.lineage?.desiredPrefixEvents ||
+      file.qualityFlags.some(flag => ['stale-file', 'stale-reset-required'].includes(flag))) return undefined;
+    if (!state || state.version !== CODEX_QUOTA_CHECKPOINT_VERSION || !isCodexQuotaCheckpointCurrent(file)) {
+      // Legacy states have no skip provenance. Keep the existing global fallback.
+      return undefined;
+    }
+    const localRanges = codexQuotaCheckpointStateRanges(state);
+    if (!localRanges || fields.some(field => (state.observedTokens[field] ?? 0) !==
+      (file.aggregate.total[field] ?? 0))) return undefined;
+    ranges.push(...localRanges);
+    if (ambiguous.has(file.fileKey) || file.qualityFlags.includes('missing-parent')) {
+      if (state.activityFrom <= 0 || state.activityThrough < state.activityFrom) return undefined;
+      ranges.push({ from: state.activityFrom, through: state.activityThrough });
+    }
+  }
+  return mergeCodexQuotaIncompleteRanges(ranges);
+}
+
 function snapshotFromIndex(
   index: CodexIndexV1,
   sessionTitles: Map<string, string> = new Map(),
@@ -343,6 +488,45 @@ function snapshotFromIndex(
         contribution.lineage.desiredPrefixEvents
     ),
   );
+  const uncertainCheckpointFiles = new Set<string>();
+  const omittedCheckpointResets = new Set<number>();
+  const checkpointSegments: Array<CodexQuotaCheckpointSegment & {
+    rows: NonNullable<CodexFileContribution['quotaCheckpoints']>['rows'] }> = [];
+  let codexQuotaCheckpointsComplete = currentManifestVerified && index.coverage.complete &&
+    deduplication.ambiguousFileKeys.size === 0 && usageContributions.length === contributions.length;
+  for (const file of contributions) {
+    const state = file.quotaCheckpoints;
+    const ready = isCodexUsageContributionCurrent(file) && !file.lineageReconciliation &&
+      file.offset === file.size && !file.discardingOversizedLine &&
+      file.lineage?.appliedPrefixEvents === file.lineage?.desiredPrefixEvents &&
+      isCodexQuotaCheckpointCurrent(file) && /^[a-f0-9]{64}$/.test(file.fileKey);
+    if (!ready || !state) {
+      codexQuotaCheckpointsComplete = false; uncertainCheckpointFiles.add(file.fileKey); continue;
+    }
+    const eligible = currentManifestVerified && !deduplication.ambiguousFileKeys.has(file.fileKey) &&
+      !file.qualityFlags.some(flag => ['missing-parent', 'stale-file'].includes(flag));
+    const unpairedUsage = !checkpointsCoverPrimaryTokens(file);
+    if (!eligible) codexQuotaCheckpointsComplete = false;
+    if (!state.complete || state.overflow) codexQuotaCheckpointsComplete = false;
+    if (unpairedUsage) codexQuotaCheckpointsComplete = false;
+    if (!eligible || !state.complete || state.overflow || unpairedUsage) uncertainCheckpointFiles.add(file.fileKey);
+    let segment: typeof checkpointSegments[number] | undefined;
+    for (const row of state.rows) {
+      if (!row.complete) { codexQuotaCheckpointsComplete = false; omittedCheckpointResets.add(row.resetAt); }
+      if (!segment || segment.rows[0].segment !== row.segment) {
+        segment = { sourceKey: file.fileKey, rows: [], eligible }; checkpointSegments.push(segment);
+      }
+      segment.rows.push(row);
+    }
+  }
+  const projection = projectCodexQuotaCheckpointSegments(checkpointSegments);
+  const codexQuotaCheckpoints = projection.checkpoints;
+  if (!projection.complete) codexQuotaCheckpointsComplete = false;
+  for (const reset of projection.omittedResets) omittedCheckpointResets.add(reset);
+  const codexQuotaIncompleteResets = incompleteCheckpointResets(index, contributions,
+    uncertainCheckpointFiles, omittedCheckpointResets, currentManifestVerified);
+  const codexQuotaIncompleteRanges = incompleteCheckpointRanges(index, contributions,
+    deduplication.ambiguousFileKeys, projection.omittedRanges, currentManifestVerified);
   const files = usageContributions
     .map((file) => {
       const periodReadable = isReadableCodexPeriod(
@@ -415,7 +599,7 @@ function snapshotFromIndex(
       usageContributions,
       index.quotaHistory ?? [],
       index.coverage.period.timeZone,
-    ), calibrationSourceScope: {
+    ), codexQuotaCheckpoints, codexQuotaCheckpointsComplete, codexQuotaIncompleteResets, codexQuotaIncompleteRanges, calibrationSourceScope: {
       verified: currentManifestVerified && index.coverage.complete && index.coverage.period.allTime.complete,
       excludedSourceKeys: [...deduplication.ambiguousFileKeys].sort(),
     } },

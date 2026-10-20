@@ -51,6 +51,12 @@ export interface CodexStructuralEvent {
 }
 
 export interface CodexLineOutput {
+  /** Numeric envelope time only; no raw line or message is retained. */
+  observedAt?: number;
+  /** Current-line attribution cannot prove a paired post-baseline increment. */
+  quotaPairingIncomplete?: boolean;
+  /** Fixed enum only; present even when that source has no usable quota window. */
+  quotaSource?: 'codex' | 'unspecified' | 'other';
   state: CodexParserState;
   events: NormalizedUsageEvent[];
   limit?: ProviderLimitSnapshot;
@@ -574,26 +580,30 @@ function parseTokenCount(
   state: CodexParserState,
   pseudonymize?: (raw: string) => string,
 ): CodexLineOutput {
-  if (!isObject(payload.info)) {
-    return { state: withFlag(state, 'missing-token-info'), events: [] };
-  }
-  const info = payload.info;
-  const current = rawTokenCounts(info.total_token_usage);
-  const last = rawTokenCounts(info.last_token_usage);
-  if (!current && !last) {
-    return { state: withFlag(state, 'invalid-token-count'), events: [] };
-  }
-
   const observedAt = timestampOf(entry);
+  const info = isObject(payload.info) ? payload.info : {};
   const limit = parsePrimaryLimit(payload, info, observedAt);
   const rateLimits = isObject(payload.rate_limits)
     ? payload.rate_limits
-    : isObject(info.rate_limits)
-      ? info.rate_limits
-      : undefined;
-  const rawSource = rateLimits
-    ? stringField(rateLimits, 'limit_id')
+    : isObject(info.rate_limits) ? info.rate_limits : undefined;
+  const rawSource = rateLimits ? stringField(rateLimits, 'limit_id') : undefined;
+  const normalizedSource = rawSource?.trim().toLowerCase();
+  const sourceName = rateLimits ? stringField(rateLimits, 'limit_name')?.trim().toLowerCase() : undefined;
+  const quotaSource: CodexLineOutput['quotaSource'] = rateLimits
+    ? normalizedSource ? normalizedSource === 'codex' ? 'codex' : 'other'
+      : sourceName && sourceName !== 'codex' ? 'other' : 'unspecified'
     : undefined;
+  if (!isObject(payload.info)) {
+    return { state: limit ? state : withFlag(state, 'missing-token-info'), events: [], limit, quotaSource,
+      ...(!limit ? { quotaPairingIncomplete: true } : {}) };
+  }
+  const current = rawTokenCounts(info.total_token_usage);
+  const last = rawTokenCounts(info.last_token_usage);
+  if (!current && !last) {
+    return { state: limit ? state : withFlag(state, 'invalid-token-count'), events: [], limit, quotaSource,
+      ...((!limit || info.last_token_usage != null || info.total_token_usage != null)
+        ? { quotaPairingIncomplete: true } : {}) };
+  }
   const source = rawSource
     ? pseudonymize?.(`rate-limit:${rawSource}`) ?? 'unknown-source'
     : 'default';
@@ -643,8 +653,10 @@ function parseTokenCount(
     };
   }
   const lineageTokenKey = signature;
+  const quotaPairingIncomplete = regressed || componentClamped || (!last && !state.highWater);
   if (!hasUsage(tokens)) {
-    return { state: nextState, events: [], limit, lineageTokenKey };
+    return { state: nextState, events: [], limit, lineageTokenKey, quotaSource,
+      ...(quotaPairingIncomplete ? { quotaPairingIncomplete: true } : {}) };
   }
 
   const event: NormalizedUsageEvent = {
@@ -662,7 +674,8 @@ function parseTokenCount(
     confidence: nextState.qualityFlags.length > 0 ? 'partial' : 'exact',
     qualityFlags: [...nextState.qualityFlags],
   };
-  return { state: nextState, events: [event], limit, lineageTokenKey };
+  return { state: nextState, events: [event], limit, lineageTokenKey, quotaSource,
+    ...(quotaPairingIncomplete ? { quotaPairingIncomplete: true } : {}) };
 }
 
 export function parseCodexLine(
@@ -672,8 +685,14 @@ export function parseCodexLine(
 ): CodexLineOutput {
   const entry = parseJsonObject(line);
   if (!entry) {
-    return { state: withFlag(state, 'invalid-json'), events: [] };
+    return { state: withFlag(state, 'invalid-json'), events: [], quotaPairingIncomplete: true };
   }
+  return { ...parseCodexEntry(entry, state, pseudonymize), observedAt: timestampOf(entry) };
+}
+
+function parseCodexEntry(
+  entry: JsonObject, state: CodexParserState, pseudonymize?: (raw: string) => string,
+): CodexLineOutput {
   const type = stringField(entry, 'type');
   if (type === 'turn_context') {
     return parseTurnContext(entry, state);

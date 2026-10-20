@@ -3,6 +3,7 @@ import { ClaudeApiUsageResponse, ClaudeUsageRecord } from './types';
 import { normalizeQuotaWindows } from './quotaWindows';
 import { ProviderTokenCounts, UsageProvider } from './providers/providerTypes';
 import type { CodexCalibrationPricebook } from './codexCalibrationEvidence';
+import type { CodexQuotaCheckpoint } from './providers/codex/codexQuotaCheckpoints';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_CLUSTER_MS = 5 * 60 * 1000;
@@ -57,6 +58,19 @@ export interface WeeklyEquivalentUsage {
 }
 
 export interface WeeklyValueInputs {
+  /** Runtime file-local paired evidence; never account identity or daily interpolation. */
+  codexQuotaCheckpoints?: readonly CodexQuotaCheckpoint[];
+  /** Full retained local census: false on pending/evicted/ambiguous evidence.
+   * Retained points still carry their independent per-segment completeness. */
+  codexQuotaCheckpointsComplete?: boolean;
+  /** Runtime-only original reset anchors whose local numerator may be incomplete.
+   * Defined (including []) only when every omission can be localized to known
+   * windows. Match with the existing reset-cluster tolerance. Undefined retains
+   * the global completeness gate. Not account identity. */
+  codexQuotaIncompleteResets?: readonly number[];
+  /** Numeric uncertainty bounds. 0 is an unknown prefix; MAX_SAFE_INTEGER is
+   * an open unknown tail, not an observed timestamp. Undefined fails globally. */
+  codexQuotaIncompleteRanges?: readonly import('./providers/codex/codexQuotaCheckpoints').CodexQuotaIncompleteRange[];
   observations: WeeklyQuotaObservation[];
   usage: WeeklyEquivalentUsage[];
   /** Exact current rate snapshot, attached by the existing numeric Codex adapter. */

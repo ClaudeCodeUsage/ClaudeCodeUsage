@@ -136,9 +136,9 @@ test('an older unexpired quota remains a labelled historical observation rather 
  }finally{Date.now=clock;}
 });
 
-test('global identity ambiguity permits only the verified exclusion subset, never an unverified bypass',async()=>{
+test('verified scope admits complete current increments and refuses excluded growth or an unverified bypass',async()=>{
  const clock=Date.now;
- try{for(const verified of [false,true]){
+ try{for(const verified of [false,true])for(const excludedGrows of [false,true]){
   let now=T,percent=20,usd=100;Date.now=()=>now;
   const{e}=fixture();let store=createEmptyQuotaObservationStore();
   e.officialQuotaReader=async()=>({...sample,requestedAt:now-10,observedAt:now,usedPercent:percent});
@@ -152,12 +152,15 @@ test('global identity ambiguity permits only the verified exclusion subset, neve
       observations:['own','ambiguous'].map(sourceKey=>({provider:'codex',sourceKey,
         observedAt:now-1,resetAt:R,usedPercent:percent})),
       usage:['own','ambiguous'].map(sourceKey=>({sourceKey,timestamp:now-1,intervalStart:T-60_000,
-        intervalEnd:now-1,equivalentUsd:sourceKey==='own'?usd:usd*10,pricedTokens:usd*100,totalTokens:usd*100})),
+        intervalEnd:now-1,equivalentUsd:sourceKey==='own'?usd:excludedGrows?usd*10:1000,
+        pricedTokens:sourceKey==='own'?usd*100:excludedGrows?usd*1000:100000,
+        totalTokens:sourceKey==='own'?usd*100:excludedGrows?usd*1000:100000})),
     }});
   e.codexView=view();await e.refreshOfficialCodexQuota('manual');
   now+=60_000;percent=40;usd=130;e.codexView=view();await e.refreshOfficialCodexQuota('manual');
-  assert.equal(e.officialQuotaEstimates.length,verified?1:0);
-  if(verified){const result=e.officialQuotaEstimates[0];
+  const admitted=verified&&!excludedGrows;
+  assert.equal(e.officialQuotaEstimates.length,admitted?1:0);
+  if(admitted){const result=e.officialQuotaEstimates[0];
     assert.equal(result.fullEquivalentUsd,150);assert.equal(result.calibrationEvidence.interval.excludedSources,1);
     assert.ok(result.flags.includes('partial-history'));
   }

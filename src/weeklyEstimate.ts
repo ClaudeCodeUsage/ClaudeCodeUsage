@@ -2,6 +2,7 @@ import type { UsageProvider } from './providers/providerTypes';
 import type { CodexQuotaEpoch } from './codexQuotaEpoch';
 import type { CodexCalibrationEvidence } from './codexCalibrationEvidence';
 import type { CodexQuotaCycle } from './codexQuotaCycles';
+import type { CodexWindowEvidence } from './codexWindowEvidence';
 import type { WeeklyEquivalentUsage, WeeklyQuotaObservation, WeeklyValueInputs, WeeklyValuePoint } from './weeklyValue';
 
 const WEEK=604_800_000, RESET_TOLERANCE=300_000;
@@ -26,6 +27,11 @@ export interface LocalWeeklyEstimate {
   quotaCycle?:CodexQuotaCycle;
   calibrationStart?:number;
   calibrationEvidence?:CodexCalibrationEvidence;
+  windowEvidence?:CodexWindowEvidence;
+  /** INTERNAL salted source/window episode key, stripped before presentation. */
+  localWindowKey?:string;
+  /** Runtime ordinal for anonymous windows; never an account identity. */
+  localWindowNumber?:number;
   /** Conditional time/percentage measurement range, NOT an account-capacity confidence interval. */
   fullRange?:{lower:number;upper:number};
 }

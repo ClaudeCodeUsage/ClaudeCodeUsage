@@ -68,6 +68,9 @@ import {
   pseudonymousIdentityKey,
 } from './codexIdentity';
 import { sanitizeCodexMetadataLabel } from './codexMetadataLabel';
+import { CodexQuotaCheckpointState, CODEX_QUOTA_CHECKPOINT_VERSION, createCodexQuotaCheckpointState,
+  retainCodexQuotaCheckpoints, sanitizeCodexQuotaCheckpointState as validateCodexQuotaCheckpointState,
+  boundCodexQuotaCheckpointStates, codexQuotaSkippedLineHandler } from './codexQuotaCheckpoints';
 import { CodexAchievementUsageWindow, CodexAchievementUsageDelta, copyCodexUsageWindow,
   emptyCodexUsageDelta, addCodexOriginEvent, copyCodexUsageDelta,
   codexOriginBaselineReady, finalizeCodexUsageDelta } from './codexAchievementOrigin';
@@ -130,6 +133,7 @@ export interface CodexFileAggregate {
 }
 
 export interface CodexFileContribution {
+  quotaCheckpoints?: CodexQuotaCheckpointState;
   fileKey: string;
   sourceArea?: CodexSourceArea;
   /** size/offset remain decoded-byte coordinates; these describe on-disk bytes. */
@@ -185,6 +189,7 @@ export function isCodexUsageContributionCurrent(
 }
 
 export interface CodexLineageReconciliationState extends CodexJsonlCursor {
+  quotaCheckpoints?: CodexQuotaCheckpointState;
   prefixEvents: number;
   tokenEventsSeen: number;
   parserState: CodexParserState;
@@ -784,6 +789,11 @@ function uniqueFlags(...groups: string[][]): string[] {
   return [...new Set(groups.flat())].sort();
 }
 
+export function isCodexQuotaCheckpointCurrent(file: CodexFileContribution): boolean {
+  return file.quotaCheckpoints?.version === CODEX_QUOTA_CHECKPOINT_VERSION && file.quotaCheckpoints.indexedThrough === file.offset &&
+    file.quotaCheckpoints.prefixEvents === (file.lineage?.desiredPrefixEvents ?? 0);
+}
+
 /** A valid checkpoint may still be skipping inherited events. Resuming that
  * scan is not permission to publish its dates; promotion still requires the
  * entire prefix and source cursor below. */
@@ -794,7 +804,9 @@ function resumablePeriodMigration(
   const migration = contribution.periodMigration;
   const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
   const seen = migration?.tokenEventsSeen;
-  if (!migration || migration.timeZone !== timeZone || migration.prefixEvents !== prefixEvents ||
+  if (!migration || migration.quotaCheckpoints?.version !== CODEX_QUOTA_CHECKPOINT_VERSION ||
+      migration.quotaCheckpoints.indexedThrough !== migration.offset ||
+      migration.timeZone !== timeZone || migration.prefixEvents !== prefixEvents ||
       typeof seen !== 'number' || !Number.isSafeInteger(seen) || seen < 0 ||
       !Number.isSafeInteger(migration.offset) || migration.offset < 0 || migration.offset > contribution.offset ||
       (seen < prefixEvents && Object.keys(migration.days).length > 0)) return undefined;
@@ -809,6 +821,8 @@ function promoteCaughtUpPeriod(
   const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
   if (
     migration?.timeZone !== timeZone ||
+    migration.quotaCheckpoints?.version !== CODEX_QUOTA_CHECKPOINT_VERSION ||
+    migration.quotaCheckpoints.indexedThrough !== migration.offset ||
     migration.prefixEvents !== prefixEvents ||
     !Number.isFinite(migration.tokenEventsSeen) ||
     (migration.tokenEventsSeen ?? 0) < prefixEvents ||
@@ -824,6 +838,7 @@ function promoteCaughtUpPeriod(
     lineageVersion: CODEX_PERIOD_LINEAGE_VERSION,
     lineagePrefixEvents: prefixEvents,
   };
+  contribution.quotaCheckpoints = migration.quotaCheckpoints;
   contribution.qualityFlags = uniqueFlags(
     contribution.qualityFlags,
     migration.qualityFlags,
@@ -976,6 +991,7 @@ function contributionFor(
     discardingOversizedLine: false,
     parserState,
     lineage: createLineageTrace(),
+    quotaCheckpoints: createCodexQuotaCheckpointState(0),
     hourProof: {
       version: CODEX_UTC_HOUR_PROOF_VERSION,
       indexedThrough: 0,
@@ -1094,6 +1110,10 @@ async function updateContribution(
   );
   const rollingDays = rollingHourlyDaySet(asOfDay);
   const desiredPrefixEvents = lineage.desiredPrefixEvents ?? 0;
+  const quotaCheckpoints = contribution.quotaCheckpoints?.version === CODEX_QUOTA_CHECKPOINT_VERSION &&
+    contribution.quotaCheckpoints.indexedThrough === contribution.offset &&
+    contribution.quotaCheckpoints.prefixEvents === desiredPrefixEvents
+    ? contribution.quotaCheckpoints : undefined;
   const advancePeriod =
     aggregate.period?.timeZone === timeZone &&
     aggregate.period.indexedThrough === contribution.offset &&
@@ -1129,6 +1149,7 @@ async function updateContribution(
       syncTodayProjection(activeToday);
     }
     if (activeHourProof) activeHourProof.indexedThrough = cursor.offset;
+    if (quotaCheckpoints) quotaCheckpoints.indexedThrough = cursor.offset;
     return {
       ...contribution,
       fileKey: entry.fileKey,
@@ -1143,6 +1164,7 @@ async function updateContribution(
       discardingOversizedLine: cursor.discardingOversizedLine,
       parserState,
       lineage,
+      quotaCheckpoints,
       aggregate,
       ...(activeHourProof && !activeHourProofOverflow ? {
         hourProof: { ...activeHourProof, hours: [...activeHourProof.hours] },
@@ -1187,6 +1209,8 @@ async function updateContribution(
         if (parsed.lineageTokenKey) {
           addLineageToken(lineage, parsed.lineageTokenKey);
         }
+        if (quotaCheckpoints) retainCodexQuotaCheckpoints(quotaCheckpoints, parsed,
+          desiredPrefixEvents === 0 || lineage.tokenEvents > desiredPrefixEvents);
         for (const event of parsed.events) {
           if (usageDelta && !addCodexOriginEvent(usageDelta, event)) usageDelta = undefined;
           reduceUsage(aggregate, event);
@@ -1249,6 +1273,8 @@ async function updateContribution(
     async (progress) => {
       await onChunk(snapshot(progress.cursor), progress.bytesRead);
     },
+    undefined, undefined, quotaCheckpoints
+      ? codexQuotaSkippedLineHandler(quotaCheckpoints, () => lineage.tokenEvents >= desiredPrefixEvents) : undefined,
   );
 
   if (!scan.reachedEnd) {
@@ -1288,6 +1314,7 @@ function promoteCaughtUpLineage(
   const lineage = contribution.lineage;
   if (
     !reconciliation ||
+    reconciliation.quotaCheckpoints?.version !== CODEX_QUOTA_CHECKPOINT_VERSION ||
     !lineage ||
     reconciliation.prefixEvents !== lineage.desiredPrefixEvents ||
     reconciliation.offset < contribution.offset ||
@@ -1296,6 +1323,7 @@ function promoteCaughtUpLineage(
     return;
   }
   contribution.aggregate = reconciliation.aggregate;
+  contribution.quotaCheckpoints = reconciliation.quotaCheckpoints;
   lineage.appliedPrefixEvents = reconciliation.prefixEvents;
   if (reconciliation.hourProofHours && !reconciliation.hourProofOverflow) {
     contribution.hourProof = {
@@ -1363,6 +1391,9 @@ async function reconcileContributionLineage(
   const rollingDays = rollingHourlyDaySet(asOfDay);
   const initial = contribution.lineageReconciliation?.prefixEvents ===
       prefixEvents &&
+      contribution.lineageReconciliation.quotaCheckpoints?.version === CODEX_QUOTA_CHECKPOINT_VERSION &&
+      contribution.lineageReconciliation.quotaCheckpoints?.indexedThrough ===
+        contribution.lineageReconciliation.offset &&
       isRollingTodayIndex(
         contribution.lineageReconciliation.aggregate.today,
         timeZone,
@@ -1382,10 +1413,12 @@ async function reconcileContributionLineage(
         },
         qualityFlags: [],
         hourProofHours: [],
+        quotaCheckpoints: createCodexQuotaCheckpointState(prefixEvents),
       };
   let parserState = initial.parserState;
   let tokenEventsSeen = initial.tokenEventsSeen;
   const aggregate = initial.aggregate;
+  const quotaCheckpoints = initial.quotaCheckpoints!;
   let invalidEventTimestamp = false;
   let hourProofHours = initial.hourProofHours ? [...initial.hourProofHours] : undefined;
   let hourProofOverflow = initial.hourProofOverflow === true;
@@ -1397,6 +1430,7 @@ async function reconcileContributionLineage(
   );
 
   const snapshot = (cursor: CodexJsonlCursor): CodexFileContribution => {
+    quotaCheckpoints.indexedThrough = cursor.offset;
     syncSession(aggregate, parserState);
     if (aggregate.period) {
       aggregate.period.indexedThrough = cursor.offset;
@@ -1411,6 +1445,7 @@ async function reconcileContributionLineage(
       ...contribution,
       ...(quotaHistory.length > 0 ? { quotaHistory } : {}),
       lineageReconciliation: {
+        quotaCheckpoints,
         prefixEvents,
         tokenEventsSeen,
         offset: cursor.offset,
@@ -1453,6 +1488,7 @@ async function reconcileContributionLineage(
         tokenEventsSeen += 1;
       }
       const includeUsage = tokenEventsSeen > prefixEvents;
+      retainCodexQuotaCheckpoints(quotaCheckpoints, parsed, prefixEvents === 0 || includeUsage);
       if (includeUsage) {
         for (const event of parsed.events) {
           reduceUsage(aggregate, event);
@@ -1496,6 +1532,7 @@ async function reconcileContributionLineage(
     async (progress) => {
       await onChunk(snapshot(progress.cursor), progress.bytesRead);
     },
+    undefined, undefined, codexQuotaSkippedLineHandler(quotaCheckpoints, () => tokenEventsSeen >= prefixEvents),
   );
   if (!scan.reachedEnd) {
     throw new Error('Codex log changed during lineage reconciliation');
@@ -1533,9 +1570,11 @@ async function migrateContributionPeriod(
         parserState: createCodexParserState(entry.fileKey),
         days: {},
         qualityFlags: [],
+        quotaCheckpoints: createCodexQuotaCheckpointState(prefixEvents),
       };
   let parserState = initial.parserState;
   const days = initial.days;
+  const quotaCheckpoints = initial.quotaCheckpoints!;
   let tokenEventsSeen = initial.tokenEventsSeen ?? 0;
   let invalidEventTimestamp = false;
   const pseudonymize = pseudonymizer(options.salt);
@@ -1557,6 +1596,7 @@ async function migrateContributionPeriod(
         ? contribution.aggregate.period : undefined,
     },
     periodMigration: {
+      quotaCheckpoints: { ...quotaCheckpoints, indexedThrough: cursor.offset },
       timeZone,
       prefixEvents,
       tokenEventsSeen,
@@ -1596,6 +1636,7 @@ async function migrateContributionPeriod(
       if (parsed.lineageTokenKey) {
         tokenEventsSeen += 1;
       }
+      retainCodexQuotaCheckpoints(quotaCheckpoints, parsed, prefixEvents === 0 || tokenEventsSeen > prefixEvents);
       if (tokenEventsSeen > prefixEvents) {
         for (const event of parsed.events) {
           if (!Number.isFinite(event.timestamp) || event.timestamp <= 0) {
@@ -1619,6 +1660,7 @@ async function migrateContributionPeriod(
     async (progress) => {
       await onChunk(snapshot(progress.cursor), progress.bytesRead);
     },
+    undefined, undefined, codexQuotaSkippedLineHandler(quotaCheckpoints, () => tokenEventsSeen >= prefixEvents),
   );
   if (!scan.reachedEnd) {
     throw new Error('Codex log changed during period migration');
@@ -2543,6 +2585,9 @@ function recomputeDerivedIndex(
   reconcileLineage = true,
   requireCalendarProof = false,
 ): void {
+  boundCodexQuotaCheckpointStates(Object.values(index.files).flatMap(file =>
+    [file.quotaCheckpoints, file.lineageReconciliation?.quotaCheckpoints,
+      file.periodMigration?.quotaCheckpoints].filter((state): state is CodexQuotaCheckpointState => !!state)));
   const initialDeduplication = classifyCodexSessionDuplicates(index.files);
   if (reconcileLineage) {
     reconcileLineageContributions(
@@ -2632,6 +2677,7 @@ function isWarmNoOp(
     const baseIsCurrent = Boolean(
       contribution &&
       contribution.offset === entry.size &&
+      (!allowHistoricalBackfill || !canonical.has(entry.fileKey) || isCodexQuotaCheckpointCurrent(contribution)) &&
       !contribution.discardingOversizedLine &&
       contribution.identityChecked === true &&
       contribution.lineage?.appliedPrefixEvents ===
@@ -3352,6 +3398,7 @@ export async function updateCodexIndex(
         contribution.offset >= entry.size &&
         !contribution.discardingOversizedLine &&
         (
+          !isCodexQuotaCheckpointCurrent(contribution) ||
           (requireCalendarProof && !isCurrentCodexPeriodLineage(
             contribution.aggregate.period,
             contribution.lineage?.desiredPrefixEvents ?? 0,
@@ -3764,6 +3811,8 @@ export async function updateCodexIndex(
       bytesRead,
       pending:
         !terminalSettled && (!index.coverage.complete ||
+        [...classifyCodexSessionDuplicates(index.files).canonicalFileKeys].some(key =>
+          !index.files[key].compressionFailure && !isCodexQuotaCheckpointCurrent(index.files[key])) ||
         !index.coverage.period.allTime.complete ||
         !index.coverage.hourly?.complete ||
         (options.allowAchievementHourProof !== false && !historicalHourProof.complete &&
@@ -4242,6 +4291,7 @@ function sanitizePeriodMigration(
     return undefined;
   }
   return {
+    quotaCheckpoints: sanitizeCodexQuotaCheckpointState(value.quotaCheckpoints),
     timeZone: period.timeZone,
     ...(optionalNumber(value.prefixEvents) !== undefined
       ? { prefixEvents: Math.max(0, Math.floor(optionalNumber(value.prefixEvents)!)) }
@@ -4255,6 +4305,48 @@ function sanitizePeriodMigration(
     days: period.days,
     qualityFlags: sanitizeQualityFlags(value.qualityFlags),
   };
+}
+
+/** Reconstruct every retained field locally as required by the index DTO gate.
+ * Validation additionally checks bounds, model labels and numeric subsets. */
+function sanitizeCodexQuotaCheckpointDto(state: CodexQuotaCheckpointState): CodexQuotaCheckpointState {
+  return {
+    version: 3, indexedThrough: state.indexedThrough, prefixEvents: state.prefixEvents,
+    ranges: state.ranges.map(range => ({ from: range.from, through: range.through,
+      ...(range.resetAt !== undefined ? { resetAt: range.resetAt } : {}) })),
+    rangesUnlocalized: state.rangesUnlocalized, pendingGapUnknown: state.pendingGapUnknown,
+    ...(state.pendingGapFrom !== undefined ? { pendingGapFrom: state.pendingGapFrom } : {}),
+    activityFrom: state.activityFrom, activityThrough: state.activityThrough,
+    observedTokens: sanitizeCheckpointTokenVector(state.observedTokens),
+    excludedTokens: sanitizeCheckpointTokenVector(state.excludedTokens),
+    segment: state.segment, lastEventAt: state.lastEventAt, source: state.source, pendingBoundary: state.pendingBoundary,
+    complete: state.complete, segmentComplete: state.segmentComplete, overflow: state.overflow,
+    byModel: sanitizeCheckpointModels(state.byModel),
+    rows: state.rows.map(row => ({ segment: row.segment, from: row.from, through: row.through,
+      resetAt: row.resetAt, usedPercent: row.usedPercent, baseline: row.baseline,
+      complete: row.complete, byModel: sanitizeCheckpointModels(row.byModel),
+      ...(row.baseline && row.baselineByModel !== undefined
+        ? { baselineByModel: sanitizeCheckpointModels(row.baselineByModel) } : {}) })),
+  };
+}
+
+function sanitizeCheckpointModels(models: Readonly<Record<string, ProviderTokenCounts>>): Record<string, ProviderTokenCounts> {
+  if (!isRecord(models)) return {};
+  return Object.fromEntries(Object.entries(models).map(([model, tokens]) => [model, {
+    inputTotal: tokens.inputTotal, cachedInput: tokens.cachedInput,
+    outputTotal: tokens.outputTotal, reasoningOutput: tokens.reasoningOutput,
+    sourceTotal: tokens.sourceTotal,
+  }]));
+}
+
+function sanitizeCheckpointTokenVector(tokens: ProviderTokenCounts): ProviderTokenCounts {
+  return { inputTotal: tokens.inputTotal, cachedInput: tokens.cachedInput,
+    outputTotal: tokens.outputTotal, reasoningOutput: tokens.reasoningOutput, sourceTotal: tokens.sourceTotal };
+}
+
+function sanitizeCodexQuotaCheckpointState(value: unknown): CodexQuotaCheckpointState | undefined {
+  const validated = validateCodexQuotaCheckpointState(value);
+  return validated ? sanitizeCodexQuotaCheckpointDto(validated) : undefined;
 }
 
 // Keep the persisted DTO sanitizer local: repository policy audits every field
@@ -4482,6 +4574,7 @@ function sanitizeLineageReconciliation(
     hours: value.hourProofHours,
   });
   return {
+    quotaCheckpoints: sanitizeCodexQuotaCheckpointState(value.quotaCheckpoints),
     prefixEvents: Math.max(0, Math.floor(finiteNumber(value.prefixEvents))),
     tokenEventsSeen: Math.max(
       0,
@@ -4684,6 +4777,9 @@ function migrateIndexV1(index: LegacyCodexIndexV1): CodexIndexV3 {
     );
   }
   const quotaHistory = sanitizeCodexQuotaHistory(index.quotaHistory);
+  boundCodexQuotaCheckpointStates(Object.values(files).flatMap(file =>
+    [file.quotaCheckpoints, file.lineageReconciliation?.quotaCheckpoints,
+      file.periodMigration?.quotaCheckpoints].filter((state): state is CodexQuotaCheckpointState => !!state)));
   return {
     schemaVersion: 3,
     files,
@@ -4822,6 +4918,7 @@ function sanitizeFileContribution(
         contribution.storageCtimeMs > 0 ? { compressionVerified: true as const } : {}),
     } : {}),
     offset: safeOffset,
+    quotaCheckpoints: sanitizeCodexQuotaCheckpointState(contribution.quotaCheckpoints),
     discardingOversizedLine: discardingOverride ??
       contribution.discardingOversizedLine === true,
     parserState,
@@ -4874,6 +4971,9 @@ function sanitizeIndexV2(value: unknown): CodexIndexV3 {
     }
   }
   const quotaHistory = sanitizeCodexQuotaHistory(index.quotaHistory);
+  boundCodexQuotaCheckpointStates(Object.values(files).flatMap(file =>
+    [file.quotaCheckpoints, file.lineageReconciliation?.quotaCheckpoints,
+      file.periodMigration?.quotaCheckpoints].filter((state): state is CodexQuotaCheckpointState => !!state)));
   return {
     schemaVersion: 3,
     ...(typeof index.indexGeneration === 'number' &&

@@ -138,9 +138,26 @@ test('coordinator refreshes boundaries on P2-only changes without rewriting arch
   assert.equal(initial.entries[0].quotaCycle?.endAt, R);
   const next = coordinator.project('codex', data, { ...options, quotaObservations: [...options.quotaObservations,
     row(T + 2 * D, R, 2, fingerprint, .05)] });
-  assert.equal(next.entries[0].quotaCycle?.endAt, T + 2 * D);
-  assert.equal(next.entries[0].fullEquivalentUsd, 200);
-  await coordinator.flush(); assert.equal(await readFile(file, 'utf8'), before);
+  const oldCycle = next.entries.find(entry => entry.fullEquivalentUsd === 200)!;
+  assert.ok(oldCycle);
+  assert.equal(oldCycle.quotaCycle?.endAt, T + 2 * D);
+  assert.equal(oldCycle.fullEquivalentUsd, 200);
+  const pending = next.entries.find(entry => entry.quotaEpoch?.startedAt === T + 2 * D)!;
+  assert.ok(pending, 'P2-only reset checkpoints retain a visible pending cycle');
+  assert.equal(pending.fullEquivalentUsd, null);
+  assert.equal(pending.unusedEquivalentUsd, null);
+  assert.equal(pending.quotaCycle?.startAt, T + 2 * D);
+  await coordinator.flush();
+  const after = await readFile(file, 'utf8');
+  const snapshots = (body: string) => JSON.parse(body).entries.filter((entry: LocalWeeklyEstimate) => entry.fullEquivalentUsd !== null);
+  // New nonmonetary checkpoints may append archive bytes. The frozen monetary
+  // snapshot itself must retain both its serialized bytes and numeric values.
+  assert.deepEqual(snapshots(after), snapshots(before));
+  for (const snapshot of snapshots(before)) assert.ok(after.includes(JSON.stringify(snapshot)));
+  const savedPending = JSON.parse(after).entries.find((entry: LocalWeeklyEstimate) => entry.quotaEpoch?.startedAt === T + 2 * D);
+  assert.ok(savedPending);
+  assert.equal(savedPending.fullEquivalentUsd, null);
+  assert.equal(savedPending.unusedEquivalentUsd, null);
   assert.ok(!JSON.stringify(next).includes(A)); assert.ok(!JSON.stringify(next).includes(fingerprint));
   assert.ok(!JSON.stringify(next).includes('windowId'));
 });

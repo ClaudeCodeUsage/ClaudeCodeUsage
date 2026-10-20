@@ -32,6 +32,7 @@ import {
 } from './githubHeatmapPublish';
 import { fetchLatestPricing, getPricingBackend, getPricingLastFetched, setPricingBackend } from './pricing';
 import { WeeklyEstimateCoordinator } from './weeklyEstimateCoordinator';
+import { codexCalibrationPricingVersion } from './codexWindowEvidence';
 import type { LocalWeeklyEstimate } from './weeklyEstimate';
 import { CodexAccountEstimator, OfficialQuotaSample } from './codexAccountEstimate';
 import { codexQuotaEpochFromObservations } from './codexQuotaEpoch';
@@ -739,7 +740,8 @@ export class ClaudeCodeUsageExtension {
         const identityCurrent=officialQuota?.status==='ready'&&officialQuota.stale!==true;
         const projection = this.weeklyEstimateCoordinator!.project(provider, inputs, {
           sourceNamespace: provider + '|' + (source ?? 'unavailable'),
-          pricingVersion: (getPricingBackend() === 'anthropic' ? 'anthropic-' : 'openai-') + version,
+          pricingVersion: provider === 'codex' ? codexCalibrationPricingVersion(inputs.calibrationPricebook) :
+            (getPricingBackend() === 'anthropic' ? 'anthropic-' : 'openai-') + version,
           now,
           ...(provider === 'codex' ? { accountEstimates: this.officialQuotaEstimates,
             quotaObservations: this.quotaObservationStore.observations,
@@ -5000,9 +5002,7 @@ export class ClaudeCodeUsageExtension {
   }
 
   private weeklyEstimatePricingVersion():string {
-    const fetchedAt=getPricingLastFetched()?.time;
-    const version=fetchedAt===undefined?'v1':'v'+String(fetchedAt).padStart(16,'0').match(/.{4}/g)!.join('.');
-    return (getPricingBackend()==='anthropic'?'anthropic-':'openai-')+version;
+    return codexCalibrationPricingVersion(this.codexView?.weeklyValueInputs?.calibrationPricebook);
   }
 
   /** Explicit opt-in reads the ALREADY RUNNING default local daemon only.

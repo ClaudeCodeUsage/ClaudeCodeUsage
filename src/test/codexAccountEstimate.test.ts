@@ -10,14 +10,19 @@ function inputs(t:number,p:number,amount:number,extra=0):WeeklyValueInputs{retur
     {provider:'codex',seriesKey:'codex',sourceKey:'foreign',observedAt:t-1,resetAt:R+H,usedPercent:50}],
   usage:[{sourceKey:'own',timestamp:t-1,intervalStart:T-H,intervalEnd:t-1,equivalentUsd:amount,pricedTokens:amount*10,totalTokens:amount*10},
     {sourceKey:'foreign',timestamp:t-1,equivalentUsd:extra,pricedTokens:extra*10,totalTokens:extra*10}]};}
-test('same-account incremental calibration excludes foreign-window growth, never uses the whole mixed prefix',()=>{
+test('same-account incremental calibration excludes static foreign history, never uses the whole mixed prefix',()=>{
   const e=new CodexAccountEstimator();
   assert.equal(e.observe(sample(T,20),inputs(T,20,100,500),'v1'),undefined);
-  const x=e.observe(sample(T+60_000,40),inputs(T+60_000,40,130,900),'v1')!;
+  const x=e.observe(sample(T+60_000,40),inputs(T+60_000,40,130,500),'v1')!;
   assert.equal(x.method,'account-delta-v1');assert.equal(x.usedEquivalentUsd,30);
   assert.equal(x.fullEquivalentUsd,150);assert.equal(x.unusedEquivalentUsd,90);
   assert.equal(x.accountScopeKey,A);assert.equal(x.calibrationStart,T);
   assert.ok(x.flags.includes('account-unattributed'),'quota identity is not proof of local request ownership');
+});
+test('foreign-window growth cannot be omitted from a full official percentage denominator',()=>{
+  const e=new CodexAccountEstimator();
+  e.observe(sample(T,20),inputs(T,20,100,500),'v1');
+  assert.equal(e.observe(sample(T+60_000,40),inputs(T+60_000,40,130,900),'v1'),undefined);
 });
 test('A to B to A starts new baselines and cannot bridge B usage',()=>{
   const e=new CodexAccountEstimator();e.observe(sample(T,20),inputs(T,20,100),'v1');
