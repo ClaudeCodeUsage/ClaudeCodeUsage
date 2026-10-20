@@ -1652,6 +1652,16 @@ points; this does not itself declare a new cycle. Runtime context also binds
 context changes break continuity without expanding the persisted-facts allowlist.
 Alignment does not guarantee unbiased estimates or establish an error bound.
 
+The live producer retains at most 32 append windows per source and 512 windows /
+256 KiB overall. A branded previous proof from the same provider can bridge an
+unchanged normalized warm reload or a verified ordered append, never a restart,
+copied proof, changed owner/generation or unknown gap. The consumer selects an
+exact offset chain for its own official bracket; missing/evicted prefixes remain
+unknown. Local and official percentage endpoints must match before fitting;
+known-zero quiet refreshes preserve alignment. Last counter observations survive
+blur so a later correction cannot restore a retired calibration cohort. EOF-packed
+partial lineage blocks preserve the same ordered-prefix semantics as full blocks.
+
 The historical aggregate compatibility path in `codexAccountEstimate.ts` retains
 the following separate contracts; they are not forward-calibration prerequisites.
 Account switches and blur break monetary continuity,

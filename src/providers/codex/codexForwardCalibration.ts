@@ -2,11 +2,14 @@ import { createHash } from 'node:crypto';
 import type { CodexIndexV1, CodexFileContribution } from './codexIndex';
 import type { ProviderTokenCounts } from '../providerTypes';
 import { codexQuotaObservationsFromLimit } from './codexQuotaHistory';
-import { CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK } from './codexLineage';
+import { CODEX_LINEAGE_FINGERPRINT_BYTES, CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK } from './codexLineage';
 import type { CodexQuotaCheckpoint, CodexQuotaIncompleteRange } from './codexQuotaCheckpoints';
 
 export const CODEX_FORWARD_CALIBRATION_MAX_SOURCES = 16_384;
 export const CODEX_FORWARD_CALIBRATION_MAX_BYTES = 8 * 1024 * 1024;
+export const CODEX_FORWARD_APPEND_MAX_PER_SOURCE = 32;
+export const CODEX_FORWARD_APPEND_MAX_WINDOWS = 512;
+export const CODEX_FORWARD_APPEND_MAX_BYTES = 256 * 1024;
 const MAX_HASH_BYTES = 64 * 1024 * 1024;
 type Models = Readonly<Record<string, Readonly<ProviderTokenCounts>>>;
 export interface CodexForwardAppendWindow {
@@ -39,6 +42,9 @@ export interface CodexForwardCalibrationSource {
   /** Optional scan-issued runtime witness. Exact offset matching is mandatory;
    * absence is unknown, never a zero delta or permission to infer first timing. */
   readonly appendWindow?: CodexForwardAppendWindow;
+  /** Bounded runtime-only suffix, oldest first. Consumers must select a chain
+   * exactly from their baseline offset; an evicted/missing prefix is unknown. */
+  readonly appendWindows?: readonly CodexForwardAppendWindow[];
   readonly quotaWitness: Readonly<{ observedAt: number; resetAt: number; usedPercent: number }> | null;
   /** Compatibility fields, always null in this forward-only producer. Historical
    * sidecars are not inspected; exact appendWindow.complete owns tail evidence. */
@@ -92,21 +98,32 @@ function fingerprints(file: CodexFileContribution): string | undefined {
   const l = file.lineage;
   if (!l || !integer(l.tokenEvents) || !integer(l.desiredPrefixEvents) || !integer(l.appliedPrefixEvents) ||
     l.desiredPrefixEvents > l.tokenEvents || l.appliedPrefixEvents !== l.desiredPrefixEvents ||
+    !Array.isArray(l.fingerprintBlocks) || !Array.isArray(l.pendingFingerprints) ||
     l.pendingFingerprints.length >= CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK ||
-    l.fingerprintBlocks.length * CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK + l.pendingFingerprints.length !== l.tokenEvents ||
-    l.tokenEvents * 32 > MAX_HASH_BYTES) return undefined;
-  let result = '';
-  for (const block of l.fingerprintBlocks) {
-    if (block.length > 22_000) return undefined;
+    l.fingerprintBlocks.length > Math.ceil(l.tokenEvents / CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK) ||
+    l.tokenEvents * CODEX_LINEAGE_FINGERPRINT_BYTES * 2 > MAX_HASH_BYTES) return undefined;
+  const blockBytes = CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK * CODEX_LINEAGE_FINGERPRINT_BYTES;
+  const maxEncodedLength = Math.ceil(blockBytes / 3) * 4;
+  let result = '', count = 0;
+  for (let i = 0; i < l.fingerprintBlocks.length; i++) {
+    const block = l.fingerprintBlocks[i];
+    if (typeof block !== 'string' || block.length === 0 || block.length > maxEncodedLength) return undefined;
     const data = Buffer.from(block, 'base64');
-    if (data.length !== CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK * 16 || data.toString('base64') !== block) return undefined;
+    if (data.length === 0 || data.length > blockBytes || data.length % CODEX_LINEAGE_FINGERPRINT_BYTES !== 0 ||
+      data.toString('base64') !== block) return undefined;
+    // EOF packs the final short block. On a subsequent append the scanner
+    // unpacks that tail before adding pending fingerprints; both cannot coexist.
+    if (data.length < blockBytes && (i !== l.fingerprintBlocks.length - 1 || l.pendingFingerprints.length > 0)) return undefined;
+    count += data.length / CODEX_LINEAGE_FINGERPRINT_BYTES;
+    if (count > l.tokenEvents) return undefined;
     result += data.toString('hex');
   }
   for (const value of l.pendingFingerprints) {
-    if (!/^[a-f0-9]{32}$/.test(value)) return undefined;
+    if (typeof value !== 'string' || !/^[a-f0-9]{32}$/.test(value)) return undefined;
+    count++;
     result += value;
   }
-  return result;
+  return count === l.tokenEvents ? result : undefined;
 }
 
 function appendWindow(file: CodexFileContribution, eligible: boolean): CodexForwardAppendWindow | undefined {
@@ -121,6 +138,12 @@ function appendWindow(file: CodexFileContribution, eligible: boolean): CodexForw
     minUsageAt: raw.minUsageAt, maxUsageAt: raw.maxUsageAt, complete: raw.complete && eligible });
 }
 
+function unchangedUsage(before: CodexForwardCalibrationSource, after: CodexForwardCalibrationSource): boolean {
+  return !!before.byModel && !!after.byModel &&
+    [...new Set([...Object.keys(before.byModel), ...Object.keys(after.byModel)])].every(model =>
+      components.every(k => (before.byModel![model]?.[k] ?? 0) === (after.byModel![model]?.[k] ?? 0)));
+}
+
 /** No I/O, scanning, pricing, historical replay, account assertion or persistence.
  * Includes EVERY indexed physical source, not only usable canonical sources.
  * A missing manifest member makes the whole proof unavailable, never a partial census.
@@ -129,7 +152,7 @@ function appendWindow(file: CodexFileContribution, eligible: boolean): CodexForw
 export function buildCodexForwardCalibration(
   index: CodexIndexV1, currentManifestVerified: boolean,
   canonicalFileKeys: ReadonlySet<string>, ambiguousFileKeys: ReadonlySet<string>,
-  verifiedAt = Date.now(), verificationBound: object = index,
+  verifiedAt = Date.now(), verificationBound: object = index, previousProof?: unknown,
 ): CodexForwardCalibration | undefined {
   if (!currentManifestVerified || !time(verifiedAt)) return undefined;
   const old = issued.get(verificationBound); if (old) return old;
@@ -138,6 +161,11 @@ export function buildCodexForwardCalibration(
     keys.length > CODEX_FORWARD_CALIBRATION_MAX_SOURCES || keys.length !== index.coverage.totalFiles ||
     [...canonicalFileKeys, ...ambiguousFileKeys].some(k => !keySet.has(k))) return undefined;
   const sources: CodexForwardCalibrationSource[] = [];
+  // Only the provider's live branded proof can bridge disk DTO reloads. Copying
+  // a proof, or merely passing the same index again, cannot restore authority.
+  const previous = isCodexForwardCalibration(previousProof) && previousProof.indexGeneration === index.indexGeneration &&
+    previousProof.verifiedAt <= verifiedAt ? new Map(previousProof.sources.map(source => [source.sourceKey, source])) : undefined;
+  let windowCount = 0, windowBytes = 0;
   let bytes = 128, hashBytes = 0;
   for (const key of keys) {
     const f = index.files[key], p = f.parserState, l = f.lineage;
@@ -197,12 +225,47 @@ export function buildCodexForwardCalibration(
       quotaWitness, checkpoints: null, incompleteRanges: null };
     const revision = hash(JSON.stringify([fields, f.mtimeMs, f.storageSize, f.storageCtimeMs,
       f.discardingOversizedLine, primary, f.qualityFlags, p.qualityFlags]));
-    const window = appendWindow(f, eligible);
-    const source = Object.freeze({ ...fields, revision, ...(window ? { appendWindow: window } : {}) });
+    let window = appendWindow(f, eligible);
+    const candidate = Object.freeze({ ...fields, revision, ...(window ? { appendWindow: window } : {}) });
+    const origin = { fingerprints: trace ?? '', generation: index.indexGeneration };
+    provenance.set(candidate, origin);
+    const prior = previous?.get(key);
+    if (window?.complete && prior?.eligible && candidate.eligible && prior.continuity === candidate.continuity &&
+        prior.revision !== candidate.revision) {
+      const ordered = window.minUsageAt === null
+        ? unchangedUsage(prior, candidate)
+        : prior.usageThrough !== null && window.minUsageAt > prior.usageThrough;
+      if (!ordered || window.beforeOffset !== prior.offset || !isCodexForwardAppend(prior, candidate)) {
+        // Per-scan ordering alone does not establish ordering across watcher
+        // passes. Keep neither a bridge nor a compatibility admission for it.
+        window = Object.freeze({ ...window, complete: false });
+      }
+    }
+    let history: readonly CodexForwardAppendWindow[] = window?.complete ? [window] : [];
+    if (prior?.eligible && candidate.eligible && prior.continuity === candidate.continuity) {
+      if (prior.revision === candidate.revision) {
+        // A freshly verified, unchanged primary source may have been normalized
+        // through the disk DTO, which intentionally contains no append window.
+        history = prior.appendWindows ?? history;
+      } else if (window?.complete && window.beforeOffset === prior.offset && isCodexForwardAppend(prior, candidate)) {
+        history = [...(prior.appendWindows ?? []), window];
+      }
+    }
+    const available = Math.min(CODEX_FORWARD_APPEND_MAX_PER_SOURCE, CODEX_FORWARD_APPEND_MAX_WINDOWS - windowCount);
+    let retained = available > 0 ? history.slice(-available) : [];
+    let retainedBytes = retained.length ? Buffer.byteLength(JSON.stringify(retained)) : 0;
+    while (retained.length && windowBytes + retainedBytes > CODEX_FORWARD_APPEND_MAX_BYTES) {
+      retained = retained.slice(1);
+      retainedBytes = retained.length ? Buffer.byteLength(JSON.stringify(retained)) : 0;
+    }
+    windowCount += retained.length; windowBytes += retainedBytes;
+    const latestWindow = window ?? retained[retained.length - 1];
+    const source = Object.freeze({ ...candidate, ...(latestWindow ? { appendWindow: latestWindow } : {}),
+      appendWindows: Object.freeze(retained) });
     bytes += Buffer.byteLength(JSON.stringify(source));
     if (bytes > CODEX_FORWARD_CALIBRATION_MAX_BYTES) return undefined;
     sources.push(source);
-    provenance.set(source, { fingerprints: trace ?? '', generation: index.indexGeneration });
+    provenance.set(source, origin);
   }
   const proof: CodexForwardCalibration = Object.freeze({ schemaVersion: 1, indexGeneration: index.indexGeneration,
     verifiedAt, sources: Object.freeze(sources) });

@@ -481,6 +481,7 @@ function snapshotFromIndex(
   sessionTitles: Map<string, string> = new Map(),
   currentManifestVerified = false,
   verificationBeganAt?: number,
+  previousForwardProof?: unknown,
 ): CodexProviderSnapshot {
   const deduplication = classifyCodexSessionDuplicates(index.files);
   const canonicalFileKeys = deduplication.canonicalFileKeys;
@@ -611,7 +612,7 @@ function snapshotFromIndex(
     codexCalibrationCensus: buildCodexCalibrationCensus(index, currentManifestVerified,
       canonicalFileKeys, deduplication.ambiguousFileKeys, verificationBeganAt),
     codexForwardCalibration: buildCodexForwardCalibration(index, currentManifestVerified,
-      canonicalFileKeys, deduplication.ambiguousFileKeys, verificationBeganAt, {}), calibrationSourceScope: {
+      canonicalFileKeys, deduplication.ambiguousFileKeys, verificationBeganAt, {}, previousForwardProof), calibrationSourceScope: {
       verified: currentManifestVerified && index.coverage.complete && index.coverage.period.allTime.complete,
       excludedSourceKeys: [...deduplication.ambiguousFileKeys].sort(),
     } },
@@ -770,7 +771,8 @@ export class CodexProvider {
         return { outcome: 'unavailable', snapshot: this.invalidateCurrentManifestProof() };
       }
       this.snapshotGeneration += 1;
-      const snapshot = snapshotFromIndex(result.index, sessionTitles, true, verificationBeganAt);
+      const snapshot = snapshotFromIndex(result.index, sessionTitles, true, verificationBeganAt,
+        this.currentSnapshot?.currentManifestVerified ? this.currentSnapshot.weeklyValueInputs?.codexForwardCalibration : undefined);
       if (result.failedFiles > 0 && snapshot.weeklyValueInputs) {
         snapshot.weeklyValueInputs.codexForwardCalibration = undefined;
       }

@@ -1,17 +1,19 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { CodexAccountEstimator, OfficialQuotaSample } from '../codexAccountEstimate';
-import { createEmptyCodexIndex } from '../providers/codex/codexIndex';
+import { createEmptyCodexIndex, CodexIndexV1 } from '../providers/codex/codexIndex';
 import { createCodexParserState } from '../providers/codex/codexParser';
 import { buildCodexForwardCalibration } from '../providers/codex/codexForwardCalibration';
 import type { WeeklyValueInputs } from '../weeklyValue';
 
 const T = Date.parse('2026-10-20T06:00Z'), M = 60_000, R = T + 604_800_000 - 1000;
 const K = '1'.repeat(64), A = 'a'.repeat(64), B = 'b'.repeat(64), S = 'c'.repeat(64);
+const fixtureIndexes = new WeakMap<object, CodexIndexV1>();
 const sample = (n: number, p: number, account = A): OfficialQuotaSample => ({ accountScopeKey: account,
   sourceScopeKey: S, observedAt: T + (n + 1) * M, requestedAt: T + (n + 1) * M - 100, usedPercent: p, resetAt: R,
   quotaEpoch: { startedAt: T, resetAnchorAt: R, startLowerAt: null, reason: 'initial' } });
-function inputs(n: number, p: number, total: number, patch: Record<string, unknown> = {}): WeeklyValueInputs {
+function inputs(n: number, p: number, total: number, patch: Record<string, unknown> = {},
+  previousProof?: WeeklyValueInputs['codexForwardCalibration']): WeeklyValueInputs {
   n += 1;
   const index = createEmptyCodexIndex('UTC');
   const tokens = { inputTotal: total, cachedInput: 0, outputTotal: 0, reasoningOutput: 0 };
@@ -31,8 +33,10 @@ function inputs(n: number, p: number, total: number, patch: Record<string, unkno
   };
   index.coverage.totalFiles = index.coverage.indexedFiles = 1;
   index.coverage.period.allTime.complete = false;
+  const proof = buildCodexForwardCalibration(index, true, new Set([K]), new Set(), T + n * M - 500, {}, previousProof);
+  if (proof) fixtureIndexes.set(proof, index);
   return { usage: [], observations: [], localHistoryComplete: false,
-    codexForwardCalibration: buildCodexForwardCalibration(index, true, new Set([K]), new Set(), T + n * M - 500),
+    codexForwardCalibration: proof,
     calibrationPricebook: { schemaVersion: 1, parserVersion: 4, periodVersion: 1,
       rates: [{ model: 'gpt-5', input: .001, cachedInput: .0001, output: .002 }] } };
 }
@@ -130,4 +134,42 @@ test('same-cycle downward correction starts a new calibration cohort instead of 
   const result = estimator.observe(sample(4, 59), inputs(4, 59, 10000), 'api-v1')!;
   assert.equal(result?.fullEquivalentUsd, 30);
   assert.equal(result?.calibrationEvidence?.accumulated.deltaPercent, 10);
+});
+test('a downward correction after blur retires the last admitted cohort even without a live baseline', () => {
+  const estimator = createEstimator();
+  estimator.observe(sample(0, 20), inputs(0, 20, 1000), 'api-v1');
+  estimator.observe(sample(1, 40), inputs(1, 40, 3000), 'api-v1');
+  estimator.breakContinuity();
+  assert.equal(estimator.observe(sample(2, 39), inputs(2, 39, 4000), 'api-v1'), undefined);
+  assert.equal(estimator.observe(sample(3, 49), inputs(3, 49, 7000), 'api-v1'), undefined);
+  const result = estimator.observe(sample(4, 59), inputs(4, 59, 10000), 'api-v1')!;
+  assert.equal(result?.fullEquivalentUsd, 30);
+  assert.equal(result?.calibrationEvidence?.accumulated.deltaPercent, 10);
+});
+test('watcher appends and a normalized warm publication preserve the exact official bracket chain', () => {
+  const estimator = createEstimator(), baseline = inputs(0, 20, 1000);
+  estimator.observe(sample(0, 20), baseline, 'api-v1');
+  const watch1 = inputs(1, 30, 2000, {}, baseline.codexForwardCalibration);
+  const watch2 = inputs(2, 40, 3000, {}, watch1.codexForwardCalibration);
+  const warm = inputs(2, 40, 3000, { calibrationAppend: undefined }, watch2.codexForwardCalibration);
+  const result = estimator.observe(sample(2, 40), warm, 'api-v1')!;
+  assert.equal(result?.fullEquivalentUsd, 10);
+  assert.equal(result?.calibrationEvidence?.interval.deltaUsd, 2);
+  assert.equal(result?.calibrationEvidence?.interval.from, T + M);
+});
+test('official growth without a matching local endpoint cannot use a partial local numerator', () => {
+  const estimator = createEstimator();
+  estimator.observe(sample(0, 20), inputs(0, 20, 1000), 'api-v1');
+  assert.equal(estimator.observe(sample(1, 30), inputs(1, 29, 3000), 'api-v1'), undefined);
+});
+test('a fresh quiet verification preserves alignment without inventing a newer local usage event', () => {
+  const estimator = createEstimator(), baseline = inputs(0, 20, 1000);
+  estimator.observe(sample(0, 20), baseline, 'api-v1');
+  const old = baseline.codexForwardCalibration!, index = fixtureIndexes.get(old)!;
+  const quiet = { ...baseline, codexForwardCalibration: buildCodexForwardCalibration(index, true, new Set([K]), new Set(),
+    T + 2 * M - 500, {}, old) };
+  assert.equal(estimator.observe(sample(1, 20), quiet, 'api-v1'), undefined);
+  const next = inputs(2, 30, 3000, { calibrationAppend: { beforeOffset: 200, throughOffset: 400,
+    minUsageAt: T + 3 * M - 1000, maxUsageAt: T + 3 * M - 1000, complete: true } }, quiet.codexForwardCalibration);
+  assert.equal(estimator.observe(sample(2, 30), next, 'api-v1')?.fullEquivalentUsd, 20);
 });

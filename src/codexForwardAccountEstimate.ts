@@ -2,7 +2,8 @@ import type { OfficialQuotaSample } from './codexAccountEstimate';
 import type { LocalWeeklyEstimate } from './weeklyEstimate';
 import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation } from './codexQuotaEpoch';
 import { copyCodexCalibrationPricebook, copyCodexCalibrationEvidence, CodexCalibrationPricebook } from './codexCalibrationEvidence';
-import { isCodexForwardAppend, isCodexForwardCalibration, CodexForwardCalibration } from './providers/codex/codexForwardCalibration';
+import { isCodexForwardAppend, isCodexForwardCalibration, CodexForwardCalibration,
+  CodexForwardCalibrationSource, CodexForwardAppendWindow } from './providers/codex/codexForwardCalibration';
 
 type Sample = OfficialQuotaSample;
 type Delta = { usd: number; priced: number; total: number; sources: number };
@@ -11,6 +12,25 @@ type Pending = Delta & { sample: Sample };
 const MAX_GAP = 300_000, HEX = /^[a-f0-9]{64}$/;
 const parts = ['inputTotal', 'cachedInput', 'outputTotal', 'reasoningOutput'] as const;
 const close = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+
+function appendChain(before: CodexForwardCalibrationSource, after: CodexForwardCalibrationSource): CodexForwardAppendWindow | undefined {
+  if (after.appendWindow?.complete === false) return;
+  const windows = after.appendWindows?.length ? after.appendWindows : after.appendWindow ? [after.appendWindow] : [];
+  let cursor = before.offset, min: number | null = null, max: number | null = null;
+  for (const window of windows) {
+    if (window.throughOffset <= cursor) continue;
+    if (!window.complete || window.beforeOffset !== cursor || window.throughOffset > after.offset) return;
+    if (window.minUsageAt !== null) {
+      if (window.maxUsageAt === null || before.usageThrough === null || window.minUsageAt <= before.usageThrough ||
+        max !== null && window.minUsageAt <= max) return;
+      min = min === null ? window.minUsageAt : Math.min(min, window.minUsageAt);
+      max = window.maxUsageAt;
+    } else if (window.maxUsageAt !== null) return;
+    cursor = window.throughOffset;
+    if (cursor === after.offset) return { beforeOffset: before.offset, throughOffset: cursor,
+      minUsageAt: min, maxUsageAt: max, complete: true };
+  }
+}
 
 /** Exact append timing is separate from primary cumulative counters. Refuse the
  * entire official denominator if ANY changed source cannot supply its dollars.
@@ -21,13 +41,18 @@ function increment(before: CodexForwardCalibration, after: CodexForwardCalibrati
   if (before.indexGeneration !== after.indexGeneration || before.sources.length !== after.sources.length) return;
   const old = new Map(before.sources.map(source => [source.sourceKey, source]));
   const rates = new Map(book.rates.map(rate => [rate.model, rate]));
+  const endpoint = (proof: CodexForwardCalibration, sample: Sample, since?: number) => proof.sources.some(source =>
+    source.eligible && source.quotaWitness && Math.abs(source.quotaWitness.resetAt - sample.resetAt) <= 300_000 &&
+    source.quotaWitness.usedPercent === sample.usedPercent && source.quotaWitness.observedAt <= sample.requestedAt &&
+    (since === undefined || source.quotaWitness.observedAt > since));
+  if (!endpoint(before, first)) return;
   const out: Delta = { usd: 0, priced: 0, total: 0, sources: 0 };
   for (const source of after.sources) {
     const prior = old.get(source.sourceKey);
     if (!prior || source.continuity !== prior.continuity) return;
     if (source.revision === prior.revision) continue;
     if (!isCodexForwardAppend(prior, source) || !prior.byModel || !source.byModel) return;
-    const window = source.appendWindow;
+    const window = appendChain(prior, source);
     if (!window || !window.complete || window.beforeOffset !== prior.offset || window.throughOffset !== source.offset) return;
     let tokens = 0, dollars = 0;
     for (const model of new Set([...Object.keys(prior.byModel), ...Object.keys(source.byModel)])) {
@@ -55,6 +80,7 @@ function increment(before: CodexForwardCalibration, after: CodexForwardCalibrati
     out.usd += dollars; out.total += tokens; out.priced += tokens; out.sources++;
     if (!Number.isFinite(out.usd) || out.usd > 1e12 || !Number.isSafeInteger(out.total)) return;
   }
+  if ((out.total > 0 || last.usedPercent !== first.usedPercent) && !endpoint(after, last, first.observedAt)) return;
   return out;
 }
 
@@ -66,10 +92,12 @@ export class CodexForwardAccountEstimator {
   private context?: string;
   private readonly used = new WeakSet<object>();
   private readonly runs = new Map<string, Run>();
+  private readonly lastSamples = new Map<string, { account: string; observedAt: number; percent: number }>();
   breakContinuity(): void { this.baseline = undefined; this.pending = undefined; }
-  reset(): void { this.breakContinuity(); this.runs.clear(); this.context = undefined; }
+  reset(): void { this.breakContinuity(); this.runs.clear(); this.lastSamples.clear(); this.context = undefined; }
   invalidateThrough(account: string, through: number): void {
     for (const [key, run] of this.runs) if (run.account === account && run.from <= through) this.runs.delete(key);
+    for (const [key, last] of this.lastSamples) if (last.account === account) this.lastSamples.delete(key);
     if (this.baseline?.sample.accountScopeKey === account) this.breakContinuity();
   }
   observe(sample: Sample, proof: unknown, rawBook: unknown): LocalWeeklyEstimate | undefined {
@@ -89,6 +117,14 @@ export class CodexForwardAccountEstimator {
     if (this.context !== undefined && this.context !== context) this.reset();
     this.context = context;
     const key = JSON.stringify([sample.accountScopeKey, context, epoch]);
+    const last = this.lastSamples.get(key);
+    if (last && sample.requestedAt <= last.observedAt) { this.breakContinuity(); return; }
+    // Blur/visits retire a monetary baseline, not observed counter history.
+    // A later correction must not resurrect a pre-correction admitted cohort.
+    if (last && sample.usedPercent < last.percent) this.runs.delete(key);
+    this.lastSamples.delete(key);
+    this.lastSamples.set(key, { account: sample.accountScopeKey, observedAt: sample.observedAt, percent: sample.usedPercent });
+    if (this.lastSamples.size > 64) this.lastSamples.delete(this.lastSamples.keys().next().value!);
     const before = this.baseline;
     const replace = () => { this.baseline = { sample: safe, proof, book, key, aligned: false }; this.pending = undefined; };
     if (before?.key === key && sample.usedPercent < before.sample.usedPercent) this.runs.delete(key);
