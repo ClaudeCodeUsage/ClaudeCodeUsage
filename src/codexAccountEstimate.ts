@@ -5,6 +5,7 @@ import {CODEX_QUOTA_CHECKPOINT_SNAPSHOT_LIMIT} from './providers/codex/codexQuot
 import {copyCodexQuotaEpoch, codexQuotaEpochFitsObservation, CodexQuotaEpoch} from './codexQuotaEpoch';
 import {CodexCalibrationPricebook, copyCodexCalibrationPricebook, copyCodexCalibrationEvidence} from './codexCalibrationEvidence';
 import {createHash} from 'node:crypto';
+import {isCodexCalibrationCensus, CodexCalibrationCensus} from './providers/codex/codexCalibrationCensus';
 
 export interface OfficialQuotaSample {
   accountScopeKey:string; sourceScopeKey:string; requestedAt:number; observedAt:number;
@@ -14,7 +15,7 @@ export interface OfficialQuotaSample {
 interface Bucket {usd:number;priced:number;total:number;last:number}
 interface Counter {usd:number;priced:number;total:number;first:number;last:number;percent:number;reset:number;witness:number;valid:boolean;buckets:Map<number,Bucket>;
   source?:string;components?:Map<string,readonly number[]>}
-interface Baseline {sample:OfficialQuotaSample;price:string;rows:Map<string|symbol,Counter>;pricebook?:CodexCalibrationPricebook;scope:string}
+interface Baseline {sample:OfficialQuotaSample;price:string;rows:Map<string|symbol,Counter>;pricebook?:CodexCalibrationPricebook;scope:string;census?:CodexCalibrationCensus}
 interface Accumulated {account:string;from:number;usd:number;priced:number;total:number;delta:number;gap:boolean;intervals:number}
 const HEX=/^[a-f0-9]{64}$/,WEEK=604_800_000,MAX_GAP=300_000,MAX_SOURCES=16_384;
 const UNKEYED=Symbol('unkeyed-local-usage');
@@ -179,6 +180,7 @@ export class CodexAccountEstimator {
   // cannot resurrect an older run on S-T-S, including while no baseline exists.
   private evidenceContext?:string;
   private readonly runs=new Map<string,Accumulated>();
+  private readonly seenCensuses=new WeakSet<object>();
   private runKey(sample:OfficialQuotaSample,price:string,pricebook:CodexCalibrationPricebook|undefined,scope:string):string|undefined {
     return sample.quotaEpoch===undefined?undefined:JSON.stringify([sample.accountScopeKey,sample.sourceScopeKey,price,sample.quotaEpoch,pricebook,scope]);
   }
@@ -201,21 +203,62 @@ export class CodexAccountEstimator {
       sourceScope.excludedSourceKeys.length>MAX_SOURCES||!sourceScope.excludedSourceKeys.every(key=>typeof key==='string'&&key.length>0&&key.length<=256))){this.reset();return undefined;}
     const excluded=new Set(sourceScope?.excludedSourceKeys??[]);
     const scope=createHash('sha256').update(JSON.stringify([...excluded].sort())).digest('hex');
+    const census=inputs.codexCalibrationCensus;
+    if(census!==undefined&&(!isCodexCalibrationCensus(census)||this.seenCensuses.has(census)||
+      census.verifiedAt>sample.observedAt||sample.observedAt-census.verifiedAt>MAX_GAP)){
+      this.reset();return undefined;
+    }
+    if(census){
+      if(this.baseline&&census.verifiedAt<=this.baseline.sample.observedAt){this.reset();return undefined;}
+      this.seenCensuses.add(census);
+    }
     const incompleteRanges=inputs.codexQuotaIncompleteRanges;
     const checkpointMode=inputs.codexQuotaCheckpoints!==undefined||inputs.codexQuotaCheckpointsComplete!==undefined||
-      inputs.codexQuotaIncompleteResets!==undefined||incompleteRanges!==undefined;
+      inputs.codexQuotaIncompleteResets!==undefined||incompleteRanges!==undefined||census!==undefined;
     // With an exact rate snapshot, a fetch timestamp is not a price change.
     // Legacy inputs without rates must still use the caller's version fence.
     const price=JSON.stringify(pricebook??pricingVersion);
-    const context=JSON.stringify([sample.sourceScopeKey,price,scope,checkpointMode]);
+    const censusScope=census&&createHash('sha256').update(JSON.stringify([census.indexGeneration,
+      census.sources.map(source=>[source.sourceKey,source.canonical,source.eligible,source.continuity])])).digest('hex');
+    const context=JSON.stringify([sample.sourceScopeKey,price,scope,checkpointMode,censusScope]);
     if(this.evidenceContext!==undefined&&this.evidenceContext!==context){this.breakContinuity();this.runs.clear();}
     this.evidenceContext=context;
     const previous=this.baseline,last=this.lastObserved;
-    const paired=checkpointMode?checkpointCounters(sample,inputs,pricebook,previous?.sample.observedAt):undefined;
+    const waived=new Set<string>(),changedSources=new Set<string>();
+    const scopedRanges:NonNullable<WeeklyValueInputs['codexQuotaIncompleteRanges']>[number][]=[];
+    let censusBlocked=false;
+    if(census&&previous?.census){
+      const oldSources=new Map(previous.census.sources.map(source=>[source.sourceKey,source]));
+      for(const source of census.sources){
+        const before=oldSources.get(source.sourceKey);
+        if(!before||source.continuity!==before.continuity||source.bytes<before.bytes){censusBlocked=true;continue;}
+        if(source.uncertain&&source.revision===before.revision&&source.activityThrough!==null&&
+          source.activityThrough<=previous.sample.observedAt){waived.add(source.sourceKey);continue;}
+        if(source.uncertain&&(source.ranges===undefined||source.activityThrough===null||source.activityThrough>sample.observedAt))censusBlocked=true;
+        if(source.ranges)scopedRanges.push(...source.ranges);
+        if(source.revision!==before.revision){
+          if(!source.eligible||source.bytes<=before.bytes)censusBlocked=true;
+          // Fully parsed metadata may change physical revision and root-line
+          // time without adding any recorded USD. This exception never applies
+          // to an uncertain source, future activity, or changed numeric proof.
+          const knownZero=!source.uncertain&&!before.uncertain&&source.eligible&&before.eligible&&
+            source.usageRevision===before.usageRevision&&source.usageThrough!==null&&
+            source.usageThrough<=previous.sample.observedAt&&source.activityThrough!==null&&
+            source.activityThrough<=sample.observedAt;
+          if(!knownZero)changedSources.add(source.sourceKey);
+        }else if(source.uncertain)censusBlocked=true; // known future/newly eligible activity is never a static waiver
+      }
+      if(oldSources.size!==census.sources.length)censusBlocked=true;
+    }
+    // Census authority is runtime-only. Anonymous merged ranges remain intact
+    // for historical consumers; only this official incremental pair uses the
+    // producer's source-local ranges and proven constant unknown histories.
+    const numericInputs=census?{...inputs,codexQuotaIncompleteRanges:scopedRanges}:inputs;
+    const paired=checkpointMode?checkpointCounters(sample,numericInputs,pricebook,previous?.sample.observedAt):undefined;
     const rows=checkpointMode?paired?.rows:counters(sample,inputs);
     const observations=checkpointMode?paired?.observations??[]:inputs.observations;
     if(!rows){this.reset();return undefined;}
-    const next:Baseline={sample:{...sample},price,rows,scope,...(pricebook?{pricebook}:{})};
+    const next:Baseline={sample:{...sample},price,rows,scope,...(pricebook?{pricebook}:{}),...(census?{census}:{})};
     const runKey=this.runKey(sample,price,pricebook,scope);
     const replace=(restore=false)=>{this.baseline=next;this.lastObserved={...sample};
       this.accumulated=restore&&runKey!==undefined?this.runs.get(runKey):undefined;
@@ -240,10 +283,17 @@ export class CodexAccountEstimator {
     if(sample.observedAt-last.observedAt>(sample.quotaEpoch===undefined?MAX_GAP:65*60_000))return replace(true);
     const gap=sample.observedAt-last.observedAt>MAX_GAP;
     this.lastObserved={...sample};
-    if(paired?.incomplete){this.baseline=next;return undefined;}
+    if(census){
+      for(const source of census.sources)if(changedSources.has(source.sourceKey)){
+        const matching=[...rows.values()].filter(row=>row.source===source.sourceKey);
+        if(source.activityThrough===null||source.activityThrough>sample.observedAt||source.usageThrough===null||
+          !matching.some(row=>row.valid&&row.witness>previous.sample.observedAt&&row.witness>=source.usageThrough!))censusBlocked=true;
+      }
+    }
+    if(censusBlocked||paired?.incomplete){this.baseline=next;return undefined;}
     const delta=sample.usedPercent-previous.sample.usedPercent;
     if(delta<1)return undefined; // accumulate against the original numeric baseline
-    const replayedBaseline=checkpointMode?checkpointCounters(previous.sample,inputs,pricebook):undefined;
+    const replayedBaseline=checkpointMode?checkpointCounters(previous.sample,numericInputs,pricebook):undefined;
     if(checkpointMode&&!replayedBaseline){this.baseline=next;return undefined;}
     let usd=0,priced=0,total=0,linkedSources=0,incomplete=false;
     const conflicting=new Set<string>();
@@ -303,7 +353,7 @@ export class CodexAccountEstimator {
       if(rows.has(key)||(before.usd===0&&before.total===0))continue;
       const outsideScopedWindow=checkpointMode&&(incompleteRanges!==undefined||inputs.codexQuotaIncompleteResets!==undefined)&&
         Math.abs(before.reset-sample.resetAt)>300_000;
-      const datedStaticGap=checkpointMode&&incompleteRanges?.some(range=>
+      const datedStaticGap=waived.has(before.source??String(key))||checkpointMode&&incompleteRanges?.some(range=>
         (range.resetAt===undefined||Math.abs(range.resetAt-sample.resetAt)<=300_000)&&
         range.from<=before.last&&range.through>=before.last&&range.through<=previous.sample.observedAt);
       if(!outsideScopedWindow&&!datedStaticGap)incomplete=true;

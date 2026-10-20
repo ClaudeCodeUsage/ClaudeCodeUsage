@@ -50,6 +50,7 @@ import { CodexSessionTitleCache } from './codexIdentity';
 import { CodexAchievementUsageDelta, CodexAchievementUsageWindow,
   copyCodexUsageWindow, copyCodexUsageDelta } from './codexAchievementOrigin';
 import { classifyCodexSessionDuplicates } from './codexDedup';
+import { buildCodexCalibrationCensus } from './codexCalibrationCensus';
 import { CodexQuotaCheckpointSegment, CODEX_QUOTA_CHECKPOINT_SNAPSHOT_LIMIT,
   projectCodexQuotaCheckpointSegments, CodexQuotaIncompleteRange,
   CODEX_QUOTA_CHECKPOINT_VERSION, codexQuotaCheckpointStateRanges,
@@ -145,6 +146,7 @@ function displayOnlySnapshot(snapshot: CodexProviderSnapshot): CodexProviderSnap
       ...snapshot.weeklyValueInputs, codexQuotaCheckpointsComplete: false,
       codexQuotaIncompleteResets: undefined,
       codexQuotaIncompleteRanges: undefined,
+      codexCalibrationCensus: undefined,
       codexQuotaCheckpoints: snapshot.weeklyValueInputs.codexQuotaCheckpoints?.map(row => ({ ...row, complete: false })),
     } } : {}),
     files: snapshot.files.map((file) => {
@@ -473,6 +475,7 @@ function snapshotFromIndex(
   index: CodexIndexV1,
   sessionTitles: Map<string, string> = new Map(),
   currentManifestVerified = false,
+  verificationBeganAt?: number,
 ): CodexProviderSnapshot {
   const deduplication = classifyCodexSessionDuplicates(index.files);
   const canonicalFileKeys = deduplication.canonicalFileKeys;
@@ -599,7 +602,9 @@ function snapshotFromIndex(
       usageContributions,
       index.quotaHistory ?? [],
       index.coverage.period.timeZone,
-    ), codexQuotaCheckpoints, codexQuotaCheckpointsComplete, codexQuotaIncompleteResets, codexQuotaIncompleteRanges, calibrationSourceScope: {
+    ), codexQuotaCheckpoints, codexQuotaCheckpointsComplete, codexQuotaIncompleteResets, codexQuotaIncompleteRanges,
+    codexCalibrationCensus: buildCodexCalibrationCensus(index, currentManifestVerified,
+      canonicalFileKeys, deduplication.ambiguousFileKeys, verificationBeganAt), calibrationSourceScope: {
       verified: currentManifestVerified && index.coverage.complete && index.coverage.period.allTime.complete,
       excludedSourceKeys: [...deduplication.ambiguousFileKeys].sort(),
     } },
@@ -726,6 +731,9 @@ export class CodexProvider {
     const client = this.client;
     this.lastProgress = undefined;
     try {
+      // Parsing, worker queuing and title loading cannot make an older manifest
+      // appear freshly verified when the official quota is sampled afterward.
+      const verificationBeganAt = Date.now();
       const result = await client.refresh(
         {
           codexHome: this.options.codexHome,
@@ -755,7 +763,7 @@ export class CodexProvider {
         return { outcome: 'unavailable', snapshot: this.invalidateCurrentManifestProof() };
       }
       this.snapshotGeneration += 1;
-      const snapshot = snapshotFromIndex(result.index, sessionTitles, true);
+      const snapshot = snapshotFromIndex(result.index, sessionTitles, true, verificationBeganAt);
       if (result.failedFiles === 0 && this.options.allowAchievementHourProof !== false) {
         // Rebuild current census and witnesses above even on zero-body reads.
         // Only full equality against a detached frozen publication allows reuse;

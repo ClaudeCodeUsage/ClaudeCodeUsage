@@ -71,6 +71,9 @@ export interface WeeklyValueInputs {
   /** Numeric uncertainty bounds. 0 is an unknown prefix; MAX_SAFE_INTEGER is
    * an open unknown tail, not an observed timestamp. Undefined fails globally. */
   codexQuotaIncompleteRanges?: readonly import('./providers/codex/codexQuotaCheckpoints').CodexQuotaIncompleteRange[];
+  /** Producer-branded runtime-only source census for fresh official increments.
+   * Never persisted, exported, used for historical ownership, or rendered/client data. */
+  codexCalibrationCensus?: import('./providers/codex/codexCalibrationCensus').CodexCalibrationCensus;
   observations: WeeklyQuotaObservation[];
   usage: WeeklyEquivalentUsage[];
   /** Exact current rate snapshot, attached by the existing numeric Codex adapter. */
