@@ -44,6 +44,10 @@ test('official reset credits distinguish zero, one and unknown in all eight loca
     }
   }
 }));
+test('Chinese credit count names available vouchers rather than historical reset events', () => run(() => {
+  assert.equal(I18n.t.weeklyValue.resetCreditCount, '可用重置券');
+  I18n.setLanguage('zh-TW'); assert.equal(I18n.t.weeklyValue.resetCreditCount, '可用重設券');
+}));
 test('official reset-credit expiry is explicitly the next known future expiry', () => run(() => {
   const copy = I18n.t.weeklyValue;
   assert.equal(typeof copy.resetCreditNextExpiry, 'string');
