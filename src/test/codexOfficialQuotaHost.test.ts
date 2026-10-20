@@ -45,6 +45,18 @@ test('successful read captures original quota, keeps only numeric public state a
   assert.equal(e.resourceOwnership.snapshotForTests().activeCount,0);
  }finally{Date.now=clock;}
 });
+test('public official facts expose only numeric counts and known future expiry, never credit keys',async()=>{
+ const clock=Date.now;Date.now=()=>T;
+ try{const{e}=fixture();e.officialQuotaReader=async()=>({...sample,ordinaryUsageAllowed:false,
+  rateLimitResetCredits:{availableCount:2,credits:[{creditKey:'d'.repeat(64),status:'available',
+   resetType:'codexRateLimits',grantedAt:T-1000,expiresAt:T+3600000},
+   {creditKey:'e'.repeat(64),status:'available',resetType:'codexRateLimits',grantedAt:T-2000,expiresAt:T-1}]}});
+  await e.refreshOfficialCodexQuota('manual');const p=e.officialQuotaPublicState();
+  assert.equal(p.resetCreditCount,2);assert.equal(p.resetCreditNextExpiryAt,T+3600000);
+  assert.equal(p.ordinaryUsageAllowed,false);
+  assert.doesNotMatch(JSON.stringify(p),/creditKey|dddddddd|eeeeeeee|accountScopeKey|sourceScopeKey/);
+ }finally{Date.now=clock;}
+});
 test('late replies after cancellation cannot repopulate cleared account state or write history',async()=>{
  const clock=Date.now;Date.now=()=>T;
  try{const{e,writes}=fixture();let reply!:(v:unknown)=>void;

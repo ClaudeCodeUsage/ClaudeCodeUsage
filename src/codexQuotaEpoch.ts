@@ -32,7 +32,7 @@ export function copyCodexQuotaEpoch(value: unknown): CodexQuotaEpoch | undefined
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const item = value as Record<string, unknown>;
   if (!time(item.startedAt) || !time(item.resetAnchorAt) || item.startedAt >= item.resetAnchorAt ||
-    item.resetAnchorAt - item.startedAt > WEEK || typeof item.reason !== 'string' || !REASONS.has(item.reason) ||
+    item.resetAnchorAt - item.startedAt > 366 * 86_400_000 || typeof item.reason !== 'string' || !REASONS.has(item.reason) ||
     (item.startLowerAt !== null && (!time(item.startLowerAt) || item.startLowerAt > item.startedAt)) ||
     (item.reason === 'initial' && item.startLowerAt !== null) ||
     (item.reason === 'scheduled-reset' && item.startLowerAt === null)) return undefined;
@@ -86,6 +86,11 @@ export function codexQuotaEpochFromObservations(
   const point = matches[0];
   if (!point || point.resetAt !== currentResetAt) return undefined;
   const first = rows.find(row => row.windowId === point.windowId)!;
+  const window = rows.filter(row => row.windowId === point.windowId);
+  // New snapshots keep an unused rolling deadline in one provisional window.
+  // First positive use fixes its anchor; no previous numeric estimate is moved.
+  const resetAnchorAt = window.some(row => row.officialFacts !== undefined) && first.usedFraction === 0
+    ? (window.find(row => row.usedFraction > 0) ?? point).resetAt! : first.resetAt!;
   const previous = rows.filter(row => row.windowId !== point.windowId && row.observedAt < first.observedAt).pop();
   let reason: CodexQuotaEpoch['reason'] = 'initial';
   let startLowerAt: number | null = null;
@@ -102,5 +107,5 @@ export function codexQuotaEpochFromObservations(
     }
   } else if (first.captureReason === 'usage-drop') reason = 'counter-drop';
   else if (first.captureReason === 'reset-at-change' || first.captureReason === 'window-id-change') reason = 'reset-change';
-  return copyCodexQuotaEpoch({ startedAt: first.observedAt, resetAnchorAt: first.resetAt, reason, startLowerAt });
+  return copyCodexQuotaEpoch({ startedAt: first.observedAt, resetAnchorAt, reason, startLowerAt });
 }

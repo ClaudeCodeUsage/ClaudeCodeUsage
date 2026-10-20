@@ -61,9 +61,9 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 ## Yang baru di v2.5
 
 - **Perbandingan kuota Codex per siklus** — satu batang dan baris ringkasan per siklus,
-  memakai bukti kompatibel terkuat yang dapat dibuka, dengan status menunggu kalibrasi atau konflik sumber.
-  Nilainya tetap estimasi lokal bersyarat. Pembacaan resmi opsional nonaktif secara default
-  dan dapat menghubungi OpenAI. Lihat [data lokal dan privasi](LOCAL-DATA.md).
+  dengan bukti kompatibel, status kalibrasi dan konflik. Nilai tetap estimasi lokal bersyarat.
+  Pembacaan resmi nonaktif secara default dan dapat menghubungi OpenAI; menampilkan kredit reset bila tersedia.
+  Kalibrasi memakai kenaikan baru tanpa memutar ulang riwayat kuota. Lihat [data lokal dan privasi](LOCAL-DATA.md).
 
 - **Pencapaian lokal** — lihat lencana, progres, dan target berikutnya. Aktif secara default;
   nonaktifkan Local achievements di pengaturan (`enableAchievements`). Tanggal berasal dari

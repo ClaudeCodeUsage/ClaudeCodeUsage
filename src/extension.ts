@@ -4991,12 +4991,20 @@ export class ClaudeCodeUsageExtension {
   private officialQuotaPublicState(): {
     status:'disabled'|'loading'|'ready'|'unavailable'|'source-mismatch';
     usedPercent?:number;resetAt?:number;observedAt?:number;quotaEpochStartedAt?:number;stale?:boolean;
+    resetCreditCount?:number|null;resetCreditNextExpiryAt?:number|null;ordinaryUsageAllowed?:boolean|null;
   } {
     const sample=this.officialQuotaSample;
     const now=Date.now(),unexpired=sample&&sample.observedAt<=now&&sample.resetAt>now;
+    const credits=sample?.rateLimitResetCredits;
+    const expiries=credits?.credits?.filter(credit=>credit.status==='available'&&
+      typeof credit.expiresAt==='number'&&Number.isSafeInteger(credit.expiresAt)&&credit.expiresAt>now)
+      .map(credit=>credit.expiresAt as number)??[];
     return {status:sample&&!unexpired?'unavailable':this.officialQuotaStatus,
       ...(this.officialQuotaStatus==='ready'&&unexpired?{usedPercent:sample.usedPercent,
         resetAt:sample.resetAt,observedAt:sample.observedAt,
+        resetCreditCount:credits?.availableCount??null,
+        resetCreditNextExpiryAt:expiries.length?Math.min(...expiries):null,
+        ordinaryUsageAllowed:sample.ordinaryUsageAllowed??null,
         stale:now-sample.observedAt>=300_000||this.windowActivity?.focused===false,
         ...(sample.quotaEpoch ? {quotaEpochStartedAt:sample.quotaEpoch.startedAt}:{} )}:{})};
   }

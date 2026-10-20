@@ -6,10 +6,10 @@ import {copyCodexQuotaEpoch, codexQuotaEpochFitsObservation, CodexQuotaEpoch} fr
 import {CodexCalibrationPricebook, copyCodexCalibrationPricebook, copyCodexCalibrationEvidence} from './codexCalibrationEvidence';
 import {createHash} from 'node:crypto';
 import {isCodexCalibrationCensus, CodexCalibrationCensus} from './providers/codex/codexCalibrationCensus';
+import type { CodexOfficialQuotaSnapshot } from './providers/codex/codexOfficialQuota';
+import { CodexForwardAccountEstimator } from './codexForwardAccountEstimate';
 
-export interface OfficialQuotaSample {
-  accountScopeKey:string; sourceScopeKey:string; requestedAt:number; observedAt:number;
-  resetAt:number; usedPercent:number;
+export interface OfficialQuotaSample extends CodexOfficialQuotaSnapshot {
   quotaEpoch?:CodexQuotaEpoch;
 }
 interface Bucket {usd:number;priced:number;total:number;last:number}
@@ -173,6 +173,8 @@ function historicalRevision(before:Counter,current:Counter,after:number):boolean
  * failure, source/index/rate invalidation and restart retire them.
  */
 export class CodexAccountEstimator {
+  private readonly forward = new CodexForwardAccountEstimator();
+  private forwardMode = false;
   private baseline?:Baseline;
   private lastObserved?:OfficialQuotaSample;
   private accumulated?:Accumulated;
@@ -184,16 +186,25 @@ export class CodexAccountEstimator {
   private runKey(sample:OfficialQuotaSample,price:string,pricebook:CodexCalibrationPricebook|undefined,scope:string):string|undefined {
     return sample.quotaEpoch===undefined?undefined:JSON.stringify([sample.accountScopeKey,sample.sourceScopeKey,price,sample.quotaEpoch,pricebook,scope]);
   }
-  breakContinuity():void{this.baseline=undefined;this.lastObserved=undefined;this.accumulated=undefined;}
-  reset():void{this.breakContinuity();this.runs.clear();this.evidenceContext=undefined;}
+  breakContinuity():void{this.baseline=undefined;this.lastObserved=undefined;this.accumulated=undefined;this.forward.breakContinuity();}
+  reset():void{this.breakContinuity();this.runs.clear();this.evidenceContext=undefined;this.forward.reset();this.forwardMode=false;}
   /** Durable clearing retires affected runtime sums in other live instances. */
   invalidateThrough(account:string,through:number):void{
     if(!finite(through))return;
+    this.forward.invalidateThrough(account,through);
     for(const [key,run] of this.runs)if(run.account===account&&run.from<=through)this.runs.delete(key);
     if(this.baseline?.sample.accountScopeKey===account&&
       (this.baseline.sample.observedAt<=through||(this.accumulated?.from??Infinity)<=through))this.breakContinuity();
   }
   observe(sample:OfficialQuotaSample,inputs:WeeklyValueInputs,pricingVersion:string):LocalWeeklyEstimate|undefined {
+    if(inputs.codexForwardCalibration!==undefined){
+      // A distinct producer proof authorizes forward intervals, not a relaxed
+      // historical-completeness flag or a restored persisted baseline.
+      this.baseline=undefined;this.lastObserved=undefined;this.accumulated=undefined;
+      this.runs.clear();this.evidenceContext=undefined;this.forwardMode=true;
+      return this.forward.observe(sample,inputs.codexForwardCalibration,inputs.calibrationPricebook);
+    }
+    if(this.forwardMode){this.forward.reset();this.forwardMode=false;}
     if(!valid(sample)){this.reset();return undefined;}
     sample={...sample,...(sample.quotaEpoch===undefined?{}:{quotaEpoch:copyCodexQuotaEpoch(sample.quotaEpoch)!})};
     const pricebook=copyCodexCalibrationPricebook(inputs.calibrationPricebook);
@@ -379,7 +390,8 @@ export class CodexAccountEstimator {
     if(runKey!==undefined){this.runs.delete(runKey);this.runs.set(runKey,accumulated);
       if(this.runs.size>64)this.runs.delete(this.runs.keys().next().value!);}
     const coverage=Math.min(1,accumulated.priced/accumulated.total);
-    return {provider:'codex',accountScopeKey:sample.accountScopeKey,windowStart:(sample.quotaEpoch?.resetAnchorAt??sample.resetAt)-WEEK,
+    return {provider:'codex',accountScopeKey:sample.accountScopeKey,
+      windowStart:sample.quotaEpoch?.startLowerAt ?? sample.quotaEpoch?.startedAt ?? sample.resetAt-WEEK,
       resetAt:sample.resetAt,observedAt:sample.observedAt,estimatedAt:sample.observedAt,
       usedEquivalentUsd:accumulated.usd,fullEquivalentUsd:full,unusedEquivalentUsd:full*(1-sample.usedPercent/100),
       utilizationPercent:sample.usedPercent,pricingCoverage:coverage,method:'account-delta-v1',

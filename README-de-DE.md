@@ -58,10 +58,9 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Neu in v2.5
 
-- **Codex-Quotenvergleich nach Zyklus** — ein Balken und eine Zusammenfassungszeile je Zyklus,
-  mit den stärksten kompatiblen, aufklappbaren Belegen sowie Hinweisen auf ausstehende Kalibrierung und Quellenkonflikte.
-  Beträge bleiben bedingte lokale Schätzungen. Optionale offizielle Abfragen sind standardmäßig aus
-  und können OpenAI kontaktieren. Siehe [lokale Daten und Datenschutz](LOCAL-DATA.md).
+- **Codex-Quotenvergleich nach Zyklus** — ein Balken und eine Zeile je Zyklus, mit aufklappbaren Belegen und Kalibrierungsstatus.
+  Beträge bleiben bedingte lokale Schätzungen. Optionale offizielle Abfragen sind standardmäßig aus und können OpenAI kontaktieren.
+  Reset-Gutschriften und neue Zuwächse ermöglichen Kalibrierung ohne Quotenhistorien-Replay. Siehe [Datenschutz](LOCAL-DATA.md).
 
 - **Lokale Erfolge** — Abzeichen, Fortschritt und nächste Ziele im Überblick. Standardmäßig
   aktiv; in den Einstellungen unter „Local achievements“ abschaltbar (`enableAchievements`).

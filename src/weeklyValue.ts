@@ -74,6 +74,9 @@ export interface WeeklyValueInputs {
   /** Producer-branded runtime-only source census for fresh official increments.
    * Never persisted, exported, used for historical ownership, or rendered/client data. */
   codexCalibrationCensus?: import('./providers/codex/codexCalibrationCensus').CodexCalibrationCensus;
+  /** Branded runtime-only primary census and forward segments. Independent of
+   * historical completeness; never account ownership, persistence or client data. */
+  codexForwardCalibration?: import('./providers/codex/codexForwardCalibration').CodexForwardCalibration;
   observations: WeeklyQuotaObservation[];
   usage: WeeklyEquivalentUsage[];
   /** Exact current rate snapshot, attached by the existing numeric Codex adapter. */

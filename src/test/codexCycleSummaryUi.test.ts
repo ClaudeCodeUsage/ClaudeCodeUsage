@@ -22,6 +22,68 @@ function owner(entries: any[]): any {
 }
 function run(body: () => void) { const now = Date.now, language = I18n.getCurrentLanguage(); Date.now = () => N; I18n.setLanguage('zh-CN');
   try { body(); } finally { Date.now = now; I18n.setLanguage(language); } }
+function officialPanel(extra: any = {}): string {
+  const p = owner([entry()]);
+  p.setting = (key: string, fallback: unknown) => key === 'codex.officialQuota.enabled' ? true : fallback;
+  p.weeklyEstimateProjection = () => ({ entries: [entry()], status: 'ready', activeAccountNumber: 1,
+    officialQuota: { status: 'ready', accountNumber: 1, usedPercent: 0, resetAt: R, observedAt: N - 1000, ...extra } });
+  return p.renderWeeklyValuePanel('codex');
+}
+test('official reset credits distinguish zero, one and unknown in all eight locales', () => run(() => {
+  for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'] as const) {
+    I18n.setLanguage(locale);
+    for (const count of [0, 1, null, undefined, -1, NaN, Infinity, 1.5, '1']) {
+      const html = officialPanel(count === undefined ? {} : { resetCreditCount: count });
+      const header = html.match(/<p class="table-hint weekly-official-quota"[^>]*>(.*?)<\/p>/)![1];
+      const copy = I18n.t.weeklyValue;
+      assert.equal(typeof copy.resetCreditCount, 'string', locale);
+      assert.ok(copy.resetCreditUnknown && copy.resetCreditNextExpiry && copy.ordinaryUsageBlocked, locale);
+      const expected = count === 0 || count === 1
+        ? new Intl.NumberFormat(I18n.getLocale()).format(count) : copy.resetCreditUnknown;
+      assert.ok(header.includes(copy.resetCreditCount + ': ' + expected), locale + ': ' + count);
+    }
+  }
+}));
+test('official reset-credit expiry is explicitly the next known future expiry', () => run(() => {
+  const copy = I18n.t.weeklyValue;
+  assert.equal(typeof copy.resetCreditNextExpiry, 'string');
+  const html = officialPanel({ resetCreditCount: 1, resetCreditNextExpiryAt: N + 60000 });
+  assert.ok(html.includes(copy.resetCreditNextExpiry + ': '));
+  for (const expiry of [null, undefined, -1, N - 1, N, NaN, Infinity, 8.64e15 + 1, '2026-10-21']) {
+    assert.ok(!officialPanel({ resetCreditCount: 1, resetCreditNextExpiryAt: expiry }).includes(copy.resetCreditNextExpiry));
+  }
+}));
+test('official credit and permission facts remain snapshot facts when stale', () => run(() => {
+  const copy = I18n.t.weeklyValue;
+  assert.equal(typeof copy.ordinaryUsageBlocked, 'string');
+  const html = officialPanel({ stale: true, resetCreditCount: 1, resetCreditNextExpiryAt: N + 60000,
+    ordinaryUsageAllowed: false });
+  const header = html.match(/<p class="table-hint weekly-official-quota"[^>]*>(.*?)<\/p>/)![1];
+  assert.ok(header.includes(copy.estimateStale));
+  assert.ok(header.includes(copy.resetCreditCount + ': 1'));
+  assert.ok(header.includes(copy.ordinaryUsageBlocked), '0% used does not override an explicit blocked state');
+  assert.ok(!header.includes(copy.collectingSamples));
+  for (const allowed of [null, undefined, true, 0, 'false']) {
+    assert.ok(!officialPanel({ ordinaryUsageAllowed: allowed }).includes(copy.ordinaryUsageBlocked));
+  }
+}));
+test('official credit rendering reads only public numeric facts and preserves compact cycle structure', () => run(() => {
+  const facts: any = { resetCreditCount: 1, resetCreditNextExpiryAt: N + 60000, ordinaryUsageAllowed: false };
+  for (const key of ['creditKey', 'hmac', 'resetCredits', 'accountId', 'sourceKey']) {
+    Object.defineProperty(facts, key, { enumerable: true, get() { throw new Error('sensitive field read: ' + key); } });
+  }
+  const p = owner([entry()]);
+  p.setting = (key: string, fallback: unknown) => key === 'codex.officialQuota.enabled' ? true : fallback;
+  const quota = Object.assign(Object.create(facts), { status: 'ready', accountNumber: 1, usedPercent: 0,
+    resetAt: R, observedAt: N - 1000 });
+  p.weeklyEstimateProjection = () => ({ entries: [entry()], status: 'ready', officialQuota: quota });
+  const html = p.renderWeeklyValuePanel('codex');
+  assert.doesNotMatch(html, /creditKey|hmac|resetCredits|accountId|sourceKey/);
+  assert.equal((html.match(/data-codex-cycle-chart/g) ?? []).length, 1);
+  assert.equal((html.match(/data-codex-cycle-summary-row/g) ?? []).length, 1);
+  assert.equal((html.match(/class="hc-xlabel"/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /本机七天用量|本地七天用量/);
+}));
 test('cycle table and chart use one identical summary per cycle, not failed observation rows', () => run(() => {
   const p = owner([entry(), entry({ fullEquivalentUsd: null, unusedEquivalentUsd: null, observedAt: N })]);
   const html = p.renderWeeklyValuePanel('codex');

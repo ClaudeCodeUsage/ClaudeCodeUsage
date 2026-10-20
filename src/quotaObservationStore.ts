@@ -13,7 +13,12 @@ import type { UsageProvider } from './providers/providerTypes';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import type { ClaudeApiUsageResponse } from './types';
 import { normalizeQuotaWindows } from './quotaWindows';
+import { classifyCodexOfficialTransition } from './codexOfficialTransition';
 import type { WeeklyQuotaObservation } from './weeklyValue';
+import {
+  copyCodexOfficialQuotaFacts, parseCodexOfficialQuotaFacts, codexOfficialQuotaFactsEvidenceKey,
+  type CodexOfficialQuotaFacts,
+} from './codexOfficialQuotaFacts';
 
 export const QUOTA_OBSERVATION_SCHEMA_VERSION = 2 as const;
 export const QUOTA_OBSERVATION_FILE = 'quota-observations-v2.json';
@@ -75,6 +80,7 @@ export interface QuotaCapture {
   confidence: QuotaEvidenceConfidence;
   captureReason: QuotaCaptureReason;
   flags?: QuotaObservationFlag[];
+  officialFacts?: CodexOfficialQuotaFacts;
 }
 
 export interface QuotaObservationV2 {
@@ -93,6 +99,7 @@ export interface QuotaObservationV2 {
   confidence: QuotaEvidenceConfidence;
   captureReason: QuotaCaptureReason;
   flags: QuotaObservationFlag[];
+  officialFacts?: CodexOfficialQuotaFacts;
 }
 
 export interface QuotaObservationClearScope {
@@ -118,6 +125,8 @@ export interface QuotaResetEventV2 {
 
 export interface QuotaObservationStoreV2 {
   schemaVersion: 2;
+  /** Additive facts revision. Older strict readers fail closed. */
+  schemaRevision?: 1;
   fingerprintAlgorithm: 'hmac-sha256-v1';
   observations: QuotaObservationV2[];
 }
@@ -218,7 +227,21 @@ function observationIdentity(item: QuotaObservationV2): string {
     item.usedFraction,
     item.resetAt ?? '',
     item.source,
+    item.officialFacts === undefined ? '' : JSON.stringify(item.officialFacts),
   ].join('|');
+}
+
+function officialFactsForObservation(item: Pick<QuotaCapture, 'provider' | 'source' | 'accountAttribution' | 'officialFacts'>):
+    CodexOfficialQuotaFacts | undefined {
+  if (item.provider !== 'codex' || item.source !== 'codex-official-api' ||
+    item.accountAttribution !== 'verified-local-signal') return;
+  return parseCodexOfficialQuotaFacts(item.officialFacts) ?? undefined;
+}
+
+function cloneObservation(item: QuotaObservationV2): QuotaObservationV2 {
+  const { officialFacts: _facts, ...base } = item;
+  const officialFacts = officialFactsForObservation(item);
+  return { ...base, flags: [...item.flags], ...(officialFacts ? { officialFacts } : {}) };
 }
 
 function orderedUniqueFlags(flags: readonly QuotaObservationFlag[] = []): QuotaObservationFlag[] {
@@ -316,6 +339,11 @@ function boundaryEvidence(
   ) {
     return 'window-id-change';
   }
+  // New complete official snapshots distinguish planned zero-use anchoring and
+  // rounding corrections from a granted reset. Legacy window identities remain
+  // unchanged on disk; this affects only newly captured official evidence.
+  if (capture.source === 'codex-official-api' && previous.source === 'codex-official-api' &&
+      capture.officialFacts !== undefined) return classifyCodexOfficialTransition(previous, capture).boundary;
   if (
     previous.resetAt !== null &&
     capture.resetAt !== null &&
@@ -392,6 +420,7 @@ function normalizedObservation(
         `window|${accountFingerprint}|${epochSeed}`,
         'win',
       );
+  const officialFacts = officialFactsForObservation(capture);
   return {
     schemaVersion: QUOTA_OBSERVATION_SCHEMA_VERSION,
     provider: capture.provider,
@@ -408,6 +437,7 @@ function normalizedObservation(
     confidence: capture.confidence,
     captureReason: boundary ?? capture.captureReason,
     flags: orderedUniqueFlags(capture.flags),
+    ...(officialFacts ? { officialFacts } : {}),
   };
 }
 
@@ -433,6 +463,8 @@ function compactBySeries(
       continue;
     }
     const mandatory = new Map<string, QuotaObservationV2>();
+    const factChanges: Array<[QuotaObservationV2, QuotaObservationV2]> = [];
+    const previousFactsByChannel = new Map<string, QuotaObservationV2>();
     const windows = new Map<string, QuotaObservationV2[]>();
     for (const item of ordered) {
       const window = windows.get(item.windowId) ?? [];
@@ -441,6 +473,13 @@ function compactBySeries(
       if (item.captureReason !== 'refresh' || item.flags.length > 0) {
         mandatory.set(observationIdentity(item), item);
       }
+      const channel = boundarySeriesKey(item);
+      const previous = previousFactsByChannel.get(channel);
+      if (previous && codexOfficialQuotaFactsEvidenceKey(previous.officialFacts, { omitWindowUsage: true }) !==
+        codexOfficialQuotaFactsEvidenceKey(item.officialFacts, { omitWindowUsage: true })) {
+        factChanges.push([previous, item]);
+      }
+      previousFactsByChannel.set(channel, item);
     }
     for (const window of windows.values()) {
       mandatory.set(observationIdentity(window[0]), window[0]);
@@ -476,6 +515,12 @@ function compactBySeries(
     } else {
       retain(ordered[0]);
       retain(ordered[ordered.length - 1]);
+    }
+    // Keep both sides of meaningful optional-evidence changes before filling
+    // spare slots with routine polls. Request timestamps alone are not changes.
+    for (const [before, after] of factChanges.reverse()) {
+      retain(after);
+      retain(before);
     }
     for (const item of [...mandatory.values()].sort(
       (left, right) => right.observedAt - left.observedAt,
@@ -587,7 +632,7 @@ export function mergeQuotaCaptures(
   const cutoff = now - retentionDays * DAY_MS;
   const observations = store.observations
     .filter((item) => item.observedAt >= cutoff && item.observedAt <= now + FUTURE_SKEW_MS)
-    .map((item) => ({ ...item, flags: [...item.flags] }));
+    .map(cloneObservation);
   const observationIds = new Set(observations.map(observationIdentity));
   const orderedCaptures = [...captures]
     .filter((item) => validCapture(item, now))
@@ -654,6 +699,7 @@ export function mergeQuotaCaptures(
   }
   return {
     schemaVersion: QUOTA_OBSERVATION_SCHEMA_VERSION,
+    ...(store.schemaRevision === 1 || observations.some(item => item.officialFacts) ? { schemaRevision: 1 as const } : {}),
     fingerprintAlgorithm: 'hmac-sha256-v1',
     observations: compactBySeries(
       annotateBoundaries(observations, usageDropThreshold),
@@ -759,7 +805,7 @@ function parseObservation(value: unknown, now: number): QuotaObservationV2 | nul
     'schemaVersion', 'provider', 'accountFingerprint', 'accountAttribution',
     'observedAt', 'periodType', 'usedFraction', 'remainingFraction', 'resetAt',
     'source', 'windowId', 'providerWindowFingerprint', 'confidence',
-    'captureReason', 'flags',
+    'captureReason', 'flags', 'officialFacts',
   ])) return null;
   const flags = parseFlags(item.flags);
   if (
@@ -788,6 +834,10 @@ function parseObservation(value: unknown, now: number): QuotaObservationV2 | nul
     !CAPTURE_REASONS.has(item.captureReason as QuotaCaptureReason) ||
     flags === null
   ) return null;
+  const hasOfficialFacts = Object.prototype.hasOwnProperty.call(item, 'officialFacts');
+  const officialFacts = hasOfficialFacts ? parseCodexOfficialQuotaFacts(item.officialFacts) : undefined;
+  if (hasOfficialFacts && (!officialFacts || item.provider !== 'codex' || item.source !== 'codex-official-api' ||
+    item.accountAttribution !== 'verified-local-signal')) return null;
   return {
     schemaVersion: 2,
     provider: item.provider,
@@ -804,16 +854,18 @@ function parseObservation(value: unknown, now: number): QuotaObservationV2 | nul
     confidence: item.confidence as QuotaEvidenceConfidence,
     captureReason: item.captureReason as QuotaCaptureReason,
     flags,
+    ...(officialFacts ? { officialFacts } : {}),
   };
 }
 
 function parseStore(value: unknown, now: number): QuotaObservationStoreV2 | null {
   const item = record(value);
   if (!item || !exactKeys(item, [
-    'schemaVersion', 'fingerprintAlgorithm', 'observations',
+    'schemaVersion', 'schemaRevision', 'fingerprintAlgorithm', 'observations',
   ])) return null;
   if (
     item.schemaVersion !== 2 ||
+    (Object.prototype.hasOwnProperty.call(item, 'schemaRevision') && item.schemaRevision !== 1) ||
     item.fingerprintAlgorithm !== 'hmac-sha256-v1' ||
     !Array.isArray(item.observations)
   ) return null;
@@ -826,6 +878,7 @@ function parseStore(value: unknown, now: number): QuotaObservationStoreV2 | null
   );
   return {
     schemaVersion: 2,
+    ...(item.schemaRevision === 1 ? { schemaRevision: 1 as const } : {}),
     fingerprintAlgorithm: 'hmac-sha256-v1',
     observations: [...observationMap.values()].sort((left, right) =>
       left.observedAt - right.observedAt || left.windowId.localeCompare(right.windowId),
@@ -921,11 +974,9 @@ export async function saveQuotaObservationStoreAtomic(
 function cloneStore(store: QuotaObservationStoreV2): QuotaObservationStoreV2 {
   return {
     schemaVersion: 2,
+    ...(store.schemaRevision === 1 ? { schemaRevision: 1 as const } : {}),
     fingerprintAlgorithm: 'hmac-sha256-v1',
-    observations: store.observations.map((item) => ({
-      ...item,
-      flags: [...item.flags],
-    })),
+    observations: store.observations.map(cloneObservation),
   };
 }
 
@@ -988,9 +1039,13 @@ export class QuotaObservationRepository {
       try {
         // Always re-read under the process-shared lease. A second VS Code
         // Extension Host may have committed observations since our last call.
-        const current = (await loadQuotaObservationStore(this.filePath, {
+        const loaded = await loadQuotaObservationStore(this.filePath, {
           now: this.now(),
-        })).store;
+        });
+        if (loaded.disposition === 'quarantined' || (await quotaObservationAuxiliaryNames(this.filePath)).length > 0) {
+          throw new Error('quota-observation-append:unresolved-quarantine');
+        }
+        const current = loaded.store;
         const next = mergeQuotaCaptures(current, captures, {
           salt: this.salt,
           now: this.now(),
@@ -1034,6 +1089,7 @@ export class QuotaObservationRepository {
         });
         const next: QuotaObservationStoreV2 = {
           schemaVersion: 2,
+          ...(observations.some(item => item.officialFacts) ? { schemaRevision: 1 as const } : {}),
           fingerprintAlgorithm: 'hmac-sha256-v1',
           observations,
         };
@@ -1135,6 +1191,10 @@ export function codexQuotaCaptureFromOfficialSample(sample: {
   observedAt: number;
   resetAt: number;
   usedPercent: number;
+  requestedAt?: unknown;
+  ordinaryUsageAllowed?: unknown;
+  windows?: unknown;
+  rateLimitResetCredits?: unknown;
 }): QuotaCapture | null {
   if (!sample || typeof sample !== 'object' || Array.isArray(sample)) return null;
   try {
@@ -1147,6 +1207,7 @@ export function codexQuotaCaptureFromOfficialSample(sample: {
       observedAt < resetAt - 7 * DAY_MS ||
       !Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100
     ) return null;
+    const officialFacts = copyCodexOfficialQuotaFacts(sample);
     return {
       provider: 'codex',
       stableIdentitySignal: 'official-account-scope-v1|' + accountScopeKey,
@@ -1160,6 +1221,7 @@ export function codexQuotaCaptureFromOfficialSample(sample: {
       confidence: 'high',
       captureReason: 'refresh',
       flags: [],
+      ...(officialFacts ? { officialFacts } : {}),
     };
   } catch {
     return null;

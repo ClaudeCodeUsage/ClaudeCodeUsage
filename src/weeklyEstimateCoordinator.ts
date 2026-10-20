@@ -274,7 +274,7 @@ export class WeeklyEstimateCoordinator {
         const quotaEpoch = codexQuotaEpochFromObservations(observations, fp, row.observedAt, row.resetAt!);
         if (!quotaEpoch) continue;
         out.push({ provider: 'codex', accountScopeKey: key, quotaEpoch,
-          windowStart: row.resetAt! - 604_800_000, resetAt: row.resetAt!, observedAt: row.observedAt,
+          windowStart: quotaEpoch.startLowerAt ?? quotaEpoch.startedAt, resetAt: row.resetAt!, observedAt: row.observedAt,
           estimatedAt: row.observedAt, usedEquivalentUsd: 0, fullEquivalentUsd: null, unusedEquivalentUsd: null,
           utilizationPercent: row.usedFraction * 100, pricingCoverage: 0, method: 'account-delta-v1',
           pricingVersion: options.pricingVersion, flags: ['account-unattributed'] });

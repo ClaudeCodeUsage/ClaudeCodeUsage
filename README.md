@@ -184,7 +184,8 @@ real account or an installed-VSIX capture.*
 
 - **Codex cycle quota comparison** — one bar and summary row per cycle, with expandable
   evidence chosen for compatibility and strength, with pending/conflict states. Amounts remain conditional local estimates.
-  Optional official reads default off and may contact OpenAI. See [local data and privacy](LOCAL-DATA.md).
+  Optional official reads default off and may contact OpenAI. Available reset credits are shown when supplied;
+  forward calibration uses verified new increments without requiring historical quota replay. See [local data and privacy](LOCAL-DATA.md).
 
 - **Local achievements** — browse earned badges, progress and next goals. Enabled by default;
   turn off Local achievements in Settings (`enableAchievements`). Dates reflect retained

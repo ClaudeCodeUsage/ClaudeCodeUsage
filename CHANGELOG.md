@@ -11,16 +11,22 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   local daemon. Rough account-numbered as-of estimates remain local proxies,
   distinct from source-linked historical estimates and primary usage totals.
   The daemon may contact OpenAI and refresh authentication; the extension never
-  starts it or reads Codex credentials. Older readers may reject the added
-  quota source enum and archive methods/fields.
-  Fresh official increments may use a bounded, producer-branded runtime source
-  census to waive unchanged old uncertainty; no persisted/exported proof or
-  historical repricing is introduced.
-  Complete metadata-only appends may contribute known zero with unchanged numeric
-  provenance; unknown or missing current usage is still withheld.
-  中文：新鲜官方增量可通过有界、有生产端身份标记的运行期来源清单豁免不变的旧不确定性；
-  不持久化或导出该证明，不重新定价历史。
-  完整解析的纯元数据追加须保持数值证明不变才能按已知零增量处理，未知或缺失的当前用量仍拒绝。
+  starts it or reads Codex credentials.
+  Forward calibration uses a bounded runtime primary census and exact append
+  evidence without waiting for all-time/sidecar migration. Full-capacity estimates
+  remain conditional USD/Δp ratios; calibration samples are not actual-used totals.
+  Fresh continuity starts discard the first observed percentage-step span before
+  calibration; this does not guarantee unbiased estimates or an error bound.
+  Sanitized ordinary-usage/window/reset-credit facts share existing P2 retention
+  and clearing; no raw IDs/free text, extra source I/O, runtime dependency or anonymous
+  contribution is added. New readers block unknown P2 revisions; old readers may
+  reject/quarantine additions, without a universal rollback-write guarantee.
+  中文：向前校准使用有界运行期主来源清单及精确追加证据，不等待全部时段／侧车迁移。
+  满额估算仍是有条件的 USD／Δp 比值，校准样本不等于实际已用总额。
+  每次新连续性起点丢弃截至首次观测到至少1个百分点增加的区间再校准，不保证无偏或提供误差界。
+  清洗后普通用量许可／窗口／重置次数事实沿用 P2 保留与清除，不保存原始 ID／自由文本，
+  不新增来源 I/O、运行期依赖或匿名贡献。新读取器阻止未知 P2 修订；旧读取器可能拒绝／隔离新增字段，
+  但不能保证所有旧版本后续写入均安全。
 
 ### Fixed
 - **Codex cycle quota reconciliation** — one bar and one expandable summary row
@@ -40,8 +46,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   numeric quota/Token checkpoints and incomplete-range witnesses. A gap affects overlapping
   components rather than every interval sharing a reset; unknown scope fails closed.
   Reset jitter uses a fixed first-reset anchor within ±5 minutes, without chaining
-  or pairing past that reset. `observedResetAt` retains raw resets; all v1–4 sidecars
-  use bounded replay without retrojoining old baselines. Primary quota observations stay raw.
+  or pairing past that reset. `observedResetAt` retains raw resets; v1–4 sidecars
+  rebuild through bounded replay without retrojoining old baselines. Quota-only
+  replay defaults off, with an explicit internal historical path; independently
+  required primary/period migrations are unchanged. Primary quota observations stay raw.
   Calibration validates raw last-request cost components independently of cumulative
   regressions and context size, without changing primary totals, warnings or dedup.
   The strongest compatible cohort retains its own as-of sample.
@@ -53,7 +61,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   reset times do not prove account identity or complete account usage.
   中文：既有索引流程保留有界的 version-5 额度／Token 数值检查点及不完整区间见证。
   重置抖动以固定首锚点的±5分钟为界，不链式延展，不越过该重置配对；`observedResetAt`
-  保留原始重置值。全部 v1–4 侧车状态有界重放，不回接旧基线；主要额度观测保留原始值。
+  保留原始重置值。v1–4 侧车状态重建时有界重放，不回接旧基线；仅额度引起的重放默认关闭，
+  保留显式内部历史路径，主索引／period 独立需要的迁移不变；主要额度观测保留原始值。
   校准独立校验原始末次请求成本组件，不因累计回退或上下文大小混淆而失效，主总计、警告及去重不变。
   缺口只影响重叠组件，不因 reset 相同污染所有区间；未知作用域安全拒绝。最强兼容校准组
   保留自身观测时点。基线请求与自身分段增量分开保存，

@@ -12,6 +12,8 @@ export interface CodexCalibrationPricebook {
 export interface CodexCalibrationEvidence {
   schemaVersion: 1;
   methodVersion: 1;
+  /** Absent on historical receipts; never inferred for old evidence. */
+  collectionMode?: 'forward-append-v1';
   pricebook: CodexCalibrationPricebook;
   interval: {
     from: number; through: number; requestedFrom: number; requestedThrough: number;
@@ -60,6 +62,7 @@ export function captureCodexCalibrationPricebook(models: Iterable<string>): Code
 /** Fixed-field reconstruction prevents source keys/text/unknown fields from reaching disk. */
 export function copyCodexCalibrationEvidence(value: unknown): CodexCalibrationEvidence | undefined {
   if (!object(value) || value.schemaVersion !== 1 || value.methodVersion !== 1 ||
+    (value.collectionMode !== undefined && value.collectionMode !== 'forward-append-v1') ||
     !object(value.interval) || !object(value.accumulated)) return undefined;
   const pricebook = copyCodexCalibrationPricebook(value.pricebook), i = value.interval, a = value.accumulated;
   // The first receipt shape predates partial-source calibration; absent means
@@ -80,6 +83,7 @@ export function copyCodexCalibrationEvidence(value: unknown): CodexCalibrationEv
     (a.intervals === 1 && (!close(a.deltaPercent, i.percentThrough - i.percentFrom) ||
       !close(a.deltaUsd, i.deltaUsd) || !close(a.pricedTokens, i.pricedTokens) || !close(a.totalTokens, i.totalTokens)))) return undefined;
   return { schemaVersion: 1, methodVersion: 1, pricebook,
+    ...(value.collectionMode === 'forward-append-v1' ? { collectionMode: 'forward-append-v1' as const } : {}),
     interval: { from: i.from, through: i.through, requestedFrom: i.requestedFrom, requestedThrough: i.requestedThrough,
       percentFrom: i.percentFrom, percentThrough: i.percentThrough, deltaUsd: i.deltaUsd,
       pricedTokens: i.pricedTokens, totalTokens: i.totalTokens, linkedSources: i.linkedSources,

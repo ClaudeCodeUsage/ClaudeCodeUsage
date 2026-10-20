@@ -70,7 +70,7 @@ import {
 import { sanitizeCodexMetadataLabel } from './codexMetadataLabel';
 import { CodexQuotaCheckpointState, CODEX_QUOTA_CHECKPOINT_VERSION, createCodexQuotaCheckpointState,
   retainCodexQuotaCheckpoints, sanitizeCodexQuotaCheckpointState as validateCodexQuotaCheckpointState,
-  boundCodexQuotaCheckpointStates, codexQuotaSkippedLineHandler } from './codexQuotaCheckpoints';
+  boundCodexQuotaCheckpointStates, codexQuotaSkippedLineHandler, markCodexQuotaCheckpointGap } from './codexQuotaCheckpoints';
 import { CodexAchievementUsageWindow, CodexAchievementUsageDelta, copyCodexUsageWindow,
   emptyCodexUsageDelta, addCodexOriginEvent, copyCodexUsageDelta,
   codexOriginBaselineReady, finalizeCodexUsageDelta } from './codexAchievementOrigin';
@@ -133,6 +133,14 @@ export interface CodexFileAggregate {
 }
 
 export interface CodexFileContribution {
+  /** Runtime-only timing of one verified append scan; never saved or hydrated. */
+  calibrationAppend?: {
+    beforeOffset: number;
+    throughOffset: number;
+    minUsageAt: number | null;
+    maxUsageAt: number | null;
+    complete: boolean;
+  };
   quotaCheckpoints?: CodexQuotaCheckpointState;
   fileKey: string;
   sourceArea?: CodexSourceArea;
@@ -415,6 +423,10 @@ export interface CodexFilePassTask {
   asOfDay: string;
   endExclusive: number;
   achievementUsageWindow?: CodexAchievementUsageWindow;
+  /** Numeric refresh context for the main pass across the worker boundary. */
+  refreshInstant?: number;
+  allowHistoricalBackfill?: boolean;
+  allowQuotaCheckpointBackfill?: boolean;
 }
 
 export type CodexFilePassOutcome =
@@ -475,6 +487,9 @@ export interface CodexIndexUpdateOptions {
   /** False skips unchanged historical lineage/period/hour/identity passes while
    * still allowing the main changed-file and append-tail stage to run. */
   allowHistoricalBackfill?: boolean;
+  /** Explicit opt-in for historical reads needed only to upgrade quota checkpoints.
+   * Defaults false; required primary/calendar migrations are independent. */
+  allowQuotaCheckpointBackfill?: boolean;
   /** False avoids separate history reads for achievements; existing usage cursors stay intact. */
   allowAchievementHourProof?: boolean;
   /** Internal resolved civil day shared with local file-pass workers. */
@@ -1082,6 +1097,34 @@ type ContributionChunkHandler = (
   bytesRead: number,
 ) => Promise<void>;
 
+/** Start at an already verified primary cursor, never replay its unknown quota
+ * prefix. Whole-history coverage stays false while later segments can recover. */
+function forwardQuotaCheckpoints(
+  contribution: CodexFileContribution,
+  options: CodexIndexUpdateOptions,
+  prefixEvents: number,
+): CodexQuotaCheckpointState | undefined {
+  if (contribution.offset <= 0 || contribution.compression || contribution.discardingOversizedLine ||
+      contribution.lineageReconciliation || !isCodexUsageContributionCurrent(contribution) ||
+      (contribution.lineage?.appliedPrefixEvents ?? 0) !== prefixEvents ||
+      (options.allowHistoricalBackfill !== false && options.allowQuotaCheckpointBackfill === true)) return undefined;
+  const state = createCodexQuotaCheckpointState(prefixEvents);
+  state.indexedThrough = contribution.offset;
+  const times = [(options.now ?? Date.now)(), contribution.aggregate.session.endedAt, contribution.limit?.observedAt]
+    .filter((time): time is number => typeof time === 'number' && Number.isSafeInteger(time) && time > 0);
+  const through = times.length ? Math.max(...times) : Number.MAX_SAFE_INTEGER;
+  state.ranges = [{ from: 0, through }];
+  state.activityThrough = through;
+  // These are verified primary counts, not quota-paired coverage. In particular,
+  // do not put the historical tokens in excludedTokens or baselineByModel.
+  const total = contribution.aggregate.total;
+  state.observedTokens = { inputTotal: total.inputTotal, cachedInput: total.cachedInput ?? 0,
+    outputTotal: total.outputTotal, reasoningOutput: total.reasoningOutput ?? 0,
+    sourceTotal: total.inputTotal + total.outputTotal };
+  markCodexQuotaCheckpointGap(state);
+  return validateCodexQuotaCheckpointState(state);
+}
+
 async function updateContribution(
   contribution: CodexFileContribution,
   entry: CodexRuntimeManifestEntry,
@@ -1110,10 +1153,19 @@ async function updateContribution(
   );
   const rollingDays = rollingHourlyDaySet(asOfDay);
   const desiredPrefixEvents = lineage.desiredPrefixEvents ?? 0;
+  const beforeOffset = contribution.offset;
+  delete contribution.calibrationAppend;
+  let minUsageAt: number | null = null, maxUsageAt: number | null = null, lastUsageAt: number | null = null;
+  let appendComplete = beforeOffset > 0 && beforeOffset === contribution.size && !entry.compression &&
+    !contribution.discardingOversizedLine && !contribution.lineageReconciliation &&
+    lineage.appliedPrefixEvents === desiredPrefixEvents && isCodexUsageContributionCurrent(contribution) &&
+    Number.isSafeInteger(contribution.dev) && contribution.dev! > 0 &&
+    Number.isSafeInteger(contribution.ino) && contribution.ino! > 0 &&
+    contribution.dev === entry.dev && contribution.ino === entry.ino;
   const quotaCheckpoints = contribution.quotaCheckpoints?.version === CODEX_QUOTA_CHECKPOINT_VERSION &&
     contribution.quotaCheckpoints.indexedThrough === contribution.offset &&
     contribution.quotaCheckpoints.prefixEvents === desiredPrefixEvents
-    ? contribution.quotaCheckpoints : undefined;
+    ? contribution.quotaCheckpoints : forwardQuotaCheckpoints(contribution, options, desiredPrefixEvents);
   const advancePeriod =
     aggregate.period?.timeZone === timeZone &&
     aggregate.period.indexedThrough === contribution.offset &&
@@ -1165,6 +1217,10 @@ async function updateContribution(
       parserState,
       lineage,
       quotaCheckpoints,
+      ...(beforeOffset > 0 ? { calibrationAppend: Object.freeze({
+        beforeOffset, throughOffset: cursor.offset, minUsageAt, maxUsageAt,
+        complete: appendComplete && cursor.offset === entry.size && !cursor.discardingOversizedLine,
+      }) } : {}),
       aggregate,
       ...(activeHourProof && !activeHourProofOverflow ? {
         hourProof: { ...activeHourProof, hours: [...activeHourProof.hours] },
@@ -1194,6 +1250,8 @@ async function updateContribution(
     };
   };
 
+  const quotaSkippedLine = quotaCheckpoints
+    ? codexQuotaSkippedLineHandler(quotaCheckpoints, () => lineage.tokenEvents >= desiredPrefixEvents) : undefined;
   const scan = await scanCodexJsonlLines(
     entry,
     io,
@@ -1204,14 +1262,30 @@ async function updateContribution(
     endExclusive,
     (line) => {
       if (line.trim() !== '') {
+        const flagsBefore = parserState.qualityFlags;
         const parsed = parseCodexLine(line, parserState, pseudonymize);
         parserState = parsed.state;
+        if (parsed.quotaPairingIncomplete || parsed.lineageBoundary || parsed.quotaSource === 'other' ||
+            parserState.qualityFlags.some(flag => !flagsBefore.includes(flag))) appendComplete = false;
         if (parsed.lineageTokenKey) {
           addLineageToken(lineage, parsed.lineageTokenKey);
         }
         if (quotaCheckpoints) retainCodexQuotaCheckpoints(quotaCheckpoints, parsed,
           desiredPrefixEvents === 0 || lineage.tokenEvents > desiredPrefixEvents);
         for (const event of parsed.events) {
+          // The parser's retained t:...|l:... signature exposes whether this is
+          // a last-request event. A cumulative-only delta has no request bound.
+          if (!parsed.lineageTokenKey || parsed.lineageTokenKey.endsWith('|l:-')) appendComplete = false;
+          const at = event.timestamp;
+          if (!Number.isSafeInteger(at) || at <= 0) appendComplete = false;
+          else {
+            if (lastUsageAt !== null && at < lastUsageAt) appendComplete = false;
+            minUsageAt = minUsageAt === null ? at : Math.min(minUsageAt, at);
+            maxUsageAt = maxUsageAt === null ? at : Math.max(maxUsageAt, at);
+            lastUsageAt = at;
+          }
+          if (lineage.appliedPrefixEvents !== desiredPrefixEvents ||
+              lineage.tokenEvents <= desiredPrefixEvents) appendComplete = false;
           if (usageDelta && !addCodexOriginEvent(usageDelta, event)) usageDelta = undefined;
           reduceUsage(aggregate, event);
           if (activeHourProof) {
@@ -1240,6 +1314,7 @@ async function updateContribution(
             !Number.isFinite(parsed.structural.timestamp) ||
             parsed.structural.timestamp <= 0
           ) {
+            appendComplete = false;
             invalidEventTimestamp = true;
           } else if (advancePeriod && aggregate.period) {
             reduceCodexStructuralSlice(
@@ -1273,8 +1348,7 @@ async function updateContribution(
     async (progress) => {
       await onChunk(snapshot(progress.cursor), progress.bytesRead);
     },
-    undefined, undefined, quotaCheckpoints
-      ? codexQuotaSkippedLineHandler(quotaCheckpoints, () => lineage.tokenEvents >= desiredPrefixEvents) : undefined,
+    undefined, undefined, witness => { appendComplete = false; quotaSkippedLine?.(witness); },
   );
 
   if (!scan.reachedEnd) {
@@ -1294,6 +1368,7 @@ async function updateContribution(
   ) {
     packPendingLineageFingerprints(lineage);
   }
+  if (scan.oversizedLines > 0 || scan.finalLineDiscarded) appendComplete = false;
   const updated = snapshot(scan.cursor);
   if (entry.compression === 'zstd' && scan.cursor.offset === entry.size && !scan.cursor.discardingOversizedLine) {
     updated.compressionVerified = true;
@@ -1941,6 +2016,9 @@ export async function runCodexFilePass(
     salt: task.salt,
     timeZone: task.timeZone,
     asOfDay: task.asOfDay,
+    ...(task.refreshInstant !== undefined ? { now: () => task.refreshInstant! } : {}),
+    allowHistoricalBackfill: task.allowHistoricalBackfill,
+    allowQuotaCheckpointBackfill: task.allowQuotaCheckpointBackfill,
     ...(task.kind === 'main' ? { achievementUsageWindow: copyCodexUsageWindow(task.achievementUsageWindow) } : {}),
   };
   const noChunk: ContributionChunkHandler = async () => undefined;
@@ -2627,6 +2705,7 @@ function isWarmNoOp(
   asOfDay: string,
   allowHistoricalBackfill: boolean,
   allowAchievementHourProof: boolean,
+  allowQuotaCheckpointBackfill: boolean,
 ): boolean {
   // Older schema-3 indexes have a current `limit` projection but no neutral
   // reset history. Give the next refresh one chance to seed the bounded cache
@@ -2677,7 +2756,8 @@ function isWarmNoOp(
     const baseIsCurrent = Boolean(
       contribution &&
       contribution.offset === entry.size &&
-      (!allowHistoricalBackfill || !canonical.has(entry.fileKey) || isCodexQuotaCheckpointCurrent(contribution)) &&
+      (!allowHistoricalBackfill || !allowQuotaCheckpointBackfill || !canonical.has(entry.fileKey) ||
+        isCodexQuotaCheckpointCurrent(contribution)) &&
       !contribution.discardingOversizedLine &&
       contribution.identityChecked === true &&
       contribution.lineage?.appliedPrefixEvents ===
@@ -2727,6 +2807,7 @@ export async function updateCodexIndex(
   const timeZone = resolveTimeZone(options.timeZone);
   const refreshInstant = (options.now ?? Date.now)();
   const requireCalendarProof = options.allowAchievementHourProof !== false;
+  const allowQuotaCheckpointBackfill = options.allowQuotaCheckpointBackfill === true;
   const requestedUsageWindow = copyCodexUsageWindow(options.achievementUsageWindow);
   const usageWindow = requestedUsageWindow && requestedUsageWindow.through <= refreshInstant &&
     previous.coverage.period.timeZone === timeZone && codexOriginBaselineReady(previous)
@@ -2772,7 +2853,7 @@ export async function updateCodexIndex(
   }) : []);
   const originCandidates = new Map<string, CodexAchievementUsageDelta>();
   if (isWarmNoOp(previous, manifest, diff, timeZone, asOfDay,
-    options.allowHistoricalBackfill !== false, options.allowAchievementHourProof !== false)) {
+    options.allowHistoricalBackfill !== false, options.allowAchievementHourProof !== false, allowQuotaCheckpointBackfill)) {
     return {
       index: previous,
       indexChanged: false,
@@ -3166,6 +3247,9 @@ export async function updateCodexIndex(
         taskId,
         kind: 'main',
         ...(originAppends.has(entry.fileKey) ? { achievementUsageWindow: usageWindow } : {}),
+        refreshInstant,
+        allowHistoricalBackfill: options.allowHistoricalBackfill,
+        allowQuotaCheckpointBackfill,
         contribution: base,
         entry,
         salt: normalizedOptions.salt,
@@ -3398,7 +3482,7 @@ export async function updateCodexIndex(
         contribution.offset >= entry.size &&
         !contribution.discardingOversizedLine &&
         (
-          !isCodexQuotaCheckpointCurrent(contribution) ||
+          (allowQuotaCheckpointBackfill && !isCodexQuotaCheckpointCurrent(contribution)) ||
           (requireCalendarProof && !isCurrentCodexPeriodLineage(
             contribution.aggregate.period,
             contribution.lineage?.desiredPrefixEvents ?? 0,
@@ -3799,7 +3883,7 @@ export async function updateCodexIndex(
   const achievementUsageDelta = finalizeCodexUsageDelta(previous, index, originCandidates, usageWindow);
   const terminalSettled = manifest.files.some(entry => hasCurrentCompressionFailure(index.files[entry.fileKey], entry)) &&
     isWarmNoOp(index, manifest, diffCodexManifest(previousManifest(index), manifest.persistable),
-      timeZone, asOfDay, allowHistoricalBackfill, options.allowAchievementHourProof !== false);
+      timeZone, asOfDay, allowHistoricalBackfill, options.allowAchievementHourProof !== false, allowQuotaCheckpointBackfill);
   return {
     ...(achievementUsageDelta ? { achievementUsageDelta } : {}),
     index,
@@ -3811,8 +3895,9 @@ export async function updateCodexIndex(
       bytesRead,
       pending:
         !terminalSettled && (!index.coverage.complete ||
-        [...classifyCodexSessionDuplicates(index.files).canonicalFileKeys].some(key =>
-          !index.files[key].compressionFailure && !isCodexQuotaCheckpointCurrent(index.files[key])) ||
+        (allowHistoricalBackfill && allowQuotaCheckpointBackfill &&
+          [...classifyCodexSessionDuplicates(index.files).canonicalFileKeys].some(key =>
+            !index.files[key].compressionFailure && !isCodexQuotaCheckpointCurrent(index.files[key]))) ||
         !index.coverage.period.allTime.complete ||
         !index.coverage.hourly?.complete ||
         (options.allowAchievementHourProof !== false && !historicalHourProof.complete &&

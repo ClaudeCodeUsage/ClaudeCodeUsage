@@ -1840,6 +1840,10 @@ export interface WeeklyValueCopy {
   officialQuotaLoading: string;
   officialQuotaUnavailable: string;
   officialQuotaSourceMismatch: string;
+  resetCreditCount: string;
+  resetCreditUnknown: string;
+  resetCreditNextExpiry: string;
+  ordinaryUsageBlocked: string;
   collectingSamples: string;
   accountUsageScope: string;
   accountIdentified: string;
@@ -2904,6 +2908,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     accountIdentified: 'Official service account identified', localAmountUnattributed: 'Local usage ownership unverified',
     seriesEstimate: 'Local-series estimate (account unverified)', accountDeltaEstimate: 'Account quota delta · local usage proxy',
     officialQuotaTitle: 'Official quota', officialQuotaDisabled: 'Official quota disabled',
+    resetCreditCount: 'Reset credits', resetCreditUnknown: 'Unknown',
+    resetCreditNextExpiry: 'Next known expiry', ordinaryUsageBlocked: 'Ordinary usage blocked at observation',
     officialQuotaLoading: 'Reading official quota', officialQuotaUnavailable: 'Official quota unavailable',
     officialQuotaSourceMismatch: 'Quota source differs from the official service account', collectingSamples: 'Collecting samples',
     accountUsageScope: 'Numbers identify the observed official service account, not other Codex app logins or local usage ownership. Local totals include all local usage.',
@@ -2956,6 +2962,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     accountIdentified: '官方服务账号已识别', localAmountUnattributed: '本机用量归属未核实',
     seriesEstimate: '日志序列换算（账号未核实）', accountDeltaEstimate: '账号额度增量换算 · 本机用量代理',
     officialQuotaTitle: '官方额度', officialQuotaDisabled: '官方额度未启用',
+    resetCreditCount: '额度重置次数', resetCreditUnknown: '未知',
+    resetCreditNextExpiry: '下一已知到期时间', ordinaryUsageBlocked: '观测时常规用量受限',
     officialQuotaLoading: '正在读取官方额度', officialQuotaUnavailable: '官方额度暂不可用',
     officialQuotaSourceMismatch: '额度来源与官方服务账号不一致', collectingSamples: '正在积累样本',
     accountUsageScope: '编号仅标识观测到的官方服务账号，不代表其他 Codex 应用的登录状态或本机用量归属。本机汇总包含全部本地用量。',
@@ -3008,6 +3016,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     accountIdentified: '官方服務帳號已識別', localAmountUnattributed: '本機用量歸屬未核實',
     seriesEstimate: '日誌序列換算（帳號未核實）', accountDeltaEstimate: '帳號額度增量換算 · 本機用量代理',
     officialQuotaTitle: '官方額度', officialQuotaDisabled: '官方額度未啟用',
+    resetCreditCount: '額度重置次數', resetCreditUnknown: '未知',
+    resetCreditNextExpiry: '下一已知到期時間', ordinaryUsageBlocked: '觀測時一般用量受限',
     officialQuotaLoading: '正在讀取官方額度', officialQuotaUnavailable: '官方額度暫不可用',
     officialQuotaSourceMismatch: '額度來源與官方服務帳號不一致', collectingSamples: '正在累積樣本',
     accountUsageScope: '編號僅標識觀測到的官方服務帳號，不代表其他 Codex 應用程式的登入狀態或本機用量歸屬。本機彙總包含全部本機用量。',
@@ -3060,6 +3070,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     accountIdentified: '公式サービスのアカウントを識別済み', localAmountUnattributed: 'ローカル使用量の帰属は未確認',
     seriesEstimate: 'ローカル系列の推定（アカウント未確認）', accountDeltaEstimate: 'アカウント枠の差分 · ローカル使用量による近似',
     officialQuotaTitle: '公式クォータ', officialQuotaDisabled: '公式クォータは無効',
+    resetCreditCount: 'リセットクレジット数', resetCreditUnknown: '不明',
+    resetCreditNextExpiry: '次の既知の有効期限', ordinaryUsageBlocked: '観測時は通常利用が制限されています',
     officialQuotaLoading: '公式クォータを取得中', officialQuotaUnavailable: '公式クォータを利用できません',
     officialQuotaSourceMismatch: 'クォータの取得元と公式サービスのアカウントが異なります', collectingSamples: 'サンプル収集中',
     accountUsageScope: '番号は観測した公式サービスのアカウントを識別し、他の Codex アプリのログイン状態やローカル使用量の帰属を示しません。ローカル集計は全使用量を含みます。',
@@ -3112,6 +3124,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     accountIdentified: '공식 서비스 계정 식별됨', localAmountUnattributed: '로컬 사용량 귀속 미확인',
     seriesEstimate: '로컬 계열 추정(계정 미확인)', accountDeltaEstimate: '계정 할당량 증분 · 로컬 사용량 대리값',
     officialQuotaTitle: '공식 할당량', officialQuotaDisabled: '공식 할당량 비활성',
+    resetCreditCount: '초기화 크레딧 수', resetCreditUnknown: '알 수 없음',
+    resetCreditNextExpiry: '다음 확인된 만료 시각', ordinaryUsageBlocked: '관측 시 일반 사용 제한됨',
     officialQuotaLoading: '공식 할당량 읽는 중', officialQuotaUnavailable: '공식 할당량을 사용할 수 없음',
     officialQuotaSourceMismatch: '할당량 출처와 공식 서비스 계정이 다름', collectingSamples: '표본 수집 중',
     accountUsageScope: '번호는 관측된 공식 서비스 계정을 식별하며 다른 Codex 앱의 로그인 상태나 로컬 사용량 귀속을 뜻하지 않습니다. 로컬 합계는 모든 로컬 사용량을 포함합니다.',
@@ -3164,6 +3178,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     accountIdentified: 'Conta do serviço oficial identificada', localAmountUnattributed: 'Atribuição do uso local não verificada',
     seriesEstimate: 'Estimativa da série local (conta não verificada)', accountDeltaEstimate: 'Delta da cota da conta · proxy de uso local',
     officialQuotaTitle: 'Cota oficial', officialQuotaDisabled: 'Cota oficial desativada',
+    resetCreditCount: 'Créditos de redefinição', resetCreditUnknown: 'Desconhecido',
+    resetCreditNextExpiry: 'Próximo vencimento conhecido', ordinaryUsageBlocked: 'Uso normal bloqueado no momento da observação',
     officialQuotaLoading: 'Lendo cota oficial', officialQuotaUnavailable: 'Cota oficial indisponível',
     officialQuotaSourceMismatch: 'A origem da cota difere da conta do serviço oficial', collectingSamples: 'Coletando amostras',
     accountUsageScope: 'Números identificam a conta observada no serviço oficial, não os logins de outros aplicativos Codex nem a atribuição do uso local. Os totais locais incluem todo o uso local.',
@@ -3216,6 +3232,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     accountIdentified: 'Konto des offiziellen Dienstes identifiziert', localAmountUnattributed: 'Zuordnung der lokalen Nutzung ungeprüft',
     seriesEstimate: 'Lokale Reihenschätzung (Konto ungeprüft)', accountDeltaEstimate: 'Kontingentdifferenz des Kontos · lokale Nutzung als Näherung',
     officialQuotaTitle: 'Offizielles Kontingent', officialQuotaDisabled: 'Offizielles Kontingent deaktiviert',
+    resetCreditCount: 'Reset-Guthaben', resetCreditUnknown: 'Unbekannt',
+    resetCreditNextExpiry: 'Nächster bekannter Ablauf', ordinaryUsageBlocked: 'Reguläre Nutzung zum Beobachtungszeitpunkt gesperrt',
     officialQuotaLoading: 'Offizielles Kontingent wird gelesen', officialQuotaUnavailable: 'Offizielles Kontingent nicht verfügbar',
     officialQuotaSourceMismatch: 'Kontingentquelle stimmt nicht mit dem Konto des offiziellen Dienstes überein', collectingSamples: 'Stichproben werden gesammelt',
     accountUsageScope: 'Nummern kennzeichnen das beobachtete Konto des offiziellen Dienstes, nicht Anmeldungen anderer Codex-Apps oder die Zuordnung lokaler Nutzung. Lokale Summen enthalten die gesamte lokale Nutzung.',
@@ -3268,6 +3286,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     accountIdentified: 'Akun layanan resmi teridentifikasi', localAmountUnattributed: 'Kepemilikan penggunaan lokal belum terverifikasi',
     seriesEstimate: 'Estimasi seri lokal (akun belum terverifikasi)', accountDeltaEstimate: 'Delta kuota akun · proksi penggunaan lokal',
     officialQuotaTitle: 'Kuota resmi', officialQuotaDisabled: 'Kuota resmi nonaktif',
+    resetCreditCount: 'Kredit reset', resetCreditUnknown: 'Tidak diketahui',
+    resetCreditNextExpiry: 'Kedaluwarsa berikutnya yang diketahui', ordinaryUsageBlocked: 'Penggunaan biasa diblokir saat pengamatan',
     officialQuotaLoading: 'Membaca kuota resmi', officialQuotaUnavailable: 'Kuota resmi tidak tersedia',
     officialQuotaSourceMismatch: 'Sumber kuota berbeda dari akun layanan resmi', collectingSamples: 'Mengumpulkan sampel',
     accountUsageScope: 'Nomor menandai akun layanan resmi yang diamati, bukan login aplikasi Codex lain atau kepemilikan penggunaan lokal. Total lokal mencakup semua penggunaan lokal.',

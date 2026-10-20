@@ -144,6 +144,9 @@ export interface WeeklyEstimatePanelProjection {
     observedAt?: number;
     quotaEpochStartedAt?: number;
     stale?: boolean;
+    resetCreditCount?: number | null;
+    resetCreditNextExpiryAt?: number | null;
+    ordinaryUsageAllowed?: boolean | null;
   };
   activeAccountNumber?: number;
   activeQuotaEpochStartedAt?: number;
@@ -7760,6 +7763,16 @@ export class UsageWebviewProvider {
       }).format(new Date(value));
       text = `${copy.officialQuotaTitle} · ${accountNumber === undefined ? copy.accountIdentified : this.weeklyAccountLabel(accountNumber)} · ${this.formatPercent(quota.usedPercent! / 100)} · ` +
         `${copy.resetsAt} ${date(quota.resetAt!)} · ${copy.estimateAsOf} ${date(quota.observedAt!)}`;
+      // These facts belong to the same observed snapshot as the quota, including
+      // its stale marker. Read only the public scalar projection, never credits.
+      const count = quota.resetCreditCount;
+      text += ' · ' + copy.resetCreditCount + ': ' + (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
+        ? new Intl.NumberFormat(I18n.getLocale()).format(count) : copy.resetCreditUnknown);
+      const expiry = quota.resetCreditNextExpiryAt;
+      if (typeof expiry === 'number' && Number.isSafeInteger(expiry) && expiry > Date.now() && expiry <= 8.64e15) {
+        text += ' · ' + copy.resetCreditNextExpiry + ': ' + date(expiry);
+      }
+      if (quota.ordinaryUsageAllowed === false) text += ' · ' + copy.ordinaryUsageBlocked;
       if (quota.stale === true) {
         text += ' · ' + copy.estimateStale;
       } else {

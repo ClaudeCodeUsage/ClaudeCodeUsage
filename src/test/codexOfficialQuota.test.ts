@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { PassThrough, Writable } from 'node:stream';
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from 'node:child_process';
 
@@ -94,12 +94,12 @@ function fixture(onQuota?: (child: ProxyStub) => void) {
   } };
 }
 
-test('parser accepts a primary weekly window and returns only HMACs and numeric checkpoints', () => {
+test('parser accepts a primary weekly window and returns sanitized checkpoints', () => {
   const { parseCodexOfficialQuota } = load();
   const value = parseCodexOfficialQuota(reply(), context)!;
   assert.ok(value);
   assert.deepEqual(Object.keys(value).sort(), [
-    'accountScopeKey', 'sourceScopeKey', 'observedAt', 'requestedAt', 'resetAt', 'usedPercent',
+    'accountScopeKey', 'sourceScopeKey', 'observedAt', 'requestedAt', 'resetAt', 'usedPercent', 'windows',
   ].sort());
   assert.match(value.accountScopeKey, /^[a-f0-9]{64}$/);
   assert.match(value.sourceScopeKey, /^[a-f0-9]{64}$/);
@@ -111,6 +111,149 @@ test('parser accepts a primary weekly window and returns only HMACs and numeric 
   const cache = new (require('../providers/codex/codexAccountScope').CodexAccountScopeCache)(SALT);
   assert.equal(value.accountScopeKey,
     cache.observe(true, context.source, { accountId: 'fixture-account' }, NOW)!.accountScopeKey);
+});
+
+test('all selected codex windows are retained without inferring ordinary usage permission', () => {
+  const { parseCodexOfficialQuota: parse } = load();
+  const value = parse({ ...reply(), rateLimits: { ...snapshot(),
+    primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: NOW / 1000 + 60 },
+    secondary: weekly(60),
+  } }, context)!;
+  assert.deepEqual(value.windows, {
+    primary: { usedPercent: 25, windowDurationMins: 300, resetAt: NOW + 60_000 },
+    secondary: { usedPercent: 60, windowDurationMins: 10080, resetAt: NOW + 3_600_000 },
+  });
+  assert.equal(value.usedPercent, 60);
+  assert.equal(value.resetAt, NOW + 3_600_000);
+  assert.equal(Object.prototype.hasOwnProperty.call(value, 'ordinaryUsageAllowed'), false);
+});
+
+const credit = (id = 'opaque-credit-canary') => ({ id, status: 'available', resetType: 'codexRateLimits',
+  grantedAt: NOW / 1000 - 60, expiresAt: null });
+
+test('optional official permissions and enum state are copied only from allowlisted own data', () => {
+  const { parseCodexOfficialQuota: parse } = load();
+  for (const ordinaryUsageAllowed of [true, false, null]) {
+    const value = parse({ ...reply(), ordinaryUsageAllowed, rateLimits: { ...snapshot(),
+      planType: 'pro', rateLimitReachedType: 'workspace_member_usage_limit_reached', spendControlReached: false,
+    } }, context)!;
+    assert.equal(value.ordinaryUsageAllowed, ordinaryUsageAllowed);
+    assert.equal(value.planType, 'pro');
+    assert.equal(value.rateLimitReachedType, 'workspace_member_usage_limit_reached');
+    assert.equal(value.spendControlReached, false);
+  }
+  const invalid = parse({ ...reply(), ordinaryUsageAllowed: 'true', rateLimits: { ...snapshot(),
+    planType: 'private-plan-canary', rateLimitReachedType: 'private-limit-canary', spendControlReached: 0,
+  } }, context)!;
+  for (const key of ['ordinaryUsageAllowed', 'planType', 'rateLimitReachedType', 'spendControlReached']) {
+    assert.equal(Object.prototype.hasOwnProperty.call(invalid, key), false);
+  }
+  const inherited = Object.assign(Object.create({ ordinaryUsageAllowed: true, rateLimitResetCredits: { availableCount: 7 } }), reply());
+  assert.equal(parse(inherited, context)!.ordinaryUsageAllowed, undefined);
+  assert.equal(parse(inherited, context)!.rateLimitResetCredits, undefined);
+});
+
+test('unknown window metadata stays null and never becomes zero or permission to use', () => {
+  const { parseCodexOfficialQuota: parse } = load();
+  for (const primary of [{ usedPercent: 0 }, { usedPercent: 0, windowDurationMins: null, resetsAt: null }]) {
+    const value = parse({ ...reply(), rateLimits: { ...snapshot(), primary, secondary: weekly() } }, context)!;
+    assert.ok(value);
+    assert.deepEqual(value.windows!.primary, { usedPercent: 0, windowDurationMins: null, resetAt: null });
+    assert.equal(value.ordinaryUsageAllowed, undefined);
+  }
+});
+
+test('reset-credit count is authoritative and missing, null and empty details remain distinct', () => {
+  const { parseCodexOfficialQuota: parse } = load();
+  assert.equal(parse(reply(), context)!.rateLimitResetCredits, undefined);
+  assert.equal(parse({ ...reply(), rateLimitResetCredits: null }, context)!.rateLimitResetCredits, null);
+  for (const details of [{}, { credits: null }, { credits: [] }, { credits: [credit()] }]) {
+    const value = parse({ ...reply(), rateLimitResetCredits: { availableCount: 9, ...details } }, context)!.rateLimitResetCredits!;
+    assert.equal(value.availableCount, 9, 'never infer count from a capped list');
+    assert.equal(Object.prototype.hasOwnProperty.call(value, 'credits'), Object.prototype.hasOwnProperty.call(details, 'credits'));
+    if ('credits' in details && !Array.isArray(details.credits)) assert.equal(value.credits, null);
+    if ('credits' in details && Array.isArray(details.credits)) assert.equal(value.credits!.length, details.credits.length);
+  }
+  assert.equal(parse({ ...reply(), rateLimitResetCredits: { availableCount: 0, credits: [credit()] } }, context)!
+    .rateLimitResetCredits!.availableCount, 0, 'detail status must not override the summary');
+});
+
+test('credit details contain only salted scoped HMAC, enums and numeric timestamps; free text is unread', () => {
+  const { parseCodexOfficialQuota: parse } = load();
+  const row = credit();
+  for (const key of ['title', 'description', 'credentials']) {
+    Object.defineProperty(row, key, { get() { assert.fail(`must not read credit ${key}`); } });
+  }
+  const response = { ...reply(), rateLimitResetCredits: { availableCount: 2, credits: [row] } };
+  const value = parse(response, context)!, detail = value.rateLimitResetCredits!.credits![0];
+  assert.deepEqual(Object.keys(detail).sort(), ['creditKey', 'status', 'resetType', 'grantedAt', 'expiresAt'].sort());
+  assert.match(detail.creditKey, /^[a-f0-9]{64}$/);
+  assert.equal(detail.creditKey, createHmac('sha256', SALT)
+    .update(JSON.stringify(['codex-official-reset-credit-v1', value.accountScopeKey, row.id])).digest('hex'));
+  assert.equal(detail.status, 'available');
+  assert.equal(detail.resetType, 'codexRateLimits');
+  assert.equal(detail.grantedAt, NOW - 60_000);
+  assert.equal(detail.expiresAt, null);
+  assert.doesNotMatch(JSON.stringify(value), /opaque-credit-canary|fixture-account|codex-home/);
+  const key = (r: unknown, c = context) => parse(r, c)!.rateLimitResetCredits!.credits![0].creditKey;
+  assert.equal(key(response), detail.creditKey);
+  assert.notEqual(key(response, { ...context, machineSalt: SALT + '-other' }), detail.creditKey);
+  assert.notEqual(key({ ...response, accountId: 'different-account' }), detail.creditKey);
+  assert.notEqual(key(response, { ...context, source: '/different-home' }), detail.creditKey);
+  for (const status of ['available', 'redeeming', 'redeemed', 'unknown']) {
+    const result = parse({ ...reply(), rateLimitResetCredits: { availableCount: 1,
+      credits: [{ ...credit(), status, resetType: 'unknown', expiresAt: NOW / 1000 + 10 }],
+    } }, context)!.rateLimitResetCredits!.credits![0];
+    assert.equal(result.status, status);
+    assert.equal(result.resetType, 'unknown');
+    assert.equal(result.expiresAt, NOW + 10_000);
+    assert.equal(result.creditKey, detail.creditKey, 'status changes preserve credit identity');
+  }
+});
+
+test('invalid optional reset proof cannot invent available counts or fetched-empty detail lists', () => {
+  const { parseCodexOfficialQuota: parse } = load();
+  for (const summary of [{ credits: [credit()] }, { availableCount: null }, { availableCount: '2' },
+    { availableCount: -1 }, { availableCount: 1.5 }, { availableCount: Infinity },
+    { availableCount: Number.MAX_SAFE_INTEGER + 1 }, [], true]) {
+    assert.equal(parse({ ...reply(), rateLimitResetCredits: summary }, context)!.rateLimitResetCredits, undefined);
+  }
+  for (const credits of ['bad', [null], [{ ...credit(), id: '' }], [{ ...credit(), id: 'x'.repeat(513) }],
+    [{ ...credit(), id: 'bad\nID' }], [{ ...credit(), status: 'private-status-canary' }],
+    [{ ...credit(), resetType: 'private-type-canary' }], [{ ...credit(), grantedAt: '1' }],
+    [{ ...credit(), expiresAt: Number.MAX_SAFE_INTEGER }], [credit(), credit()],
+    new Array(129).fill(credit())]) {
+    const value = parse({ ...reply(), rateLimitResetCredits: { availableCount: 3, credits } }, context)!.rateLimitResetCredits!;
+    assert.equal(value.availableCount, 3);
+    assert.equal(Object.prototype.hasOwnProperty.call(value, 'credits'), false);
+  }
+  const { expiresAt: _unused, ...withoutExpiry } = credit();
+  const details = parse({ ...reply(), rateLimitResetCredits: { availableCount: 1, credits: [withoutExpiry] } }, context)!
+    .rateLimitResetCredits!.credits![0];
+  assert.equal(Object.prototype.hasOwnProperty.call(details, 'expiresAt'), false);
+});
+
+test('credit detail bounds avoid getters, enumeration and list traversal beyond the limit', () => {
+  const { parseCodexOfficialQuota: parse } = load();
+  const parseRows = (credits: unknown) => parse({ ...reply(), rateLimitResetCredits: { availableCount: 200, credits } }, context)!;
+  const maximum = Array.from({ length: 128 }, (_, i) => credit('opaque-' + i));
+  assert.equal(parseRows(maximum).rateLimitResetCredits!.credits!.length, 128);
+  assert.equal(parseRows([credit('x'.repeat(512))]).rateLimitResetCredits!.credits!.length, 1);
+  const oversized = new Array(129);
+  Object.defineProperty(oversized, 0, { get() { assert.fail('oversized rows must stay unread'); } });
+  assert.equal(parseRows(oversized).rateLimitResetCredits!.credits, undefined);
+  const guarded = new Proxy([credit()], {
+    get() { assert.fail('must not execute array getters'); },
+    ownKeys() { assert.fail('must not enumerate detail fields'); },
+  });
+  assert.equal(parseRows(guarded).rateLimitResetCredits!.credits!.length, 1);
+  const sparse = new Array(1);
+  assert.equal(parseRows(sparse).rateLimitResetCredits!.credits, undefined);
+  const optionalGetters = reply();
+  for (const key of ['ordinaryUsageAllowed', 'rateLimitResetCredits']) {
+    Object.defineProperty(optionalGetters, key, { get() { assert.fail(`must not execute optional ${key}`); } });
+  }
+  assert.ok(parse(optionalGetters, context));
 });
 
 test('own codex map entry wins; a present invalid or missing codex map never falls back to legacy', () => {

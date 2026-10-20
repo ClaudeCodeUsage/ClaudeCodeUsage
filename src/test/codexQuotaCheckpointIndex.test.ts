@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { createEmptyCodexIndex, normalizeCodexIndex, updateCodexIndex,
@@ -8,7 +8,7 @@ import { createEmptyCodexIndex, normalizeCodexIndex, updateCodexIndex,
   runCodexFilePass } from '../providers/codex/codexIndex';
 import { scanCodexManifest } from '../providers/codex/codexManifest';
 import { CodexProvider } from '../providers/codex/codexProvider';
-import { CODEX_QUOTA_CHECKPOINT_VERSION } from '../providers/codex/codexQuotaCheckpoints';
+import { CODEX_QUOTA_CHECKPOINT_VERSION, codexQuotaCheckpointStateRanges } from '../providers/codex/codexQuotaCheckpoints';
 
 const salt = 'isolated-quota-fixtures';
 const now = Date.parse('2026-10-02T00:00:00Z');
@@ -50,6 +50,285 @@ test('cold, append and normalized reload retain identical pairing without reread
     (fresh.index.files[key] as any).quotaCheckpoints);
   assert.equal((appended.index.files[key] as any).quotaCheckpoints.rows[2].byModel['gpt-5'].inputTotal, 150);
 });
+test('missing or old quota-only metadata leaves default warm refreshes settled without body reads', async t => {
+  const f = await fixture(t);
+  await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const key = Object.keys(cold.index.files)[0];
+  for (const kind of ['missing', 'legacy', 'cursor', 'prefix', 'incomplete']) {
+    const raw = JSON.parse(JSON.stringify(cold.index));
+    if (kind === 'missing') delete raw.files[key].quotaCheckpoints;
+    else if (kind === 'legacy') raw.files[key].quotaCheckpoints.version = 1;
+    else if (kind === 'cursor') raw.files[key].quotaCheckpoints.indexedThrough = 0;
+    else if (kind === 'prefix') raw.files[key].quotaCheckpoints.prefixEvents = 1;
+    else raw.files[key].quotaCheckpoints.complete = false;
+    let index = normalizeCodexIndex(raw)!;
+    const checkpoint = JSON.parse(JSON.stringify(index.files[key].quotaCheckpoints ?? null));
+    for (let refresh = 0; refresh < 2; refresh++) {
+      const warm = await updateCodexIndex(index, await f.scan(), f.options);
+      assert.equal(warm.bodyReads, 0, kind);
+      assert.equal(warm.migration.filePasses, 0, kind);
+      assert.equal(warm.migration.pending, false, kind);
+      assert.equal(warm.indexChanged, false, kind);
+      assert.deepEqual(warm.index.files[key].quotaCheckpoints ?? null, checkpoint, kind);
+      assert.deepEqual(warm.index.files[key].aggregate.total, cold.index.files[key].aggregate.total);
+      index = warm.index;
+    }
+  }
+});
+test('quota-only pending state follows explicit backfill permission even on metadata-only updates', async t => {
+  const f = await fixture(t);
+  await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const key = Object.keys(cold.index.files)[0];
+  delete cold.index.files[key].quotaCheckpoints;
+  delete cold.index.quotaHistory; // Force metadata seeding rather than the warm return.
+  for (const flags of [{}, { allowQuotaCheckpointBackfill: false }, { allowQuotaCheckpointBackfill: true },
+    { allowQuotaCheckpointBackfill: true, allowHistoricalBackfill: false }]) {
+    const result = await updateCodexIndex(cold.index, await f.scan(), {
+      ...f.options, ...flags, budget: { maxFilePasses: 0, maxBytes: 0 },
+    });
+    assert.equal(result.bodyReads, 0);
+    assert.equal(result.migration.pending,
+      flags.allowQuotaCheckpointBackfill === true && flags.allowHistoricalBackfill !== false);
+    assert.equal(result.index.files[key].quotaCheckpoints, undefined);
+  }
+});
+test('append starts forward checkpoints from the tail while keeping missing history incomplete', async t => {
+  const f = await fixture(t);
+  await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const key = Object.keys(cold.index.files)[0];
+  delete cold.index.files[key].quotaCheckpoints;
+  const tail = record(3, 50, 12) + record(4, 25, 13);
+  await appendFile(f.file, tail);
+  const result = await updateCodexIndex(cold.index, await f.scan(), f.options);
+  assert.equal(result.bodyReads, 1);
+  assert.equal(result.migration.bytesRead, Buffer.byteLength(tail));
+  assert.equal(result.migration.pending, false);
+  const file = result.index.files[key], state = file.quotaCheckpoints!;
+  assert.equal(file.aggregate.total.inputTotal, 1075);
+  assert.ok(state);
+  assert.equal(state.complete, false);
+  assert.equal(state.indexedThrough, file.offset);
+  assert.equal(state.rows.length, 2);
+  assert.deepEqual(state.rows.map(row => row.complete), [true, true]);
+  assert.equal(state.rows[0].baselineByModel!['gpt-5'].inputTotal, 50);
+  assert.equal(state.rows[1].byModel['gpt-5'].inputTotal, 25);
+  assert.deepEqual(codexQuotaCheckpointStateRanges(state), [{ from: 0, through: now + 3000 }]);
+  for (const field of ['inputTotal', 'cachedInput', 'outputTotal', 'reasoningOutput', 'sourceTotal'] as const) {
+    assert.equal(state.observedTokens[field], file.aggregate.total[field]);
+  }
+  const reloaded = normalizeCodexIndex(JSON.parse(JSON.stringify(result.index)))!;
+  assert.deepEqual(reloaded.files[key].quotaCheckpoints, state);
+  const warm = await updateCodexIndex(reloaded, await f.scan(), f.options);
+  assert.equal(warm.bodyReads, 0);
+  assert.equal(warm.migration.pending, false);
+  const provider = new CodexProvider({ enabled: true, codexHome: f.root,
+    indexPath: path.join(f.root, 'unused.json'), salt, timeZone: 'UTC' }, () => ({
+      refresh: async () => ({ ...result, failedFiles: 0, metadataMs: 0, parseMs: 0 }), dispose() {},
+    }));
+  t.mock.method((provider as any).sessionTitleCache, 'load', async () => new Map());
+  t.after(() => provider.dispose());
+  const inputs = (await provider.refresh()).snapshot.weeklyValueInputs!;
+  assert.equal(inputs.codexQuotaCheckpointsComplete, false);
+  assert.deepEqual(inputs.codexQuotaCheckpoints!.map(row => row.complete), [true, true]);
+  assert.deepEqual(inputs.codexQuotaIncompleteRanges, [{ from: 0, through: now + 3000 }]);
+  assert.deepEqual(file.calibrationAppend, { beforeOffset: cold.index.files[key].offset,
+    throughOffset: file.offset, minUsageAt: now + 3000, maxUsageAt: now + 4000, complete: true });
+  assert.equal(reloaded.files[key].calibrationAppend, undefined);
+  const cache = path.join(f.root, 'append-proof-is-not-persisted.json');
+  await saveCodexIndexAtomic(cache, result.index);
+  assert.doesNotMatch(await readFile(cache, 'utf8'), /calibrationAppend/);
+  assert.equal((await loadCodexIndex(cache)).files[key].calibrationAppend, undefined);
+});
+test('runtime append timing covers every request and rejects invalid, reversed or skipped evidence', async t => {
+  for (const kind of ['valid', 'invalid-time', 'reversed', 'invalid-tokens', 'invalid-json', 'oversized', 'metadata', 'cumulative']) {
+    const f = await fixture(t);
+    const second = JSON.parse(record(2, 100, 11));
+    if (kind === 'cumulative') second.payload.info.total_token_usage = { input_tokens: 1000, output_tokens: 4 };
+    await writeFile(f.file, context + record(1, 900, 10) + JSON.stringify(second) + '\n');
+    const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+    const key = Object.keys(cold.index.files)[0];
+    let tail = record(3, 50, 12) + record(4, 25, 13);
+    if (kind === 'invalid-time' || kind === 'invalid-tokens') {
+      const bad = JSON.parse(record(3, 50, 12));
+      if (kind === 'invalid-time') bad.timestamp = 'invalid';
+      else bad.payload.info.last_token_usage.input_tokens = 'invalid';
+      tail = JSON.stringify(bad) + '\n' + record(4, 25, 13);
+    } else if (kind === 'reversed') tail = record(4, 25, 13) + record(3, 50, 12);
+    else if (kind === 'invalid-json') tail = 'invalid-json\n' + tail;
+    else if (kind === 'oversized') tail = JSON.stringify({ padding: 'x'.repeat(1024 * 1024 + 1) }) + '\n' + tail;
+    else if (kind === 'metadata') tail = context;
+    else if (kind === 'cumulative') {
+      const cumulative = JSON.parse(record(3, 50, 12));
+      delete cumulative.payload.info.last_token_usage;
+      cumulative.payload.info.total_token_usage = { input_tokens: 1050, output_tokens: 6 };
+      tail = JSON.stringify(cumulative) + '\n';
+    }
+    await appendFile(f.file, tail);
+    const result = await updateCodexIndex(cold.index, await f.scan(), f.options);
+    assert.equal(result.bodyReads, 1, kind);
+    const proof = result.index.files[key].calibrationAppend!;
+    assert.ok(proof, kind);
+    assert.equal(proof.beforeOffset, cold.index.files[key].offset, kind);
+    assert.equal(proof.throughOffset, result.index.files[key].offset, kind);
+    assert.equal(proof.complete, kind === 'valid' || kind === 'metadata', kind);
+    if (kind === 'metadata') {
+      assert.equal(proof.minUsageAt, null);
+      assert.equal(proof.maxUsageAt, null);
+      assert.deepEqual(result.index.files[key].aggregate.total, cold.index.files[key].aggregate.total);
+    } else if (kind === 'valid' || kind === 'reversed') {
+      assert.equal(proof.minUsageAt, now + 3000, kind);
+      assert.equal(proof.maxUsageAt, now + 4000, kind);
+    }
+  }
+});
+test('partial append passes cannot claim one complete timing window and truncation drops the witness', async t => {
+  const f = await fixture(t);
+  await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const key = Object.keys(cold.index.files)[0];
+  const filler = JSON.stringify({ type: 'world_state', padding: 'x'.repeat(400000) }) + '\n';
+  await appendFile(f.file, record(3, 50, 12) + filler + record(4, 25, 13) + filler +
+    record(5, 10, 14) + filler + record(6, 5, 15));
+  const options = { ...f.options, budget: { maxFilePasses: 1, maxBytes: 1024 * 1024 + 1 } };
+  const first = await updateCodexIndex(cold.index, await f.scan(), options);
+  const firstProof = first.index.files[key].calibrationAppend!;
+  assert.equal(firstProof.beforeOffset, cold.index.files[key].offset);
+  assert.equal(firstProof.complete, false);
+  assert.ok(firstProof.throughOffset < first.index.files[key].size);
+  const second = await updateCodexIndex(first.index, await f.scan(), options);
+  const secondProof = second.index.files[key].calibrationAppend!;
+  assert.equal(secondProof.beforeOffset, firstProof.throughOffset);
+  assert.notEqual(secondProof.beforeOffset, cold.index.files[key].offset);
+  assert.equal(secondProof.complete, false);
+  assert.equal(second.index.files[key].aggregate.total.inputTotal, 1090);
+  await writeFile(f.file, context + record(1, 10, 10));
+  const truncated = await updateCodexIndex(second.index, await f.scan(), f.options);
+  assert.equal(truncated.index.files[key].calibrationAppend, undefined);
+  assert.equal(truncated.index.files[key].aggregate.total.inputTotal, 10);
+});
+test('numeric append windows survive the worker clone boundary with explicit quota replay settings', async t => {
+  const f = await fixture(t);
+  const second = path.join(f.root, 'sessions', 'second.jsonl');
+  await writeFile(f.file, meta('first') + context + record(1, 100, 10));
+  await writeFile(second, meta('second') + context + record(2, 200, 11));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  for (const file of Object.values(cold.index.files)) delete file.quotaCheckpoints;
+  await appendFile(f.file, record(3, 50, 12));
+  await appendFile(second, record(4, 25, 13));
+  for (const allowQuotaCheckpointBackfill of [false, true]) {
+    const kinds: string[] = [];
+    const result = await updateCodexIndex(cold.index, await f.scan(), {
+      ...f.options, allowQuotaCheckpointBackfill,
+      filePassBatch: async (tasks, accept) => {
+        for (const task of tasks) {
+          kinds.push(task.kind);
+          await accept(structuredClone(await runCodexFilePass(structuredClone(task))));
+        }
+      },
+    });
+    assert.deepEqual(kinds, allowQuotaCheckpointBackfill ? ['main', 'main', 'period', 'period'] : ['main', 'main']);
+    for (const [key, file] of Object.entries(result.index.files)) {
+      const proof = file.calibrationAppend!;
+      assert.equal(proof.beforeOffset, cold.index.files[key].offset);
+      assert.equal(proof.throughOffset, file.offset);
+      assert.equal(proof.complete, true);
+      assert.ok(proof.minUsageAt! >= now + 3000 && proof.maxUsageAt! <= now + 4000);
+      assert.equal(file.quotaCheckpoints!.complete, allowQuotaCheckpointBackfill);
+      assert.equal(file.quotaCheckpoints!.rows.length, allowQuotaCheckpointBackfill ? 2 : 1);
+      assert.equal(file.quotaCheckpoints!.rows[file.quotaCheckpoints!.rows.length - 1].complete, true);
+    }
+  }
+});
+test('forward start replaces stale sidecars without replay and keeps gaps unknown until a valid baseline', async t => {
+  for (const kind of ['legacy', 'cursor', 'prefix']) {
+    const f = await fixture(t);
+    await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
+    const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+    const key = Object.keys(cold.index.files)[0];
+    const raw = JSON.parse(JSON.stringify(cold.index));
+    if (kind === 'legacy') raw.files[key].quotaCheckpoints.version = 4;
+    else if (kind === 'cursor') raw.files[key].quotaCheckpoints.indexedThrough = 0;
+    else raw.files[key].quotaCheckpoints.prefixEvents = 1;
+    const old = normalizeCodexIndex(raw)!;
+    const unpaired = JSON.parse(record(3, 50, 12));
+    delete unpaired.payload.rate_limits;
+    const tail = JSON.stringify(unpaired) + '\n';
+    await appendFile(f.file, tail);
+    const gap = await updateCodexIndex(old, await f.scan(), f.options);
+    assert.equal(gap.bodyReads, 1, kind);
+    assert.equal(gap.migration.bytesRead, Buffer.byteLength(tail), kind);
+    assert.equal(gap.migration.pending, false, kind);
+    const state = gap.index.files[key].quotaCheckpoints!;
+    assert.ok(state, kind);
+    assert.equal(state.complete, false, kind);
+    assert.deepEqual(state.rows, [], kind);
+    assert.deepEqual(codexQuotaCheckpointStateRanges(state), [{ from: 0, through: Number.MAX_SAFE_INTEGER }], kind);
+    assert.equal(state.observedTokens.inputTotal, 1050, kind);
+    assert.equal(state.excludedTokens.inputTotal, 0, kind);
+    const reloaded = normalizeCodexIndex(JSON.parse(JSON.stringify(gap.index)))!;
+    await appendFile(f.file, record(4, 25, 13) + record(5, 10, 14));
+    const paired = await updateCodexIndex(reloaded, await f.scan(), f.options);
+    assert.equal(paired.bodyReads, 1, kind);
+    assert.equal(paired.index.files[key].aggregate.total.inputTotal, 1085, kind);
+    const next = paired.index.files[key].quotaCheckpoints!;
+    assert.equal(next.complete, false, kind);
+    assert.deepEqual(next.rows.map(row => row.complete), [true, true], kind);
+    assert.equal(next.rows[0].baselineByModel!['gpt-5'].inputTotal, 25, kind);
+    assert.equal(next.rows[1].byModel['gpt-5'].inputTotal, 10, kind);
+    assert.deepEqual(codexQuotaCheckpointStateRanges(next), [{ from: 0, through: now + 4000 }], kind);
+  }
+});
+test('required period and calendar migrations still run with quota-only backfill disabled', async t => {
+  const f = await fixture(t);
+  await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const key = Object.keys(cold.index.files)[0];
+  for (const kind of ['period', 'calendar']) {
+    const old = normalizeCodexIndex(JSON.parse(JSON.stringify(cold.index)))!;
+    delete old.files[key].quotaCheckpoints;
+    if (kind === 'period') delete old.files[key].aggregate.period;
+    else {
+      delete old.files[key].aggregate.period!.lineageVersion;
+      delete old.files[key].aggregate.period!.lineagePrefixEvents;
+    }
+    const result = await updateCodexIndex(old, await f.scan(), {
+      ...f.options, allowAchievementHourProof: true,
+    });
+    assert.ok(result.bodyReads > 0, kind);
+    assert.equal(result.index.coverage.period.allTime.complete, true, kind);
+    assert.deepEqual(result.index.files[key].aggregate.total, cold.index.files[key].aggregate.total);
+    assert.ok(result.index.files[key].aggregate.period!.lineageVersion, kind);
+  }
+});
+test('batched quota-only replay requires explicit permission and preserves primary aggregates', async t => {
+  const f = await fixture(t);
+  await writeFile(f.file, meta('first') + context + record(1, 100, 10));
+  await writeFile(path.join(f.root, 'sessions', 'second.jsonl'), meta('second') + context + record(2, 200, 11));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  for (const file of Object.values(cold.index.files)) delete file.quotaCheckpoints;
+  for (const allowQuotaCheckpointBackfill of [false, true]) {
+    const kinds: string[] = [];
+    const result = await updateCodexIndex(cold.index, await f.scan(), {
+      ...f.options, allowQuotaCheckpointBackfill,
+      filePassBatch: async (tasks, accept) => {
+        for (const task of tasks) {
+          kinds.push(task.kind);
+          await accept(await runCodexFilePass(task));
+        }
+      },
+    });
+    assert.deepEqual(kinds, allowQuotaCheckpointBackfill ? ['period', 'period'] : []);
+    assert.equal(result.bodyReads, allowQuotaCheckpointBackfill ? 2 : 0);
+    assert.equal(result.migration.pending, false);
+    for (const [key, file] of Object.entries(result.index.files)) {
+      assert.deepEqual(file.aggregate.total, cold.index.files[key].aggregate.total);
+      assert.equal(file.quotaCheckpoints !== undefined, allowQuotaCheckpointBackfill);
+    }
+  }
+});
 test('old checkpoints replay on the existing bounded period pass while primary counts stay exact', async t => {
   const f = await fixture(t);
   await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
@@ -58,7 +337,7 @@ test('old checkpoints replay on the existing bounded period pass while primary c
   delete (cold.index.files[key] as any).quotaCheckpoints;
   const old = normalizeCodexIndex(JSON.parse(JSON.stringify(cold.index)))!;
   assert.equal(old.files[key].aggregate.total.inputTotal, 1000);
-  const migrated = await updateCodexIndex(old, await f.scan(), f.options);
+  const migrated = await updateCodexIndex(old, await f.scan(), { ...f.options, allowQuotaCheckpointBackfill: true });
   assert.ok(migrated.bodyReads > 0);
   assert.equal(migrated.index.files[key].aggregate.total.inputTotal, 1000);
   assert.equal((migrated.index.files[key] as any).quotaCheckpoints.rows[1].byModel['gpt-5'].inputTotal, 100);
@@ -75,7 +354,7 @@ test('legacy v1/v2/v3/v4 checkpoints replay to current semantics without resetti
     const old = normalizeCodexIndex(raw)!;
     assert.equal(old.files[key].quotaCheckpoints, undefined);
     assert.equal(old.files[key].aggregate.total.inputTotal, 1000);
-    const replayed = await updateCodexIndex(old, await f.scan(), f.options);
+    const replayed = await updateCodexIndex(old, await f.scan(), { ...f.options, allowQuotaCheckpointBackfill: true });
     assert.ok(replayed.bodyReads > 0);
     const state = replayed.index.files[key].quotaCheckpoints!;
     assert.equal(state.version, CODEX_QUOTA_CHECKPOINT_VERSION);
@@ -143,7 +422,7 @@ test('valid last recovery below cumulative high-water survives reload and append
   const oldV4 = normalizeCodexIndex(oldRaw)!;
   assert.equal(oldV4.files[key].quotaCheckpoints, undefined);
   assert.deepEqual(oldV4.files[key].aggregate.total, file.aggregate.total);
-  const replayed = await updateCodexIndex(oldV4, await f.scan(), f.options);
+  const replayed = await updateCodexIndex(oldV4, await f.scan(), { ...f.options, allowQuotaCheckpointBackfill: true });
   assert.ok(replayed.bodyReads > 0);
   assert.deepEqual(replayed.index.files[key].aggregate.total, file.aggregate.total);
   assert.deepEqual(replayed.index.files[key].quotaCheckpoints, file.quotaCheckpoints);
@@ -197,7 +476,7 @@ test('cancelled period replay resumes its numeric pairing from a durable safe ch
   const key = Object.keys(cold.index.files)[0]; delete cold.index.files[key].quotaCheckpoints;
   let saved: CodexIndexV3 | undefined, cancel = false;
   const cache = path.join(f.root, 'isolated-index.json');
-  await assert.rejects(updateCodexIndex(cold.index, await f.scan(), { ...f.options,
+  await assert.rejects(updateCodexIndex(cold.index, await f.scan(), { ...f.options, allowQuotaCheckpointBackfill: true,
     scheduling: { checkpointEveryMs: 0 }, shouldCancel: () => cancel,
     onCheckpoint: async index => {
       if (index.files[key].periodMigration?.offset) {
@@ -207,7 +486,7 @@ test('cancelled period replay resumes its numeric pairing from a durable safe ch
   }), CodexIndexCancelledError);
   assert.ok(saved?.files[key].periodMigration?.offset);
   assert.equal(saved!.files[key].aggregate.total.inputTotal, 150);
-  const resumed = await updateCodexIndex(saved!, await f.scan(), f.options);
+  const resumed = await updateCodexIndex(saved!, await f.scan(), { ...f.options, allowQuotaCheckpointBackfill: true });
   assert.deepEqual(resumed.index.files[key].quotaCheckpoints, cold.index.files[key].quotaCheckpoints ??
     Object.values((await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options)).index.files)[0].quotaCheckpoints);
   const legacyRaw = JSON.parse(JSON.stringify(saved));
@@ -215,7 +494,7 @@ test('cancelled period replay resumes its numeric pairing from a durable safe ch
   const legacyDraft = normalizeCodexIndex(legacyRaw)!;
   assert.equal(legacyDraft.files[key].periodMigration!.quotaCheckpoints, undefined);
   assert.equal(legacyDraft.files[key].aggregate.total.inputTotal, 150);
-  const restarted = await updateCodexIndex(legacyDraft, await f.scan(), f.options);
+  const restarted = await updateCodexIndex(legacyDraft, await f.scan(), { ...f.options, allowQuotaCheckpointBackfill: true });
   assert.deepEqual(restarted.index.files[key].quotaCheckpoints, resumed.index.files[key].quotaCheckpoints);
 });
 

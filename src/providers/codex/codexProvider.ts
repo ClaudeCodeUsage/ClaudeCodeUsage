@@ -51,6 +51,7 @@ import { CodexAchievementUsageDelta, CodexAchievementUsageWindow,
   copyCodexUsageWindow, copyCodexUsageDelta } from './codexAchievementOrigin';
 import { classifyCodexSessionDuplicates } from './codexDedup';
 import { buildCodexCalibrationCensus } from './codexCalibrationCensus';
+import { buildCodexForwardCalibration } from './codexForwardCalibration';
 import { CodexQuotaCheckpointSegment, CODEX_QUOTA_CHECKPOINT_SNAPSHOT_LIMIT,
   projectCodexQuotaCheckpointSegments, CodexQuotaIncompleteRange,
   CODEX_QUOTA_CHECKPOINT_VERSION, codexQuotaCheckpointStateRanges,
@@ -147,6 +148,7 @@ function displayOnlySnapshot(snapshot: CodexProviderSnapshot): CodexProviderSnap
       codexQuotaIncompleteResets: undefined,
       codexQuotaIncompleteRanges: undefined,
       codexCalibrationCensus: undefined,
+      codexForwardCalibration: undefined,
       codexQuotaCheckpoints: snapshot.weeklyValueInputs.codexQuotaCheckpoints?.map(row => ({ ...row, complete: false })),
     } } : {}),
     files: snapshot.files.map((file) => {
@@ -604,7 +606,9 @@ function snapshotFromIndex(
       index.coverage.period.timeZone,
     ), codexQuotaCheckpoints, codexQuotaCheckpointsComplete, codexQuotaIncompleteResets, codexQuotaIncompleteRanges,
     codexCalibrationCensus: buildCodexCalibrationCensus(index, currentManifestVerified,
-      canonicalFileKeys, deduplication.ambiguousFileKeys, verificationBeganAt), calibrationSourceScope: {
+      canonicalFileKeys, deduplication.ambiguousFileKeys, verificationBeganAt),
+    codexForwardCalibration: buildCodexForwardCalibration(index, currentManifestVerified,
+      canonicalFileKeys, deduplication.ambiguousFileKeys, verificationBeganAt, {}), calibrationSourceScope: {
       verified: currentManifestVerified && index.coverage.complete && index.coverage.period.allTime.complete,
       excludedSourceKeys: [...deduplication.ambiguousFileKeys].sort(),
     } },
@@ -764,6 +768,9 @@ export class CodexProvider {
       }
       this.snapshotGeneration += 1;
       const snapshot = snapshotFromIndex(result.index, sessionTitles, true, verificationBeganAt);
+      if (result.failedFiles > 0 && snapshot.weeklyValueInputs) {
+        snapshot.weeklyValueInputs.codexForwardCalibration = undefined;
+      }
       if (result.failedFiles === 0 && this.options.allowAchievementHourProof !== false) {
         // Rebuild current census and witnesses above even on zero-body reads.
         // Only full equality against a detached frozen publication allows reuse;

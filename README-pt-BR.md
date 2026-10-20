@@ -56,9 +56,9 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 ## Novidades da v2.5
 
 - **Comparação de cotas Codex por ciclo** — uma barra e uma linha de resumo por ciclo,
-  com as evidências compatíveis mais fortes, expansíveis, e indicação de calibração pendente ou conflito de fontes.
-  Os valores continuam sendo estimativas locais condicionais. A leitura oficial opcional vem
-  desativada e pode contatar a OpenAI. Veja [dados locais e privacidade](LOCAL-DATA.md).
+  com evidências expansíveis, calibração pendente e conflitos; valores são estimativas locais condicionais.
+  A leitura oficial vem desativada e pode contatar a OpenAI; exibe créditos de redefinição quando disponíveis.
+  Calibra novos incrementos sem reprocessar o histórico de cotas. Veja [privacidade](LOCAL-DATA.md).
 
 - **Conquistas locais** — veja medalhas, progresso e próximos objetivos. Ativas por padrão;
   desative em Local achievements nas configurações (`enableAchievements`). As datas vêm dos

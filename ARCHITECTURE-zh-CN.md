@@ -46,6 +46,8 @@ Codex effort 统计及仅累计范围的金额新活动收据已完成接入。
 | `claudeApiClient.ts` | 既有 Claude OAuth／额度请求及最近成功请求所用凭证的运行期单向身份信号；周节奏只读取该信号，不新增请求或凭证查询。 |
 | `providers/codex/codexOfficialQuota.ts`、`codexQuotaWebSocket.ts` | 主动启用后，通过有界 WebSocket-over-stdio 代理读取已运行的本地 daemon；仅初始化及额度读取 RPC，绝不启动 daemon、登录或读取凭据文件。 |
 | `codexAccountEstimate.ts` | 仅运行期连续官方样本／本机增量校准；额度身份不证明本地用量归属。 |
+| `codexForwardAccountEstimate.ts`、`providers/codex/codexForwardCalibration.ts` | 运行期主来源清单及精确追加窗口准入，用于向前官方校准；不以历史完整性为前提，不增加来源 I/O。 |
+| `codexOfficialQuotaFacts.ts`、`codexOfficialTransition.ts` | 纯函数清洗官方事实并谨慎识别周期变化；不兑换重置次数、不推断账号归属。 |
 | `codexCalibrationEvidence.ts` | 纯函数复制固定校准证据及精确公开模型费率／parser／period 版本，供估算器、协调器和既有归档校验复用；无 I/O。 |
 | `providers/codex/codexQuotaCheckpoints.ts` | 在既有索引及 period 重放中保留经谱系准入的有界额度／Token 数值检查点，不另建扫描器。 |
 | `codexWindowEstimate.ts`、`codexWindowEvidence.ts` | 纯本地配对窗口投影及固定字段数值收据，含费率表、区间与周期证据，不推断账号归属。 |
@@ -1078,12 +1080,10 @@ Windows 验收；正常实例前后状态核对和后台启动要求见辅助模
 
 ## 周估算预览与归档
 
-以下额度变更仍在集成中。源码描述不代表测试、原生验收或真实账号验证已经完成。
-
 `codex.officialQuota.enabled` 默认关闭。额度跟踪开启时，宿主可通过
 `providers/codex/codexOfficialQuota.ts` 与 `codexQuotaWebSocket.ts` 读取已运行的官方
 本地 Codex daemon；短生命周期 `app-server proxy` 在 stdio 上承载 WebSocket 帧。
-协议兼容已在 CLI 0.163.0-alpha.10.2 核对。应用消息仅有 `initialize`、`initialized`、
+应用消息仅有 `initialize`、`initialized`、
 `account/rateLimits/read`。扩展绝不启动 daemon、发起登录或读取凭据；额度 API
 可能访问 OpenAI，daemon 管理的认证也可能刷新凭据，不能把本地代理连接称为完全离线。
 
@@ -1092,10 +1092,31 @@ Windows 验收；正常实例前后状态核对和后台启动要求见辅助模
 失败、取消或不支持的来源显示不可用，不从本地日志代填账号。当前额度身份不证明本地
 用量归属。
 
-`codexAccountEstimate.ts` 为 `account-delta-v1` 保存运行期基线。
 `codexQuotaEpoch.ts` 从官方 P2 观测提取持久额度分段，即使尚无金额也保留检查点。
 元数据只记录首次观测、固定重置锚点、可选边界下界及谨慎的原因，不冒充手动重置精确时间。
-已识别的官方计数任何下降均另开窗口，其他来源保留原有阈值。切号与失焦断开金额基线，
+对于带有效 `officialFacts` 的新观测，截止前未用窗口的计划重置漂移，以及同窗口不超过1个百分点且
+仍非零的修正不另分周期；修正仍结束金额校准。更大下降、正值归零及正用量的重置变化保留谨慎的
+边界证据，不改写旧 P2 的既有规则。
+
+`codexAccountEstimate.ts` 将 `inputs.codexForwardCalibration` 交给
+`codexForwardAccountEstimate.ts`。生产端在核验 manifest 后发出不可变、带身份标记的运行期主来源
+清单：最多16,384个来源／8 MiB，哈希处理上限64 MiB。准入要求完整来源清单、generation、连续性
+和费率表一致，证明新鲜且未消费，并有扫描端发出的精确追加偏移与用量时间：晚于基线、不晚于
+下一次官方请求。变化来源缺少完整已定价增量或匹配的本地额度见证时，整段不准入；未知不作零。
+不变的旧来源无需先迁移历史侧车；该路径不以 `allTime` 或检查点迁移完成为前提。
+基线、清单及 `calibrationAppend` 见证仅在内存保留；既有归档可用
+`collectionMode: 'forward-append-v1'` 保存数值证据，不保存运行期证明，也不恢复旧基线。
+相邻样本／证明须满足五分钟新鲜度限制；百分比不变时可累积已核验增量，直至观测到至少1个百分点
+增加且末次低于100%。不新增运行期依赖、来源读取、扫描器或匿名贡献流程。
+
+每个新连续性基线起初均未对齐：丢弃截至首次观测到至少1个百分点增加的 USD 与百分点，
+随后从该观测阶跃开始测量。切号、缺口及无效区间重新对齐；同周期百分比下降会结束旧校准组，
+避免重复计入百分点，本身不另开周期。运行期上下文除实际费率外还绑定 `planType`、
+`spendControlReached` 及 `ordinaryUsageAllowed`；上下文变化断开连续性，不扩大持久事实字段。
+对齐不保证估算无偏，也不提供误差界。
+
+`codexAccountEstimate.ts` 的历史聚合兼容路径保留下列独立契约，不作为向前校准的前提。
+切号与失焦断开金额基线，
 但可保留有界的同账号／分段／定价有效区间累计；返回后建立新基线，不跨接中间用量。
 失败、来源／索引／定价失效、清除及重启会结束运行期校准，归档证据不恢复重启前基线；
 实际模型费率变化即使公开定价版本标签同名也断开基线。分段有效、索引完整且本地见证
@@ -1104,7 +1125,7 @@ Windows 验收；正常实例前后状态核对和后台启动要求见辅助模
 不再冒充当前身份。最近观测连续性与金额基线分开维护：有效、未饱和且百分比
 不变的读取只更新 `lastObserved`，保留原金额基线；持续读取即使累计超过五分钟，
 也不丢弃等待百分比变化的原有用量。
-校准仍要求当前 manifest 已核验、当前及全部时段索引完整。历史 `ambiguousSessionGroups`
+历史聚合校准要求当前 manifest 已核验、当前及全部时段索引完整。历史 `ambiguousSessionGroups`
 可使全扫描完成后的 `coverage.identity.complete` 仍为 false；该全局标记不再阻断已核验的
 无歧义子集。dedup 提供仅运行期的 `ambiguousFileKeys`，provider 附带已核验的
 `calibrationSourceScope` 排除集，估算器只使用无歧义来源。主统计及身份质量标记保持原样，
@@ -1132,7 +1153,7 @@ canonical, ambiguous, verifiedAt = Date.now())` 生成。schema-1 封套包含
 证明不变，且用量不晚于基线、活动不晚于样本时，才可按已知零增量处理。
 该例外不能把未知尾部、解析缺口、未来活动或新来源当作零；当前用量增量缺少投影仍撤下区间。
 
-每个获准区间须增加至少 1 个百分点，且末次低于 100%；区间准入与下文周期金额展示
+向前及历史兼容估算的每个获准区间均须增加至少1个百分点，且末次低于100%；区间准入与下文周期金额展示
 所需的至少5个百分点是不同门槛。同账号／分段／定价下兼容的
 获准区间合并计算，可包括切号或失焦前保留的有效区间，但不跨过渡缺口；按百分点增量
 加权，`linkedLocalDeltaUsd` 是其已连接本地已定价金额增量之和
@@ -1145,14 +1166,18 @@ R = F * (1 - p / 100)
 
 这是按额度作用域分组的本机增量代理估算，不是已证明归属的账号总额或完整跨设备金额。
 日聚合内部无法区分的迟到事件仍无法排除，因此维持低可信 proxy，不证明逐请求时序或精度。
-`usedEquivalentUsd` 是获准校准区间的增量之和，`calibrationStart` 保留该组首个获准
+`usedEquivalentUsd` 是获准校准区间的增量之和，不是实际已用总额或已证明归属的 USD。
+实际已用统计仍由独立用量投影提供，保留其覆盖率／归属限制；`F` 是有条件的满额等价值，不是账号支出。
+`calibrationStart` 保留该组首个获准
 区间的起始观测；未用估价冻结
-在同一观测时点。不扣减后续本地用量来生成实时余额。daemon 成功读取只证明协议可用；
-真实账号切换及 A → B → A 连续性仍未验证，合成覆盖不能替代真实账号验收。
+在同一观测时点。不扣减后续本地用量来生成实时余额。
+当前官方样本不证明历史账号归属或跨账号切换的连续性。
 
 对于 Codex 历史日志，`providers/codex/codexQuotaCheckpoints.ts` 在既有索引流程
-完成谱系准入后保留 version-5 数值检查点。缺失或不兼容的状态通过既有可续传 period
-重放升级，不另建扫描器。无变化的热刷新不重读用量记录正文，投影也不打开源日志。
+完成谱系准入后保留 version-5 数值检查点。仅因检查点缺失或不兼容而进行的额度重放，须显式使用
+内部历史路径（`allowQuotaCheckpointBackfill: true`），现默认 false。主索引及 period 自身独立需要
+的迁移保持不变，其处理仍可重建检查点，不另建扫描器。
+无变化的热刷新不重读用量记录正文，投影也不打开源日志。
 检查点只包含数值时间、百分比、分段／完整性状态、经清洗的逐模型 Token 计数及内部
 假名化来源键，不保留原始文本或原始 ID。
 
@@ -1165,7 +1190,7 @@ R = F * (1 - p / 100)
 version 5 将 `segmentResetAt` 固定为分段首次重置锚点。各行 `resetAt` 使用该
 规范首个 R，`observedResetAt` 保留该样本原始数值 R。±5分钟内的抖动始终与固定首锚点
 比较，不沿后续观测链式延展；配对绝不越过规范重置时刻。`observedResetAt` 仅在旧运行期
-输入中可选，严格 v5 存储必须包含该字段。全部 version-1–4 侧车状态须经过有界 period 重放，
+输入中可选，严格 v5 存储必须包含该字段。version-1–4 侧车状态重建时须经过有界 period 重放，
 不回接旧基线，也不直接改版本标签。主要额度观测的原始重置值保持不变。
 
 分段累计 `byModel` 不包含自身基线行。仅基线行另存 `baselineByModel`，记录该行
@@ -1256,10 +1281,17 @@ Claude 保持原有行为。
 原始日志扫描、网络请求、遥测或贡献流程。估值在表头注明，金额单元格不重复显示 ≈。
 
 `quotaObservationStore.ts` 通过 `codexQuotaCaptureFromOfficialSample` 接受
-`codex-official-api`，只复制原始数值观测／重置时间、百分比及已验证的账号 HMAC，
-稳定身份命名空间为 `official-account-scope-v1|`；该适配器及存储不接收原始账号 ID、
-邮箱、套餐或凭据。沿用 schema-2 的保留、压缩与清除，本地日志捕获仍未归属并独立保留。
-旧 schema-2 读取器拒绝未知来源枚举，兼容仅为单向，不是 schema 降级。
+`codex-official-api`，以 `official-account-scope-v1|` 为已验证账号 HMAC 的稳定身份命名空间。
+既有 schema-2 P2 封套增加可选 `schemaRevision: 1`；只有已核验的 Codex 官方观测可内嵌
+schema-1 `officialFacts`：`requestedAt`、可选 `ordinaryUsageAllowed`、最多 primary／secondary
+两个 `windows` 及 `rateLimitResetCredits`。后者保留独立非负 `availableCount`，可选明细最多128条；
+每条仅有64位十六进制 HMAC `creditKey`、白名单状态／重置类型、数值发放及可选到期时间。
+缺失、null、零及已获取空列表分别保留；运行期明细无效不能抹去有效次数。
+不保存原始 ID、姓名、路径、自由文本、套餐或凭据。持久层严格校验、深复制及去重保留有效事实，
+有界压缩优先保留首末观测及状态／次数变化，不让常规轮询挤占证据。
+事实沿用180天／每序列512条上限及账号／供应商／全部清除，不建新存储。
+当前代码拒绝未知修订，存在未解决的隔离／恢复文件时阻止追加。旧读取器可能拒绝或隔离新字段，
+但这不保证每个旧版本在后续写入时都会保留 canonical 文件。本地日志证据仍未归属并独立保留。
 
 `weeklyEstimateArchive.ts` 在既有 schema-1 的 `weekly-estimates-v1.json` 保留固定字段 DTO：
 原始时间、金额、定价覆盖率／版本、方法／标志、可选校准范围、
