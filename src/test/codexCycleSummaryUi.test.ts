@@ -96,6 +96,18 @@ test('cycle table and chart use one identical summary per cycle, not failed obse
   assert.match(html, /周期明细/); assert.match(html, /校准证据/);
   assert.doesNotMatch(html, /本机七天用量|本機七天用量/);
 }));
+test('overlapping anonymous reference omission is explicit without adding a second chart or assigning dollars', () => run(() => {
+  for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'] as const) {
+    I18n.setLanguage(locale);
+    const p = owner([entry()]);
+    p.weeklyEstimateProjection = () => ({ entries: [entry()], status: 'ready', unassignedCyclesOmitted: 1 });
+    const html = p.renderWeeklyValuePanel('codex');
+    assert.match(html, /data-unassigned-cycle-overlap/);
+    assert.ok(html.includes(I18n.t.weeklyValue.unassignedCycleOverlap.replace('{count}', '1')));
+    assert.equal((html.match(/data-codex-cycle-chart/g) ?? []).length, 1);
+    assert.equal((html.match(/data-codex-cycle-summary-row/g) ?? []).length, 1);
+  }
+}));
 test('a pending new cycle has a missing-value marker, never a tiny or zero capacity bar', () => run(() => {
   const html = owner([entry({ fullEquivalentUsd: null, unusedEquivalentUsd: null })]).renderWeeklyValuePanel('codex');
   assert.match(html, /data-cycle-pending/); assert.match(html, /待校准/);

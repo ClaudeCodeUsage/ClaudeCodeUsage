@@ -1662,6 +1662,12 @@ known-zero quiet refreshes preserve alignment. Last counter observations survive
 blur so a later correction cannot restore a retired calibration cohort. EOF-packed
 partial lineage blocks preserve the same ordered-prefix semantics as full blocks.
 
+The comparison prioritizes identified account cycles. Anonymous reference cycles
+overlapping their observed coverage are omitted from both bars and summary rows,
+with an explicit omitted-cycle count. Their archive values remain unchanged and
+are never assigned to an account. Non-overlapping older references remain visible;
+a pending account cycle never borrows an anonymous capacity.
+
 The historical aggregate compatibility path in `codexAccountEstimate.ts` retains
 the following separate contracts; they are not forward-calibration prerequisites.
 Account switches and blur break monetary continuity,

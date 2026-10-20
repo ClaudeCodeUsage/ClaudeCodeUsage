@@ -150,6 +150,7 @@ export interface WeeklyEstimatePanelProjection {
   };
   activeAccountNumber?: number;
   activeQuotaEpochStartedAt?: number;
+  unassignedCyclesOmitted?: number;
 }
 import {
   defaultDashboardProvider,
@@ -7984,6 +7985,10 @@ export class UsageWebviewProvider {
       this.cycleDate(sources.change.beforeAt) + ' → ' + this.cycleDate(sources.change.observedAt) + ' · ' +
       this.formatPercent(sources.change.beforePercent / 100) + ' → ' + this.formatPercent(sources.change.usedPercent / 100)) + '</p>' : '';
     const conflict = sources.conflict ? '<p class="table-hint" data-cycle-source-conflict role="status">' + esc(copy.sourceConflict) + '</p>' : '';
+    const omitted = projection.unassignedCyclesOmitted;
+    const overlap = typeof omitted === 'number' && Number.isSafeInteger(omitted) && omitted > 0 && omitted <= 1e6
+      ? '<p class="table-hint" data-unassigned-cycle-overlap role="status">' + esc(copy.unassignedCycleOverlap
+        .replace('{count}', new Intl.NumberFormat(I18n.getLocale()).format(omitted))) + '</p>' : '';
     const chart = points.length ? '<div class="composition-chart" data-codex-cycle-chart data-weekly-estimate-chart style="--cycle-count:' + points.length + '">' +
       '<div class="stack-legend"><span class="legend-item"><span class="legend-dot seg-input"></span>' + esc(copy.inferredUsed) + '</span>' +
       '<span class="legend-item"><span class="legend-dot seg-cache-read"></span>' + esc(copy.estimateUnused) + '</span></div>' +
@@ -7996,7 +8001,7 @@ export class UsageWebviewProvider {
       projection.status === 'loading' ? copy.archiveLoading : '';
     const indexing = this.codexView?.periodCoverage?.allTime?.complete === false ? '<p class="table-hint" role="status">' + esc(copy.cycleIndexedSubtotal) + '</p>' : '';
     return '<div class="daily-breakdown" data-codex-cycle-panel><div class="section-header"><h3>' + esc(copy.cycleTitle + ' · ' + I18n.t.providers.codexBeta) +
-      '</h3></div>' + official + local + transition + conflict + indexing + '<p class="table-hint">' + esc(copy.cycleSummaryNote) + '</p>' + chart +
+      '</h3></div>' + official + local + transition + conflict + overlap + indexing + '<p class="table-hint">' + esc(copy.cycleSummaryNote) + '</p>' + chart +
       (archive ? '<p class="table-hint" role="status">' + esc(archive) + '</p>' : '') + this.renderCodexCycleRecords(projection) +
       '<p class="table-hint">' + esc(copy.description) + '</p></div>';
   }

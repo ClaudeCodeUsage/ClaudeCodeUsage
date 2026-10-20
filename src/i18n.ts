@@ -1841,6 +1841,7 @@ export interface WeeklyValueCopy {
   officialQuotaUnavailable: string;
   officialQuotaSourceMismatch: string;
   resetCreditCount: string;
+  unassignedCycleOverlap: string;
   resetCreditUnknown: string;
   resetCreditNextExpiry: string;
   ordinaryUsageBlocked: string;
@@ -2909,6 +2910,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     seriesEstimate: 'Local-series estimate (account unverified)', accountDeltaEstimate: 'Account quota delta · local usage proxy',
     officialQuotaTitle: 'Official quota', officialQuotaDisabled: 'Official quota disabled',
     resetCreditCount: 'Available reset credits', resetCreditUnknown: 'Unknown',
+    unassignedCycleOverlap: '{count} overlapping unassigned reference cycles are omitted from this comparison, not assigned to an account.',
     resetCreditNextExpiry: 'Next known expiry', ordinaryUsageBlocked: 'Ordinary usage blocked at observation',
     officialQuotaLoading: 'Reading official quota', officialQuotaUnavailable: 'Official quota unavailable',
     officialQuotaSourceMismatch: 'Quota source differs from the official service account', collectingSamples: 'Collecting samples',
@@ -2963,6 +2965,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     seriesEstimate: '日志序列换算（账号未核实）', accountDeltaEstimate: '账号额度增量换算 · 本机用量代理',
     officialQuotaTitle: '官方额度', officialQuotaDisabled: '官方额度未启用',
     resetCreditCount: '可用重置券', resetCreditUnknown: '未知',
+    unassignedCycleOverlap: '另有 {count} 个未归属参考周期与账号周期重叠，未列入对比，也未计入账号额度。',
     resetCreditNextExpiry: '下一已知到期时间', ordinaryUsageBlocked: '观测时常规用量受限',
     officialQuotaLoading: '正在读取官方额度', officialQuotaUnavailable: '官方额度暂不可用',
     officialQuotaSourceMismatch: '额度来源与官方服务账号不一致', collectingSamples: '正在积累样本',
@@ -3017,6 +3020,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     seriesEstimate: '日誌序列換算（帳號未核實）', accountDeltaEstimate: '帳號額度增量換算 · 本機用量代理',
     officialQuotaTitle: '官方額度', officialQuotaDisabled: '官方額度未啟用',
     resetCreditCount: '可用重設券', resetCreditUnknown: '未知',
+    unassignedCycleOverlap: '另有 {count} 個未歸屬參考週期與帳號週期重疊，未列入比較，也未計入帳號額度。',
     resetCreditNextExpiry: '下一已知到期時間', ordinaryUsageBlocked: '觀測時一般用量受限',
     officialQuotaLoading: '正在讀取官方額度', officialQuotaUnavailable: '官方額度暫不可用',
     officialQuotaSourceMismatch: '額度來源與官方服務帳號不一致', collectingSamples: '正在累積樣本',
@@ -3071,6 +3075,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     seriesEstimate: 'ローカル系列の推定（アカウント未確認）', accountDeltaEstimate: 'アカウント枠の差分 · ローカル使用量による近似',
     officialQuotaTitle: '公式クォータ', officialQuotaDisabled: '公式クォータは無効',
     resetCreditCount: '利用可能なリセット券', resetCreditUnknown: '不明',
+    unassignedCycleOverlap: '重複する未帰属の参考周期 {count} 件は比較から除外し、アカウント枠にも加算していません。',
     resetCreditNextExpiry: '次の既知の有効期限', ordinaryUsageBlocked: '観測時は通常利用が制限されています',
     officialQuotaLoading: '公式クォータを取得中', officialQuotaUnavailable: '公式クォータを利用できません',
     officialQuotaSourceMismatch: 'クォータの取得元と公式サービスのアカウントが異なります', collectingSamples: 'サンプル収集中',
@@ -3125,6 +3130,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     seriesEstimate: '로컬 계열 추정(계정 미확인)', accountDeltaEstimate: '계정 할당량 증분 · 로컬 사용량 대리값',
     officialQuotaTitle: '공식 할당량', officialQuotaDisabled: '공식 할당량 비활성',
     resetCreditCount: '사용 가능한 초기화권', resetCreditUnknown: '알 수 없음',
+    unassignedCycleOverlap: '겹치는 미귀속 참고 주기 {count}개는 비교에서 제외하며 계정 한도에 합산하지 않습니다.',
     resetCreditNextExpiry: '다음 확인된 만료 시각', ordinaryUsageBlocked: '관측 시 일반 사용 제한됨',
     officialQuotaLoading: '공식 할당량 읽는 중', officialQuotaUnavailable: '공식 할당량을 사용할 수 없음',
     officialQuotaSourceMismatch: '할당량 출처와 공식 서비스 계정이 다름', collectingSamples: '표본 수집 중',
@@ -3179,6 +3185,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     seriesEstimate: 'Estimativa da série local (conta não verificada)', accountDeltaEstimate: 'Delta da cota da conta · proxy de uso local',
     officialQuotaTitle: 'Cota oficial', officialQuotaDisabled: 'Cota oficial desativada',
     resetCreditCount: 'Redefinições disponíveis', resetCreditUnknown: 'Desconhecido',
+    unassignedCycleOverlap: '{count} ciclos de referência sem conta e sobrepostos foram omitidos da comparação, sem atribuição a uma conta.',
     resetCreditNextExpiry: 'Próximo vencimento conhecido', ordinaryUsageBlocked: 'Uso normal bloqueado no momento da observação',
     officialQuotaLoading: 'Lendo cota oficial', officialQuotaUnavailable: 'Cota oficial indisponível',
     officialQuotaSourceMismatch: 'A origem da cota difere da conta do serviço oficial', collectingSamples: 'Coletando amostras',
@@ -3233,6 +3240,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     seriesEstimate: 'Lokale Reihenschätzung (Konto ungeprüft)', accountDeltaEstimate: 'Kontingentdifferenz des Kontos · lokale Nutzung als Näherung',
     officialQuotaTitle: 'Offizielles Kontingent', officialQuotaDisabled: 'Offizielles Kontingent deaktiviert',
     resetCreditCount: 'Verfügbare Resets', resetCreditUnknown: 'Unbekannt',
+    unassignedCycleOverlap: '{count} überlappende, nicht zugeordnete Referenzzyklen werden nicht verglichen und keinem Konto zugerechnet.',
     resetCreditNextExpiry: 'Nächster bekannter Ablauf', ordinaryUsageBlocked: 'Reguläre Nutzung zum Beobachtungszeitpunkt gesperrt',
     officialQuotaLoading: 'Offizielles Kontingent wird gelesen', officialQuotaUnavailable: 'Offizielles Kontingent nicht verfügbar',
     officialQuotaSourceMismatch: 'Kontingentquelle stimmt nicht mit dem Konto des offiziellen Dienstes überein', collectingSamples: 'Stichproben werden gesammelt',
@@ -3287,6 +3295,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     seriesEstimate: 'Estimasi seri lokal (akun belum terverifikasi)', accountDeltaEstimate: 'Delta kuota akun · proksi penggunaan lokal',
     officialQuotaTitle: 'Kuota resmi', officialQuotaDisabled: 'Kuota resmi nonaktif',
     resetCreditCount: 'Reset tersedia', resetCreditUnknown: 'Tidak diketahui',
+    unassignedCycleOverlap: '{count} siklus referensi tanpa akun yang tumpang tindih tidak ditampilkan dalam perbandingan atau dibebankan ke akun.',
     resetCreditNextExpiry: 'Kedaluwarsa berikutnya yang diketahui', ordinaryUsageBlocked: 'Penggunaan biasa diblokir saat pengamatan',
     officialQuotaLoading: 'Membaca kuota resmi', officialQuotaUnavailable: 'Kuota resmi tidak tersedia',
     officialQuotaSourceMismatch: 'Sumber kuota berbeda dari akun layanan resmi', collectingSamples: 'Mengumpulkan sampel',

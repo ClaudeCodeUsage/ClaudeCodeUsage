@@ -21,6 +21,8 @@ export interface WeeklyEstimateProjection {
   status: 'loading' | 'ready' | 'full' | 'unavailable';
   activeAccountNumber?: number;
   activeQuotaEpochStartedAt?: number;
+  /** Anonymous references overlapping an identified cycle are not account facts. */
+  unassignedCyclesOmitted?: number;
 }
 export interface WeeklyEstimateProjectOptions {
   sourceNamespace: string; pricingVersion: string; now: number;
@@ -239,8 +241,20 @@ export class WeeklyEstimateCoordinator {
     for (const entry of cycleEntries.slice().sort((a, b) => a.observedAt - b.observedAt)) {
       if (entry.localWindowKey && !windowNumbers.has(entry.localWindowKey)) windowNumbers.set(entry.localWindowKey, windowNumbers.size + 1);
     }
-    const summaries = state.provider === 'codex' ? selectCodexCycleEstimates(cycleEntries, now)
-      .sort((a, b) => (b.quotaCycle?.endAt ?? b.resetAt) - (a.quotaCycle?.endAt ?? a.resetAt) || b.observedAt - a.observedAt).slice(0, 48) : cycleEntries.slice(0, 48);
+    const selected = state.provider === 'codex' ? selectCodexCycleEstimates(cycleEntries, now) : cycleEntries;
+    const identified = state.provider === 'codex' ? selected.filter(entry => entry.accountScopeKey !== undefined &&
+      entry.quotaEpoch !== undefined && entry.quotaCycle?.referenceOnly !== true) : [];
+    const start = (entry: InternalEntry) => entry.quotaCycle?.startAt ?? entry.quotaEpoch?.startedAt ?? entry.windowStart;
+    const end = (entry: InternalEntry) => entry.quotaCycle?.endAt ?? entry.resetAt;
+    let unassignedCyclesOmitted = 0;
+    const summaries = selected.filter(entry => {
+      if (entry.accountScopeKey === undefined && identified.some(account => start(entry) < end(account) && start(account) < end(entry))) {
+        // Presentation-only omission, never a reset-time identity join or a
+        // transfer of anonymous USD. The frozen archive remains untouched.
+        unassignedCyclesOmitted++; return false;
+      }
+      return true;
+    }).sort((a, b) => (b.quotaCycle?.endAt ?? b.resetAt) - (a.quotaCycle?.endAt ?? a.resetAt) || b.observedAt - a.observedAt).slice(0, 48);
     const entries = summaries.map(entry => {
       const { accountScopeKey, accountNumber: _hint, localWindowKey, ...publicEntry } = entry;
       const accountNumber = this.accountNumber(state, accountScopeKey);
@@ -250,7 +264,8 @@ export class WeeklyEstimateCoordinator {
     // Identity alone must not reserve a number that the archive cannot honor.
     const activeAccountNumber = state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey)
       ? state.accountNumbers.get(activeKey) : undefined;
-    return { entries, status: state.status, ...(activeAccountNumber === undefined ? {} : { activeAccountNumber }),
+    return { entries, status: state.status, ...(unassignedCyclesOmitted ? { unassignedCyclesOmitted } : {}),
+      ...(activeAccountNumber === undefined ? {} : { activeAccountNumber }),
       ...(state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey) &&
         activeEpoch !== undefined && time(activeEpoch) && activeEpoch > 0 ? { activeQuotaEpochStartedAt: activeEpoch } : {}) };
   }
