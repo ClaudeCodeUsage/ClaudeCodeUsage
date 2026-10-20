@@ -15,49 +15,50 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   quota source enum and archive methods/fields.
 
 ### Fixed
-- **Codex cycle quota reconciliation** — compare historical reset-to-reset cycles,
-  one bar per local account/cycle using its last valid monetary observation. Cycles
-  can be shorter than seven days; daily usage, calibration segments and login visits
-  do not create separate bars. Early resets close the previous cycle; uncertain
-  real reset boundaries remain explicit. When cycle details are missing, legacy
-  reference-only estimates use labelled, non-overlapping seven-day reference buckets
-  starting Monday at 00:00 UTC, assigned by their original observation time.
-  Each account or unassigned group contributes only its last valid estimate per
-  bucket, never a bar per day or a sum of overlapping USD estimates. These display
-  buckets do not invent real resets or change archived times, amounts or ownership.
-  Complete local usage and pre-reset snapshots stay separate.
-  Compatible ten-minute samples can calibrate with a continuity
-  warning; switches, blur and resets require fresh baselines without bridging gaps.
-  Compatible earlier intervals can retain their percentage-weighted contribution.
-  Existing schema-1 snapshots retain fixed calibration evidence and the exact model
-  rates/parser/period versions used; changed rates break the baseline even under the
-  same pricing label. Restart reads frozen history without restoring calibration.
-  Older records stay intact without invented evidence or account ownership.
-  Complete indexing can now calibrate from verified unambiguous sources despite
-  historical identity ambiguity, preserving primary totals and quality flags.
-  Receipts count excluded sources and disclose partial history. Detectable closed-bucket
-  revisions and pre-baseline backfill are excluded; daily aggregates still support
-  only a low-confidence proxy. Clear fences also check calibration start, preventing
-  another instance's old sums from returning with a later timestamp; its next sample
-  retires affected sums and establishes a fresh baseline.
-- **Cycle allowance chart and labels** — show estimated used and unused from
-  one observation snapshot, with total height matching the existing estimate.
-  A closed cycle retains the last observed unused estimate, which need not be zero.
-  Claude retains its existing grid behavior; Codex shows up to 48 cycles with
-  horizontal scrolling and tighter column/bar spacing. Short date labels use at
-  most two lines, with `fallback7d` on the second line for reference buckets and
-  full boundary details in tooltips/tables. Headers identify estimates and monetary cells omit
-  repeated ≈ markers. Existing percentage-change snapshots carry the latest admitted
-  interval and cumulative USD/percentage-point/Token evidence; the same archive stops
-  writing at 4096 entries / 1 MiB without eviction, retaining its clear fences,
-  cross-process lease and atomic 0600 replacement. No new data file, log scan,
-  network request or credential access is added by evidence capture.
-- **Weekly allowance snapshots** — separate rough estimates at actual observed
-  resets from primary local usage accounting. Positive observed use and known priced
-  value now support total/unused estimates with low-confidence disclosures for
-  partial evidence, segmented counter drops and explicit uniform-time boundary
-  allocation. Snapshots stay frozen; older preview readers reject archives
-  containing the new method, so preserve the archive before rolling back.
+- **Codex cycle quota reconciliation** — one bar and one expandable summary row
+  per cycle, including pending cycles. Evidence quality precedes recency; selected
+  amounts keep their own percentage and as-of time. Missing prices, incomplete USD
+  or conflicting counters reject whole overlapping USD/Δp components; a separate
+  coherent cohort can still calibrate. Without an eligible cohort, capacity stays
+  unknown rather than zero. New precise inputs withdraw covered daily-prefix estimates without
+  rewriting archived amounts. Model mix can change estimates; old large values
+  do not clamp new results. Claude retains its established display behavior.
+  中文：每周期一柱、一条可展开汇总行，待校准周期仍保留。先比较证据质量再比较新旧，
+  所选金额保留自身百分比与观测时刻。价格缺失、USD 不完整或计数矛盾时，整组拒绝重叠
+  USD／Δp 组件；独立连贯校准组仍可校准，无合格组时显示未知而非零。
+  新精确输入撤下其覆盖的旧日级前缀估值，不改写归档金额；模型组合可改变
+  估值，不以旧大金额钳制新结果。Claude 保持原有展示行为。
+- **Paired local quota estimates** — the existing index pass retains bounded version-3
+  numeric quota/Token checkpoints and incomplete-range witnesses. A gap affects overlapping
+  components rather than every interval sharing a reset; unknown scope fails closed.
+  The strongest compatible cohort retains its own as-of sample.
+  Baseline requests are stored separately from their own
+  segment delta so concurrent intervals do not silently lose their USD. Overlapping
+  percentage intervals are counted once. The five-percentage-point cycle display
+  gate is a local quality policy, not official measurement precision or an error
+  bound. Local-window and official-delta amounts remain conditional proxies; equal
+  reset times do not prove account identity or complete account usage.
+  中文：既有索引流程保留有界的 version-3 额度／Token 数值检查点及不完整区间见证。
+  缺口只影响重叠组件，不因 reset 相同污染所有区间；未知作用域安全拒绝。最强兼容校准组
+  保留自身观测时点。基线请求与自身分段增量分开保存，
+  避免并发区间静默漏算其 USD；重叠百分点区间只计一次。周期金额展示的5个百分点门槛
+  是本地质量策略，不是官方测量精度或误差界。本地窗口与官方增量金额仍为有条件的代理
+  估算；重置时间相同不证明账号身份或完整账号用量。
+- **Frozen cycle evidence and clearing** — fixed-field receipts retain rate content,
+  intervals, Δp, amounts, Tokens and cycle bounds in the existing archive. Optional
+  numeric `skippedIntervals` / `skippedUsd` record whole rejected or unselected
+  attempts outside the admitted fit. Official
+  account/period history and pending account ordinals remain separate from local
+  windows; unknown boundaries may use labelled seven-day references. Clear fences
+  also check the paired evidence start. The archive still stops at 4096 entries /
+  1 MiB without eviction. No extra raw-log scanner, usage graph, telemetry or
+  contribution flow is added. See [本地数据与隐私](LOCAL-DATA.zh-CN.md) /
+  [local data and privacy](LOCAL-DATA.md).
+  中文：既有归档以固定字段保存费率内容、区间、Δp、金额、Token 与周期边界；可选数值
+  `skippedIntervals`／`skippedUsd` 记录整组拒绝或未选的尝试，不进入获准拟合。官方
+  账号／周期历史及待校准账号序号与本地窗口分开。未知边界可用明确标注的七天参考桶。
+  清除屏障也检查配对证据起点；归档仍在4096条／1 MiB后停止新写入，不淘汰历史。
+  不增加原始日志扫描器、用量图、遥测或贡献流程。
 - **Rewriting a transcript re-read the whole history (#99)** — a mid-file edit
   or truncation (`/rewind`, session repair, an external touch) tripped the
   source-mutation guard and every file was rebuilt from its body. The rewrite

@@ -58,6 +58,11 @@ Abbildungen und Details stehen in der [ausführlichen englischen Hauptseite](REA
 
 ## Neu in v2.5
 
+- **Codex-Quotenvergleich nach Zyklus** — ein Balken und eine Zusammenfassungszeile je Zyklus,
+  mit den stärksten kompatiblen, aufklappbaren Belegen sowie Hinweisen auf ausstehende Kalibrierung und Quellenkonflikte.
+  Beträge bleiben bedingte lokale Schätzungen. Optionale offizielle Abfragen sind standardmäßig aus
+  und können OpenAI kontaktieren. Siehe [lokale Daten und Datenschutz](LOCAL-DATA.md).
+
 - **Lokale Erfolge** — Abzeichen, Fortschritt und nächste Ziele im Überblick. Standardmäßig
   aktiv; in den Einstellungen unter „Local achievements“ abschaltbar (`enableAchievements`).
   Daten beruhen auf vorhandenen Logs, nicht auf der gesamten Kontohistorie; manuelle
@@ -87,13 +92,6 @@ Fehlende oder noch nicht indizierte Protokolle können die Anzeige verkleinern;
 die Codex-Quote bleibt standardmäßig die letzte lokale Beobachtung.
 
 
-- **Codex-Quotenvergleich nach Zyklus** — historische Zyklen zwischen zwei Resets desselben Kontos,
-  ein Balken je lokalem Konto/Zyklus mit dem letzten gültigen groben Schätzwert. Zyklen können kürzer als sieben Tage sein.
-  Bei fehlenden Zyklusdetails gelten gekennzeichnete 7-Tage-Referenzintervalle; die Balkenabstände sind kleiner.
-  Kalibrierbelege bleiben im lokalen Archiv.
-  Mit `showWeeklyEquivalentValue` auf false lässt sich der Vergleich ausblenden.
-  `codex.officialQuota.enabled` ist standardmäßig aus; Abfragen nutzen einen laufenden Daemon und können
-  OpenAI kontaktieren. Quotenidentität beweist keine Nutzungszuordnung. Siehe [Datenschutz](LOCAL-DATA.md).
 
 ## Installation und Datenschutz
 

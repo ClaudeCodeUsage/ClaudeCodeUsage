@@ -182,6 +182,10 @@ real account or an installed-VSIX capture.*
 
 ## What's new in 2.5
 
+- **Codex cycle quota comparison** — one bar and summary row per cycle, with expandable
+  evidence chosen for compatibility and strength, with pending/conflict states. Amounts remain conditional local estimates.
+  Optional official reads default off and may contact OpenAI. See [local data and privacy](LOCAL-DATA.md).
+
 - **Local achievements** — browse earned badges, progress and next goals. Enabled by default;
   turn off Local achievements in Settings (`enableAchievements`). Dates reflect retained
   logs, not complete account history; manual calibration refreshes supported dates.
@@ -316,16 +320,6 @@ drill-down. See [CHANGELOG.md](CHANGELOG.md) for patch-by-patch details.
   proven replay; missing last snapshots fall back to cumulative lineage
   high-water. Upgrading triggers one automatic reindex, with the indexed
   subtotal still visible throughout the pass.
-
-### Weekly estimates and provider boundaries
-
-
-- **Codex cycle quota comparison** — compare historical reset-to-reset cycles,
-  one bar per local account/cycle using its last valid estimate. Cycles can be shorter than seven days.
-  Missing cycle details use labelled 7-day reference buckets; bar spacing is tighter.
-  Set `showWeeklyEquivalentValue` to false to hide the comparison.
-  `codex.officialQuota.enabled` defaults off; reads use an existing daemon and may contact
-  OpenAI. Quota identity does not prove usage ownership. See [local data and privacy](LOCAL-DATA.md).
 
 ### Dashboard, indexing, and privacy
 

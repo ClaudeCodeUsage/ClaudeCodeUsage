@@ -60,6 +60,11 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Yang baru di v2.5
 
+- **Perbandingan kuota Codex per siklus** — satu batang dan baris ringkasan per siklus,
+  memakai bukti kompatibel terkuat yang dapat dibuka, dengan status menunggu kalibrasi atau konflik sumber.
+  Nilainya tetap estimasi lokal bersyarat. Pembacaan resmi opsional nonaktif secara default
+  dan dapat menghubungi OpenAI. Lihat [data lokal dan privasi](LOCAL-DATA.md).
+
 - **Pencapaian lokal** — lihat lencana, progres, dan target berikutnya. Aktif secara default;
   nonaktifkan Local achievements di pengaturan (`enableAchievements`). Tanggal berasal dari
   log tersimpan, bukan seluruh riwayat akun; kalibrasi manual memperbarui tanggal yang didukung.
@@ -149,12 +154,6 @@ untuk batas cakupan tanggal, ekspor, penyimpanan, dan kuota.
 - **Hari Ini** pada Codex berarti hari kalender saat ini dalam zona waktu yang dikonfigurasi. Tampilan ini menambahkan biaya ekuivalen API per jam yang tepat di samping tampilan komposisi Token yang terpisah. Grafik utama harian dan bulanan juga memakai biaya ekuivalen API sebagai default, sementara komposisi Token tetap tersedia secara terpisah. Hanya harga model yang dikenal dan cocok tepat yang dihitung; model tak dikenal tetap tanpa harga dan cakupan harga selalu terlihat. Sidecar per jam yang bersifat tambahan dan kompatibel dengan schema 3 menyimpan bucket tanggal / jam yang jarang untuk 30 hari bergulir, mendukung checkpoint dan resume, membuang hari ke-31, dan membuka tanggal tanpa membaca JSONL. Grafik dan tabel bulanan Codex menampilkan bulan dari yang paling lama ke yang terbaru.
 - Atribusi Token per permintaan memprioritaskan component `last_token_usage` yang valid; `total_tokens` di dalamnya adalah ukuran konteks aktif, bukan penggunaan permintaan. Signature numerik lengkap total-plus-last hanya menghapus replay yang terbukti berasal dari sumber rate-limit pseudonim yang sama atau record yang tepat bersebelahan. Jika last snapshot tidak ada, parser kembali ke cumulative lineage high-water. Setelah upgrade, indeks dibangun ulang otomatis satu kali dan subtotal terindeks tetap terlihat selama prosesnya.
 
-- **Perbandingan kuota Codex per siklus** — bandingkan siklus historis antara dua reset akun yang sama,
-  satu batang per akun lokal/siklus memakai estimasi valid terakhir. Siklus dapat lebih pendek dari tujuh hari.
-  Jika detail siklus tidak tersedia, gunakan interval referensi 7 hari berlabel; jarak antarbatang dipersempit.
-  Atur `showWeeklyEquivalentValue` ke false untuk menyembunyikan perbandingan.
-  `codex.officialQuota.enabled` nonaktif secara default; membaca daemon yang berjalan dan dapat menghubungi OpenAI.
-  Identitas kuota tidak membuktikan kepemilikan pemakaian. Lihat [data lokal dan privasi](LOCAL-DATA.md).
 - Beralih ke Codex tetap memakai struktur Hari Ini / 30 Hari Terakhir / Sepanjang Waktu / Sesi / Proyek / Konten / Settings yang sudah ada, dengan label yang disesuaikan pada makna Codex. Kedua penyedia memakai render function, HTML class, grafik, tabel, jarak, dan aturan responsif yang sama; grafik deret waktunya tetap sejajar lebarnya, sedangkan konten padat hanya bergulir di areanya sendiri. Rekomendasi Codex memakai bukti struktural 30 hari yang telah diindeks.
 - Tugas utama memakai judul thread nyata terbaru setelah jalur disamarkan. Baris tugas anak memprioritaskan judul thread nyatanya sendiri; jika tidak ada, baris memakai nama panggilan yang dilaporkan sambil menampilkan judul induk / tugas utama. Jika informasi itu juga tidak ada, baris memakai nama pengganti netral yang dilokalkan. Nama proyek memakai nama repositori Git, atau nama folder di luar Git. Ekstensi tidak mengarang Branches atau Workflows yang tidak dapat dihitung secara andal.
 - Nilai 7 dan 30 hari memakai irisan tepat berdasarkan hari peristiwa di zona waktu yang dikonfigurasi. Saat migrasi atau pembangunan ulang belum selesai, setiap kartu, tabel, proyek, sesi, rekomendasi, dan nilai status Codex ditandai sebagai **subtotal terindeks**, sementara total lama yang belum diverifikasi dikecualikan. Setelah Codex home terdeteksi, tab penyedianya langsung ditampilkan; selama indeks pertama dibuat, jumlah file terindeks yang tepat, persentase, dan progres kapasitas tampil langsung di halaman, sedangkan Perbandingan menunggu hingga kedua penyedia memiliki data nyata. Setelah checkpoint atomik pertama dibuat, seluruh dasbor subtotal tetap dapat digunakan saat pengindeksan berlanjut; indikator progres tidak menggantikan kartu atau tabel. Codex home yang dipilih tidak membedakan akun, jadi log dari beberapa login di home yang sama digabung. Log lokal tidak memiliki identitas akun yang andal; kartu batas tetap **terakhir diamati** dan tidak dijumlahkan.

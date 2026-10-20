@@ -995,105 +995,135 @@ test('current data inventory supplements the historical baseline and dates only 
   }
 });
 
-test('weekly value documentation separates rough as-of estimates from local usage and account facts', () => {
+test('weekly value documentation separates paired-cycle estimates from primary usage and account facts', () => {
   for (const file of ['ARCHITECTURE.md', 'ARCHITECTURE-zh-CN.md', 'LOCAL-DATA.md', 'LOCAL-DATA.zh-CN.md']) {
-    const document = repoFile(file);
-    for (const field of ['weeklyEstimate.ts', 'LocalWeeklyEstimate', 'rough-prefix-v2', 'legacy-prefix-ratio',
-      'paired-delta', 'windowId', 'percentageErrorBound', 'usedEquivalentUsd', 'calibrationStart', 'fullRange',
-      'weeklyEstimateArchive.ts', 'weeklyEstimateCoordinator.ts', 'weeklyEstimateChart.ts', 'weekly-estimates-v1.json',
-      'codex.officialQuota.enabled', 'codexAccountEstimate.ts', 'account-delta-v1', 'series-prefix-v1',
-      'codex-official-api', 'codexQuotaCaptureFromOfficialSample', 'accountScopeKey', 'accountNumber',
+    const document = repoFile(file), chinese = file.endsWith('zh-CN.md');
+    const heading = chinese ? '## 周估算预览与归档' : '## Weekly estimate preview and archive';
+    const start = document.indexOf(heading), end = document.indexOf('\n## ', start + heading.length);
+    assert.ok(start >= 0, file + ' must retain its weekly contract section');
+    const contract = document.slice(start, end < 0 ? undefined : end).replace(/\s+/g, ' ');
+    // Current paired-cycle fields, not retired daily-prefix columns or error-bound prose.
+    for (const field of ['codexQuotaCheckpoints.ts', 'CodexQuotaIncompleteRange', 'codexQuotaIncompleteRanges',
+      'baselineByModel', 'byModel', 'codexWindowEstimate.ts', 'codexWindowEvidence.ts', 'windowEvidence',
+      'skippedIntervals', 'skippedUsd', 'weeklyEstimateArchive.ts', 'weeklyEstimateCoordinator.ts',
+      'weeklyEstimateChart.ts', 'weekly-estimates-v1.json', 'codex.officialQuota.enabled',
+      'codexAccountEstimate.ts', 'account-delta-v1', 'series-prefix-v1', 'codex-official-api',
+      'codexQuotaCaptureFromOfficialSample', 'accountScopeKey', 'accountNumber', 'localWindowKey',
       'unlinkedEquivalentUsd', 'linkedSourceCount', 'codexQuotaEpoch.ts', 'quotaEpoch',
-      'codexCalibrationEvidence.ts', 'calibrationEvidence',
-      'codexQuotaCycles.ts', 'quotaCycle',
-      'initialize', 'initialized', 'account/rateLimits/read']) {
-      assert.ok(document.includes('`' + field + '`'), file + ' must document ' + field);
+      'codexCalibrationEvidence.ts', 'calibrationEvidence', 'codexQuotaCycles.ts', 'quotaCycle',
+      'calibrationStart', 'windowEvidence.from', 'initialize', 'initialized', 'account/rateLimits/read']) {
+      assert.ok(contract.includes(field), file + ' must document ' + field);
     }
-    // Check weekly contract facts while allowing prose and line-wrap changes.
-    const methodAt = document.indexOf('`rough-prefix-v2`');
-    const start = document.lastIndexOf('\n## ', methodAt);
-    const end = document.indexOf('\n## ', methodAt);
-    const contract = document.slice(Math.max(0, start), end < 0 ? undefined : end).replace(/\s+/g, ' ');
-    for (const pattern of [/0\s*<\s*p\s*<=\s*100/, /F\s*=\s*U\s*\/\s*\(p\s*\/\s*100\)/,
-      /F\s*=\s*linkedLocalDeltaUsd\s*\/\s*\(deltaPercent\s*\/\s*100\)/,
-      /R\s*=\s*F\s*\*\s*\(1\s*-\s*p\s*\/\s*100\)/, /4096/, /1\s*MiB/, /0600/, /HMAC/]) {
+    for (const pattern of [/version[- ]3/, /512/, /256 KiB/, /65,536/, /32 MiB/, /4096/, /1 MiB/, /0600/, /HMAC/,
+      /F\s*=\s*ΔUSD\s*\/\s*\(Δp\s*\/\s*100\)/,
+      /R\s*=\s*F\s*[*×]\s*\(1\s*[-−]\s*p\s*\/\s*100\)/]) {
       assert.match(contract, pattern, file);
     }
     assert.ok(contract.includes('showWeeklyQuotaPace'), file);
-    const facts = file.endsWith('zh-CN.md') ? [
-      /(?:蓝色|推算已用|已用估值).{0,40}F\s*-\s*R.{0,40}(?:绿色|未用).{0,30}=\s*R.{0,20}总高\s*=\s*F/,
-      /一周期一柱/,
-      /账号.{0,40}(?:分段|周期)/,
+    assert.doesNotMatch(contract, /version-2 (?:numeric checkpoints|数值检查点)|Numeric checkpoint version 2|数值检查点 version 2/);
+    const facts = chinese ? [
+      /时间上重叠.{0,60}组件.{0,50}端点相接.{0,30}独立/,
+      /整个重叠组件.{0,40}USD 分子与 Δp 分母一起移出/,
+      /缺口在获准区间之外.{0,60}reset 相同也不污染/,
+      /作用域未知或.{0,80}不能宣称完整/,
+      /最强.{0,30}平手.{0,30}较新.{0,80}自身/,
+      /小幅计数修正.{0,50}不另开额度周期/,
+      /可选数值字段.{0,60}skippedIntervals.{0,50}skippedUsd.{0,80}不进入获准/,
+      /旧 method-one 收据.{0,40}按零读取/,
+      /complete.{0,30}仅描述获准校准组.{0,60}不代表全部/,
+      /主要本地用量总计保持不变/,
+      /至少5个百分点.{0,80}本地证据质量策略.{0,60}不是官方测量精度/,
+      /没有合格组.{0,80}null.{0,20}不是零/,
+      /一周期一条汇总行.{0,30}一柱/,
+      /先比较金额可用性.{0,50}再比较新旧/,
+      /已用估值\s*=\s*F\s*[-−]\s*R.{0,50}未用估值\s*=\s*R.{0,30}总高\s*=\s*F/,
+      /七天参考桶.{0,80}不宣称其为订阅边界/,
+      /不增加额外七天本地用量图/,
+      /旧归档金额冻结不变/,
+      /抓价时间戳/,
       /65分钟/,
-      /不新增估值推断或持久化/,
-      /估值.{0,20}表头.{0,30}金额单元格.{0,30}不再.{0,20}≈/,
-      /部分定价.{0,100}降低可信度.{0,80}不因.{0,30}一律撤下/,
-      /不按.{0,20}定价覆盖率.{0,20}放大/,
-      /均匀.{0,20}假设/,
-      /Codex.{0,30}下降.{0,40}分段/,
-      /首个.{0,20}(?:饱和|100%)/,
-      /独立验收.{0,40}完全定价.{0,60}区间之外.{0,40}不能污染/,
-      /未知误差界.{0,100}回退.{0,60}不假造/,
-      /未知.{0,20}不能.{0,10}零/,
-      /不扣减后续.{0,20}用量/,
-      /旧 schema-2 读取器拒绝未知来源枚举.{0,30}单向/,
-      /旧预览读取器.{0,30}拒绝.{0,30}方法／字段/,
       /默认关闭/,
       /绝不启动.{0,30}登录.{0,30}读取凭据/,
       /可能访问 OpenAI.{0,80}认证.{0,30}刷新凭据/,
       /拒绝自定义 Codex home.{0,30}远程扩展宿主/,
       /至少 60 秒.{0,30}至少 10 秒/,
       /不新增周期定时器/,
+      /不另建扫描器.{0,80}不重读用量记录正文/,
+      /不保留原始文本或原始 ID/,
+      /localWindowKey.{0,40}公开投影边界剥离/,
+      /HMAC、来源键、路径、原始 ID、邮箱及对话内容 不进入 HTML／导出/,
       /当前额度身份.{0,20}不证明.{0,20}用量归属/,
+      /重置时间 R.{0,30}不是账号身份/,
+      /按来源、账号与周期类型隔离/,
+      /不扣减后续.{0,20}用量/,
       /清除.{0,80}保留其他.{0,30}未归属记录/,
-      /观测时间戳.{0,20}原始重置时刻/,
+      /不淘汰.{0,160}停止新写入|停止新写入.{0,160}不淘汰/,
+      /跨进程租约.{0,80}0600.{0,20}原子替换/,
+      /旧 schema-2 读取器拒绝未知来源枚举.{0,30}单向/,
+      /旧预览读取器.{0,30}拒绝.{0,30}方法／字段/,
+      /不新增.{0,40}原始日志扫描、网络请求、遥测或贡献流程/,
+      /原生验收或真实账号验证已经完成/,
     ] : [
-      /(?:blue|estimated used).{0,40}F\s*-\s*R.{0,40}(?:green|estimated unused).{0,30}=\s*R.{0,30}total height\s*=\s*F/i,
-      /one bar.{0,70}reset-to-reset cycle/i,
-      /account.{0,40}(?:epoch|cycle)/i,
+      /time intervals overlap.{0,60}component.{0,40}touching intervals stay separate/i,
+      /WHOLE overlapping component.{0,60}USD numerator and Δp denominator leave/i,
+      /gap outside an admitted interval.{0,60}even within the same reset/i,
+      /unknown\/unlocalized scope cannot assert completeness/i,
+      /strongest cohort by covered Δp.{0,50}recency.{0,80}own amount/i,
+      /small counter correction.{0,50}not another quota cycle/i,
+      /optional numeric.{0,60}skippedIntervals.{0,50}skippedUsd.{0,100}outside the admitted USD\/Δp/i,
+      /missing fields in older method-one receipts mean zero/i,
+      /complete.{0,50}admitted cohort.{0,80}not completeness of all local history/i,
+      /primary local usage totals are unchanged/i,
+      /five percentage points.{0,170}local quality policy.{0,60}not official measurement precision/i,
+      /no eligible cohort.{0,100}null.{0,20}not zero/i,
+      /one summary row.{0,40}one bar or pending placeholder/i,
+      /monetary eligibility.{0,50}before recency/i,
+      /estimated used\s*=\s*F\s*[-−]\s*R.{0,50}estimated unused\s*=\s*R.{0,30}total height\s*=\s*F/i,
+      /seven-day reference buckets.{0,60}not claimed subscription boundaries/i,
+      /without an extra seven-day local-usage graph/i,
+      /old archived amounts remain frozen/i,
+      /not a price fetch timestamp/i,
       /65 minutes/i,
-      /no new estimate inference or persistence/i,
-      /headers.{0,30}estimates.{0,30}monetary cells.{0,30}omit.{0,30}≈/i,
-      /partial pricing.{0,160}lower confidence.{0,100}do not.{0,40}suppress/i,
-      /not.{0,30}divide.{0,60}pricing coverage/i,
-      /uniform.{0,30}assumption/i,
-      /counter (?:decreases|drops).{0,60}segment/i,
-      /first.{0,20}saturat/i,
-      /independently.{0,50}fully priced.{0,100}outside.{0,80}cannot.{0,30}disqualify/i,
-      /unknown error bounds.{0,100}fall back.{0,80}without inventing/i,
-      /unknown.{0,30}not.{0,30}zero/i,
-      /never subtract later local usage/i,
-      /older schema-2 reader rejects.{0,30}source enum.{0,40}one-way/i,
-      /older preview readers?.{0,40}reject.{0,30}methods\/fields/i,
       /defaults off/i,
       /never.{0,30}starts.{0,40}login.{0,30}reads credentials/i,
       /contact OpenAI.{0,100}authentication.{0,30}refresh credentials/i,
       /rejects custom Codex homes.{0,30}remote extension hosts/i,
       /at least 60 seconds apart.{0,50}at least 10 seconds apart/i,
       /no extra recurring timer/i,
+      /not a second scanner.{0,100}warm refresh rereads no usage-record bodies/i,
+      /never raw text or raw IDs/i,
+      /localWindowKey.{0,60}stripped at the public projection boundary/i,
+      /HMACs, source keys, paths, raw IDs, email and conversation content never reach HTML\/export/i,
       /current quota identity.{0,30}does not.{0,30}ownership of local usage/i,
+      /reset timestamp R.{0,50}never account identity/i,
+      /isolated by source, account and period/i,
+      /never subtract later local usage/i,
       /selected-account clearing.{0,100}preserving other accounts and unassigned records/i,
-      /observed timestamp.{0,20}original reset/i,
+      /new writes stop.{0,300}no expiry or eviction|no expiry or eviction.{0,300}new writes stop/i,
+      /cross-process lease.{0,80}atomic 0600 replacement/i,
+      /older schema-2 reader rejects.{0,30}source enum.{0,40}one-way/i,
+      /older preview readers?.{0,40}reject.{0,30}methods\/fields/i,
+      /adds no file, raw-log scan, network request, telemetry or contribution flow/i,
+      /not claims of completed tests, native acceptance or real-account validation/i,
     ];
     for (const pattern of facts) assert.match(contract, pattern, file);
   }
-  // README translations retain the user boundary without imposing sentence order.
-  for (const [file, concepts] of [
-    ['README.md', [/rough/i, /as-of|reset-to-reset/i, /archive/i]],
-    ['README-en.md', [/rough/i, /as-of|reset-to-reset/i, /archive/i]],
-    ['README-zh-CN.md', [/粗略/, /观测时点|历史周期/, /归档/]],
-    ['README-zh-TW.md', [/粗略/, /觀測時點|歷史週期/, /封存/]],
-    ['README-ja.md', [/概算/, /観測時点|リセット/, /保存/]],
-    ['README-ko.md', [/대략/, /관측 시점|재설정/, /보관/]],
-    ['README-id.md', [/kasar/i, /saat pengamatan|siklus/i, /arsip/i]],
-    ['README-de-DE.md', [/grobe/i, /Beobachtungszeitpunkt|Reset/i, /Archiv/i]],
-    ['README-pt-BR.md', [/aproximadas/i, /momento da observação|ciclos/i, /arquivo/i]],
-  ] as const) {
-    const document = repoFile(file);
-    for (const concept of concepts) assert.match(document, concept, file);
-    assert.ok(document.includes('showWeeklyEquivalentValue'), file);
-    assert.ok(document.includes('codex.officialQuota.enabled'), file);
-    // The removed local calendar-week fallback no longer belongs in README copy.
+  // Each translation keeps one short feature in the existing minor-version list.
+  // Storage details and gates belong in the linked contract, not a nine-column README manual.
+  const title = /^- \*\*(?:Codex cycle quota comparison|Codex-Quotenvergleich nach Zyklus|Codex 周期额度对比|Codex 週期額度對比|Codex 周期クォータ比較|Codex 주기별 쿼터 비교|Comparação de cotas Codex por ciclo|Perbandingan kuota Codex per siklus)[^\n]*(?:\n {2}[^\n]*)*/gm;
+  for (const file of ['README.md', 'README-en.md', 'README-zh-CN.md', 'README-zh-TW.md',
+    'README-ja.md', 'README-ko.md', 'README-id.md', 'README-de-DE.md', 'README-pt-BR.md']) {
+    const document = repoFile(file), features = [...document.matchAll(title)];
+    assert.equal(features.length, 1, file + ' must have one quota feature');
+    const heading = document.match(/^## .*2\.5.*$/m);
+    assert.ok(heading, file + ' must retain its existing minor-version section');
+    const end = document.indexOf('\n## ', heading.index! + heading[0].length);
+    assert.ok(features[0].index! > heading.index! && (end < 0 || features[0].index! < end), file);
+    const feature = features[0][0];
+    assert.ok(feature.split('\n').length <= 4, file + ' must keep a short feature bullet');
+    assert.match(feature, /OpenAI/, file + ' must retain the optional official-read network boundary');
+    assert.match(feature, /LOCAL-DATA(?:\.zh-CN)?\.md/, file + ' must link the detailed privacy contract');
+    assert.doesNotMatch(feature, /last valid estimate|末次有效估值/, file + ' must not imply latest-first selection');
   }
 });
 

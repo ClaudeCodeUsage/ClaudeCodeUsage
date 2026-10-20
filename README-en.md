@@ -62,6 +62,10 @@ These five v2.3 captures use the production renderer, synthetic fixtures, and VS
 
 ## What's new in v2.5
 
+- **Codex cycle quota comparison** — one bar and summary row per cycle, with expandable
+  evidence chosen for compatibility and strength, with pending/conflict states. Amounts remain conditional local estimates.
+  Optional official reads default off and may contact OpenAI. See [local data and privacy](LOCAL-DATA.md).
+
 - **Local achievements** — browse earned badges, progress and next goals. Enabled by default;
   turn off Local achievements in Settings (`enableAchievements`). Dates reflect retained
   logs, not complete account history; manual calibration refreshes supported dates.
@@ -164,12 +168,6 @@ For patch-level detail, see [CHANGELOG.md](CHANGELOG.md).
 - Codex **Today** means the current calendar day in the configured timezone. It adds exact hourly API-equivalent cost beside a separate token-composition view; daily and monthly primary charts also default to API-equivalent cost while token composition stays separately visible. Only exact known-model prices contribute, so unknown models remain unpriced and pricing coverage stays visible. The additive, schema-3-compatible hourly sidecar keeps sparse buckets for the rolling last 30 days, is checkpointed and resumable, evicts day 31, and serves date expansion without reading JSONL on click. Codex monthly charts and tables list months oldest-first.
 - Request-level attribution prefers valid `last_token_usage` components; its `total_tokens` is active-context size, not request usage. A full numeric total-plus-last signature suppresses only proven replay from the same pseudonymous rate-limit source or an immediately adjacent duplicate. Missing last snapshots fall back to cumulative lineage high-water. Upgrading triggers one automatic reindex, while the indexed subtotal remains visible throughout the pass.
 
-- **Codex cycle quota comparison** — compare historical reset-to-reset cycles,
-  one bar per local account/cycle using its last valid estimate. Cycles can be shorter than seven days.
-  Missing cycle details use labelled 7-day reference buckets; bar spacing is tighter.
-  Set `showWeeklyEquivalentValue` to false to hide the comparison.
-  `codex.officialQuota.enabled` defaults off; reads use an existing daemon and may contact
-  OpenAI. Quota identity does not prove usage ownership. See [local data and privacy](LOCAL-DATA.md).
 - Switching to Codex keeps the established Today / Last 30 days / All time / Sessions / Projects / Content / Settings structure, relabelled where Codex semantics differ. Both providers use the same render functions, HTML classes, charts, tables, spacing, and responsive rules; their time-series charts stay width-aligned while dense content scrolls inside its own region. Codex recommendations use indexed 30-day structural evidence.
 - Root tasks use the latest real thread title after path redaction. Child rows prefer their own real thread title; when it is missing, they use the reported nickname and display the parent/root title; if those are also missing, they receive a localized neutral fallback. Project names use the Git repository name, or the directory basename outside Git. The extension does not invent Branches or Workflows that cannot be measured reliably.
 - Rolling 7-day and 30-day values use exact event-day slices in the configured timezone. During an incomplete migration or rebuild, every Codex card, table, project, session, recommendation, and status value is visibly an **indexed subtotal**; unverified legacy totals are excluded. Once a Codex home is detected, its provider tab appears immediately; the page shows exact indexed-file, percentage, and byte progress during the first build, while Compare waits until both providers have real data. After the first atomic checkpoint, the complete subtotal dashboard stays usable while indexing continues; progress never replaces its cards or tables. A selected Codex home is account-agnostic, so logs left by multiple sign-ins in that same home are combined. Local logs expose no reliable account identity, so limit cards remain **last-observed** and are never summed.

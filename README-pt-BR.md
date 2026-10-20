@@ -55,6 +55,11 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Novidades da v2.5
 
+- **Comparação de cotas Codex por ciclo** — uma barra e uma linha de resumo por ciclo,
+  com as evidências compatíveis mais fortes, expansíveis, e indicação de calibração pendente ou conflito de fontes.
+  Os valores continuam sendo estimativas locais condicionais. A leitura oficial opcional vem
+  desativada e pode contatar a OpenAI. Veja [dados locais e privacidade](LOCAL-DATA.md).
+
 - **Conquistas locais** — veja medalhas, progresso e próximos objetivos. Ativas por padrão;
   desative em Local achievements nas configurações (`enableAchievements`). As datas vêm dos
   logs retidos, não do histórico completo da conta; a calibração manual atualiza as datas compatíveis.
@@ -81,13 +86,6 @@ não são somados entre si. Registros ausentes ou ainda não indexados podem
 reduzir os totais mostrados; por padrão, o limite do Codex é a última observação local.
 
 
-- **Comparação de cotas Codex por ciclo** — ciclos históricos entre duas redefinições da mesma conta,
-  com uma barra por conta local/ciclo usando a última estimativa válida. O ciclo pode durar menos de sete dias.
-  Sem detalhes do ciclo, usam-se intervalos de referência de 7 dias identificados; as barras ficam mais próximas.
-  São estimativas aproximadas, não faturas.
-  Defina `showWeeklyEquivalentValue` como false para ocultar a comparação.
-  `codex.officialQuota.enabled` vem desativado; lê um daemon em execução, que pode contatar a OpenAI.
-  A identidade da cota não prova a atribuição do uso. Veja [dados locais e privacidade](LOCAL-DATA.md).
 
 ## Instalação e privacidade
 
