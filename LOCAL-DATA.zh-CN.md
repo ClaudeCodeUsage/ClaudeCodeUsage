@@ -36,7 +36,7 @@ split-only 缓存写入仅在两个已知 TTL 分项明确且安全时恢复数�
 | 数据类别 | 来源 | 插件保留的内容 | 保留与清除 | 远程交互 |
 |---|---|---|---|---|
 | Claude 用量记录 | Claude Code 本地 `projects/**/*.jsonl` | 运行时用量记录和内存中的逐文件索引；仅在启用内容分析时保留有界提示样本 | 窗口重载/退出即释放。本地数据控制绝不触碰源日志；另行启用的“会话操作”可把一个精确确认的日志移入系统回收站（可恢复） | 默认无；只有用户另行预览并发送建议请求时才可能包含获准内容 |
-| Codex 用量记录 | `$CODEX_HOME/sessions` 与 `$CODEX_HOME/archived_sessions` 下递归的 `.jsonl` 和 `.jsonl.zst` 普通文件 | schema-3 增量索引：匿名文件键、decoded 偏移量、数值用量、日期、模型/effort、已净化结构聚合、可选压缩来源指纹／EOF 标记，以及含独立已准入基线请求的有界 version-4 额度／Token 检查点及数值不完整区间见证 | 保留到重建、明确清除、schema 替换或宿主移除；检查点迁移复用既有 period 重放 | 无 |
+| Codex 用量记录 | `$CODEX_HOME/sessions` 与 `$CODEX_HOME/archived_sessions` 下递归的 `.jsonl` 和 `.jsonl.zst` 普通文件 | schema-3 增量索引：匿名文件键、decoded 偏移量、数值用量、日期、模型/effort、已净化结构聚合、可选压缩来源指纹／EOF 标记，以及含独立已准入基线请求的有界 version-5 额度／Token 检查点及数值不完整区间见证 | 保留到重建、明确清除、schema 替换或宿主移除；检查点迁移复用既有 period 重放 | 无 |
 | Codex 标题 | 仅 `$CODEX_HOME/session_index.jsonl` | 流式读取 `id → thread_name` 供运行时显示；标题不写入索引 | 仅运行时 | 无 |
 | 周估算预览 | 既有数值检查点／聚合及本地／主动启用的官方额度样本 | `weekly-estimates-v1.json`：固定字段快照、含公开费率表及 parser／period 版本、区间／Δp／USD／Token／周期边界的可选配对窗口或官方增量证据、内部账号／窗口 HMAC、租约内来源账号序号及连接／未连接诊断 | 修订保留历史；4096 条／1 MiB 后停止新写入、不淘汰。清除屏障含证据起点；按账号清除保留其他／未归属记录，供应商／全部清除包含归档 | 计算／柱图／证据投影不联网；可选官方样本通过下述 daemon 边界获取 |
 | 额度观测 | Claude 官方响应、Codex 本地结构化事件或主动启用的 `codex-official-api` 样本 | 供应商、本机匿名作用域、原始观测／重置时间、比例、窗口标识、来源、可信度及标志；无原始账号 ID／邮箱 | 压缩后每个供应商／账号／周期最多 512 条、保留不超过 180 天；可单独或随全部派生数据清除 | 启用的 Claude 查询访问 Anthropic，可能刷新其凭据。可选 Codex 读取可经既有 daemon 访问 OpenAI，daemon 认证可能刷新；扩展不读取 Codex 凭据 |
@@ -131,6 +131,27 @@ Claude 订阅凭据。
 不将子集冒充完整账号用量；收据只保存 `excludedSources` 数量、不保存被排除键，有排除时
 提示 `partial-history`。索引重建、`indexGeneration` 或排除集变化须建立新基线。
 未匹配／冲突来源、可识别的已封闭历史桶变更及基线前（含基线时刻）迟到回填不参与校准。
+可选 `inputs.codexCalibrationCensus` 是仅运行期的来源清单，由
+`codexCalibrationCensus.ts` 的 `buildCodexCalibrationCensus(index, verified,
+canonical, ambiguous, verifiedAt = Date.now())` 生成。schema-1 封套包含
+`indexGeneration`、`verifiedAt` 及所有已索引来源（包括非规范与有歧义文件）的
+`sourceKey`、`revision`、`continuity`、`bytes`、`canonical`、`eligible`、
+`uncertain`、`activityThrough`、`usageThrough`、`usageRevision`、`ranges`。
+上限16,384个来源／8 MiB，哈希处理上限
+64 MiB；不提供部分清单。生产端的 WeakSet 身份标记只认可其生成的不可变运行期对象，
+序列化或复制的证明不获得权限。复用旧索引对象会返回原证明及原核验时刻；
+后续每个官方增量须使用不同且未消费的证明，核验时刻晚于基线、不晚于样本，最多滞后五分钟。
+宿主保守记录核验尝试的开始时刻，早于 worker 解析及标题加载；发布延迟不能把旧证明刷新为新证明。
+
+只有新鲜官方增量可豁免不确定来源：其修订及谱系连续性须不变，且已知活动结束于基线
+之前或基线时刻。发生变化或新近可用的不确定来源不获静态豁免；当前增量缺失仍撤下
+整个区间。该清单不授予账号归属、历史重新定价或历史完整性，不持久化、导出或渲染，
+也不增加来源 I/O。`activityThrough` 包含非用量元数据活动，`usageThrough` 对应
+`state.lastEventAt` 的数值用量／额度边界，`usageRevision` 绑定完整模型向量与配对／不确定性
+来源，而非文件字节元数据。完整解析的纯元数据追加只有在前后来源均完整、可用、数值
+证明不变，且用量不晚于基线、活动不晚于样本时，才可按已知零增量处理。
+该例外不能把未知尾部、解析缺口、未来活动或新来源当作零；当前用量增量缺少投影仍撤下区间。
+
 每个获准区间须增加至少 1 个百分点，且末次低于 100%；区间准入与下文周期金额展示
 所需的至少5个百分点是不同门槛。同账号／分段／定价下兼容的
 获准区间合并计算，可包括切号或失焦前保留的有效区间，但不跨过渡缺口；按百分点增量
@@ -150,16 +171,22 @@ R = F * (1 - p / 100)
 真实账号切换及 A → B → A 连续性仍未验证，合成覆盖不能替代真实账号验收。
 
 对于 Codex 历史日志，`providers/codex/codexQuotaCheckpoints.ts` 在既有索引流程
-完成谱系准入后保留 version-4 数值检查点。缺失或不兼容的状态通过既有可续传 period
+完成谱系准入后保留 version-5 数值检查点。缺失或不兼容的状态通过既有可续传 period
 重放升级，不另建扫描器。无变化的热刷新不重读用量记录正文，投影也不打开源日志。
 检查点只包含数值时间、百分比、分段／完整性状态、经清洗的逐模型 Token 计数及内部
 假名化来源键，不保留原始文本或原始 ID。
 
-version 4 将 `segmentResetAt` 固定为分段首次重置锚点。各行 `resetAt` 使用该
+仅额度校准使用 `codexParser.ts` 对原始数值 `last_token_usage` 成本组件进行校验，
+先于兼容默认值或钳制；有效请求组件不会因仅累计计数器回退而失效。已出现的可选
+缓存／推理字段须为非负安全整数，缓存输入别名须一致，缓存输入不超过输入、推理不超过
+输出，输入＋输出之和须安全。`last.total_tokens` 仍是独立上下文大小，不是请求组件之和。
+这些更严格的配对检查不改变主用量总计、高水位更新、警告或去重。
+
+version 5 将 `segmentResetAt` 固定为分段首次重置锚点。各行 `resetAt` 使用该
 规范首个 R，`observedResetAt` 保留该样本原始数值 R。±5分钟内的抖动始终与固定首锚点
 比较，不沿后续观测链式延展；配对绝不越过规范重置时刻。`observedResetAt` 仅在旧运行期
-输入中可选，严格 v4 存储必须包含该字段。全部 version-3 状态须经过有界 period 重放，
-不回接旧基线。主要额度观测的原始重置值保持不变。
+输入中可选，严格 v5 存储必须包含该字段。全部 version-1–4 侧车状态须经过有界 period 重放，
+不回接旧基线，也不直接改版本标签。主要额度观测的原始重置值保持不变。
 
 分段累计 `byModel` 不包含自身基线行。仅基线行另存 `baselineByModel`，记录该行
 已准入请求的 Token：空映射表示已知为零，字段缺失表示不可用。并发来源的包含区间可据此
@@ -170,7 +197,7 @@ version 4 将 `segmentResetAt` 固定为分段首次重置锚点。各行 `reset
 32 MiB 索引载荷预算；provider 投影上限为65,536点／32 MiB，详见
 [`codexQuotaCheckpoints.ts`](src/providers/codex/codexQuotaCheckpoints.ts) 常量。
 压缩保留分段端点，
-或整段移除旧分段，保证保留区间仍有基线。version 4 保留有界的
+或整段移除旧分段，保证保留区间仍有基线。version 5 保留有界的
 `CodexQuotaIncompleteRange` 数值区间见证：`from`、`through` 及可选 `resetAt`，
 通过 `codexQuotaIncompleteRanges` 投影。每状态最多512个合并缺口区间，投影最多65,536
 个区间，用于定位跳过、遗漏或归属不明的活动，不保存原始文本或 ID；合并粗化只会保守
@@ -223,6 +250,13 @@ Codex 周期额度对比按历史周期一周期一条汇总行、一柱或一�
 七天参考桶（`fallbackDays: 7`），不宣称其为订阅边界。旧参考值按原始观测时刻归入
 UTC 周一桶；配对窗口固定使用首个观测所在的参考桶，重绘或跨过周一不拆分该窗口。
 检测到下降时保留观测到的边界区间。账号彼此隔离，未知归属组不补贴账号标签。
+
+对已验证的官方零用量历史，`codexQuotaCycles.ts` 可在旧截止时间及首次正用量之前，
+把计划重置漂移归并到同一临时显示周期；必须匹配同一账号指纹、官方来源及
+`providerWindowFingerprint`。首次正用量固定临时截止时间。单纯的旧通用
+account-ambiguous 标记不否定这些已验证证据，全部原始标记仍保留。明确未验证的归属、
+指纹／来源不匹配、时钟异常或矛盾计数均拒绝归并。这只是显示别名，不改变 P2 观测、
+归档金额或原始校准 `quotaEpoch` 元数据，也不授予本地用量归属或金额校准。
 
 `selectCodexCycleEstimates` 先比较金额可用性及覆盖的 Δp，再比较新旧，平手时再按方法
 优先级选择；不优先取最大金额，也不用旧值钳制新值。所选金额保留自身百分比和观测时刻，
@@ -283,7 +317,7 @@ gap 布尔值；累计
 账号和未归属记录；供应商／全部历史清除亦涵盖归档。屏障同时检查配对的 `windowEvidence.from`、
 `account-delta-v1` 的 `calibrationStart` 及 `observedAt`，其他实例的旧累计不能凭更晚观测时间重新进入。
 宿主在下一次采样时退役该账号受影响的运行期累计，重新建立基线；旧排队观测不能恢复已清数据。
-未变化投影不因时间经过重复归档 I/O。数值检查点 version 4 以增量字段接入既有索引及 period 重放。
+未变化投影不因时间经过重复归档 I/O。数值检查点 version 5 以增量字段接入既有索引及 period 重放。
 默认开启的 `showWeeklyEquivalentValue` 展示设置及包版本保持不变，不增加依赖。
 
 ## 分享工作台与导出

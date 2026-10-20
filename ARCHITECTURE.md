@@ -1652,6 +1652,37 @@ the `excludedSources` count, not excluded keys; exclusions add `partial-history`
 Index rebuilds, `indexGeneration` or exclusion-set changes require a fresh baseline.
 Unmatched or conflicting sources, detectable revisions to already-closed historical
 buckets and late backfill at/before the baseline are excluded from calibration.
+Optional `inputs.codexCalibrationCensus` is a runtime-only source census from
+`codexCalibrationCensus.ts` via `buildCodexCalibrationCensus(index, verified,
+canonical, ambiguous, verifiedAt = Date.now())`. Its schema-1 envelope contains
+`indexGeneration`, `verifiedAt` and every indexed source, including noncanonical
+and ambiguous files: `sourceKey`, `revision`, `continuity`, `bytes`, `canonical`,
+`eligible`, `uncertain`, `activityThrough`, `usageThrough`, `usageRevision` and
+`ranges`. Bounds are 16,384 sources /
+8 MiB, with a 64 MiB hashing-processing cap; no partial census is issued.
+The producer's WeakSet brand admits only its immutable runtime objects;
+serialized or copied proof confers no authority. Reusing an old index object
+returns the original proof and verification time. Each subsequent official
+increment needs a distinct, unconsumed proof verified after its baseline and
+no later than its sample, with at most five minutes of lag.
+The provider conservatively stamps the verification attempt's start, before
+worker parsing or title loading; publication latency cannot renew that proof.
+
+Only a fresh official increment may waive an uncertain source whose revision
+and lineage continuity are unchanged and whose known activity ends at/before
+the baseline. Changed or newly eligible uncertain sources get no static waiver;
+missing current increments still withhold the whole interval. This grants no
+account ownership, historical repricing or historical completeness. Census
+proof is never persisted, exported or rendered, and adds no source I/O.
+`activityThrough` includes nonusage metadata; `usageThrough` uses the numeric
+usage/quota boundary in `state.lastEventAt`, and `usageRevision` binds complete
+model vectors and pairing/uncertainty provenance, not physical byte metadata.
+A fully parsed metadata-only append may count as known zero only when both
+source snapshots are complete and eligible, numeric provenance is unchanged,
+usage is no later than baseline, and activity is no later than sample. This
+exception cannot turn unknown tails, parse gaps, future activity or new sources
+into zero; missing projection of a current usage increment still withholds the interval.
+
 Each admitted interval must have an increase of at least
 one percentage point and end below 100%. That interval admission rule is distinct
 from the five-percentage-point cycle display gate below. Compatible admitted intervals within
@@ -1678,20 +1709,31 @@ real account switching and A → B → A continuity remain unverified. Synthetic
 coverage is not real-account acceptance.
 
 For historical Codex logs, `providers/codex/codexQuotaCheckpoints.ts` retains
-version-4 numeric checkpoints during the existing lineage-admitted index pass.
+version-5 numeric checkpoints during the existing lineage-admitted index pass.
 The same resumable period replay upgrades missing or incompatible checkpoint
 state; this is not a second scanner. An unchanged warm refresh rereads no
 usage-record bodies, and projection never opens source logs. Checkpoints contain
 numeric times, percentages, segment/completeness state and sanitized per-model
 Token counts with internal pseudonymous source keys, never raw text or raw IDs.
 
-Version 4 fixes `segmentResetAt` to the segment's first reset anchor.
+For quota calibration only, `codexParser.ts` validates raw numeric
+`last_token_usage` cost components before compatibility defaults or clamps.
+Valid request components survive a cumulative-only counter regression.
+Present optional cached/reasoning fields must be nonnegative safe integers,
+cached-input aliases must agree, cached input cannot exceed input, reasoning
+cannot exceed output, and input + output must be safe. `last.total_tokens`
+remains independent context size, not a request-component sum. These stricter
+pairing checks leave primary totals, high-water updates, warnings and dedup
+unchanged.
+
+Version 5 keeps `segmentResetAt` fixed to the segment's first reset anchor.
 Each row's `resetAt` uses that canonical first R; `observedResetAt` retains its
 original raw numeric R. Jitter within ±5 minutes is compared with the fixed
 first anchor, never chained through later observations. Pairing never extends
 beyond the canonical reset. `observedResetAt` is optional only for legacy runtime
-inputs; strict v4 storage requires it. Every version-3 state requires bounded
-period replay; old baselines are never retrojoined. Primary quota observations
+inputs; strict v5 storage requires it. All version-1–4 sidecars require bounded
+period replay; they are not relabelled and old baselines are never retrojoined.
+Primary quota observations
 keep their raw reset values unchanged.
 
 A segment's cumulative `byModel` excludes its own baseline line. On baseline
@@ -1707,7 +1749,7 @@ entries per map. Retained and resumable-draft payloads share a 32 MiB index
 budget; the provider projection is bounded to 65,536 points / 32 MiB. See the
 [`codexQuotaCheckpoints.ts`](src/providers/codex/codexQuotaCheckpoints.ts) constants.
 Compaction keeps segment endpoints or removes whole old segments, preserving the baseline
-of any retained interval. Version 4 retains bounded `CodexQuotaIncompleteRange`
+of any retained interval. Version 5 retains bounded `CodexQuotaIncompleteRange`
 numeric interval witnesses: `from`, `through` and optional `resetAt`, exposed as
 `codexQuotaIncompleteRanges`. Up to 512 merged gap ranges per state and 65,536
 projected ranges localize skipped, omitted or ambiguous activity without raw
@@ -1790,6 +1832,17 @@ buckets; a paired window keeps its first-observed reference bucket, so redraws
 or crossing Monday do not split that retained window. A detected drop retains
 its observed boundary bracket. Accounts remain separate and unassigned groups
 do not acquire account labels.
+
+For verified official zero-use history, `codexQuotaCycles.ts` may alias a
+moving planned reset into one provisional display cycle while still before
+the previous deadline and first positive use. The same account fingerprint,
+official source and `providerWindowFingerprint` must agree. First positive use
+fixes the provisional deadline. A generic legacy account-ambiguous flag alone
+does not negate that verified evidence; all raw flags are preserved. Explicit
+unverified attribution, fingerprint/source mismatches, clock anomalies or
+contradictory counters reject the alias. This is display-only: P2 observations,
+archive amounts and raw calibration `quotaEpoch` metadata remain unchanged;
+it supplies no local-usage ownership or monetary calibration.
 
 `selectCodexCycleEstimates` selects by monetary eligibility and covered Δp
 before recency, then method preference on a tie. There is no largest-value
@@ -1881,7 +1934,7 @@ with a later observation timestamp. At its next sample the host retires that acc
 affected runtime sums and establishes a fresh baseline; queued stale observations
 cannot restore cleared data.
 Unchanged projections do not repeat archive I/O merely as time passes.
-Numeric checkpoint version 4 is an additive part of the existing index and
+Numeric checkpoint version 5 is an additive part of the existing index and
 period replay. The default-on `showWeeklyEquivalentValue` display setting and
 package version are unchanged; no new dependency is required.
 

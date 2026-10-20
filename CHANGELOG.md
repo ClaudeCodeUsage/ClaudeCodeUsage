@@ -13,6 +13,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   The daemon may contact OpenAI and refresh authentication; the extension never
   starts it or reads Codex credentials. Older readers may reject the added
   quota source enum and archive methods/fields.
+  Fresh official increments may use a bounded, producer-branded runtime source
+  census to waive unchanged old uncertainty; no persisted/exported proof or
+  historical repricing is introduced.
+  Complete metadata-only appends may contribute known zero with unchanged numeric
+  provenance; unknown or missing current usage is still withheld.
+  中文：新鲜官方增量可通过有界、有生产端身份标记的运行期来源清单豁免不变的旧不确定性；
+  不持久化或导出该证明，不重新定价历史。
+  完整解析的纯元数据追加须保持数值证明不变才能按已知零增量处理，未知或缺失的当前用量仍拒绝。
 
 ### Fixed
 - **Codex cycle quota reconciliation** — one bar and one expandable summary row
@@ -28,12 +36,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   USD／Δp 组件；独立连贯校准组仍可校准，无合格组时显示未知而非零。
   新精确输入撤下其覆盖的旧日级前缀估值，不改写归档金额；模型组合可改变
   估值，不以旧大金额钳制新结果。Claude 保持原有展示行为。
-- **Paired local quota estimates** — the existing index pass retains bounded version-4
+- **Paired local quota estimates** — the existing index pass retains bounded version-5
   numeric quota/Token checkpoints and incomplete-range witnesses. A gap affects overlapping
   components rather than every interval sharing a reset; unknown scope fails closed.
   Reset jitter uses a fixed first-reset anchor within ±5 minutes, without chaining
-  or pairing past that reset. `observedResetAt` retains raw resets; all v3 states
+  or pairing past that reset. `observedResetAt` retains raw resets; all v1–4 sidecars
   use bounded replay without retrojoining old baselines. Primary quota observations stay raw.
+  Calibration validates raw last-request cost components independently of cumulative
+  regressions and context size, without changing primary totals, warnings or dedup.
   The strongest compatible cohort retains its own as-of sample.
   Baseline requests are stored separately from their own
   segment delta so concurrent intervals do not silently lose their USD. Overlapping
@@ -41,9 +51,10 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   gate is a local quality policy, not official measurement precision or an error
   bound. Local-window and official-delta amounts remain conditional proxies; equal
   reset times do not prove account identity or complete account usage.
-  中文：既有索引流程保留有界的 version-4 额度／Token 数值检查点及不完整区间见证。
+  中文：既有索引流程保留有界的 version-5 额度／Token 数值检查点及不完整区间见证。
   重置抖动以固定首锚点的±5分钟为界，不链式延展，不越过该重置配对；`observedResetAt`
-  保留原始重置值。全部 v3 状态有界重放，不回接旧基线；主要额度观测保留原始值。
+  保留原始重置值。全部 v1–4 侧车状态有界重放，不回接旧基线；主要额度观测保留原始值。
+  校准独立校验原始末次请求成本组件，不因累计回退或上下文大小混淆而失效，主总计、警告及去重不变。
   缺口只影响重叠组件，不因 reset 相同污染所有区间；未知作用域安全拒绝。最强兼容校准组
   保留自身观测时点。基线请求与自身分段增量分开保存，
   避免并发区间静默漏算其 USD；重叠百分点区间只计一次。周期金额展示的5个百分点门槛
@@ -54,14 +65,19 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   numeric `skippedIntervals` / `skippedUsd` record whole rejected or unselected
   attempts outside the admitted fit. Official
   account/period history and pending account ordinals remain separate from local
-  windows; unknown boundaries may use labelled seven-day references. Clear fences
-  also check the paired evidence start. The archive still stops at 4096 entries /
+  windows; unknown boundaries may use labelled seven-day references. Display-only
+  aliases group verified same-account/source zero-use
+  planned-reset drift before the deadline and first positive use. Raw flags,
+  P2 observations, archived amounts and calibration epochs stay unchanged.
+  Clear fences also check the paired evidence start. The archive still stops at 4096 entries /
   1 MiB without eviction. No extra raw-log scanner, usage graph, telemetry or
   contribution flow is added. See [本地数据与隐私](LOCAL-DATA.zh-CN.md) /
   [local data and privacy](LOCAL-DATA.md).
   中文：既有归档以固定字段保存费率内容、区间、Δp、金额、Token 与周期边界；可选数值
   `skippedIntervals`／`skippedUsd` 记录整组拒绝或未选的尝试，不进入获准拟合。官方
   账号／周期历史及待校准账号序号与本地窗口分开。未知边界可用明确标注的七天参考桶。
+  同账号／来源且已验证的零用量计划重置漂移，可在截止时间及首次正用量前只归并显示别名；
+  原始标记、P2 观测、归档金额与校准分段不变。
   清除屏障也检查配对证据起点；归档仍在4096条／1 MiB后停止新写入，不淘汰历史。
   不增加原始日志扫描器、用量图、遥测或贡献流程。
 - **Rewriting a transcript re-read the whole history (#99)** — a mid-file edit
