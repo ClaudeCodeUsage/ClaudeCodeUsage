@@ -1752,6 +1752,16 @@ export interface SharingWorkspaceTranslations {
 }
 
 export interface WeeklyValueCopy {
+  cycleSummary: string;
+  cycleSummaryNote: string;
+  calibrationEvidence: string;
+  pendingCalibration: string;
+  evidenceIncomplete: string;
+  localQuotaObservation: string;
+  observedWindowChange: string;
+  sourceConflict: string;
+  pairedWindowEstimate: string;
+  calibrationChange: string;
   title: string;
   cycleTitle: string;
   cycleStart: string;
@@ -2854,6 +2864,11 @@ const PROVIDERS: Record<SupportedLanguage, ProviderTranslations> = {
 
 const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   en: {
+    cycleSummary: 'Cycle details', cycleSummaryNote: 'One bar and one row per reset cycle. Missing boundaries use 7-day references; estimates require paired calibration evidence.',
+    calibrationEvidence: 'Calibration evidence', pendingCalibration: 'Awaiting calibration', evidenceIncomplete: 'Incomplete evidence',
+    localQuotaObservation: 'Local quota observation', sourceConflict: 'Quota sources differ; account and cycle are not aligned',
+    observedWindowChange: 'Observed window change',
+    pairedWindowEstimate: 'Paired local-window estimate · account unverified', calibrationChange: 'Sample change',
     title: 'Weekly subscription allowance · API-equivalent estimate',
     cycleTitle: 'Cycle allowance · API-equivalent estimate',
     cycleIndexedSubtotal: 'Indexing is incomplete; cycle estimates use only indexed usage.',
@@ -2901,6 +2916,11 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     estimateObservationChanged: 'Quota observation changed',
   },
   'zh-CN': {
+    cycleSummary: '周期明细', cycleSummaryNote: '每个重置周期一柱、一行。缺少边界时使用七天参考；金额须有合格的配对校准证据。',
+    calibrationEvidence: '校准证据', pendingCalibration: '待校准', evidenceIncomplete: '证据不完整',
+    localQuotaObservation: '本地额度观测', sourceConflict: '额度来源存在差异，账号与周期尚未对齐',
+    observedWindowChange: '已观测窗口变化',
+    pairedWindowEstimate: '本地窗口配对估算（归属未核实）', calibrationChange: '样本变化',
     title: '每周订阅额度 · API 等效估算',
     cycleTitle: '周期额度 · API 等效估算',
     cycleIndexedSubtotal: '索引尚未完成；周期估值仅以已索引用量为依据。',
@@ -2948,6 +2968,11 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     estimateObservationChanged: '额度观测变化',
   },
   'zh-TW': {
+    cycleSummary: '週期明細', cycleSummaryNote: '每個重設週期一柱、一列。缺少邊界時使用七天參考；金額須有合格的配對校準證據。',
+    calibrationEvidence: '校準證據', pendingCalibration: '待校準', evidenceIncomplete: '證據不完整',
+    localQuotaObservation: '本機額度觀測', sourceConflict: '額度來源存在差異，帳號與週期尚未對齊',
+    observedWindowChange: '已觀測視窗變化',
+    pairedWindowEstimate: '本機視窗配對估算（歸屬未核實）', calibrationChange: '樣本變化',
     title: '每週訂閱額度 · API 等效估算',
     cycleTitle: '週期額度 · API 等效估算',
     cycleIndexedSubtotal: '索引尚未完成；週期估值僅以已索引用量為依據。',
@@ -2995,6 +3020,11 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     estimateObservationChanged: '額度觀測變化',
   },
   ja: {
+    cycleSummary: '周期の詳細', cycleSummaryNote: 'リセット周期ごとに棒と行を1つ表示。境界不明時は7日間の参考期間を使用し、金額には適格な対応サンプルが必要です。',
+    calibrationEvidence: '校正の根拠', pendingCalibration: '校正待ち', evidenceIncomplete: '根拠が不完全',
+    localQuotaObservation: 'ローカルのクォータ観測', sourceConflict: 'クォータの取得元が異なり、アカウントと周期は未照合です',
+    observedWindowChange: '観測された期間の変化',
+    pairedWindowEstimate: 'ローカル期間の対応推定（アカウント未確認）', calibrationChange: 'サンプル変化',
     title: '週間サブスクリプション枠 · API 等価推定',
     cycleTitle: '周期クォータ · API 等価推定',
     cycleIndexedSubtotal: '索引作成は未完了です。周期の推定は索引済みの使用量のみに基づきます。',
@@ -3042,6 +3072,11 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     estimateObservationChanged: '枠の観測値が変化',
   },
   ko: {
+    cycleSummary: '주기 상세', cycleSummaryNote: '재설정 주기마다 막대와 행 하나를 표시합니다. 경계가 없으면 7일 참고 기간을 사용하며 금액에는 적격 짝지은 교정 증거가 필요합니다.',
+    calibrationEvidence: '교정 근거', pendingCalibration: '교정 대기', evidenceIncomplete: '근거 불완전',
+    localQuotaObservation: '로컬 할당량 관측', sourceConflict: '할당량 출처가 달라 계정과 주기가 일치하는지 확인되지 않았습니다',
+    observedWindowChange: '관측된 구간 변경',
+    pairedWindowEstimate: '로컬 구간 짝지은 추정(계정 미확인)', calibrationChange: '표본 변화',
     title: '주간 구독 한도 · API 등가 추정',
     cycleTitle: '주기 할당량 · API 등가 추정',
     cycleIndexedSubtotal: '인덱싱이 끝나지 않아 주기 추정에는 인덱싱된 사용량만 사용됩니다.',
@@ -3089,6 +3124,11 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     estimateObservationChanged: '한도 관측값 변경',
   },
   'pt-BR': {
+    cycleSummary: 'Detalhes dos ciclos', cycleSummaryNote: 'Uma barra e uma linha por ciclo de redefinição. Limites desconhecidos usam referências de 7 dias; valores exigem evidências de calibração pareada.',
+    calibrationEvidence: 'Evidência de calibração', pendingCalibration: 'Aguardando calibração', evidenceIncomplete: 'Evidência incompleta',
+    localQuotaObservation: 'Observação local da cota', sourceConflict: 'As fontes de cota diferem; conta e ciclo não estão alinhados',
+    observedWindowChange: 'Mudança de janela observada',
+    pairedWindowEstimate: 'Estimativa local pareada · conta não verificada', calibrationChange: 'Variação da amostra',
     title: 'Cota semanal da assinatura · estimativa equivalente à API',
     cycleTitle: 'Cota por ciclo · estimativa equivalente à API',
     cycleIndexedSubtotal: 'A indexação está incompleta; as estimativas por ciclo usam apenas o uso indexado.',
@@ -3136,6 +3176,11 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     estimateObservationChanged: 'Observação de cota alterada',
   },
   'de-DE': {
+    cycleSummary: 'Zyklusdetails', cycleSummaryNote: 'Ein Balken und eine Zeile je Reset-Zyklus. Unbekannte Grenzen nutzen 7-Tage-Referenzen; Beträge erfordern geeignete gepaarte Kalibrierungsbelege.',
+    calibrationEvidence: 'Kalibrierungsbelege', pendingCalibration: 'Kalibrierung ausstehend', evidenceIncomplete: 'Unvollständige Belege',
+    localQuotaObservation: 'Lokale Kontingentbeobachtung', sourceConflict: 'Kontingentquellen unterscheiden sich; Konto und Zyklus sind nicht abgeglichen',
+    observedWindowChange: 'Beobachteter Fensterwechsel',
+    pairedWindowEstimate: 'Gepaarte lokale Fensterschätzung · Konto ungeprüft', calibrationChange: 'Stichprobenänderung',
     title: 'Wöchentliches Abo-Kontingent · API-Äquivalenzschätzung',
     cycleTitle: 'Zykluskontingent · API-Äquivalenzschätzung',
     cycleIndexedSubtotal: 'Die Indizierung ist unvollständig; Zyklusschätzungen nutzen nur indizierte Nutzung.',
@@ -3183,6 +3228,11 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     estimateObservationChanged: 'Kontingentbeobachtung geändert',
   },
   id: {
+    cycleSummary: 'Detail siklus', cycleSummaryNote: 'Satu batang dan satu baris per siklus reset. Batas tak diketahui memakai referensi 7 hari; nilai memerlukan bukti kalibrasi berpasangan yang layak.',
+    calibrationEvidence: 'Bukti kalibrasi', pendingCalibration: 'Menunggu kalibrasi', evidenceIncomplete: 'Bukti tidak lengkap',
+    localQuotaObservation: 'Pengamatan kuota lokal', sourceConflict: 'Sumber kuota berbeda; akun dan siklus belum selaras',
+    observedWindowChange: 'Perubahan jendela teramati',
+    pairedWindowEstimate: 'Estimasi jendela lokal berpasangan · akun belum terverifikasi', calibrationChange: 'Perubahan sampel',
     title: 'Batas langganan mingguan · estimasi ekuivalen API',
     cycleTitle: 'Kuota per siklus · estimasi ekuivalen API',
     cycleIndexedSubtotal: 'Pengindeksan belum selesai; estimasi siklus hanya memakai penggunaan yang sudah diindeks.',

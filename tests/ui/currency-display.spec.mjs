@@ -23,13 +23,30 @@ test('currency preset reaches Codex summaries, charts, weekly values, and settin
   await expect(chart.locator(':scope > .chart-content .hc-yaxis .hc-yval').first())
     .toHaveText(/^≈EUR \d/);
 
+  // Keep the actual-cost formatting proofs above. The paired analogue supplies
+  // admissible monetary cycles; the incomplete local-currency fixture cannot.
+  await openCodex(page, { fixture: 'weekly-paired-currency' });
   await page.locator('#tab-all').click();
   const weekly = page.locator('#all .daily-breakdown').filter({
     hasText: 'Cycle allowance · API-equivalent estimate · Codex',
   });
-  await expect(weekly.locator('.hc-yaxis .hc-yval').first()).toHaveText(/^≈EUR \d/);
-  await weekly.locator('.weekly-estimate-details summary').click();
-  await expect(weekly.locator('tbody .cost-cell').first()).toHaveText(/^EUR \d/);
+  // The cycle heading already qualifies these amounts as estimates. The
+  // global actual-cost formatter still carries its approximation sign above.
+  await expect(weekly.locator('.hc-yaxis .hc-yval')).toHaveText(['EUR 240.30', 'EUR 120.15', 'EUR 0.00']);
+  await expect(weekly.locator('.stack-bar')).toHaveCount(10);
+  await expect(weekly.locator('[data-cycle-pending]')).toHaveCount(1);
+  await weekly.locator('.weekly-estimate-details > summary').click();
+  const pricedRows = weekly.locator('[data-codex-cycle-summary-row]').filter({
+    has: page.locator('td.cost-cell').filter({ hasText: /^EUR \d/ }),
+  });
+  await expect(pricedRows).toHaveCount(10);
+  const priced = pricedRows.first();
+  await expect(priced.locator('td').nth(2)).toHaveText('EUR 85.82');
+  await expect(priced.locator('td').nth(3)).toHaveText('EUR 34.33');
+  await expect(priced.locator('td').nth(4)).toHaveText('EUR 51.49');
+  const evidence = priced.locator('details[data-cycle-evidence][data-persist]');
+  await evidence.locator(':scope > summary').click();
+  await expect(evidence.locator('[data-cycle-evidence-facts] dd').nth(2)).toHaveText('EUR 34.33');
   for(const cell of await weekly.locator('tbody td').all())await expect(cell).not.toContainText('≈');
 
   await page.locator('#tab-settings').click();

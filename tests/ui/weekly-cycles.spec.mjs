@@ -18,14 +18,15 @@ for (const [theme, width] of [['light', 1280], ['dark', 320]]) {
       const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, width: rect.width };
     }));
     for (let index = 1; index < geometry.length; index++) {
-      expect(geometry[index].left - geometry[index - 1].right).toBeGreaterThanOrEqual(0);
-      expect(geometry[index].left - geometry[index - 1].right).toBeLessThanOrEqual(10);
+      expect(geometry[index].left - geometry[index - 1].right).toBe(6);
     }
-    expect(geometry[0].width).toBe(36);
+    expect(geometry.every(bar => bar.width === 40)).toBe(true);
     const columns = await chart.locator('.hc-col').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
     const axisWidths = await labels.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width));
     expect(columns).toEqual(axisWidths);
-    await expect(chart.locator('.table-hint').first()).toContainText('fixed 7-day reference periods');
+    expect(columns.every(width => width === 44)).toBe(true);
+    await expect(page.locator('#all [data-codex-cycle-panel]')).toContainText('Missing boundaries use 7-day references');
+    await expect(page.locator('#all [data-codex-cycle-panel] [data-weekly-actual-chart]')).toHaveCount(0);
     for (const label of await labels.all()) {
       const lines = label.locator(':scope > span'); await expect(lines).toHaveCount(2);
       await expect(lines.first()).toHaveText(/^\d{1,2}\/\d{1,2}$/);
@@ -49,9 +50,26 @@ for (const [theme, width] of [['light', 1280], ['dark', 320]]) {
     expect(await scroll.evaluate(node => node.scrollLeft)).toBeGreaterThan(0);
     const details = page.locator('#all .weekly-estimate-details');
     await details.locator(':scope > summary').click();
-    await expect(details.locator('tbody tr')).toHaveCount(53);
-    await expect(details).toContainText('7-day reference period (UTC)');
-    await expect(details).toContainText('Reference estimate · not an account cycle');
+    // The capped table describes exactly the plotted cycles. Old extra raw
+    // audit rows (53 here) and older references outside the cap are obsolete.
+    await expect(details.locator('tbody tr')).toHaveCount(48);
+    await expect(details.locator('thead th')).toHaveText(['Period', 'Account', 'Cycle total (estimate)',
+      'Inferred used (estimate)', 'Unused estimate', 'As of observation', 'Calibration evidence']);
+    await expect(details.locator('tbody tr details[data-cycle-evidence][data-persist]')).toHaveCount(48);
+    await expect(details.locator(':scope > summary')).toHaveText('Cycle details');
+    const chartTitles = await bars.evaluateAll(nodes => nodes.map(node => node.title));
+    for (const row of await details.locator('tbody tr').all()) {
+      const cells = row.locator('td');
+      await expect(cells).toHaveCount(7);
+      await expect(row.locator('details[data-cycle-evidence][data-persist]')).toHaveCount(1);
+      const bounds = await cells.first().getAttribute('title');
+      const account = await cells.nth(1).textContent();
+      const asOf = await cells.nth(5).evaluate(node => node.firstChild.textContent);
+      const amounts = await Promise.all([2, 3, 4].map(column => cells.nth(column).textContent()));
+      // Equal counts alone could hide different capped subsets or observations.
+      expect(chartTitles.filter(title => [bounds, account, asOf, ...amounts]
+        .every(value => title.includes(value)))).toHaveLength(1);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     expect(external).toEqual([]); expect(errors).toEqual([]);
     expect(await page.evaluate(() => window.__ccuPostedMessages.filter(message =>
@@ -89,8 +107,11 @@ for (const [locale, short, period, reset] of referenceLocales) {
       await expect(bar).toHaveAccessibleName(title);
     }
     const details = page.locator('#all .weekly-estimate-details');
-    await details.locator('summary').click();
-    await expect(details.locator('tbody tr')).toHaveCount(5);
+    await details.locator(':scope > summary').click();
+    // Repeated observations belong to the same four reference periods.
+    await expect(details.locator('tbody tr')).toHaveCount(4);
+    await expect(details.locator('thead th')).toHaveCount(7);
+    await expect(details.locator('details[data-cycle-evidence][data-persist]')).toHaveCount(4);
     await expect(details).toContainText(period); await expect(details).toContainText(reset);
     const geometry = await bars.evaluateAll(nodes => nodes.map(node => {
       const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right };

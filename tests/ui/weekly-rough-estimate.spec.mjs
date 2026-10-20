@@ -72,6 +72,26 @@ const referenceCopy = {
   'pt-BR': ['7d', 'Período de referência de 7 dias (UTC)', 'Redefinição observada'],
   id: ['7h', 'Periode referensi 7 hari (UTC)', 'Pengaturan ulang teramati'],
 };
+const cycleCopy = {
+  en: ['Cycle details', 'Calibration evidence', 'Incomplete evidence', 'Awaiting calibration'],
+  'de-DE': ['Zyklusdetails', 'Kalibrierungsbelege', 'Unvollständige Belege', 'Kalibrierung ausstehend'],
+  'zh-TW': ['週期明細', '校準證據', '證據不完整', '待校準'],
+  'zh-CN': ['周期明细', '校准证据', '证据不完整', '待校准'],
+  ja: ['周期の詳細', '校正の根拠', '根拠が不完全', '校正待ち'],
+  ko: ['주기 상세', '교정 근거', '근거 불완전', '교정 대기'],
+  'pt-BR': ['Detalhes dos ciclos', 'Evidência de calibração', 'Evidência incompleta', 'Aguardando calibração'],
+  id: ['Detail siklus', 'Bukti kalibrasi', 'Bukti tidak lengkap', 'Menunggu kalibrasi'],
+};
+const indexingCopy = {
+  en: 'Indexing is incomplete; cycle estimates use only indexed usage.',
+  'de-DE': 'Die Indizierung ist unvollständig; Zyklusschätzungen nutzen nur indizierte Nutzung.',
+  'zh-TW': '索引尚未完成；週期估值僅以已索引用量為依據。',
+  'zh-CN': '索引尚未完成；周期估值仅以已索引用量为依据。',
+  ja: '索引作成は未完了です。周期の推定は索引済みの使用量のみに基づきます。',
+  ko: '인덱싱이 끝나지 않아 주기 추정에는 인덱싱된 사용량만 사용됩니다.',
+  'pt-BR': 'A indexação está incompleta; as estimativas por ciclo usam apenas o uso indexado.',
+  id: 'Pengindeksan belum selesai; estimasi siklus hanya memakai penggunaan yang sudah diindeks.',
+};
 
 const activity = new WeakMap();
 test.beforeEach(async ({ page }) => {
@@ -102,99 +122,94 @@ async function reveal(page) {
   await expect(details(page)).toHaveAttribute('open', '');
 }
 
-async function expectAmounts(page, locale, periods = 1) {
+async function expectPendingPeriods(page, locale, periods = 1) {
   await expect(history(page)).toHaveCount(0);
-  await expect(details(page).locator('thead th').nth(2)).toHaveText(copy[locale].inferred);
-  await expect(details(page).locator('thead th').nth(6)).toHaveText(copy[locale].sample);
-  await expect(details(page).locator('thead th').nth(4)).toHaveText(copy[locale].full);
-  await expect(details(page).locator('thead th').nth(5)).toHaveText(copy[locale].unused);
+  await expect(panel(page)).toContainText(indexingCopy[locale]);
+  await expect(details(page).locator(':scope > summary')).toHaveText(cycleCopy[locale][0]);
+  await expect(details(page).locator('thead th')).toHaveCount(7);
+  await expect(details(page).locator('thead th').nth(2)).toHaveText(copy[locale].full);
+  await expect(details(page).locator('thead th').nth(3)).toHaveText(copy[locale].inferred);
+  await expect(details(page).locator('thead th').nth(4)).toHaveText(copy[locale].unused);
+  await expect(details(page).locator('thead th').nth(5)).toHaveText(copy[locale].asOf);
+  await expect(details(page).locator('thead th').nth(6)).toHaveText(cycleCopy[locale][1]);
   for (const text of await panel(page).locator('td').allTextContents()) expect(text).not.toContain('≈');
 
-  // Same-week references keep the latest valid sample; only an explicit
-  // prior-week observation adds a second period. Amounts are never summed.
-  await expect(details(page).locator('tbody tr')).toHaveCount(periods);
-  const record = details(page).locator('tbody tr').filter({
-    has: page.getByRole('cell', { name: '$240.00', exact: true }),
-  });
-  await expect(record).toHaveCount(1);
-  await expect(record.locator('td').nth(2)).toHaveText('$60.00');
-  await expect(record.locator('td').nth(3)).toHaveText('25%');
-  await expect(record.locator('td').nth(4)).toHaveText('$240.00');
-  await expect(record.locator('td').nth(5)).toHaveText('$180.00');
-  await expect(record.locator('td').nth(6)).toHaveText('$60.00');
-  const otherRecord = details(page).locator('tbody tr').filter({
-    has: page.getByRole('cell', { name: '$146.67', exact: true }),
-  });
-  await expect(otherRecord).toHaveCount(periods - 1);
-  if (periods === 2) {
-    await expect(otherRecord.locator('td').nth(2)).toHaveText('$36.67');
-    await expect(otherRecord.locator('td').nth(5)).toHaveText('$110.00');
-    await expect(otherRecord.locator('td').nth(6)).toHaveText('$36.67');
-  } else {
-    await expect(details(page)).not.toContainText('$146.67');
-    await expect(details(page)).not.toContainText('$110.00');
+  // These original fixtures are incomplete and only 92% priced. The approved
+  // contract retains their samples for audit, but no longer prices capacity
+  // from them ($240/$180 and $146.67/$110 were old rough extrapolations).
+  const rows = details(page).locator('tbody tr');
+  await expect(rows).toHaveCount(periods);
+  await expect(details(page).locator('details[data-cycle-evidence][data-persist]')).toHaveCount(periods);
+  for (let index = 0; index < periods; index++) {
+    const row = rows.nth(index);
+    await expect(row.locator('td')).toHaveCount(7);
+    for (const column of [2, 3, 4]) await expect(row.locator('td').nth(column)).toHaveText('—');
+    expect(await row.locator('td').first().getAttribute('title')).toContain(referenceCopy[locale][1]);
+    await expect(row.locator('td').nth(5)).toContainText('25%');
+    const evidence = row.locator('details[data-cycle-evidence][data-persist]');
+    await evidence.locator(':scope > summary').click();
+    const facts = evidence.locator('[data-cycle-evidence-facts]');
+    // Withheld capacity is not a usable conversion method. Keep the original
+    // priced sample and its limitations readable inside the evidence disclosure.
+    await expect(facts).toContainText(copy[locale].blocked);
+    await expect(facts).toContainText(copy[locale].sample);
+    const asOf = await row.locator('td').nth(5).evaluate(node => node.firstChild.textContent);
+    await expect(facts.locator('dd').nth(1)).toHaveText(asOf);
+    await expect(facts.locator('dd').nth(2)).toHaveText(index === 0 ? '$60.00' : '$36.67');
+    await expect(facts).toContainText('92%');
+    const reasons = evidence.locator('p.table-hint').filter({ hasText: copy[locale].reasons[0] });
+    // Row evidence now labels the failed admission as incomplete evidence;
+    // the panel-level status above retains the explicit indexing limitation.
+    const localizedReasons = copy[locale].reasons.map((reason, reasonIndex) => reasonIndex === 3 ? cycleCopy[locale][2] : reason);
+    const expectedReasons = index === 0 ? localizedReasons : localizedReasons.slice(0, -1);
+    for (const reason of expectedReasons) await expect(reasons).toContainText(reason);
+    expect((await reasons.textContent()).split(' · ')).toHaveLength(expectedReasons.length);
+    if (locale !== 'en') {
+      await expect(facts).not.toContainText(copy.en.rough);
+      for (const reason of copy.en.reasons.map((reason, reasonIndex) => reasonIndex === 3 ? cycleCopy.en[2] : reason)) {
+        await expect(reasons).not.toContainText(reason);
+      }
+    }
+    await evidence.locator(':scope > summary').click();
   }
-  const method = record.locator('td').nth(7);
-  await expect(method).toContainText(copy[locale].rough);
-  const reasons = method.locator('.model-details').filter({ hasText: copy[locale].reasons[0] });
-  for (const reason of copy[locale].reasons) await expect(reasons).toContainText(reason);
-  await expect(reasons).toContainText('92%');
-  expect((await reasons.textContent()).split(' · ')).toHaveLength(5);
-  await expect(details(page)).not.toContainText(copy[locale].blocked);
-  if (locale !== 'en') {
-    await expect(method).not.toContainText(copy.en.rough);
-    for (const reason of copy.en.reasons) await expect(reasons).not.toContainText(reason);
-  }
+  for (const amount of ['$240.00', '$180.00', '$146.67', '$110.00']) await expect(panel(page)).not.toContainText(amount);
 
   await expect(panel(page).locator('[data-weekly-actual-chart]')).toHaveCount(0);
   await expect(panel(page).locator('.composition-chart')).toHaveCount(1);
   const estimatedChart = panel(page).locator('[data-weekly-estimate-chart]');
-  const bars = estimatedChart.locator('.hc-bars .stack-bar');
-  await expect(bars).toHaveCount(periods);
-  await expect(estimatedChart.locator('.hc-yaxis .hc-yval')).toHaveText(['$240.00', '$120.00', '$0.00']);
-  await expect(estimatedChart.locator('.stack-seg.seg-input')).toHaveCount(periods);
-  await expect(estimatedChart.locator('.stack-seg.seg-cache-read')).toHaveCount(periods);
+  const pending = estimatedChart.locator('.hc-bars [data-cycle-pending]');
+  await expect(pending).toHaveCount(periods);
+  await expect(estimatedChart.locator('.hc-bars .stack-bar')).toHaveCount(0);
+  await expect(estimatedChart.locator('.hc-yaxis .hc-yval')).toHaveText(['—', '—', '—']);
+  await expect(estimatedChart.locator('.stack-seg')).toHaveCount(0);
   await expect(estimatedChart.locator('.stack-legend .legend-item')).toHaveText([copy[locale].inferred, copy[locale].unused]);
-  const main = estimatedChart.locator('.hc-bars .stack-bar[title*="$240.00"]');
-  const other = estimatedChart.locator('.hc-bars .stack-bar[title*="$146.67"]');
-  await expect(main).toHaveCount(1);
-  await expect(other).toHaveCount(periods - 1);
-  const comparisons = [[main, ['$240.00', '$60.00', '$180.00']],
-    ...(periods === 2 ? [[other, ['$146.67', '$36.67', '$110.00']]] : [])];
-  for (const [bar, amounts] of comparisons) {
-    await expect(bar).toHaveAttribute('role', 'img');
-    const title = await bar.getAttribute('title');
-    for (const value of [...amounts, copy[locale].full, copy[locale].inferred, copy[locale].unused, copy[locale].asOf,
-      ...referenceCopy[locale].slice(1)]) {
+  for (const marker of await pending.all()) {
+    await expect(marker).toHaveAttribute('role', 'img');
+    const title = await marker.getAttribute('title');
+    for (const value of [copy[locale].asOf, cycleCopy[locale][3], ...referenceCopy[locale].slice(1)]) {
       expect(title).toContain(value);
     }
-    await expect(bar).toHaveAttribute('aria-label', title);
-    await expect(bar).toHaveAccessibleName(title);
+    expect(title).not.toContain('$');
+    expect(title).not.toContain(copy[locale].current);
+    await expect(marker).toHaveAttribute('aria-label', title);
+    await expect(marker).toHaveAccessibleName(title);
   }
-  await expect(main.locator('.seg-input')).toHaveCSS('height', '30px');
-  await expect(main.locator('.seg-cache-read')).toHaveCSS('height', '90px');
-  await expect(main).toHaveCSS('height', '120px');
-  // Legacy unassigned references never claim the current account cycle.
-  expect(await main.getAttribute('title')).not.toContain(copy[locale].current);
-  if (periods === 2) expect(await other.getAttribute('title')).not.toContain(copy[locale].current);
   const labels = estimatedChart.locator('.hc-xlabel');
   await expect(labels).toHaveCount(periods);
   await expect(labels.locator(':scope > span:last-child')).toHaveText(Array(periods).fill(referenceCopy[locale][0]));
   await expect(labels.locator(':scope > span:first-child')).toHaveText(periods === 2 ? ['7/20', '7/27'] : ['7/27']);
   for (const label of await labels.all()) await expect(label.locator(':scope > span')).toHaveCount(2);
-  const mainIndex = await bars.evaluateAll(nodes => nodes.findIndex(node => node.title.includes('$240.00')));
-  expect(await labels.nth(mainIndex).textContent()).not.toBe(copy[locale].currentShort);
-  if (periods === 2) expect(await labels.nth(1 - mainIndex).textContent()).not.toBe(copy[locale].currentShort);
+  for (const label of await labels.all()) expect(await label.textContent()).not.toContain(copy[locale].currentShort);
 }
 
 for (const locale of Object.keys(copy)) {
-  test(`${locale}: same-week references keep $240/$180; a prior UTC week retains its separate $146.67/$110 estimate`, async ({ page }) => {
+  test(`${locale}: incomplete rough evidence remains pending once per UTC reference week`, async ({ page }) => {
     await open(page, { locale });
     await reveal(page);
-    await expectAmounts(page, locale);
+    await expectPendingPeriods(page, locale);
     await open(page, { locale, fixture: 'weekly-rough-cross-week' });
     await reveal(page);
-    await expectAmounts(page, locale, 2);
+    await expectPendingPeriods(page, locale, 2);
   });
 }
 
@@ -290,12 +305,12 @@ for (const [locale, theme, width] of [
     expect(result.passes.some(row => row.id === 'color-contrast')).toBe(true);
     expect(result.incomplete.filter(row => row.id === 'color-contrast')).toEqual([]);
     await reveal(page);
-    await expectAmounts(page, locale);
-    for(const cell of await details(page).locator('tbody tr td:nth-child(8)').all()){
-      expect(await cell.evaluate(node=>node.clientWidth)).toBeGreaterThanOrEqual(160);
+    await expectPendingPeriods(page, locale);
+    for(const cell of await details(page).locator('tbody tr td:nth-child(7)').all()){
+      expect(await cell.evaluate(node=>node.clientWidth)).toBeGreaterThanOrEqual(140);
     }
     for(const cell of await panel(page).locator('.weekly-value-details .date-cell, .weekly-estimate-details .date-cell').all()){
-      expect(await cell.evaluate(node=>node.clientWidth)).toBeGreaterThanOrEqual(140);
+      expect(await cell.evaluate(node=>node.clientWidth)).toBeGreaterThanOrEqual(100);
     }
     const geometry = await panel(page).evaluate(node => {
       const texts = [...node.querySelectorAll('h3,summary,.table-hint')];
@@ -321,11 +336,20 @@ for (const [locale, theme, width] of [
     for (const scroller of [details(page)]) {
       const table = scroller.locator('.daily-table-container');
       await table.focus();
+      // Opening the new last-column evidence summary scrolls it into view.
+      // Start this independent keyboard-scroll proof away from the right edge.
+      await table.evaluate(node => { node.scrollLeft = 0; });
       const before = await table.evaluate(node => node.scrollLeft);
+      expect(before).toBe(0);
       await page.keyboard.press('ArrowRight');
       await page.clock.runFor(300);
       await expect.poll(()=>table.evaluate(node=>node.scrollLeft)).toBeGreaterThan(before);
       await expect(table).toBeFocused();
+    }
+    // Audit text now lives in a nested native disclosure. Exercise its expanded
+    // styles as well as the outer table's hover and scroll behavior.
+    for (const evidence of await details(page).locator('details[data-cycle-evidence]').all()) {
+      await evidence.locator(':scope > summary').click();
     }
     await details(page).locator('tbody tr').first().hover();
     await expectExpandedContrast(page, testInfo);
@@ -369,10 +393,10 @@ for (const theme of ['light', 'dark', 'highContrast']) {
       documentId: window.__ccuPostedMessages.find(row => row.command === 'localDataClientReady').documentId }));
     expect(after.documentId).toBe(before.documentId);
     expect(Math.abs(after.top - before.top)).toBeLessThanOrEqual(1);
-    await expectAmounts(page, 'en');
+    await expectPendingPeriods(page, 'en');
     await page.reload({ waitUntil: 'load' });
     await expect(details(page)).toHaveAttribute('open', '');
-    await expectAmounts(page, 'en');
+    await expectPendingPeriods(page, 'en');
   });
 }
 

@@ -130,6 +130,8 @@ import {
 import { buildLocalWeeklyEstimates, weeklyEstimateForPoint, LocalWeeklyEstimate } from './weeklyEstimate';
 import { projectWeeklyEstimateChart } from './weeklyEstimateChart';
 import { CodexQuotaCycle, selectCodexCycleEstimates } from './codexQuotaCycles';
+import { codexQuotaPresentation } from './codexQuotaPresentation';
+import { CODEX_MIN_CALIBRATION_PERCENT } from './codexWindowEvidence';
 
 export interface WeeklyEstimatePanelProjection {
   entries: LocalWeeklyEstimate[];
@@ -7672,9 +7674,9 @@ export class UsageWebviewProvider {
     if(entry.flags.includes('account-unattributed'))reasons.push((entry.method as string) === 'account-delta-v1'
       ? copy.localAmountUnattributed : copy.estimateAccountUnknown);
     if(entry.flags.includes('partial-pricing'))reasons.push(copy.estimatePartialPricing+' ('+this.formatPercent(entry.pricingCoverage)+')');
-    if(entry.flags.includes('boundary-uncertain'))reasons.push(entry.method==='account-delta-v1'
+    if(entry.flags.includes('boundary-uncertain'))reasons.push(entry.method==='account-delta-v1' || entry.windowEvidence !== undefined
       ? copy.boundaryApproximate : copy.estimateBoundarySplit);
-    if(entry.flags.includes('partial-history'))reasons.push(copy.estimatePartialHistory);
+    if(entry.flags.includes('partial-history'))reasons.push(entry.provider === 'codex' ? copy.evidenceIncomplete : copy.estimatePartialHistory);
     if(entry.flags.includes('counter-change'))reasons.push(copy.estimateObservationChanged);
     return reasons.join(' · ');
   }
@@ -7695,6 +7697,7 @@ export class UsageWebviewProvider {
 
   private weeklyEstimateMethod(entry: LocalWeeklyEstimate): string {
     const copy = I18n.t.weeklyValue, method: string = entry.method;
+    if (entry.windowEvidence) return copy.pairedWindowEstimate;
     if (entry.fullEquivalentUsd === null) return copy.estimateBlocked;
     if (method === 'account-delta-v1') return copy.accountDeltaEstimate;
     if (method === 'series-prefix-v1') return copy.seriesEstimate;
@@ -7774,6 +7777,7 @@ export class UsageWebviewProvider {
   }
 
   private renderWeeklyEstimateRecords(provider: SettingProvider, supplied?: WeeklyEstimatePanelProjection): string {
+    if (this.usesCycleQuotaPanel(provider)) return this.renderCodexCycleRecords(supplied ?? this.weeklyEstimateProjection(provider));
     const projection=supplied??this.weeklyEstimateProjection(provider),copy=I18n.t.weeklyValue;
     const esc = (value: string): string => this.escapeHtml(value);
     const date = (value: number): string => {
@@ -7835,6 +7839,145 @@ export class UsageWebviewProvider {
       '</tbody></table></div></details>';
   }
 
+  private codexCycleEntries(projection: WeeklyEstimatePanelProjection): LocalWeeklyEstimate[] {
+    return selectCodexCycleEstimates(projection.entries, Date.now()).sort((a, b) =>
+      (b.quotaCycle?.endAt ?? b.resetAt) - (a.quotaCycle?.endAt ?? a.resetAt) || b.observedAt - a.observedAt).slice(0, 48);
+  }
+
+  private usesCycleQuotaPanel(provider: SettingProvider): boolean { return provider === 'codex'; }
+
+  private cycleDate(value: number, short = false): string {
+    if (!Number.isFinite(value) || value <= 0 || value > 8.64e15) return '—';
+    try { return new Intl.DateTimeFormat(I18n.getLocale(), short ? {
+      month: 'numeric', day: 'numeric', timeZone: I18n.getTimezone() || undefined,
+    } : { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      timeZone: I18n.getTimezone() || undefined }).format(new Date(value)); }
+    catch { return new Date(value).toISOString(); }
+  }
+
+  private cycleState(entry: LocalWeeklyEstimate): string {
+    const copy = I18n.t.weeklyValue;
+    if (entry.flags.includes('counter-change') && entry.fullEquivalentUsd === null) return copy.sourceConflict;
+    if (entry.fullEquivalentUsd === null) return entry.windowEvidence?.complete === false || entry.flags.includes('partial-history')
+      ? copy.evidenceIncomplete : copy.pendingCalibration;
+    return entry.quotaCycle?.fallbackDays === 7 ? copy.fallbackCycleShort :
+      entry.accountNumber === undefined ? copy.accountUnassigned : entry.quotaCycle?.boundaryUncertain ? copy.boundaryApproximate : '';
+  }
+
+  private renderCodexCycleRecords(projection: WeeklyEstimatePanelProjection): string {
+    const copy = I18n.t.weeklyValue, esc = (s: string) => this.escapeHtml(s);
+    const money = (n: number | null) => n === null ? '—' : esc(this.weeklyTableCurrency(n));
+    const rows = this.codexCycleEntries(projection).map(entry => {
+      const cycle = entry.quotaCycle, description = this.weeklyCycleDescription(cycle, entry.resetAt);
+      const dates = (cycle?.startAt ? this.cycleDate(cycle.startAt, true) + ' – ' : '') + this.cycleDate(cycle?.endAt ?? entry.resetAt, true);
+      const evidence = entry.windowEvidence, account = entry.calibrationEvidence;
+      const delta = evidence?.deltaPercent ?? account?.accumulated.deltaPercent;
+      const intervals = evidence?.intervals ?? account?.accumulated.intervals;
+      const state = this.cycleState(entry);
+      const safeCycleId = typeof cycle?.id === 'number' && Number.isSafeInteger(cycle.id) && cycle.id > 0 ? cycle.id : entry.resetAt;
+      const safeReset = Number.isSafeInteger(entry.resetAt) && entry.resetAt > 0 ? entry.resetAt : 0;
+      const key = 'quota-evidence-codex-' + (this.weeklyAccountNumber(entry.accountNumber) ?? 'u') + '-' + safeCycleId +
+        '-' + (cycle?.fallbackDays === 7 ? 'reference' : safeReset);
+      const summary = delta === undefined ? copy.calibrationEvidence : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta) +
+        (entry.fullEquivalentUsd === null && delta < CODEX_MIN_CALIBRATION_PERCENT ? ' / ' + CODEX_MIN_CALIBRATION_PERCENT : '') + ' · n=' + intervals;
+      const from = evidence?.from ?? entry.calibrationStart;
+      const through = evidence?.calibratedThrough ?? entry.observedAt;
+      const facts = '<dl data-cycle-evidence-facts><dt>' + esc(copy.estimateMethod) + '</dt><dd>' + esc(this.weeklyEstimateMethod(entry)) +
+        '</dd><dt>' + esc(copy.estimateAsOf) + '</dt><dd>' + esc((from ? this.cycleDate(from) + ' – ' : '') + this.cycleDate(through)) +
+        '</dd><dt>' + esc(copy.estimateUsed) + '</dt><dd>' + money(entry.usedEquivalentUsd) +
+        '</dd><dt>' + esc(copy.calibrationChange) + '</dt><dd>' + (delta === undefined ? '—' : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta)) +
+        '</dd><dt>' + esc(copy.pricingCoverage) + '</dt><dd>' + esc(this.formatPercent(entry.pricingCoverage)) + '</dd></dl>';
+      return '<tr data-codex-cycle-summary-row><td class="date-cell" title="' + esc(description) + '">' + esc(dates) +
+        (state ? '<span class="model-details" data-cycle-state>' + esc(state) + '</span>' : '') + '</td><td>' + esc(this.weeklyAccountLabel(entry.accountNumber)) +
+        '</td><td class="cost-cell">' + money(entry.fullEquivalentUsd) + '</td><td class="cost-cell">' +
+        money(entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null ? null : entry.fullEquivalentUsd - entry.unusedEquivalentUsd) +
+        '</td><td class="cost-cell">' + money(entry.unusedEquivalentUsd) + '</td><td class="date-cell">' + esc(this.cycleDate(entry.observedAt)) +
+        '<span class="model-details" data-cycle-state>' + (entry.utilizationPercent === null ? '—' : esc(this.formatPercent(entry.utilizationPercent / 100))) +
+        '</span></td><td><details data-cycle-evidence data-persist="' + esc(key) + '"><summary>' + esc(summary) + '</summary>' +
+        facts + '<p class="table-hint">' + esc(description) + '</p>' +
+        (this.weeklyEstimateReasons(entry) ? '<p class="table-hint">' + esc(this.weeklyEstimateReasons(entry)) + '</p>' : '') + '</details></td></tr>';
+    }).join('');
+    return '<details class="weekly-estimate-details" data-persist="weekly-estimate-codex"><summary>' + esc(copy.cycleSummary) +
+      '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table" data-weekly-table-provider="codex" data-codex-cycle-table><thead><tr>' +
+      [copy.period, copy.accountColumn, copy.estimateFull, copy.inferredUsed, copy.estimateUnused, copy.estimateAsOf, copy.calibrationEvidence]
+        .map(label => '<th>' + esc(label) + '</th>').join('') + '</tr></thead><tbody>' + rows +
+      '</tbody></table></div><p class="table-hint">' + esc(copy.estimateNote) + '</p></details>';
+  }
+
+  private renderCodexCyclePanel(projection: WeeklyEstimatePanelProjection): string {
+    const copy = I18n.t.weeklyValue, esc = (s: string) => this.escapeHtml(s), now = Date.now();
+    const inputs = this.weeklyValueInputs('codex');
+    const officialEnabled = this.setting<boolean>('codex.officialQuota.enabled', false);
+    const quota = officialEnabled ? projection.officialQuota : undefined;
+    const recentCheckpoints = (inputs?.codexQuotaCheckpoints ?? []).filter(row =>
+      row.baseline || row.through >= now - 2 * 86400000).map(row => ({ provider: 'codex' as const, seriesKey: 'local-paired',
+      sourceKey: row.sourceKey, observedAt: row.through, resetAt: row.resetAt, usedPercent: row.usedPercent }));
+    const sources = codexQuotaPresentation([...(inputs?.observations ?? []), ...recentCheckpoints], quota, now);
+    const identityAvailable = quota?.status === 'ready' && !quota.stale && !sources.conflict &&
+      typeof quota.observedAt === 'number' && Number.isFinite(quota.observedAt) && quota.observedAt > 0 && quota.observedAt <= now &&
+      typeof quota.resetAt === 'number' && Number.isFinite(quota.resetAt) && quota.resetAt > now &&
+      typeof quota.usedPercent === 'number' && Number.isFinite(quota.usedPercent) && quota.usedPercent >= 0 && quota.usedPercent <= 100 &&
+      this.weeklyAccountNumber(quota.accountNumber) === this.weeklyAccountNumber(projection.activeAccountNumber);
+    const entries = this.codexCycleEntries(projection);
+    const points = projectWeeklyEstimateChart('codex', [], entries, { now, limit: 48,
+      ...(officialEnabled ? { activeAccountNumber: projection.activeAccountNumber, activeQuotaEpochStartedAt: projection.activeQuotaEpochStartedAt } : {}),
+      accountIdentityAvailable: identityAvailable }).reverse();
+    const known = points.some(p => p.fullEquivalentUsd !== null), max = Math.max(1, ...points.map(p => p.fullEquivalentUsd ?? 0));
+    const title = (point: typeof points[number]) => {
+      const parts = [point.current ? copy.currentPeriod : '', this.weeklyAccountLabel(point.accountNumber), this.weeklyCycleDescription(point.quotaCycle, point.resetAt),
+        copy.estimateAsOf + ': ' + this.cycleDate(point.observedAt!)];
+      if (point.fullEquivalentUsd === null) parts.push(copy.pendingCalibration);
+      else parts.push(copy.fullValue + ': ' + this.weeklyTableCurrency(point.fullEquivalentUsd),
+        copy.inferredUsed + ': ' + this.weeklyTableCurrency(point.usedEquivalentUsd),
+        copy.estimateUnused + ': ' + this.weeklyTableCurrency(point.unusedEquivalentUsd!));
+      if (point.utilizationPercent !== null) parts.push(this.formatPercent(point.utilizationPercent / 100));
+      if (!point.quotaCycle || point.quotaCycle.referenceOnly || point.accountNumber === undefined) parts.push(copy.low, copy.estimateReference);
+      return parts.filter(Boolean).join(' · ');
+    };
+    const bars = points.map(point => {
+      const text = esc(title(point));
+      if (point.fullEquivalentUsd === null) return '<div class="hc-col"><div data-cycle-pending role="img" tabindex="0" aria-label="' +
+        text + '" title="' + text + '">—</div></div>';
+      const used = point.usedEquivalentUsd / max * 120, unused = point.unusedEquivalentUsd! / max * 120;
+      return '<div class="hc-col"><div class="stack-bar" role="img" tabindex="0" aria-label="' + text + '" title="' + text + '">' +
+        '<div class="stack-seg seg-input" style="height:' + used.toFixed(2) + 'px"></div>' +
+        '<div class="stack-seg seg-cache-read" style="height:' + unused.toFixed(2) + 'px"></div></div></div>';
+    }).join('');
+    const labels = points.map(point => {
+      const parts = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric', timeZone: I18n.getTimezone() || undefined })
+        .formatToParts(new Date(point.quotaCycle?.endAt ?? point.resetAt));
+      const date = parts.find(p => p.type === 'month')!.value + '/' + parts.find(p => p.type === 'day')!.value;
+      const account = this.weeklyAccountNumber(point.accountNumber);
+      const marker = point.quotaCycle?.fallbackDays === 7 ? copy.fallbackCycleShort :
+        (account === undefined ? '?' : '#' + account) + (point.current ? ' ' + copy.currentPeriodShort : '');
+      return '<div class="hc-xlabel" title="' + esc(title(point)) + '"><span>' + esc(date) + '</span><span>' + esc(marker) + '</span></div>';
+    }).join('');
+    const official = this.renderOfficialWeeklyQuota('codex', projection);
+    const local = sources.local ? '<p class="table-hint" data-local-quota>' + esc(copy.localQuotaObservation + ' · ' +
+      this.formatPercent(sources.local.usedPercent / 100) + ' · ' + copy.resetsAt + ' ' + this.cycleDate(sources.local.resetAt) +
+      ' · ' + copy.estimateAsOf + ' ' + this.cycleDate(sources.local.observedAt) +
+      (now - sources.local.observedAt >= 300000 ? ' · ' + copy.estimateStale : '')) + '</p>' : '';
+    const transition = sources.change ? '<p class="table-hint" data-local-window-change>' + esc(copy.observedWindowChange + ' · ' +
+      this.cycleDate(sources.change.beforeAt) + ' → ' + this.cycleDate(sources.change.observedAt) + ' · ' +
+      this.formatPercent(sources.change.beforePercent / 100) + ' → ' + this.formatPercent(sources.change.usedPercent / 100)) + '</p>' : '';
+    const conflict = sources.conflict ? '<p class="table-hint" data-cycle-source-conflict role="status">' + esc(copy.sourceConflict) + '</p>' : '';
+    const chart = points.length ? '<div class="composition-chart" data-codex-cycle-chart data-weekly-estimate-chart style="--cycle-count:' + points.length + '">' +
+      '<div class="stack-legend"><span class="legend-item"><span class="legend-dot seg-input"></span>' + esc(copy.inferredUsed) + '</span>' +
+      '<span class="legend-item"><span class="legend-dot seg-cache-read"></span>' + esc(copy.estimateUnused) + '</span></div>' +
+      '<div class="hc-wrap"><div class="hc-yaxis"><span class="hc-yval">' + (known ? esc(this.weeklyTableCurrency(max)) : '—') +
+      '</span><span class="hc-yval">' + (known ? esc(this.weeklyTableCurrency(max / 2)) : '—') + '</span><span class="hc-yval">' +
+      (known ? esc(this.weeklyTableCurrency(0)) : '—') + '</span></div><div class="hc-main"><div class="hc-scroll" tabindex="0">' +
+      '<div class="hc-plot"><div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div><div class="hc-bars">' + bars +
+      '</div></div><div class="hc-xlabels">' + labels + '</div></div></div></div></div>' : '<p class="table-hint">' + esc(copy.estimateBlocked) + '</p>';
+    const archive = projection.status === 'full' ? copy.archiveFull : projection.status === 'unavailable' ? copy.archiveUnavailable :
+      projection.status === 'loading' ? copy.archiveLoading : '';
+    const indexing = this.codexView?.periodCoverage?.allTime?.complete === false ? '<p class="table-hint" role="status">' + esc(copy.cycleIndexedSubtotal) + '</p>' : '';
+    return '<div class="daily-breakdown" data-codex-cycle-panel><div class="section-header"><h3>' + esc(copy.cycleTitle + ' · ' + I18n.t.providers.codexBeta) +
+      '</h3></div>' + official + local + transition + conflict + indexing + '<p class="table-hint">' + esc(copy.cycleSummaryNote) + '</p>' + chart +
+      (archive ? '<p class="table-hint" role="status">' + esc(archive) + '</p>' : '') + this.renderCodexCycleRecords(projection) +
+      '<p class="table-hint">' + esc(copy.description) + '</p></div>';
+  }
+
   /** Shared reset-aligned allowance-value renderer for Claude and Codex. The
    * chart deliberately reuses the dashboard's existing stacked-bar classes:
    * blue is observed use, green is the inferred unused share. */
@@ -7845,6 +7988,7 @@ export class UsageWebviewProvider {
     const copy = I18n.t.weeklyValue;
     const points = provider === 'codex' ? [] : this.weeklyValuePoints(provider);
     const estimates=this.weeklyEstimateProjection(provider);
+    if (this.usesCycleQuotaPanel(provider)) return this.renderCodexCyclePanel(estimates);
     const observedChartPoints=projectWeeklyEstimateChart(provider,provider === 'codex' ? [] : points,estimates.entries,{now:Date.now(),limit:provider === 'codex' ? 48 : 8,
       ...(provider === 'codex' && this.setting<boolean>('codex.officialQuota.enabled', false) ? {
         activeAccountNumber: estimates.activeAccountNumber,
@@ -13728,6 +13872,52 @@ export class UsageWebviewProvider {
         text-overflow: ellipsis;
         line-height: 14px;
       }
+
+      [data-codex-cycle-chart] .hc-plot,
+      [data-codex-cycle-chart] .hc-xlabels {
+        width: calc(var(--cycle-count) * 46px - 2px);
+        min-width: 0;
+      }
+
+      [data-codex-cycle-chart] .stack-bar { width: 40px; }
+      [data-codex-cycle-chart] .hc-wrap { margin-bottom: 12px; }
+      [data-codex-cycle-chart] .stack-bar:focus-visible,
+      [data-cycle-pending]:focus-visible,
+      [data-cycle-evidence] > summary:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 2px;
+      }
+      [data-cycle-pending] {
+        color: var(--vscode-descriptionForeground);
+        min-height: 24px;
+        line-height: 24px;
+      }
+      [data-cycle-source-conflict] {
+        padding: 6px 10px;
+        border-left: 2px solid var(--vscode-charts-orange);
+        background: var(--vscode-editor-background);
+      }
+      [data-cycle-state] {
+        display: block;
+        color: var(--vscode-descriptionForeground);
+        font-size: 11px;
+        margin-top: 3px;
+        white-space: normal;
+        max-width: 180px;
+      }
+      [data-codex-cycle-panel] [data-codex-cycle-table] { min-width: 760px; }
+      [data-codex-cycle-panel] [data-codex-cycle-table] td,
+      [data-codex-cycle-panel] [data-codex-cycle-table] th { vertical-align: top; }
+      [data-codex-cycle-panel] [data-codex-cycle-table] .date-cell { min-width: 100px; white-space: nowrap; }
+      [data-codex-cycle-panel] [data-codex-cycle-table] th:last-child,
+      [data-codex-cycle-panel] [data-codex-cycle-table] td:last-child { min-width: 140px; }
+      [data-cycle-evidence] { max-width: 420px; }
+      [data-codex-cycle-table] .cost-cell { color: var(--vscode-foreground); }
+      [data-cycle-evidence] .table-hint { color: var(--vscode-foreground); }
+      [data-cycle-evidence] > summary { cursor: pointer; white-space: nowrap; color: var(--vscode-textLink-foreground); }
+      [data-cycle-evidence-facts] { margin: 10px 0; display: grid; gap: 4px 10px; grid-template-columns: auto 1fr; }
+      [data-cycle-evidence-facts] dt { color: var(--vscode-descriptionForeground); }
+      [data-cycle-evidence-facts] dd { margin: 0; overflow-wrap: anywhere; }
 
       [data-codex-time-series],
       [data-codex-time-series] .chart-content,

@@ -61,9 +61,17 @@ function display(run: () => void) {
 }
 
 function details(html: string, className: string): string {
-  const section = html.match(new RegExp('<details class="' + className + '"[^>]*>([\\s\\S]*?)</details>'));
-  assert.ok(section, `${className} must remain independently inspectable`);
-  return section[1];
+  const start = new RegExp('<details class="' + className + '"[^>]*>').exec(html);
+  assert.ok(start, `${className} must remain independently inspectable`);
+  // Each summary row now nests its own native evidence disclosure. Match the
+  // outer closing tag rather than truncating the table at the first inner one.
+  const section = html.slice(start.index);
+  let depth = 0;
+  for (const tag of section.matchAll(/<\/?details\b[^>]*>/g)) {
+    depth += tag[0].startsWith('</') ? -1 : 1;
+    if (depth === 0) return section.slice(start[0].length, tag.index!);
+  }
+  assert.fail(`${className} must have a complete outer disclosure`);
 }
 
 function rows(html: string): string[][] {
@@ -78,6 +86,22 @@ function barLabels(html: string): string[] {
 }
 
 function money(amount: number): string { return I18n.formatCurrency(amount).replace(/^≈/, ''); }
+
+function evidence(cell: string): string {
+  assert.match(cell, /^<details data-cycle-evidence data-persist="[^"]+">/);
+  assert.equal((cell.match(/<details\b/g) ?? []).length, 1);
+  const facts = cell.match(/<dl data-cycle-evidence-facts>([\s\S]*?)<\/dl>/);
+  assert.ok(facts, 'sample evidence belongs inside the native per-cycle disclosure');
+  return facts[1];
+}
+
+function sampleAmount(cell: string): string {
+  const facts = evidence(cell);
+  const values = [...facts.matchAll(/<dd>([\s\S]*?)<\/dd>/g)];
+  assert.equal(values.length, 5, 'method, interval/as-of, sample, percentage change and coverage remain auditable');
+  assert.ok(facts.includes('<dt>' + I18n.t.weeklyValue.estimateUsed + '</dt>'));
+  return values[2][1];
+}
 
 // The retained comparison reuses the established composition/stack classes.
 function chart(html: string, name: string): string {
@@ -114,16 +138,24 @@ test('independent estimate chart and table preserve used + unused = total at the
   assert.equal(f.projectionReads(), 1, 'one supplied projection must feed chart and tables');
   assert.equal(JSON.stringify([f.point, f.projection]), before, 'rendering must not rewrite usage or snapshots');
   const estimateRows = rows(details(html, 'weekly-estimate-details'));
-  const selected = estimateRows.find(row => row[2] === money(USED));
-  assert.ok(selected, 'retain the $860.87 observation numerator in the independent estimate table');
-  assert.equal(selected[3], '71%'); assert.equal(selected[4], money(FULL));
-  assert.equal(selected[5], money(UNUSED));
-  assert.equal(selected[6], money(USED), 'preserve sample evidence separately from inferred cycle use');
-  assert.equal(selected[8], I18n.t.weeklyValue.accountUnassigned);
+  assert.equal(estimateRows.length, 1, 'one selected cycle summary replaces extra raw-sample rows');
+  const [selected] = estimateRows;
+  assert.equal(selected.length, 7);
+  assert.equal(selected[3], money(USED)); assert.equal(selected[2], money(FULL));
+  assert.equal(selected[4], money(UNUSED));
+  assert.match(selected[5], /71%/);
+  assert.equal(sampleAmount(selected[6]), money(USED), 'preserve sample evidence separately from inferred cycle use');
+  assert.equal(selected[1], I18n.t.weeklyValue.accountUnassigned);
   const cents = (cell: string) => Math.round(Number(cell.replace(/[^\d.]/g, '')) * 100);
-  assert.equal(cents(selected[2]) + cents(selected[5]), cents(selected[4]));
+  assert.equal(cents(selected[3]) + cents(selected[4]), cents(selected[2]));
   const estimatedChart = chart(html, 'weekly-estimate-chart');
   const labels = barLabels(estimatedChart);
+  assert.equal(labels.length, estimateRows.length, 'chart and table describe the same selected cycle');
+  const asOf = new Intl.DateTimeFormat(I18n.getLocale(), { year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined })
+    .format(new Date(f.projection.entries[1].observedAt));
+  assert.ok(selected[5].startsWith(asOf + '<span'), 'the table retains the selected observation time');
+  assert.ok(labels.every(label => label.includes(I18n.t.weeklyValue.estimateAsOf + ': ' + asOf)));
   assert.ok(labels.some(label => [USED, UNUSED, FULL].every(value => label.includes(money(value)))),
     'one estimate bar must expose 860.87 used + 351.62 unused = 1212.49 total');
   assert.ok(labels.every(label => !label.includes(money(ACTUAL))), 'local actual is not the estimate numerator');
@@ -138,8 +170,11 @@ test('all locales retain unassigned ownership and omit approximation symbols fro
     assert.doesNotMatch(html, /fixture-local-series|accountScopeKey|sourceKey/);
     const tables = [details(html, 'weekly-estimate-details')];
     for (const table of tables) for (const row of rows(table)) {
-      assert.equal(row[row.length - 1], I18n.t.weeklyValue.accountUnassigned,
+      assert.equal(row.length, 7);
+      assert.equal(row[1], I18n.t.weeklyValue.accountUnassigned,
         'complete indexing and source continuity do not identify an account');
+      assert.equal(row[2], money(FULL)); assert.equal(row[3], money(USED)); assert.equal(row[4], money(UNUSED));
+      assert.equal(sampleAmount(row[6]), money(USED));
       for (const cell of row) assert.doesNotMatch(cell, /[≈~∼]/);
     }
     assert.equal(f.projectionReads(), 1);
@@ -155,9 +190,12 @@ test('account delta interval evidence remains separate from inferred whole-cycle
   const html = f.owner.renderWeeklyValuePanel('codex');
   const records = details(html, 'weekly-estimate-details'), [row] = rows(records);
   assert.match(records, /<th>Inferred used \(estimate\)<\/th>/);
-  assert.match(records, /<th>Sample estimate<\/th>/);
-  assert.equal(row[2], money(60)); assert.equal(row[4], money(150));
-  assert.equal(row[5], money(90)); assert.equal(row[6], money(30));
+  assert.match(records, /<th>Calibration evidence<\/th>/);
+  assert.doesNotMatch(records, /<th>Sample estimate<\/th>/);
+  assert.equal(row.length, 7);
+  assert.equal(row[3], money(60)); assert.equal(row[2], money(150));
+  assert.equal(row[4], money(90)); assert.equal(sampleAmount(row[6]), money(30));
+  assert.ok(evidence(row[6]).includes(I18n.t.weeklyValue.accountDeltaEstimate));
   assert.ok(barLabels(chart(html, 'weekly-estimate-chart')).some(label =>
     [60, 90, 150].every(amount => label.includes(money(amount)))));
 }));
@@ -172,8 +210,9 @@ test('historical estimates remain visible without a second local statistics surf
   assert.equal(barLabels(chart(html, 'weekly-estimate-chart')).length, 2);
   const records = rows(details(html, 'weekly-estimate-details'));
   assert.equal(records.length, 2, 'one latest monetary row per cycle, including the historical cycle');
-  assert.ok(records.every(row => row[4] === money(FULL) && row[5] === money(UNUSED)),
+  assert.ok(records.every(row => row[2] === money(FULL) && row[3] === money(USED) && row[4] === money(UNUSED)),
     'the competing older observation must not become a duplicate cycle row');
+  for (const row of records) assert.equal(sampleAmount(row[6]), money(USED));
   assert.doesNotMatch(html, /weekly-actual-chart|weekly-value-details/);
 }));
 
@@ -205,7 +244,8 @@ test('Codex with local usage but no estimates keeps records and an empty state w
   p.weeklyEstimateProjection = () => ({ status: 'ready', entries: [] });
   const html = p.renderWeeklyValuePanel('codex');
   assert.doesNotMatch(html, /weekly-actual-chart|weekly-value-details|weekly-estimate-chart/);
-  assert.match(html, /class="no-data"/);
+  assert.ok(html.includes('<p class="table-hint">' + I18n.t.weeklyValue.estimateBlocked + '</p>'),
+    'no estimates has a visible missing-evidence state, not invented local capacity');
   assert.equal(rows(details(html, 'weekly-estimate-details')).length, 0);
 }));
 
@@ -220,7 +260,11 @@ test('unassigned legacy estimates retain numbers with low confidence and no curr
     assert.ok(!labels[0].includes(copy.currentPeriod));
     assert.ok(!labels[0].includes(copy.currentPeriodShort));
     assert.ok(labels[0].includes(money(FULL)));
-    assert.ok(details(html, 'weekly-estimate-details').includes(copy.low));
+    assert.ok(labels[0].includes(copy.estimateReference));
+    const [row] = rows(details(html, 'weekly-estimate-details'));
+    assert.equal(row[1], copy.accountUnassigned);
+    assert.equal(sampleAmount(row[6]), money(USED));
+    assert.ok(row[6].includes(copy.estimateAccountUnknown), 'audit evidence must retain the ownership limitation');
   }
 }));
 

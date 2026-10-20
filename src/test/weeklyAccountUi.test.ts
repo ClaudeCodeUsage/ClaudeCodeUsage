@@ -129,10 +129,10 @@ test('the estimated chart receives the active quota epoch and never marks a prev
   p.weeklyValuePoints = () => [];
   projection.activeQuotaEpochStartedAt = T - 60_000;
   projection.officialQuota.quotaEpochStartedAt = T - 60_000;
-  assert.doesNotMatch(p.renderWeeklyValuePanel('codex'), /#2 · Current/);
+  assert.doesNotMatch(p.renderWeeklyValuePanel('codex'), /#2 Current/);
   projection.activeQuotaEpochStartedAt = startedAt;
   projection.officialQuota.quotaEpochStartedAt = startedAt;
-  assert.match(p.renderWeeklyValuePanel('codex'), /#2 · Current/);
+  assert.match(p.renderWeeklyValuePanel('codex'), /<span>#2 Current<\/span>/);
 }));
 
 test('a six-minute-old stale official sample stays visible at its original observation without active calibration claims', () => english(() => {
@@ -148,7 +148,7 @@ test('a six-minute-old stale official sample stays visible at its original obser
       hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined }).format(new Date(observedAt));
     assert.ok(quota.includes(date)); assert.ok(quota.includes(I18n.t.weeklyValue.estimateStale));
     assert.doesNotMatch(quota, /Collecting samples/);
-    assert.doesNotMatch(html, /#2 · Current/);
+    assert.doesNotMatch(html, /#2 Current/);
     assert.equal(JSON.stringify(projection), before, 'stale display must not refresh the sample time or percentage');
     if (entries.length) assert.match(html, /\$100\.00/);
   }
@@ -196,7 +196,7 @@ test('identified quota before number assignment collects samples without inventi
 test('chart current marker follows the identified service account and retires when another account is collecting', () => english(() => {
   const { p, projection } = owner(true, [entry()]); p.weeklyValuePoints = () => [];
   const chart = () => p.renderWeeklyValuePanel('codex').match(/<div class="hc-xlabels">([\s\S]*?)<\/div><\/div>/)?.[1] ?? '';
-  assert.match(chart(), /#2 · Current/);
+  assert.match(chart(), /<span>#2 Current<\/span>/);
   projection.activeAccountNumber = 3; projection.officialQuota.accountNumber = 3;
   assert.doesNotMatch(chart(), /Current/);
   assert.match(status(p.renderWeeklyValuePanel('codex')), /Collecting samples/);
@@ -211,7 +211,13 @@ test('unassigned historical bars explicitly disclose reference status and low co
   const {p}=owner(false,[{...entry('series-prefix-v1'),accountNumber:undefined}]);
   const html=p.renderWeeklyValuePanel('codex');
   const labels=[...html.matchAll(/aria-label="([^"]*)"/g)].map(row=>row[1]);
-  assert.ok(labels.length>0);assert.ok(labels.every(label=>label.includes('Unassigned · Low · Reference estimate')));
+  assert.ok(labels.length>0);
+  // Cycle bounds, amounts and their own as-of now precede the confidence
+  // disclosure. Keep both identity and low-reference claims in every name.
+  assert.ok(labels.every(label=>label.startsWith('Unassigned · ')&&
+    label.includes('Low · Reference estimate · not an account cycle')));
+  assert.ok(labels.every(label=>label.includes('As of observation:')));
+  assert.ok(labels.every(label=>!label.includes('Current period')));
   assert.match(html,/<td>Unassigned<\/td>/,'the table still discloses missing ownership');
 }));
 

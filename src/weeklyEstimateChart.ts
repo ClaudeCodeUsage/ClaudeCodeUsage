@@ -9,6 +9,7 @@ export interface WeeklyEstimateChartPoint extends WeeklyValuePoint {
   accountNumber?: number;
   quotaEpoch?: CodexQuotaEpoch;
   quotaCycle?: CodexQuotaCycle;
+  localWindowNumber?: number;
 }
 
 /** A presentation projection, never an update to the unique usage ledger or archive. */
@@ -36,7 +37,7 @@ export function projectWeeklyEstimateChart(
     entry.method==='paired-delta'?3:entry.method==='rough-prefix-v2'?2:1;
   valid.sort((a,b)=>b.observedAt-a.observedAt||rank(b)-rank(a)||b.estimatedAt-a.estimatedAt);
   const chosen:LocalWeeklyEstimate[]=[];
-  if(provider==='codex')chosen.push(...selectCodexCycleEstimates(valid));
+  if(provider==='codex')chosen.push(...selectCodexCycleEstimates(all));
   for(const entry of provider==='codex'?[]:valid){
     // Compare to the selected representative, not a chain of neighboring resets.
     if(!chosen.some(other=>(other.accountNumber??other.accountScopeKey)===(entry.accountNumber??entry.accountScopeKey)&&
@@ -47,20 +48,23 @@ export function projectWeeklyEstimateChart(
   }
   const estimated:WeeklyEstimateChartPoint[]=chosen.map(entry=>({
     provider,seriesKey:'observed-window',windowStart:entry.windowStart,resetAt:entry.resetAt,
-    current:entry.quotaCycle?.closed!==true&&(provider!=='codex'||(entry.method==='account-delta-v1'&&entry.quotaEpoch!==undefined&&
+    current:entry.quotaCycle?.closed!==true&&entry.quotaCycle?.referenceOnly!==true&&(provider!=='codex'||(entry.quotaCycle!==undefined&&entry.method==='account-delta-v1'&&entry.quotaEpoch!==undefined&&
       entry.accountNumber!==undefined&&Number.isSafeInteger(entry.accountNumber)&&entry.accountNumber>0))&&
       entry.observedAt===latestObserved&&entry.resetAt>now&&
       (entry.accountNumber===undefined
         ? options.accountIdentityAvailable===undefined&&options.activeQuotaEpochStartedAt===undefined
         : options.accountIdentityAvailable===true&&options.activeAccountNumber===entry.accountNumber)&&
       (options.activeQuotaEpochStartedAt===undefined||(entry.quotaCycle?.id??entry.quotaEpoch?.startedAt)===options.activeQuotaEpochStartedAt),
-    usedEquivalentUsd:entry.fullEquivalentUsd!-entry.unusedEquivalentUsd!,
+    usedEquivalentUsd:entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null ? 0 :
+      entry.fullEquivalentUsd-entry.unusedEquivalentUsd,
     fullEquivalentUsd:entry.fullEquivalentUsd,unusedEquivalentUsd:entry.unusedEquivalentUsd,
     utilizationPercent:entry.utilizationPercent,pricingCoverage:entry.pricingCoverage,
     observationGapMs:Math.max(0,now-entry.observedAt),confidence:'low',basis:'quota-observation',
-    usageAvailable:true,boundaryUncertain:entry.flags.includes('boundary-uncertain'),
+    usageAvailable:entry.fullEquivalentUsd !== null,boundaryUncertain:entry.flags.includes('boundary-uncertain'),
     observedAt:entry.observedAt,observedResetAt:entry.resetAt,asOfEstimate:true,
-    ...(entry.accountNumber===undefined?{}:{accountNumber:entry.accountNumber}),
+    ...(typeof entry.accountNumber === 'number' && Number.isSafeInteger(entry.accountNumber) && entry.accountNumber > 0
+      ? {accountNumber:entry.accountNumber} : {}),
+    ...(entry.localWindowNumber===undefined?{}:{localWindowNumber:entry.localWindowNumber}),
     ...(entry.quotaEpoch===undefined?{}:{quotaEpoch:copyCodexQuotaEpoch(entry.quotaEpoch)!}),
     ...(copyCodexQuotaCycle(entry.quotaCycle)===undefined?{}:{quotaCycle:copyCodexQuotaCycle(entry.quotaCycle)!}),
   }));

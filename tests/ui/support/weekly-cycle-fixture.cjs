@@ -52,3 +52,43 @@ exports.weeklyReferenceFixture = (snapshot, now) => {
   return { snapshot, raw, projector: () => (provider) => provider === 'codex'
     ? { entries, status: 'ready' } : { entries: [], status: 'ready' } };
 };
+
+// Numeric token/quota input goes through the production paired estimator.
+// No precomputed capacity rows, account inference or provider/network I/O.
+exports.weeklyPairedFixture = (snapshot, now) => {
+  const { buildCodexWindowEstimates } = require('../../../out/codexWindowEstimate');
+  const { captureCodexCalibrationPricebook } = require('../../../out/codexCalibrationEvidence');
+  const { getExactModelPricing } = require('../../../out/pricing');
+  const day = 86400000, week = 7 * day, checkpoints = [];
+  const rate = getExactModelPricing('gpt-5').input_cost_per_token;
+  for (let i = 0; i < 10; i++) {
+    const from = now - (i * 7 + 3) * day, resetAt = from + 6 * day;
+    const sourceKey = 'synthetic-paired-' + i;
+    for (const [offset, usedPercent, usd] of [[0, 0, 0], [3600000, 10, 10 + i * 2], [7200000, 40, 40 + i * 8]]) {
+      const inputTotal = Math.round(usd / rate);
+      checkpoints.push({ sourceKey, segment: 1, from, through: from + offset, resetAt, usedPercent,
+        baseline: offset === 0, ...(offset === 0 ? { baselineByModel: {} } : {}), complete: true,
+        byModel: { 'gpt-5': { inputTotal, cachedInput: 0, outputTotal: 0, reasoningOutput: 0, sourceTotal: inputTotal } } });
+    }
+  }
+  const resetAt = now + week, observedAt = now - 60000;
+  const inputs = { usage: [], observations: [{ provider: 'codex', sourceKey: 'synthetic-current', seriesKey: 'codex',
+    observedAt: now, resetAt: resetAt - 48 * 60000, usedPercent: 5 }],
+    localHistoryComplete: true, codexQuotaCheckpoints: checkpoints, codexQuotaCheckpointsComplete: true,
+    calibrationPricebook: captureCodexCalibrationPricebook(['gpt-5']) };
+  const entries = buildCodexWindowEstimates(inputs, { now });
+  entries.push({ provider: 'codex', method: 'account-delta-v1', accountNumber: 1,
+    observedAt, estimatedAt: now, usedEquivalentUsd: 0, fullEquivalentUsd: null,
+    unusedEquivalentUsd: null, utilizationPercent: 0, pricingCoverage: 0, flags: [],
+    // Keep first official observation inside its nominal window.
+    windowStart: now - 120000,
+    quotaEpoch: { startedAt: observedAt, resetAnchorAt: resetAt - 60000, startLowerAt: null, reason: 'initial' },
+    resetAt: resetAt - 60000,
+    quotaCycle: { id: observedAt, startAt: null, startLowerAt: null, endAt: resetAt - 60000, endLowerAt: resetAt - 60000,
+      closed: false, scheduledResetAt: resetAt - 60000, boundaryUncertain: true } });
+  return { snapshot: { ...snapshot, weeklyValueInputs: inputs }, projector: enabled => provider => provider === 'codex'
+    ? { entries, status: 'ready', ...(enabled ? { activeAccountNumber: 1, activeQuotaEpochStartedAt: observedAt,
+      officialQuota: { status: 'ready', accountNumber: 1, resetAt: resetAt - 60000, observedAt, usedPercent: 0,
+        quotaEpochStartedAt: observedAt } } : { officialQuota: { status: 'disabled' } }) }
+    : { entries: [], status: 'ready' } };
+};

@@ -9,7 +9,20 @@ const usage=(resetAt=R,amount=400):WeeklyValuePoint=>({provider:'codex',seriesKe
   utilizationPercent:null,pricingCoverage:.92,observationGapMs:null,confidence:'usage-only',basis:'reset-aligned-usage'});
 const snapshot=(extra:Partial<LocalWeeklyEstimate>={}):LocalWeeklyEstimate=>({provider:'codex',windowStart:R-7*D,
   resetAt:R,observedAt:N-H,estimatedAt:N,usedEquivalentUsd:25,fullEquivalentUsd:100,unusedEquivalentUsd:75,
-  utilizationPercent:25,pricingCoverage:.92,method:'rough-prefix-v2',flags:['account-unattributed'],...extra});
+  // Arithmetic/current-account fixtures need admissible capacity. Incomplete
+  // coverage has its own withholding test below, rather than masking this one.
+  utilizationPercent:25,pricingCoverage:1,method:'rough-prefix-v2',flags:['account-unattributed'],...extra});
+
+test('incomplete pricing or history leaves a pending cycle without promoting a numeric capacity',()=>{
+  for(const extra of [{pricingCoverage:.92}, {flags:['partial-pricing']},
+    {flags:['partial-history']}] as Partial<LocalWeeklyEstimate>[]){
+    const entries=[snapshot(extra)], before=JSON.stringify(entries);
+    const [point]=projectWeeklyEstimateChart('codex',[],entries,{now:N});
+    assert.equal(point.fullEquivalentUsd,null);assert.equal(point.unusedEquivalentUsd,null);
+    assert.equal(point.usageAvailable,false);assert.equal(point.current,false);
+    assert.equal(JSON.stringify(entries),before);
+  }
+});
 
 test('stacked estimates use 25 observed-used plus 75 unused, not current local 400 plus old 75',()=>{
   const rows=[usage()],snapshots=[snapshot()],before=JSON.stringify([rows,snapshots]);

@@ -83,16 +83,29 @@ async function expectAccountTable(page) {
   ]) {
     const row = rows.filter({ has: page.getByRole('cell', { name: account, exact: true }) });
     await expect(row).toHaveCount(1);
-    await expect(row.locator('td').nth(4)).toHaveText(total);
-    await expect(row.locator('td').nth(5)).toHaveText(unused);
-    await expect(row.locator('td').nth(2)).toHaveText(inferred);
-    await expect(row.locator('td').nth(6)).toHaveText(sample);
-    await expect(row.locator('td').nth(7)).toContainText('Account quota delta · local usage proxy');
-    await expect(row.locator('td').nth(7)).toContainText('Local usage ownership unverified');
+    await expect(row.locator('td')).toHaveCount(7);
+    await expect(row.locator('td').nth(2)).toHaveText(total);
+    await expect(row.locator('td').nth(4)).toHaveText(unused);
+    await expect(row.locator('td').nth(3)).toHaveText(inferred);
+    const evidence = row.locator('td').nth(6).locator('details[data-cycle-evidence][data-persist]');
+    await expect(evidence).toHaveCount(1);
+    await evidence.locator(':scope > summary').click();
+    await expect(evidence).toContainText(sample);
+    await expect(evidence).toContainText('Account quota delta · local usage proxy');
+    await expect(evidence).toContainText('Local usage ownership unverified');
+    await evidence.locator(':scope > summary').click();
   }
   const unknown = rows.filter({ has: page.getByRole('cell', { name: 'Unassigned', exact: true }) });
   await expect(unknown).toHaveCount(1);
-  await expect(unknown).toContainText('Local-series estimate (account unverified)');
+  // The unassigned historical fixture is incomplete. Keep its raw sample in
+  // the disclosure, without presenting it as an eligible monetary conversion.
+  for (const column of [2, 3, 4]) await expect(unknown.locator('td').nth(column)).toHaveText('—');
+  const unknownEvidence = unknown.locator('details[data-cycle-evidence][data-persist]');
+  await unknownEvidence.locator(':scope > summary').click();
+  await expect(unknownEvidence).toContainText('No usable conversion sample');
+  await expect(unknownEvidence).toContainText('Account unverified');
+  await expect(unknownEvidence.locator('[data-cycle-evidence-facts] dd').nth(2)).toHaveText('$10.00');
+  await unknownEvidence.locator(':scope > summary').click();
   const table = page.locator('#all .weekly-value-details');
   await expect(table).toHaveCount(0);
   const section = page.locator('#all .daily-breakdown').filter({ has: page.locator('.weekly-estimate-details') });
@@ -101,8 +114,10 @@ async function expectAccountTable(page) {
   await expect(section.locator('.composition-chart')).toHaveCount(1);
   const estimates = section.locator('[data-weekly-estimate-chart]');
   await expect(estimates.locator('.hc-bars [role="img"]')).toHaveCount(3);
-  await expect(estimates.locator('.hc-xlabel').filter({ hasText: /#2 · Current$/ })).toHaveCount(1);
-  await expect(estimates.locator('.hc-xlabel')).not.toContainText(['#1 · Current']);
+  await expect(estimates.locator('.hc-bars .stack-bar')).toHaveCount(2);
+  await expect(estimates.locator('.hc-bars [data-cycle-pending]')).toHaveCount(1);
+  await expect(estimates.locator('.hc-xlabel').filter({ hasText: /#2 Current$/ })).toHaveCount(1);
+  await expect(estimates.locator('.hc-xlabel')).not.toContainText(['#1 Current']);
   for (const label of await estimates.locator('.hc-xlabel').all()) {
     await expect(label.locator('span')).toHaveCount(2);
     await expect(label.locator('span').first()).toHaveText(/^\d{1,2}\/\d{1,2}$/);
@@ -176,7 +191,9 @@ for (const [theme, width] of [['light', 320], ['dark', 360], ['highContrast', 32
     const summary = details(page).locator(':scope > summary');
     await summary.focus(); await page.keyboard.press('Enter');
     await expect(details(page)).toHaveAttribute('open', '');
-    await expect(details(page).locator('thead th').last()).toHaveText('Account');
+    await expect(details(page).locator('thead th')).toHaveCount(7);
+    await expect(details(page).locator('thead th').nth(1)).toHaveText('Account');
+    await expect(details(page).locator('thead th').last()).toHaveText('Calibration evidence');
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('__ccu-vscode-state') ?? '{}').openDetails ?? []))
       .toContain('weekly-estimate-codex');
     await page.clock.runFor(250);
@@ -197,7 +214,8 @@ for (const [theme, width] of [['light', 320], ['dark', 360], ['highContrast', 32
     expect(Math.abs(await summary.evaluate(node => node.getBoundingClientRect().top) - before)).toBeLessThanOrEqual(1);
     await page.reload({ waitUntil: 'load' });
     await expect(details(page)).toHaveAttribute('open', '');
-    await expect(details(page).locator('thead th').last()).toHaveText('Account');
+    await expect(details(page).locator('thead th').nth(1)).toHaveText('Account');
+    await expect(details(page).locator('thead th').last()).toHaveText('Calibration evidence');
     await expect(page.locator('.weekly-official-quota')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
     const screenshot = testInfo.outputPath(`weekly-account-${theme}-${width}.png`);

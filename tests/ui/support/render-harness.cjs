@@ -651,7 +651,7 @@ exports.renderHarness = async function renderHarness({
   I18n.setLanguage(locale);
   I18n.setTimezone(timeZone);
   I18n.setDecimalPlaces(2);
-  const localCurrencyFixture = fixture === 'local-currency';
+  const localCurrencyFixture = fixture === 'local-currency' || fixture === 'weekly-paired-currency';
   const displayCurrency = localCurrencyFixture ? 'EUR' : 'USD';
   I18n.setCurrencyDisplay(displayCurrency);
   vscodeHost.window.activeColorTheme.kind = theme === 'highContrast' ? 3 : theme === 'dark' ? 2 : 1;
@@ -676,6 +676,8 @@ exports.renderHarness = async function renderHarness({
       ? require('./weekly-cycle-fixture.cjs').weeklyCycleFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
       : fixture === 'weekly-reference-cycles'
       ? require('./weekly-cycle-fixture.cjs').weeklyReferenceFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
+      : fixture === 'weekly-paired-cycles' || fixture === 'weekly-paired-currency'
+      ? require('./weekly-cycle-fixture.cjs').weeklyPairedFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
       : undefined;
     const snapshot = accountFixture ? accountFixture.snapshot : fixture === 'weekly-rough-partial' || fixture === 'weekly-rough-cross-week'
       ? weeklyRoughPartialSnapshot(baseSnapshot, fixture === 'weekly-rough-cross-week')

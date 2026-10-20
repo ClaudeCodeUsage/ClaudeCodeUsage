@@ -10,6 +10,7 @@ import * as estimateProducer from '../weeklyEstimate';
 import { WeeklyEstimateArchive, WeeklyEstimateInput, weeklyEstimateAccountFingerprint } from '../weeklyEstimateArchive';
 import { WeeklyEstimateCoordinator } from '../weeklyEstimateCoordinator';
 import { projectWeeklyEstimateChart } from '../weeklyEstimateChart';
+import { withCodexQuotaCycles } from '../codexQuotaCycles';
 import type { WeeklyValueInputs } from '../weeklyValue';
 
 const T = Date.parse('2026-10-19T02:00:00Z'), M = 60_000, WEEK = 604_800_000, R = T + 6 * 86_400_000;
@@ -180,14 +181,25 @@ test('coordinator projects both same-reset epochs, notices active epoch-only cha
 });
 
 test('chart keeps old and new same-reset epochs and uses active account+epoch for current', () => {
-  const entries: LocalWeeklyEstimate[] = [estimate(), estimate(epoch(T + 2 * M))].map(row => ({ ...row, flags: [...row.flags], accountNumber: 1 }));
-  const points = projectWeeklyEstimateChart('codex', [], entries, { now: T + 4 * M,
-    activeAccountNumber: 1, activeQuotaEpochStartedAt: T + 2 * M, accountIdentityAvailable: true });
+  const raw: LocalWeeklyEstimate[] = [estimate(), estimate(epoch(T + 2 * M))].map(row => ({ ...row, flags: [...row.flags], accountNumber: 1 }));
+  const options = { now: T + 4 * M, activeAccountNumber: 1,
+    activeQuotaEpochStartedAt: T + 2 * M, accountIdentityAvailable: true };
+  const withoutCycles = projectWeeklyEstimateChart('codex', [], raw, options);
+  assert.equal(withoutCycles.length, 2);
+  assert.ok(withoutCycles.every(point => !point.current), 'epoch metadata alone cannot establish a current cycle');
+  const entries = withCodexQuotaCycles(raw, [], () => undefined, options.now);
+  assert.equal(entries[0].quotaCycle!.closed, true);
+  assert.equal(entries[1].quotaCycle!.closed, false);
+  const points = projectWeeklyEstimateChart('codex', [], entries, options);
   assert.equal(points.length, 2);
+  assert.deepEqual(points.map(point => point.quotaEpoch!.startedAt).sort((a, b) => a - b), [T, T + 2 * M]);
   assert.equal(points.filter(point => point.current).length, 1);
   assert.equal(points.find(point => point.current)!.quotaEpoch!.startedAt, T + 2 * M);
-  const stale = projectWeeklyEstimateChart('codex', [], [entries[0]], { now: T + 4 * M,
-    activeAccountNumber: 1, activeQuotaEpochStartedAt: T + 2 * M, accountIdentityAvailable: true });
+  for (const mismatch of [{ activeAccountNumber: 2 }, { activeQuotaEpochStartedAt: T }, { accountIdentityAvailable: false }]) {
+    const guarded = projectWeeklyEstimateChart('codex', [], entries, { ...options, ...mismatch });
+    assert.ok(guarded.every(point => !point.current), 'current requires matching account and active epoch');
+  }
+  const stale = projectWeeklyEstimateChart('codex', [], [entries[0]], options);
   assert.equal(stale[0].current, false);
 });
 

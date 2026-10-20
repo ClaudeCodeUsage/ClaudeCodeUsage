@@ -683,24 +683,42 @@ test('weekly allowance keeps one same-observation estimate comparison and its re
   await openCodex(page);
   await page.locator('#tab-all').click();
 
+  // The default fixture is still indexing. Its samples remain inspectable,
+  // but incomplete history cannot price a cycle or create a zero-capacity bar.
+  const pendingPanel = page.locator('#all [data-codex-cycle-panel]');
+  await expect(pendingPanel).toContainText('Indexing is incomplete');
+  await expect(pendingPanel.locator('[data-weekly-actual-chart], .weekly-value-details')).toHaveCount(0);
+  await expect(pendingPanel.locator('.hc-yval')).toHaveText(['—', '—', '—']);
+  await expect(pendingPanel.locator('.stack-bar, .stack-seg')).toHaveCount(0);
+  await expect(pendingPanel.locator('[data-cycle-pending]')).toHaveCount(2);
+  for (const marker of await pendingPanel.locator('[data-cycle-pending]').all()) {
+    const title = await marker.getAttribute('title');
+    expect(title).toContain('Low · Reference estimate · not an account cycle');
+    expect(title).not.toContain('Current period');
+    expect(title).not.toContain('$');
+    await expect(marker).toHaveAccessibleName(title);
+  }
+
+  // Use the existing complete-index analogue for the original monetary proof.
+  // This preserves same-observation arithmetic without admitting partial data.
+  await openCodex(page, { fixture: 'complete-index' });
+  await page.locator('#tab-all').click();
+
   const panel = page.locator('#all .daily-breakdown').filter({
     hasText: 'Cycle allowance · API-equivalent estimate · Codex',
   });
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('not an official balance, bill or cash value');
-  await expect(panel).toContainText('Blue inferred used equals cycle total minus green unused, at the same observation');
-  await expect(panel).toContainText('Overlapping estimates must not be added');
+  await expect(panel).toContainText('One bar and one row per reset cycle');
   await expect(panel).toContainText('Unpriced usage is not extrapolated from token coverage');
-  await expect(panel).toContainText('Account ownership is unverified');
-  await expect(panel).toContainText('Sample amounts are separate calibration evidence, not whole-cycle use');
+  await expect(panel).toContainText('Neither is an account’s full-period total');
   const actualChart = panel.locator('[data-weekly-actual-chart]');
   const estimateChart = panel.locator('[data-weekly-estimate-chart]');
   await expect(actualChart).toHaveCount(0);
   await expect(estimateChart).toHaveCount(1);
-  await expect(estimateChart.locator('h4')).toHaveText('Quota conversion estimates');
+  await expect(estimateChart.locator('.stack-legend .legend-item')).toHaveText(['Inferred used (estimate)', 'Unused estimate']);
   const details = panel.locator('.weekly-value-details');
   await expect(details).toHaveCount(0);
-  await expect(panel).toContainText('Low · Reference estimate · not an account cycle');
 
   await expect(estimateChart.locator('.hc-col')).toHaveCount(2);
   await expect(estimateChart.locator('.hc-yval')).toHaveText(['$62.50', '$31.25', '$0.00']);
@@ -711,24 +729,39 @@ test('weekly allowance keeps one same-observation estimate comparison and its re
   await expect(estimatedBar.locator('.seg-cache-read')).toHaveAttribute('style', 'height:96.00px');
   await expect(estimatedBar).toHaveAttribute('aria-label', await estimatedBar.getAttribute('title'));
   await expect(estimatedBar).toHaveAccessibleName(/Inferred used \(estimate\): \$12\.50.*Unused estimate: \$50\.00/);
+  for (const bar of await estimateChart.locator('.stack-bar').all()) {
+    const title = await bar.getAttribute('title');
+    expect(title).toContain('Unassigned');
+    expect(title).toContain('Low · Reference estimate · not an account cycle');
+    expect(title).not.toContain('Current period');
+    await expect(bar).toHaveAccessibleName(title);
+  }
 
   const records = panel.locator('.weekly-estimate-details');
-  await records.locator('summary').click();
+  await records.locator(':scope > summary').click();
+  await expect(records.locator(':scope > summary')).toHaveText('Cycle details');
   await expect(records.locator('tbody tr')).toHaveCount(2);
-  await expect(records.locator('thead th').nth(2)).toHaveText('Inferred used (estimate)');
-  await expect(records.locator('thead th').nth(6)).toHaveText('Sample estimate');
+  await expect(records.locator('thead th')).toHaveText(['Period', 'Account', 'Cycle total (estimate)',
+    'Inferred used (estimate)', 'Unused estimate', 'As of observation', 'Calibration evidence']);
+  await expect(records.locator('details[data-cycle-evidence][data-persist]')).toHaveCount(2);
   const estimatedRow = records.locator('tbody tr').filter({
     has: page.getByRole('cell', { name: '$62.50', exact: true }),
   });
   await expect(estimatedRow).toHaveCount(1);
-  await expect(estimatedRow.locator('td').nth(2)).toHaveText('$12.50');
-  await expect(estimatedRow.locator('td').nth(3)).toHaveText('20%');
-  await expect(estimatedRow.locator('td').nth(4)).toHaveText('$62.50');
-  await expect(estimatedRow.locator('td').nth(5)).toHaveText('$50.00');
-  await expect(estimatedRow.locator('td').nth(6)).toHaveText('$12.50');
-  await expect(estimatedRow.locator('td').nth(7)).toContainText('Rough conversion');
-  await expect(estimatedRow.locator('td').nth(7)).toContainText('Boundary split');
-  await expect(estimatedRow.locator('td').last()).toHaveText('Unassigned');
+  await expect(estimatedRow.locator('td')).toHaveCount(7);
+  await expect(estimatedRow.locator('td').nth(3)).toHaveText('$12.50');
+  await expect(estimatedRow.locator('td').nth(5)).toContainText('20%');
+  await expect(estimatedRow.locator('td').nth(2)).toHaveText('$62.50');
+  await expect(estimatedRow.locator('td').nth(4)).toHaveText('$50.00');
+  await expect(estimatedRow.locator('td').nth(1)).toHaveText('Unassigned');
+  const asOf = await estimatedRow.locator('td').nth(5).evaluate(node => node.firstChild.textContent);
+  expect(await estimatedBar.getAttribute('title')).toContain('As of observation: ' + asOf);
+  const evidence = estimatedRow.locator('details[data-cycle-evidence][data-persist]');
+  await evidence.locator(':scope > summary').click();
+  await expect(evidence.locator('[data-cycle-evidence-facts] dd').nth(2)).toHaveText('$12.50');
+  await expect(evidence).toContainText('Rough conversion');
+  await expect(evidence).toContainText('Boundary split');
+  await expect(evidence).toContainText('Account unverified');
   for (const text of await panel.locator('td').allTextContents()) expect(text).not.toContain('≈');
 });
 
@@ -788,15 +821,17 @@ test('weekly allowance table fits at 1280px in the longest locale', async ({ pag
   const panel = page.locator('#all .daily-breakdown').filter({
     hasText: 'Zykluskontingent · API-Äquivalenzschätzung · Codex',
   });
-  await panel.locator('.weekly-estimate-details summary').click();
+  await panel.locator('.weekly-estimate-details > summary').click();
   const container = panel.locator('.weekly-estimate-details .daily-table-container');
   await expect(container).toBeVisible();
   const dimensions = await container.evaluate((element) => ({
     scrollWidth: element.scrollWidth,
     clientWidth: element.clientWidth,
   }));
-  // The retained nine-column estimate table uses its existing horizontal scroller.
+  // Seven summary columns retain the shared horizontal scroller; audit facts
+  // are nested disclosures rather than extra raw-sample columns.
   expect(dimensions.clientWidth).toBeGreaterThan(0);
+  await expect(panel.locator('.weekly-estimate-details th')).toHaveCount(7);
   const clippedHeaders = await panel.locator('.weekly-estimate-details th').evaluateAll((headers) =>
     headers.filter((header) => header.scrollWidth > header.clientWidth).map((header) => header.textContent),
   );
@@ -850,8 +885,12 @@ test('weekly comparison without quota samples keeps records and an empty state',
   await expect(panel).not.toContainText('Monday-to-Monday UTC calendar weeks');
   await expect(panel.locator('.weekly-value-details')).toHaveCount(0);
   await expect(panel.locator('[data-weekly-actual-chart]')).toHaveCount(0);
-  await expect(panel.locator('.no-data')).toBeVisible();
+  await expect(panel.locator('.table-hint').filter({ hasText: /^No usable conversion sample$/ })).toBeVisible();
+  await expect(panel.locator('[data-weekly-estimate-chart], [data-cycle-pending], .stack-bar')).toHaveCount(0);
   await expect(panel.locator('.weekly-estimate-details')).toHaveCount(1);
+  await panel.locator('.weekly-estimate-details > summary').click();
+  await expect(panel.locator('.weekly-estimate-details tbody tr')).toHaveCount(0);
+  await expect(panel.locator('.weekly-estimate-details th')).toHaveCount(7);
 });
 
 test('historical weekly estimates remain rough as-of records and preserve their disclosure across reload', async ({ page }) => {

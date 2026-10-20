@@ -36,6 +36,12 @@ function run(body: () => void) {
 function labels(html: string): string[] {
   return [...html.matchAll(/<div class="hc-xlabel"[^>]*>([\s\S]*?)<\/div>/g)].map(match => match[1]);
 }
+function chartTitles(html: string): string[] {
+  return [...html.matchAll(/role="img"[^>]*aria-label="([^"]*)"/g)].map(row => row[1]);
+}
+function summaryRows(html: string): string[] {
+  return [...html.matchAll(/<tr data-codex-cycle-summary-row>([\s\S]*?)<\/tr>/g)].map(row => row[1]);
+}
 
 test('Codex compares ten-day reset cycles with short two-line account labels and complete accessible bounds', () => run(() => {
   const html = owner([entry()]).renderWeeklyValuePanel('codex');
@@ -43,25 +49,32 @@ test('Codex compares ten-day reset cycles with short two-line account labels and
   assert.doesNotMatch(html, /Weekly subscription allowance/);
   const axis = labels(html); assert.equal(axis.length, 1);
   assert.match(axis[0], /^<span[^>]*>10\/26<\/span><span[^>]*>#1<\/span>$/);
-  const title = html.match(/role="img" aria-label="([^"]*)"/)?.[1] ?? '';
+  const title = chartTitles(html)[0] ?? '';
   assert.match(title, /Cycle start: Oct 16, 2026/);
   assert.match(title, /Scheduled reset: Oct 26, 2026/);
-  assert.match(title, /As of observation: Oct 25, 2026/);
+  assert.match(title, /As of observation: Oct 25, 2026, 11:59 AM/);
   assert.match(title, /Inferred used \(estimate\): \$40\.00/);
   assert.match(title, /Unused estimate: \$60\.00/);
   assert.doesNotMatch(title, /Oct 19|Oct 24|private-/);
   const records = owner([entry()]).renderWeeklyEstimateRecords('codex');
   assert.match(records, /<th>Period<\/th>/); assert.match(records, /Cycle start: Oct 16, 2026/);
+  assert.deepEqual([...records.matchAll(/<th>(.*?)<\/th>/g)].map(match => match[1]), [
+    'Period', 'Account', 'Cycle total (estimate)', 'Inferred used (estimate)', 'Unused estimate',
+    'As of observation', 'Calibration evidence',
+  ]);
+  assert.equal((summaryRows(records)[0].match(/<td\b/g) ?? []).length, 7);
+  assert.match(records, /<details data-cycle-evidence data-persist="[^"]+"><summary>Calibration evidence<\/summary>/);
+  assert.doesNotMatch(html, /data-weekly-actual-chart|weekly-value-details/);
 }));
 
-test('same-cycle observations and calibration segments yield one bar and one latest table row per account', () => run(() => {
+test('same-cycle equally eligible observations yield one bar and one selected summary row per account', () => run(() => {
   const earlier = entry(), latest = { ...entry(), observedAt: now - 1, estimatedAt: now,
     unusedEquivalentUsd: 55, quotaEpoch: { ...entry().quotaEpoch, startedAt: now - 1000 } };
   const other = entry(1, 2), entries = [earlier, latest, other], before = JSON.stringify(entries);
   const html = owner(entries).renderWeeklyValuePanel('codex');
   assert.equal(labels(html).length, 2);
-  const records = html.split('<tbody>')[1].split('</tbody>')[0];
-  assert.equal((records.match(/<tr>/g) ?? []).length, 2);
+  const records = summaryRows(html).join('');
+  assert.equal(summaryRows(html).length, 2);
   assert.match(records, /\$45\.00/); assert.doesNotMatch(records, /\$40\.00<\/td>.*Account 1/);
   assert.ok(labels(html).some(label => label.includes('>#1<')));
   assert.ok(labels(html).some(label => label.includes('>#2<')));
@@ -76,7 +89,7 @@ test('early reset labels the actual closed boundary, retains its old schedule an
     endAt: reset - 3 * day, endLowerAt: reset - 3 * day - 60_000, closed: true, boundaryUncertain: true };
   const html = owner([sample]).renderWeeklyValuePanel('codex');
   assert.match(labels(html)[0], />10\/23</);
-  const title = html.match(/role="img" aria-label="([^"]*)"/)?.[1] ?? '';
+  const title = chartTitles(html)[0] ?? '';
   assert.match(title, /Cycle end: \(Oct 23, 2026/);
   assert.match(title, /Scheduled reset: Oct 26, 2026/);
   assert.match(title, /Boundary uncertain/); assert.match(title, /\]/);
@@ -89,12 +102,12 @@ test('known initial cycle keeps its unknown start while legacy unassigned refere
   const legacy = entry(2); delete legacy.quotaCycle; delete legacy.quotaEpoch; delete legacy.accountNumber;
   legacy.method = 'series-prefix-v1'; legacy.observedAt -= 1000;
   const html = owner([unknown, legacy]).renderWeeklyValuePanel('codex');
-  const titles = [...html.matchAll(/role="img" aria-label="([^"]*)"/g)].map(row => row[1]);
+  const titles = chartTitles(html);
   assert.equal(titles.length, 2);
   const known = titles.find(title => title.includes('Account 1'))!;
   assert.match(known, /Cycle start unknown/); assert.doesNotMatch(known, /Oct 19, 2026|7-day reference/);
   const reference = titles.find(title => title.includes('Unassigned'))!;
-  assert.match(reference, /Unassigned · Low · Reference estimate · not an account cycle/);
+  assert.match(reference, /Unassigned.*Low · Reference estimate · not an account cycle/);
   assert.match(reference, /7-day reference period \(UTC\): Oct 19, 2026, 00:00 – Oct 26, 2026, 00:00 UTC/);
   assert.match(reference, /Observed reset: Oct 26, 2026/);
   assert.match(reference, /Inferred used \(estimate\): \$40\.00.*Unused estimate: \$60\.00/);
@@ -113,17 +126,21 @@ test('Codex defaults to at most 48 cycles rather than eight observations or days
     return sample;
   });
   const html = owner(entries).renderWeeklyValuePanel('codex'); assert.equal(labels(html).length, 48);
-  assert.equal((html.split('<tbody>')[1].match(/<tr>/g) ?? []).length, 52);
+  // The summary table and chart intentionally share the same 48-cycle cap.
+  // Older audit samples no longer create extra rows beyond the plotted periods.
+  assert.equal(summaryRows(html).length, 48);
+  assert.equal((html.match(/<details data-cycle-evidence data-persist=/g) ?? []).length, 48);
 }));
 
-test('uncalibrated audit rows remain readable without adding another cycle bar', () => run(() => {
+test('a later uncalibrated observation cannot displace eligible evidence or add an audit-only summary row', () => run(() => {
   const unavailable = { ...entry(), observedAt: now, fullEquivalentUsd: null, unusedEquivalentUsd: null };
   const html = owner([entry(), unavailable]).renderWeeklyValuePanel('codex');
   assert.equal(labels(html).length, 1);
-  const records = html.split('<tbody>')[1].split('</tbody>')[0];
-  assert.equal((records.match(/<tr>/g) ?? []).length, 2);
-  assert.match(records, /No usable conversion sample/);
-  assert.match(records, /<td class="cost-cell">—<\/td>/);
+  const records = summaryRows(html);
+  assert.equal(records.length, 1);
+  assert.match(records[0], /<td class="cost-cell">\$100\.00<\/td><td class="cost-cell">\$40\.00<\/td><td class="cost-cell">\$60\.00<\/td>/);
+  assert.match(records[0], /<details data-cycle-evidence data-persist=/);
+  assert.doesNotMatch(html, /data-cycle-pending/);
 }));
 
 test('unknown reference accounts use a compact seven-day marker while full attribution remains in the tooltip', () => run(() => {
@@ -146,7 +163,7 @@ test('numbered legacy references remain explicitly low confidence and never clai
     p.weeklyEstimateProjection = () => ({ entries: [sample], status: 'ready', activeAccountNumber: 1,
       officialQuota: { status: 'ready', accountNumber: 1, observedAt: sample.observedAt, resetAt: reset, usedPercent: 40 } });
     const html = p.renderWeeklyValuePanel('codex');
-    const title = html.match(/role="img" aria-label="([^"]*)"/)?.[1] ?? '';
+    const title = chartTitles(html)[0] ?? '';
     assert.match(title, /Account 1.*Low · Reference estimate · not an account cycle/);
     if (epoch && !projectedCycle) {
       // An epoch without a projected cycle is not an explicit legacy reference.
@@ -161,9 +178,11 @@ test('numbered legacy references remain explicitly low confidence and never clai
     assert.match(title, /Inferred used \(estimate\): \$40\.00.*Unused estimate: \$60\.00/);
     assert.doesNotMatch(title, /Current period/);
     assert.doesNotMatch(labels(html).join(''), /Current/);
-    const records = html.split('<tbody>')[1];
-    assert.match(records, /Low · Reference estimate · not an account cycle/);
-    assert.match(html.split('<details')[0], /<p class="table-hint">Low · Reference estimate/);
+    const records = summaryRows(html).join('');
+    assert.match(records, /<details data-cycle-evidence data-persist=/);
+    // Reference attribution remains explicit in the accessible chart name;
+    // the summary row's evidence disclosure retains the complete period bounds.
+    assert.match(records, epoch && !projectedCycle ? /Cycle start unknown/ : /7-day reference period \(UTC\)/);
   }
 }));
 
@@ -178,7 +197,7 @@ test('cycle presentation has translated title, boundary and schedule copy in all
     I18n.setLanguage(locale);
     const p = owner([closed, unknown]); p.codexView.periodCoverage.allTime.complete = false;
     const html = p.renderWeeklyValuePanel('codex'); assert.ok(html.includes(titles[index]));
-    for (const key of ['cycleStart', 'cycleEnd', 'cycleStartUnknown', 'cycleBoundaryUncertain', 'scheduledReset', 'cycleChartNote', 'cycleIndexedSubtotal']) {
+    for (const key of ['cycleStart', 'cycleEnd', 'cycleStartUnknown', 'cycleBoundaryUncertain', 'scheduledReset', 'cycleSummary', 'cycleSummaryNote', 'cycleIndexedSubtotal']) {
       const value = Reflect.get(I18n.t.weeklyValue, key); assert.equal(typeof value, 'string');
       assert.ok(value.trim()); assert.ok(html.includes(value), `${locale}.${key} is visible`);
       if (locale !== 'en') assert.notEqual(value, Reflect.get(english, key), `${locale}.${key} is translated`);
