@@ -6,6 +6,9 @@ import {ResourceOwnershipRegistry} from '../resourceOwnership';
 import {CodexAccountEstimator} from '../codexAccountEstimate';
 import {captureCodexCalibrationPricebook} from '../codexCalibrationEvidence';
 import {createEmptyQuotaObservationStore, mergeQuotaCaptures} from '../quotaObservationStore';
+import {createEmptyCodexIndex} from '../providers/codex/codexIndex';
+import {createCodexParserState} from '../providers/codex/codexParser';
+import {buildCodexForwardCalibration} from '../providers/codex/codexForwardCalibration';
 const loader=require('node:module'),original=loader._load;
 loader._load=function(name:string,...args:unknown[]){return name==='vscode'?{env:{}}:original.call(this,name,...args);};
 let Extension:typeof import('../extension').ClaudeCodeUsageExtension;
@@ -63,6 +66,21 @@ test('official public state includes only runtime calibration progress, not base
   e.officialAccountEstimator.calibrationStatus=()=>({state:'append-incomplete',deltaPercent:2,intervals:1});
   assert.deepEqual(e.officialQuotaPublicState().calibration,{state:'append-incomplete',deltaPercent:2,intervals:1});
   assert.doesNotMatch(JSON.stringify(e.officialQuotaPublicState()),/accountScopeKey|sourceScopeKey|fingerprint|baseline|creditKey/);
+ }finally{Date.now=clock;}
+});
+test('successful quota observations emit a sanitized calibration reason without diagnostic-failure coupling',async()=>{
+ const clock=Date.now;Date.now=()=>T;
+ try{for(const loggingFails of [false,true]){
+  const{e}=fixture();const lines:string[]=[];
+  e.outputChannel={appendLine(line:string){if(loggingFails)throw Error('synthetic-log-failure');lines.push(line);}};
+  await e.refreshOfficialCodexQuota('manual');
+  assert.equal(e.officialQuotaStatus,'ready');
+  assert.equal(lines.length,loggingFails?0:1);
+  if(!loggingFails){assert.match(lines[0],/^codex-calibration /);
+    assert.match(lines[0],/reason=not-forward-mode/);
+    assert.doesNotMatch(lines[0],/accountScopeKey|sourceScopeKey|aaaaa|Users|credential|\.jsonl/);
+  }
+ }
  }finally{Date.now=clock;}
 });
 test('late replies after cancellation cannot repopulate cleared account state or write history',async()=>{
@@ -143,6 +161,81 @@ test('a successful account calibration queues archive work without requiring a d
   e.codexView=view();await e.refreshOfficialCodexQuota('manual');assert.equal(queued,0);
   now+=60_000;percent=40;usd=130;e.codexView=view();await e.refreshOfficialCodexQuota('manual');
   assert.equal(queued,1);assert.equal(e.officialQuotaEstimates.length,1);
+ }finally{Date.now=clock;}
+});
+
+test('official calibration freezes the pre-request local proof and pricebook across concurrent publications',async()=>{
+ const clock=Date.now;Date.now=()=>T;
+ try{for(const phase of ['transport','persistence'] as const){
+  const{e}=fixture();let store=createEmptyQuotaObservationStore(),received:any;
+  const book=captureCodexCalibrationPricebook(['gpt-5'])!, originalRate=book.rates[0].input;
+  const oldProof={verifiedAt:T-100}, futureProof={verifiedAt:T+1};
+  const view=(proof:unknown,calibrationPricebook=book)=>({currentManifestVerified:true,
+    coverage:{complete:true,identity:{complete:true}},periodCoverage:{allTime:{complete:false}},
+    weeklyValueInputs:{observations:[],usage:[],codexForwardCalibration:proof,calibrationPricebook}});
+  const original=view(oldProof);e.codexView=original;
+  const publish=()=>{book.rates[0].input=originalRate+0.1;e.codexView=view(futureProof);};
+  e.officialQuotaReader=async()=>{if(phase==='transport')publish();return sample;};
+  e.quotaObservationRepository={append:async(captures:any[])=>{
+    if(phase==='persistence')publish();
+    store=mergeQuotaCaptures(store,captures,{salt:e.quotaFingerprintSalt,now:T});return store;
+  }};
+  e.officialAccountEstimator={reset(){},observe(_sample:unknown,inputs:any,price:string){received={inputs,price};}};
+  await e.refreshOfficialCodexQuota('manual');
+  assert.ok(received,phase);
+  assert.equal(received.inputs.codexForwardCalibration,oldProof,phase);
+  assert.equal(received.inputs.calibrationPricebook.rates[0].input,originalRate,phase);
+  assert.equal(e.codexView.weeklyValueInputs.codexForwardCalibration,futureProof,phase);
+  assert.equal(e.officialQuotaStatus,'ready');
+  assert.ok(store.observations.length>0,'quota facts persist independently of monetary sampling');
+ }
+ }finally{Date.now=clock;}
+});
+
+test('real branded forward fits survive watcher publications during every official request',async()=>{
+ const clock=Date.now;let now=T;Date.now=()=>now;
+ try{const{e}=fixture();let store=createEmptyQuotaObservationStore(),queued=0,percent=20;
+  const K='1'.repeat(64),book=captureCodexCalibrationPricebook(['gpt-5'])!;
+  const makeView=(n:number,verifiedAt:number)=>{
+    const index=createEmptyCodexIndex('UTC');index.indexGeneration=T-60_000;
+    const counts={inputTotal:n*1000,cachedInput:0,outputTotal:0,reasoningOutput:0};
+    index.files[K]={fileKey:K,sourceArea:'sessions',size:n*100,offset:n*100,mtimeMs:now-200,
+      dev:1,ino:2,identityChecked:true,discardingOversizedLine:false,qualityFlags:[],
+      parserState:{...createCodexParserState(K),identityLocked:true,model:'gpt-5'},
+      lineage:{fingerprintBlocks:[],pendingFingerprints:Array.from({length:n},(_,i)=>i.toString(16).padStart(32,'0')),
+        tokenEvents:n,desiredPrefixEvents:0,appliedPrefixEvents:0},
+      aggregate:{total:counts,byModel:{'gpt-5':counts},byDay:{},byEffort:{},
+        session:{sessionKey:K,role:'root',startedAt:T-1000,endedAt:now-200},
+        structural:{patchCalls:0,toolCalls:0,postPatchToolCalls:0,compactCount:0,taskCompleteCount:0}},
+      quotaHistory:[{provider:'codex',seriesKey:'codex',observedAt:now-200,resetAt:R,usedPercent:percent}],
+      ...(n>1?{calibrationAppend:{beforeOffset:(n-1)*100,throughOffset:n*100,
+        minUsageAt:now-200,maxUsageAt:now-200,complete:true}}:{}),
+    };
+    index.coverage.totalFiles=index.coverage.indexedFiles=1;
+    const proof=buildCodexForwardCalibration(index,true,new Set([K]),new Set(),verifiedAt)!;
+    assert.ok(proof);
+    return {currentManifestVerified:true,coverage:{complete:true,identity:{complete:true}},
+      periodCoverage:{allTime:{complete:false}},weeklyValueInputs:{observations:[],usage:[],
+        codexForwardCalibration:proof,calibrationPricebook:book}};
+  };
+  e.quotaObservationRepository={append:async(captures:any[])=>{
+    store=mergeQuotaCaptures(store,captures,{salt:e.quotaFingerprintSalt,now});return store;
+  }};
+  e.weeklyEstimateCoordinator={project(_provider:string,inputs:any,options:any){
+    queued++;assert.ok(inputs.codexForwardCalibration.verifiedAt<options.now-10);
+    assert.equal(options.accountEstimates[0].calibrationEvidence.accumulated.deltaPercent,10);
+    assert.equal(options.accountEstimates[0].calibrationEvidence.accumulated.totalTokens,1000);
+  }};
+  for(let n=1;n<=3;n++){
+    percent=10+n*10;e.codexView=makeView(n,now-100);
+    e.officialQuotaReader=async()=>{e.codexView=makeView(n,now-5);return {...sample,
+      requestedAt:now-10,observedAt:now,usedPercent:percent};};
+    await e.refreshOfficialCodexQuota('manual');now+=60_000;
+  }
+  assert.equal(queued,1);assert.equal(e.officialQuotaEstimates.length,1);
+  const estimate=e.officialQuotaEstimates[0],rate=book.rates.find(r=>r.model==='gpt-5')!.input;
+  assert.ok(Math.abs(estimate.fullEquivalentUsd-rate*1000/.1)<1e-10);
+  assert.equal(estimate.calibrationEvidence.collectionMode,'forward-append-v1');
  }finally{Date.now=clock;}
 });
 

@@ -29,6 +29,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   但不能保证所有旧版本后续写入均安全。
 
 ### Fixed
+- **Official sampling continuity** — local proof and rates are frozen before the
+  quota request; concurrent refreshes cannot replace its calibration bracket.
+  Exact unchanged metadata rereads preserve alignment without recounting USD.
+  Fixed-field local diagnostics distinguish genuine gaps from stale, reused or
+  future proofs; quota fact capture remains independent of logging and fitting.
+  中文：官方请求前固定本地证明和费率，避免并发刷新替换本次配对范围；完全不变的额度重复
+  读取保留对齐且不重复计入金额。本地固定字段诊断区分真实缺口与过期、复用或请求后的证明，
+  额度事实采集不受日志或金额拟合失败影响。
 - **Forward calibration recovery** — historical parse warnings no longer permanently
   block a later clean append; new unsafe records still reject the whole interval.
   Pending cycle charts distinguish unavailable evidence, source changes, unmatched

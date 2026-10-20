@@ -33,6 +33,7 @@ import {
 import { fetchLatestPricing, getPricingBackend, getPricingLastFetched, setPricingBackend } from './pricing';
 import { WeeklyEstimateCoordinator } from './weeklyEstimateCoordinator';
 import { codexCalibrationPricingVersion } from './codexWindowEvidence';
+import { copyCodexCalibrationPricebook } from './codexCalibrationEvidence';
 import type { LocalWeeklyEstimate } from './weeklyEstimate';
 import { CodexAccountEstimator, OfficialQuotaSample } from './codexAccountEstimate';
 import type { CodexCalibrationStatus } from './codexForwardAccountEstimate';
@@ -99,6 +100,7 @@ import {
   ClaudeRefreshStage,
   claudeRefreshFailureReason,
   formatCodexIndexDiagnostic,
+  formatCodexCalibrationDiagnostic,
   formatRefreshDiagnostic,
   RefreshDiagnostic,
 } from './refreshDiagnostics';
@@ -5051,6 +5053,19 @@ export class ClaudeCodeUsageExtension {
     let settled!:()=>void;const stopped=new Promise<void>(resolve=>{settled=resolve;});
     this.activeQuotaNetworks.set(controller,{lease,settled:stopped});
     this.officialQuotaStatus='loading';
+    // Freeze the already-verified local bracket BEFORE starting the official
+    // request. A watcher may publish another view while the RPC or P2 append
+    // is pending; its proof can be newer than requestedAt and is not this
+    // observation's numerator. Keep its separate next-sample authority intact.
+    const calibrationView=this.codexView;
+    const calibrationInputs=calibrationView?.weeklyValueInputs ? {
+      ...calibrationView.weeklyValueInputs,
+      calibrationPricebook:copyCodexCalibrationPricebook(calibrationView.weeklyValueInputs.calibrationPricebook),
+      localHistoryComplete:calibrationView.currentManifestVerified===true&&calibrationView.coverage.complete&&
+        (calibrationView.coverage.identity.complete||calibrationView.weeklyValueInputs.calibrationSourceScope?.verified===true)&&
+        calibrationView.periodCoverage.allTime.complete,
+    }:undefined;
+    const calibrationPricingVersion=codexCalibrationPricingVersion(calibrationInputs?.calibrationPricebook);
     const run=async()=>{
       try{
         let binary=this.officialQuotaBinary;
@@ -5077,16 +5092,12 @@ export class ClaudeCodeUsageExtension {
           sample.observedAt,sample.resetAt);
         const scopedSample:OfficialQuotaSample={...sample,...(quotaEpoch?{quotaEpoch}:{})};
         this.officialQuotaSample=scopedSample;this.officialQuotaStatus='ready';
-        const view=this.codexView;
-        if(view?.weeklyValueInputs?.calibrationPricebook&&quotaEpoch){
+        if(calibrationInputs?.calibrationPricebook&&quotaEpoch){
           const cutoff=this.weeklyEstimateCoordinator?.calibrationCutoff?.('codex','codex|'+home,sample.accountScopeKey);
           if(cutoff!==undefined)this.officialAccountEstimator.invalidateThrough(sample.accountScopeKey,cutoff);
-          const estimate=this.officialAccountEstimator.observe(scopedSample,{...view.weeklyValueInputs,
-            localHistoryComplete:view.currentManifestVerified===true&&view.coverage.complete&&
-              (view.coverage.identity.complete||view.weeklyValueInputs.calibrationSourceScope?.verified===true)&&
-              view.periodCoverage.allTime.complete},this.weeklyEstimatePricingVersion());
+          const estimate=this.officialAccountEstimator.observe(scopedSample,calibrationInputs,calibrationPricingVersion);
           if(estimate){
-            const pricingVersion=this.weeklyEstimatePricingVersion();
+            const pricingVersion=calibrationPricingVersion;
             this.officialQuotaEstimates=[...this.officialQuotaEstimates.filter(row=>
                 row.accountScopeKey!==estimate.accountScopeKey||
                 row.quotaEpoch?.startedAt!==estimate.quotaEpoch?.startedAt||
@@ -5095,7 +5106,7 @@ export class ClaudeCodeUsageExtension {
               .sort((a,b)=>b.observedAt-a.observedAt).slice(0,64);
             // Persistence must not depend on an auto-refreshing renderer. The
             // coordinator owns its existing coalesced writer and clear fences.
-            this.weeklyEstimateCoordinator?.project('codex',view.weeklyValueInputs,{
+            this.weeklyEstimateCoordinator?.project('codex',calibrationInputs,{
               sourceNamespace:'codex|'+home,pricingVersion,now:sample.observedAt,
               accountEstimates:this.officialQuotaEstimates,
               quotaObservations:this.quotaObservationStore.observations,
@@ -5104,6 +5115,12 @@ export class ClaudeCodeUsageExtension {
             });
           }
         }else this.officialAccountEstimator.reset();
+        // One bounded, identity-free record per already-cadenced observation.
+        // Diagnostics never start reads or make successful quota facts fail.
+        try{
+          const diagnostic=this.officialAccountEstimator.calibrationDiagnostics?.();
+          if(diagnostic)this.outputChannel?.appendLine(formatCodexCalibrationDiagnostic(diagnostic));
+        }catch{/* Optional diagnostics cannot invalidate quota capture. */}
         if(sample.observedAt>(this.weeklyEstimateClearedAt.get('codex')??Infinity))this.weeklyEstimateClearedAt.delete('codex');
       }catch{
         if(current()){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;

@@ -1643,6 +1643,18 @@ percentages can accumulate verified increments until at least one percentage poi
 is observed below 100%. No new runtime dependency, source read, scanner or anonymous
 contribution flow is introduced.
 
+The host freezes the verified local input, detached pricebook and pricing version
+before starting the official request. Watcher publications during RPC or P2
+persistence are reserved for the next sample, not substituted into an older
+request bracket. An exact fresh same-baseline-proof, same-account/context/epoch,
+unchanged-percentage metadata reread is a monetary no-op: it neither consumes USD
+again nor retires alignment. All other repeated-proof cases still fail closed.
+Each existing cadenced official observation can emit one local fixed-field
+`codex-calibration` diagnostic: allowlisted state/reason, paired-point/interval
+counts and relative proof age/bracket gap only. There are no source/account IDs,
+model labels, raw errors, new stores, network calls or timers; logging failure
+cannot invalidate successful quota facts.
+
 Each fresh continuity baseline starts unaligned: discard USD and percentage points
 through the first observed increase of at least one point, then measure from that
 observed step. Switches, gaps and invalid intervals restart alignment. A percentage

@@ -166,6 +166,15 @@ the daemon/network boundary above. Forward samples/proofs use five-minute freshn
 bounds and accumulate verified increments until an increase of at least one
 percentage point is observed, with the final sample below 100%.
 
+Local proof/rates/pricing version are captured before the official RPC, not after
+concurrent watcher or persistence work. A fresh exact baseline-proof reread with
+unchanged account/context/epoch/percentage is quota-facts-only and preserves the
+monetary baseline without counting USD twice; other proof reuse remains rejected.
+One fixed-field local `codex-calibration` output record per existing cadenced read
+can distinguish the cause using enum state/reason, paired-point/interval counts
+and relative proof/bracket durations. No identifiers, model names, raw errors,
+extra cache, timer or telemetry flow are added; progress remains non-restorable.
+
 Each fresh continuity baseline starts unaligned: discard USD and points through
 the first observed increase of at least one percentage point, then measure from
 that observed step. Switches, gaps and invalid intervals restart alignment;

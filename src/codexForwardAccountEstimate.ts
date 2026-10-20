@@ -11,6 +11,20 @@ export type CodexCalibrationState = 'baseline' | 'percentage-step' | 'first-step
   'accumulating' | 'calibrated' | 'source-unavailable' | 'source-changed' |
   'append-incomplete' | 'endpoint-mismatch' | 'unpriced-usage' | 'quota-blocked' | 'continuity-gap';
 export interface CodexCalibrationStatus { state: CodexCalibrationState; deltaPercent: number; intervals: number }
+export const CODEX_CALIBRATION_DIAGNOSTIC_REASONS = Object.freeze([
+  'proof-missing', 'proof-reused', 'proof-reused-noop', 'proof-future', 'proof-stale', 'invalid-sample', 'invalid-pricebook',
+  'baseline-empty', 'epoch-change', 'context-change', 'observation-gap', 'observation-order',
+  'proof-before-baseline', 'counter-correction', 'baseline-retired', 'not-forward-mode', 'quota-blocked',
+  'source-changed', 'append-incomplete', 'endpoint-mismatch', 'unpriced-usage', 'percentage-step',
+  'first-step-discarded', 'accumulating', 'calibrated', 'no-priced-increment', 'capacity-invalid', 'evidence-invalid',
+] as const);
+export type CodexCalibrationReason = typeof CODEX_CALIBRATION_DIAGNOSTIC_REASONS[number];
+export interface CodexCalibrationDiagnostics extends CodexCalibrationStatus {
+  reason: CodexCalibrationReason;
+  proofAgeMs?: number;
+  /** Current official observedAt minus the previous runtime baseline observedAt. */
+  bracketGapMs?: number;
+}
 
 type Sample = OfficialQuotaSample;
 type Delta = { usd: number; priced: number; total: number; sources: number };
@@ -19,6 +33,15 @@ type Pending = Delta & { sample: Sample };
 const MAX_GAP = 300_000, HEX = /^[a-f0-9]{64}$/;
 const parts = ['inputTotal', 'cachedInput', 'outputTotal', 'reasoningOutput'] as const;
 const close = (a: number, b: number) => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+const diagnosticGap = (later: number, earlier: number): number | undefined => {
+  if (!Number.isSafeInteger(later) || !Number.isSafeInteger(earlier)) return undefined;
+  const gap = later - earlier;
+  return Number.isSafeInteger(gap) && gap >= 0 ? gap : undefined;
+};
+function statusReason(state: CodexCalibrationState): CodexCalibrationReason {
+  return state === 'baseline' ? 'baseline-empty' : state === 'source-unavailable' ? 'proof-missing' :
+    state === 'continuity-gap' ? 'observation-gap' : state;
+}
 
 // An absent prior source is allowed only after producer birth provenance has
 // been checked. Its exact initial chain starts at zero, with no historical end.
@@ -103,6 +126,8 @@ function increment(before: CodexForwardCalibration, after: CodexForwardCalibrati
  * baseline from disk, extrapolates daily buckets or asserts account ownership. */
 export class CodexForwardAccountEstimator {
   private progress: CodexCalibrationStatus = { state: 'source-unavailable', deltaPercent: 0, intervals: 0 };
+  private diagnosticReason: CodexCalibrationReason = 'proof-missing';
+  private diagnosticTimes: { proofAgeMs?: number; bracketGapMs?: number } = {};
   private baseline?: { sample: Sample; proof: CodexForwardCalibration; book: CodexCalibrationPricebook; key: string; aligned: boolean };
   private pending?: Pending;
   private context?: string;
@@ -110,11 +135,18 @@ export class CodexForwardAccountEstimator {
   private readonly runs = new Map<string, Run>();
   private readonly lastSamples = new Map<string, { account: string; observedAt: number; percent: number }>();
   calibrationStatus(): CodexCalibrationStatus { return { ...this.progress }; }
-  private status(state: CodexCalibrationState, key?: string): void {
+  calibrationDiagnostics(): CodexCalibrationDiagnostics {
+    return { ...this.progress, reason: this.diagnosticReason, ...this.diagnosticTimes };
+  }
+  private status(state: CodexCalibrationState, key?: string, reason = statusReason(state)): void {
     const run = key === undefined ? undefined : this.runs.get(key);
     this.progress = { state, deltaPercent: run?.delta ?? 0, intervals: run?.intervals ?? 0 };
+    this.diagnosticReason = reason;
   }
-  breakContinuity(): void { this.baseline = undefined; this.pending = undefined; this.status('continuity-gap'); }
+  breakContinuity(): void {
+    this.baseline = undefined; this.pending = undefined; this.diagnosticTimes = {};
+    this.status('continuity-gap', undefined, 'baseline-retired');
+  }
   reset(): void { this.breakContinuity(); this.runs.clear(); this.lastSamples.clear(); this.context = undefined; this.status('source-unavailable'); }
   invalidateThrough(account: string, through: number): void {
     for (const [key, run] of this.runs) if (run.account === account && run.from <= through) this.runs.delete(key);
@@ -123,6 +155,35 @@ export class CodexForwardAccountEstimator {
   }
   observe(sample: Sample, proof: unknown, rawBook: unknown): LocalWeeklyEstimate | undefined {
     const epoch = copyCodexQuotaEpoch(sample.quotaEpoch), book = copyCodexCalibrationPricebook(rawBook);
+    const retired = this.diagnosticReason === 'baseline-retired';
+    const proofAgeMs = isCodexForwardCalibration(proof) ? diagnosticGap(sample.observedAt, proof.verifiedAt) : undefined;
+    const bracketGapMs = this.baseline ? diagnosticGap(sample.observedAt, this.baseline.sample.observedAt) : undefined;
+    const times = { ...(proofAgeMs === undefined ? {} : { proofAgeMs }),
+      ...(bracketGapMs === undefined ? {} : { bracketGapMs }) };
+    this.diagnosticTimes = times;
+    // A metadata-only quota read can see the exact already-consumed baseline
+    // proof. Preserve monetary state only for this unchanged, fresh identity /
+    // percentage / full-context observation; never consume or admit USD again.
+    if (this.baseline && proof === this.baseline.proof && isCodexForwardCalibration(proof) && this.used.has(proof) &&
+      epoch && book && HEX.test(sample.accountScopeKey) && HEX.test(sample.sourceScopeKey) &&
+      Number.isSafeInteger(sample.requestedAt) && Number.isSafeInteger(sample.observedAt) &&
+      sample.requestedAt <= sample.observedAt && sample.observedAt - sample.requestedAt <= 30_000 &&
+      Number.isFinite(sample.usedPercent) && sample.usedPercent >= 0 && sample.usedPercent < 100 &&
+      sample.ordinaryUsageAllowed !== false && sample.spendControlReached !== true &&
+      (sample.planType == null || typeof sample.planType === 'string') &&
+      (sample.ordinaryUsageAllowed == null || typeof sample.ordinaryUsageAllowed === 'boolean') &&
+      (sample.spendControlReached == null || typeof sample.spendControlReached === 'boolean') &&
+      codexQuotaEpochFitsObservation(epoch, sample.observedAt, sample.resetAt) && sample.resetAt > sample.observedAt &&
+      sample.resetAt === this.baseline.sample.resetAt && sample.usedPercent === this.baseline.sample.usedPercent &&
+      sample.requestedAt > this.baseline.sample.observedAt &&
+      sample.observedAt - this.baseline.sample.observedAt <= MAX_GAP && proof.verifiedAt <= sample.requestedAt &&
+      sample.observedAt - proof.verifiedAt <= MAX_GAP) {
+      const metadataContext = JSON.stringify([sample.sourceScopeKey, proof.indexGeneration, book,
+        sample.planType ?? null, sample.spendControlReached ?? null, sample.ordinaryUsageAllowed ?? null]);
+      if (metadataContext === this.context && JSON.stringify([sample.accountScopeKey, metadataContext, epoch]) === this.baseline.key) {
+        this.diagnosticReason = 'proof-reused-noop'; return;
+      }
+    }
     if (!epoch || !book || !HEX.test(sample.accountScopeKey) || !HEX.test(sample.sourceScopeKey) ||
       !Number.isSafeInteger(sample.requestedAt) || !Number.isSafeInteger(sample.observedAt) ||
       sample.requestedAt > sample.observedAt || sample.observedAt - sample.requestedAt > 30_000 ||
@@ -131,20 +192,36 @@ export class CodexForwardAccountEstimator {
       !codexQuotaEpochFitsObservation(epoch, sample.observedAt, sample.resetAt) ||
       !isCodexForwardCalibration(proof) || this.used.has(proof) || proof.verifiedAt > sample.requestedAt ||
       sample.observedAt - proof.verifiedAt > MAX_GAP) {
+      // Classify the existing rejection only. The admission predicate above and
+      // all baseline/run mutations remain unchanged.
+      const blocked = sample.ordinaryUsageAllowed === false || sample.spendControlReached === true || sample.usedPercent >= 100;
+      const invalidSample = !epoch || !HEX.test(sample.accountScopeKey) || !HEX.test(sample.sourceScopeKey) ||
+        !Number.isSafeInteger(sample.requestedAt) || !Number.isSafeInteger(sample.observedAt) ||
+        sample.requestedAt > sample.observedAt || sample.observedAt - sample.requestedAt > 30_000 ||
+        !Number.isFinite(sample.usedPercent) || sample.usedPercent < 0 || sample.usedPercent >= 100 ||
+        !codexQuotaEpochFitsObservation(epoch, sample.observedAt, sample.resetAt);
+      const reason: CodexCalibrationReason = blocked ? 'quota-blocked' : invalidSample ? 'invalid-sample' :
+        !book ? 'invalid-pricebook' : !isCodexForwardCalibration(proof) ? 'proof-missing' :
+        this.used.has(proof) ? 'proof-reused' : proof.verifiedAt > sample.requestedAt ? 'proof-future' : 'proof-stale';
       this.reset();
+      this.diagnosticTimes = times;
       this.status(sample.ordinaryUsageAllowed === false || sample.spendControlReached === true || sample.usedPercent >= 100
-        ? 'quota-blocked' : isCodexForwardCalibration(proof) ? 'continuity-gap' : 'source-unavailable');
+        ? 'quota-blocked' : isCodexForwardCalibration(proof) ? 'continuity-gap' : 'source-unavailable', undefined, reason);
       return;
     }
     this.used.add(proof);
     const safe: Sample = { ...sample, quotaEpoch: epoch };
     const context = JSON.stringify([sample.sourceScopeKey, proof.indexGeneration, book,
       sample.planType ?? null, sample.spendControlReached ?? null, sample.ordinaryUsageAllowed ?? null]);
-    if (this.context !== undefined && this.context !== context) this.reset();
+    const contextChanged = this.context !== undefined && this.context !== context;
+    if (contextChanged) this.reset();
+    this.diagnosticTimes = times;
     this.context = context;
     const key = JSON.stringify([sample.accountScopeKey, context, epoch]);
     const last = this.lastSamples.get(key);
-    if (last && sample.requestedAt <= last.observedAt) { this.breakContinuity(); return; }
+    if (last && sample.requestedAt <= last.observedAt) {
+      this.breakContinuity(); this.diagnosticTimes = times; this.diagnosticReason = 'observation-order'; return;
+    }
     // Blur/visits retire a monetary baseline, not observed counter history.
     // A later correction must not resurrect a pre-correction admitted cohort.
     if (last && sample.usedPercent < last.percent) this.runs.delete(key);
@@ -152,14 +229,20 @@ export class CodexForwardAccountEstimator {
     this.lastSamples.set(key, { account: sample.accountScopeKey, observedAt: sample.observedAt, percent: sample.usedPercent });
     if (this.lastSamples.size > 64) this.lastSamples.delete(this.lastSamples.keys().next().value!);
     const before = this.baseline;
-    const replace = (state: CodexCalibrationState) => {
-      this.baseline = { sample: safe, proof, book, key, aligned: false }; this.pending = undefined; this.status(state, key);
+    const replace = (state: CodexCalibrationState, reason = statusReason(state)) => {
+      this.baseline = { sample: safe, proof, book, key, aligned: false }; this.pending = undefined; this.status(state, key, reason);
     };
     if (before?.key === key && sample.usedPercent < before.sample.usedPercent) this.runs.delete(key);
     if (!before || before.key !== key || sample.requestedAt <= before.sample.observedAt ||
       proof.verifiedAt <= before.sample.observedAt || sample.observedAt - before.sample.observedAt > MAX_GAP ||
       sample.usedPercent < before.sample.usedPercent) {
-      replace(!before ? 'baseline' : before.key !== key ? 'source-changed' : 'continuity-gap'); return;
+      const reason: CodexCalibrationReason = contextChanged ? 'context-change' :
+        (last && sample.usedPercent < last.percent || before?.key === key && sample.usedPercent < before.sample.usedPercent)
+          ? 'counter-correction' : !before ? retired ? 'baseline-retired' : 'baseline-empty' :
+        before.key !== key ? before.sample.accountScopeKey === sample.accountScopeKey ? 'epoch-change' : 'context-change' :
+        sample.requestedAt <= before.sample.observedAt ? 'observation-order' :
+        proof.verifiedAt <= before.sample.observedAt ? 'proof-before-baseline' : 'observation-gap';
+      replace(!before ? 'baseline' : before.key !== key ? 'source-changed' : 'continuity-gap', reason); return;
     }
     const delta = increment(before.proof, proof, before.sample, sample, book);
     if (typeof delta === 'string') { replace(delta); return; }
@@ -176,14 +259,16 @@ export class CodexForwardAccountEstimator {
     // biases short fits. Start each continuous cohort at the first observed
     // increase, and never use the discarded dollars/points in its estimate.
     if (!before.aligned) { this.baseline.aligned = true; this.status('first-step-discarded', key); return; }
-    if (pending.usd <= 0 || pending.total <= 0 || pending.priced !== pending.total) return;
+    if (pending.usd <= 0 || pending.total <= 0 || pending.priced !== pending.total) { this.diagnosticReason = 'no-priced-increment'; return; }
     const previous = this.runs.get(key);
     const run: Run = { account: sample.accountScopeKey, from: previous?.from ?? pending.sample.observedAt,
       usd: (previous?.usd ?? 0) + pending.usd, priced: (previous?.priced ?? 0) + pending.priced,
       total: (previous?.total ?? 0) + pending.total, delta: (previous?.delta ?? 0) + points,
       intervals: (previous?.intervals ?? 0) + 1 };
     const full = run.usd / (run.delta / 100);
-    if (!Number.isFinite(full) || full <= 0 || full > 1e12 || run.delta >= 100 || run.intervals > 100) return;
+    if (!Number.isFinite(full) || full <= 0 || full > 1e12 || run.delta >= 100 || run.intervals > 100) {
+      this.diagnosticReason = 'capacity-invalid'; return;
+    }
     const calibrationEvidence = copyCodexCalibrationEvidence({ schemaVersion: 1, methodVersion: 1, pricebook: book,
       collectionMode: 'forward-append-v1',
       interval: { from: pending.sample.observedAt, through: sample.observedAt,
@@ -193,7 +278,7 @@ export class CodexForwardAccountEstimator {
         linkedSources: pending.sources, excludedSources: 0, continuityGap: false },
       accumulated: { intervals: run.intervals, deltaPercent: run.delta, deltaUsd: run.usd,
         pricedTokens: run.priced, totalTokens: run.total } });
-    if (!calibrationEvidence || !close(calibrationEvidence.accumulated.deltaUsd, run.usd)) return;
+    if (!calibrationEvidence || !close(calibrationEvidence.accumulated.deltaUsd, run.usd)) { this.diagnosticReason = 'evidence-invalid'; return; }
     this.runs.delete(key); this.runs.set(key, run);
     if (this.runs.size > 64) this.runs.delete(this.runs.keys().next().value!);
     this.status(run.delta >= CODEX_MIN_CALIBRATION_PERCENT ? 'calibrated' : 'accumulating', key);
