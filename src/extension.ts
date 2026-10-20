@@ -35,6 +35,7 @@ import { WeeklyEstimateCoordinator } from './weeklyEstimateCoordinator';
 import { codexCalibrationPricingVersion } from './codexWindowEvidence';
 import type { LocalWeeklyEstimate } from './weeklyEstimate';
 import { CodexAccountEstimator, OfficialQuotaSample } from './codexAccountEstimate';
+import type { CodexCalibrationStatus } from './codexForwardAccountEstimate';
 import { codexQuotaEpochFromObservations } from './codexQuotaEpoch';
 import { readCodexOfficialQuota } from './providers/codex/codexOfficialQuota';
 import { WEEKLY_ESTIMATE_ARCHIVE_FILE, WeeklyEstimateArchive } from './weeklyEstimateArchive';
@@ -4992,6 +4993,7 @@ export class ClaudeCodeUsageExtension {
     status:'disabled'|'loading'|'ready'|'unavailable'|'source-mismatch';
     usedPercent?:number;resetAt?:number;observedAt?:number;quotaEpochStartedAt?:number;stale?:boolean;
     resetCreditCount?:number|null;resetCreditNextExpiryAt?:number|null;ordinaryUsageAllowed?:boolean|null;
+    calibration?:CodexCalibrationStatus;
   } {
     const sample=this.officialQuotaSample;
     const now=Date.now(),unexpired=sample&&sample.observedAt<=now&&sample.resetAt>now;
@@ -5005,6 +5007,7 @@ export class ClaudeCodeUsageExtension {
         resetCreditCount:credits?.availableCount??null,
         resetCreditNextExpiryAt:expiries.length?Math.min(...expiries):null,
         ordinaryUsageAllowed:sample.ordinaryUsageAllowed??null,
+        calibration:this.officialAccountEstimator?.calibrationStatus?.(),
         stale:now-sample.observedAt>=300_000||this.windowActivity?.focused===false,
         ...(sample.quotaEpoch ? {quotaEpochStartedAt:sample.quotaEpoch.startedAt}:{} )}:{})};
   }

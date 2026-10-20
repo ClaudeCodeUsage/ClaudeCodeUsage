@@ -29,6 +29,15 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   但不能保证所有旧版本后续写入均安全。
 
 ### Fixed
+- **Forward calibration recovery** — historical parse warnings no longer permanently
+  block a later clean append; new unsafe records still reject the whole interval.
+  Pending cycle charts distinguish unavailable evidence, source changes, unmatched
+  quota endpoints and missing prices from ordinary calibration progress.
+  Proven new root sessions can join an interval without restarting alignment;
+  unknown births or removed sources still reject the whole interval.
+  中文：历史解析警告不再永久阻断后续干净追加；新的不安全记录仍使整段不准入。
+  待校准周期区分证据不可用、来源变化、额度端点未匹配、价格缺失与正常采样进度。
+  证据完整的新根会话可加入区间而不必重新对齐；未知创建过程或旧来源删除仍使整段不准入。
 - **Codex cycle quota reconciliation** — one bar and one expandable summary row
   per cycle, including pending cycles. Evidence quality precedes recency; selected
   amounts keep their own percentage and as-of time. Missing prices, incomplete USD

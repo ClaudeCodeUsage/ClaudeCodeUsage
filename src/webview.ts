@@ -147,6 +147,13 @@ export interface WeeklyEstimatePanelProjection {
     resetCreditCount?: number | null;
     resetCreditNextExpiryAt?: number | null;
     ordinaryUsageAllowed?: boolean | null;
+    calibration?: {
+      state: 'baseline' | 'percentage-step' | 'first-step-discarded' | 'accumulating' | 'calibrated' |
+        'source-unavailable' | 'source-changed' | 'append-incomplete' | 'endpoint-mismatch' |
+        'unpriced-usage' | 'quota-blocked' | 'continuity-gap';
+      deltaPercent: number;
+      intervals: number;
+    };
   };
   activeAccountNumber?: number;
   activeQuotaEpochStartedAt?: number;
@@ -7745,6 +7752,36 @@ export class UsageWebviewProvider {
     return parts.join(' · ');
   }
 
+  private weeklyCalibrationHint(calibration: NonNullable<WeeklyEstimatePanelProjection['officialQuota']>['calibration']): string | undefined {
+    if (!calibration) return undefined;
+    const copy = I18n.t.weeklyValue;
+    const points = typeof calibration.deltaPercent === 'number' && Number.isFinite(calibration.deltaPercent) &&
+      calibration.deltaPercent >= 0 && calibration.deltaPercent <= 100 ? calibration.deltaPercent : undefined;
+    let text: string;
+    switch (calibration.state) {
+      case 'baseline': return copy.calibrationBaseline;
+      case 'percentage-step': return copy.calibrationPercentageStep;
+      case 'first-step-discarded': return copy.calibrationFirstStepDiscarded;
+      case 'source-unavailable': return copy.calibrationSourceUnavailable;
+      case 'source-changed': return copy.calibrationSourceChanged;
+      case 'append-incomplete': return copy.calibrationAppendIncomplete;
+      case 'endpoint-mismatch': return copy.calibrationEndpointMismatch;
+      case 'unpriced-usage': return copy.calibrationUnpricedUsage;
+      case 'quota-blocked': return copy.calibrationQuotaBlocked;
+      case 'continuity-gap': return copy.calibrationContinuityGap;
+      case 'accumulating': text = copy.calibrationAccumulating; break;
+      case 'calibrated':
+        text = points !== undefined && points >= CODEX_MIN_CALIBRATION_PERCENT &&
+          Number.isSafeInteger(calibration.intervals) && calibration.intervals > 0
+          ? copy.calibrationCalibrated : copy.calibrationAccumulating;
+        break;
+      default: return undefined; // Never display arbitrary state strings.
+    }
+    if (points !== undefined && points > 0) text += ' · ' + copy.calibrationProgress.replace('{points}',
+      new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(points));
+    return text;
+  }
+
   private renderOfficialWeeklyQuota(provider: SettingProvider, projection: WeeklyEstimatePanelProjection): string {
     if (provider !== 'codex' || !this.setting<boolean>('codex.officialQuota.enabled', false)) return '';
     const quota = projection.officialQuota, copy = I18n.t.weeklyValue;
@@ -7777,18 +7814,21 @@ export class UsageWebviewProvider {
       if (quota.stale === true) {
         text += ' · ' + copy.estimateStale;
       } else {
-      const latest = projection.entries.filter(entry => entry.provider === 'codex' &&
-        (entry.method as string) === 'account-delta-v1' && accountNumber !== undefined &&
-        this.weeklyAccountNumber((entry as LocalWeeklyEstimate & { accountNumber?: number }).accountNumber) === accountNumber &&
-        (quota.quotaEpochStartedAt === undefined ||
-          entry.quotaEpoch?.startedAt === quota.quotaEpochStartedAt) &&
-        Math.abs(entry.resetAt - quota.resetAt!) <= 300_000)
-        .sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt)[0];
-      if (!latest || !Number.isFinite(latest.observedAt) || latest.observedAt <= 0 || latest.observedAt > quota.observedAt! || latest.fullEquivalentUsd === null ||
-        !Number.isFinite(latest.fullEquivalentUsd) || latest.fullEquivalentUsd <= 0 || latest.unusedEquivalentUsd === null ||
-        !Number.isFinite(latest.unusedEquivalentUsd) || latest.unusedEquivalentUsd < 0 || latest.unusedEquivalentUsd > latest.fullEquivalentUsd) {
-        text += ' · ' + copy.collectingSamples;
-      }
+        const calibration = this.weeklyCalibrationHint(quota.calibration);
+        if (calibration) text += ' · ' + calibration;
+        else {
+          const latest = projection.entries.filter(entry => entry.provider === 'codex' &&
+            (entry.method as string) === 'account-delta-v1' && accountNumber !== undefined &&
+            this.weeklyAccountNumber((entry as LocalWeeklyEstimate & { accountNumber?: number }).accountNumber) === accountNumber &&
+            (quota.quotaEpochStartedAt === undefined || entry.quotaEpoch?.startedAt === quota.quotaEpochStartedAt) &&
+            Math.abs(entry.resetAt - quota.resetAt!) <= 300_000)
+            .sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt)[0];
+          if (!latest || !Number.isFinite(latest.observedAt) || latest.observedAt <= 0 || latest.observedAt > quota.observedAt! || latest.fullEquivalentUsd === null ||
+            !Number.isFinite(latest.fullEquivalentUsd) || latest.fullEquivalentUsd <= 0 || latest.unusedEquivalentUsd === null ||
+            !Number.isFinite(latest.unusedEquivalentUsd) || latest.unusedEquivalentUsd < 0 || latest.unusedEquivalentUsd > latest.fullEquivalentUsd) {
+            text += ' · ' + copy.collectingSamples;
+          }
+        }
       }
     } else {
       if (state === 'ready') state = 'unavailable';
@@ -7996,12 +8036,13 @@ export class UsageWebviewProvider {
       '</span><span class="hc-yval">' + (known ? esc(this.weeklyTableCurrency(max / 2)) : '—') + '</span><span class="hc-yval">' +
       (known ? esc(this.weeklyTableCurrency(0)) : '—') + '</span></div><div class="hc-main"><div class="hc-scroll" tabindex="0">' +
       '<div class="hc-plot"><div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div><div class="hc-bars">' + bars +
-      '</div></div><div class="hc-xlabels">' + labels + '</div></div></div></div></div>' : '<p class="table-hint">' + esc(copy.estimateBlocked) + '</p>';
+      '</div></div><div class="hc-xlabels">' + labels + '</div></div></div></div></div>' : '';
+    const pending = !known ? '<p class="table-hint" data-cycle-monetary-pending role="status">' + esc(copy.monetaryPending) + '</p>' : '';
     const archive = projection.status === 'full' ? copy.archiveFull : projection.status === 'unavailable' ? copy.archiveUnavailable :
       projection.status === 'loading' ? copy.archiveLoading : '';
     const indexing = this.codexView?.periodCoverage?.allTime?.complete === false ? '<p class="table-hint" role="status">' + esc(copy.cycleIndexedSubtotal) + '</p>' : '';
     return '<div class="daily-breakdown" data-codex-cycle-panel><div class="section-header"><h3>' + esc(copy.cycleTitle + ' · ' + I18n.t.providers.codexBeta) +
-      '</h3></div>' + official + local + transition + conflict + overlap + indexing + '<p class="table-hint">' + esc(copy.cycleSummaryNote) + '</p>' + chart +
+      '</h3></div>' + official + local + transition + conflict + overlap + indexing + '<p class="table-hint">' + esc(copy.cycleSummaryNote) + '</p>' + pending + chart +
       (archive ? '<p class="table-hint" role="status">' + esc(archive) + '</p>' : '') + this.renderCodexCycleRecords(projection) +
       '<p class="table-hint">' + esc(copy.description) + '</p></div>';
   }

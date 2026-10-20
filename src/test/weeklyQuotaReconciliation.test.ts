@@ -244,7 +244,7 @@ test('Codex with local usage but no estimates keeps records and an empty state w
   p.weeklyEstimateProjection = () => ({ status: 'ready', entries: [] });
   const html = p.renderWeeklyValuePanel('codex');
   assert.doesNotMatch(html, /weekly-actual-chart|weekly-value-details|weekly-estimate-chart/);
-  assert.ok(html.includes('<p class="table-hint">' + I18n.t.weeklyValue.estimateBlocked + '</p>'),
+  assert.ok(html.includes('data-cycle-monetary-pending') && html.includes(I18n.t.weeklyValue.monetaryPending),
     'no estimates has a visible missing-evidence state, not invented local capacity');
   assert.equal(rows(details(html, 'weekly-estimate-details')).length, 0);
 }));

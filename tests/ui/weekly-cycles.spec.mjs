@@ -27,14 +27,22 @@ for (const [theme, width] of [['light', 1280], ['dark', 320]]) {
     expect(columns.every(width => width === 44)).toBe(true);
     await expect(page.locator('#all [data-codex-cycle-panel]')).toContainText('Missing boundaries use 7-day references');
     await expect(page.locator('#all [data-codex-cycle-panel] [data-weekly-actual-chart]')).toHaveCount(0);
-    for (const label of await labels.all()) {
-      const lines = label.locator(':scope > span'); await expect(lines).toHaveCount(2);
-      await expect(lines.first()).toHaveText(/^\d{1,2}\/\d{1,2}$/);
-      await expect(lines.last()).toHaveText(/^#[12]$/);
-      for (const line of await lines.all()) {
-        await expect(line).toHaveCSS('white-space', 'nowrap');
-        await expect(line).toHaveCSS('text-overflow', 'ellipsis');
-        expect(await line.evaluate(node => node.getBoundingClientRect().height)).toBeLessThanOrEqual(14);
+    // Read one coherent rendered snapshot instead of hundreds of browser RPCs.
+    // Keep every label/style/height assertion, including off-screen columns.
+    const axisLines = await labels.evaluateAll(nodes => nodes.map(node => [...node.children].map(line => {
+      const style = getComputedStyle(line);
+      return { tag: line.tagName, text: line.textContent, whiteSpace: style.whiteSpace,
+        overflow: style.textOverflow, height: line.getBoundingClientRect().height };
+    })));
+    for (const lines of axisLines) {
+      expect(lines).toHaveLength(2);
+      expect(lines.every(line => line.tag === 'SPAN')).toBe(true);
+      expect(lines[0].text).toMatch(/^\d{1,2}\/\d{1,2}$/);
+      expect(lines[1].text).toMatch(/^#[12]$/);
+      for (const line of lines) {
+        expect(line.whiteSpace).toBe('nowrap');
+        expect(line.overflow).toBe('ellipsis');
+        expect(line.height).toBeLessThanOrEqual(14);
       }
     }
     const latest = bars.last();
@@ -58,14 +66,14 @@ for (const [theme, width] of [['light', 1280], ['dark', 320]]) {
     await expect(details.locator('tbody tr details[data-cycle-evidence][data-persist]')).toHaveCount(48);
     await expect(details.locator(':scope > summary')).toHaveText('Cycle details');
     const chartTitles = await bars.evaluateAll(nodes => nodes.map(node => node.title));
-    for (const row of await details.locator('tbody tr').all()) {
-      const cells = row.locator('td');
-      await expect(cells).toHaveCount(7);
-      await expect(row.locator('details[data-cycle-evidence][data-persist]')).toHaveCount(1);
-      const bounds = await cells.first().getAttribute('title');
-      const account = await cells.nth(1).textContent();
-      const asOf = await cells.nth(5).evaluate(node => node.firstChild.textContent);
-      const amounts = await Promise.all([2, 3, 4].map(column => cells.nth(column).textContent()));
+    const renderedRows = await details.locator('tbody tr').evaluateAll(nodes => nodes.map(row => {
+      const cells = [...row.querySelectorAll(':scope > td')];
+      return { count: cells.length, evidence: row.querySelectorAll('details[data-cycle-evidence][data-persist]').length,
+        bounds: cells[0]?.title, account: cells[1]?.textContent, asOf: cells[5]?.firstChild?.textContent,
+        amounts: [2, 3, 4].map(column => cells[column]?.textContent) };
+    }));
+    for (const { count, evidence, bounds, account, asOf, amounts } of renderedRows) {
+      expect(count).toBe(7); expect(evidence).toBe(1);
       // Equal counts alone could hide different capped subsets or observations.
       expect(chartTitles.filter(title => [bounds, account, asOf, ...amounts]
         .every(value => title.includes(value)))).toHaveLength(1);

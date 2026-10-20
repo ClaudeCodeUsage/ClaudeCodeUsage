@@ -24,6 +24,7 @@ import {
   CodexStructuralEvent,
   createCodexParserState,
   parseCodexLine,
+  isCodexForwardHistoricalQualityFlag,
 } from './codexParser';
 import {
   CODEX_PERIOD_LINEAGE_VERSION,
@@ -133,7 +134,8 @@ export interface CodexFileAggregate {
 }
 
 export interface CodexFileContribution {
-  /** Runtime-only timing of one verified append scan; never saved or hydrated. */
+  /** Runtime-only timing of one verified scan, possibly initial offset zero;
+   * initial authority requires the producer's separate branded birth predicate. */
   calibrationAppend?: {
     beforeOffset: number;
     throughOffset: number;
@@ -1155,10 +1157,17 @@ async function updateContribution(
   const desiredPrefixEvents = lineage.desiredPrefixEvents ?? 0;
   const beforeOffset = contribution.offset;
   delete contribution.calibrationAppend;
+  const initialRootScan = beforeOffset === 0 && contribution.size === 0 &&
+    !parserState.identityLocked && lineage.tokenEvents === 0 && desiredPrefixEvents === 0 &&
+    lineage.appliedPrefixEvents === 0 && contribution.qualityFlags.length === 0 && parserState.qualityFlags.length === 0;
+  let initialIdentityLockSeen = false;
+  let initialTaskBoundarySeen = false;
   let minUsageAt: number | null = null, maxUsageAt: number | null = null, lastUsageAt: number | null = null;
-  let appendComplete = beforeOffset > 0 && beforeOffset === contribution.size && !entry.compression &&
+  let appendComplete = (beforeOffset > 0 || initialRootScan) && beforeOffset === contribution.size && !entry.compression &&
     !contribution.discardingOversizedLine && !contribution.lineageReconciliation &&
     lineage.appliedPrefixEvents === desiredPrefixEvents && isCodexUsageContributionCurrent(contribution) &&
+    contribution.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
+    parserState.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
     Number.isSafeInteger(contribution.dev) && contribution.dev! > 0 &&
     Number.isSafeInteger(contribution.ino) && contribution.ino! > 0 &&
     contribution.dev === entry.dev && contribution.ino === entry.ino;
@@ -1217,9 +1226,12 @@ async function updateContribution(
       parserState,
       lineage,
       quotaCheckpoints,
-      ...(beforeOffset > 0 ? { calibrationAppend: Object.freeze({
+      ...(beforeOffset > 0 || initialRootScan ? { calibrationAppend: Object.freeze({
         beforeOffset, throughOffset: cursor.offset, minUsageAt, maxUsageAt,
-        complete: appendComplete && cursor.offset === entry.size && !cursor.discardingOversizedLine,
+        complete: appendComplete && cursor.offset === entry.size && !cursor.discardingOversizedLine &&
+          (!initialRootScan || initialIdentityLockSeen && parserState.identityLocked === true &&
+            parserState.role === 'root' && !parserState.parentSessionKey &&
+            lineage.desiredPrefixEvents === 0 && lineage.appliedPrefixEvents === 0),
       }) } : {}),
       aggregate,
       ...(activeHourProof && !activeHourProofOverflow ? {
@@ -1262,10 +1274,35 @@ async function updateContribution(
     endExclusive,
     (line) => {
       if (line.trim() !== '') {
+        const identityBefore = [parserState.sessionKey, parserState.parentSessionKey, parserState.treeKey, parserState.role];
+        const lockedBefore = parserState.identityLocked === true;
         const flagsBefore = parserState.qualityFlags;
         const parsed = parseCodexLine(line, parserState, pseudonymize);
         parserState = parsed.state;
-        if (parsed.quotaPairingIncomplete || parsed.lineageBoundary || parsed.quotaSource === 'other' ||
+        // Primary role normalization is deliberately broad. A declared child
+        // with no resolvable parent must not acquire root-birth authority.
+        let explicitRootMetadata = true;
+        if (parserState.role === 'root' && parsed.events.length === 0 && !parsed.structural) {
+          const metadata = parseJsonObject(line);
+          if (metadata?.type === 'session_meta' && isRecord(metadata.payload)) {
+            const payload = metadata.payload;
+            explicitRootMetadata = !(isRecord(payload.source) && Object.prototype.hasOwnProperty.call(payload.source, 'subagent')) &&
+              (payload.agent_role === undefined || payload.agent_role === null || payload.agent_role === 'root') &&
+              ['parent_thread_id', 'forked_from_id'].every(key => payload[key] === undefined || payload[key] === null);
+          }
+        }
+        const initialLock = initialRootScan && !initialIdentityLockSeen && !lockedBefore &&
+          parserState.identityLocked === true && parserState.role === 'root' && !parserState.parentSessionKey &&
+          lineage.tokenEvents === 0 && parsed.events.length === 0 && explicitRootMetadata;
+        if (initialLock) initialIdentityLockSeen = true;
+        const initialTaskBoundary = parsed.lineageBoundary && initialRootScan && initialIdentityLockSeen &&
+          !initialTaskBoundarySeen && lineage.tokenEvents === 0 && parserState.identityLocked === true &&
+          parserState.role === 'root' && !parserState.parentSessionKey && desiredPrefixEvents === 0;
+        if (initialTaskBoundary) initialTaskBoundarySeen = true;
+        if (parsed.forwardCalibrationIncomplete || parsed.quotaPairingIncomplete || !explicitRootMetadata ||
+            (parsed.lineageBoundary && !initialTaskBoundary) || parsed.quotaSource === 'other' ||
+            (!initialLock && [parserState.sessionKey, parserState.parentSessionKey, parserState.treeKey, parserState.role]
+              .some((value, i) => value !== identityBefore[i])) ||
             parserState.qualityFlags.some(flag => !flagsBefore.includes(flag))) appendComplete = false;
         if (parsed.lineageTokenKey) {
           addLineageToken(lineage, parsed.lineageTokenKey);

@@ -51,6 +51,9 @@ export interface CodexStructuralEvent {
 }
 
 export interface CodexLineOutput {
+  /** Runtime-only current-line failure, independent of sticky quality flags.
+   * This does not change primary token attribution or persisted parser semantics. */
+  forwardCalibrationIncomplete?: boolean;
   /** Numeric envelope time only; no raw line or message is retained. */
   observedAt?: number;
   /** Current-line attribution cannot prove a paired post-baseline increment. */
@@ -63,6 +66,18 @@ export interface CodexLineOutput {
   structural?: CodexStructuralEvent;
   lineageBoundary?: boolean;
   lineageTokenKey?: string;
+}
+
+// Only old, localized parsing/accounting gaps may precede a fresh forward
+// baseline. Identity/ownership/stale-state flags and unknown future flags remain
+// blocking. Current occurrences still invalidate the entire append witness.
+const FORWARD_HISTORICAL_QUALITY_FLAGS = new Set([
+  'unknown-event', 'invalid-json', 'oversized-jsonl-line', 'invalid-event-payload',
+  'missing-token-info', 'invalid-token-count', 'invalid-event-timestamp',
+  'invalid-turn-context', 'counter-regression', 'component-delta-clamped',
+]);
+export function isCodexForwardHistoricalQualityFlag(flag: string): boolean {
+  return FORWARD_HISTORICAL_QUALITY_FLAGS.has(flag);
 }
 
 export function createCodexParserState(
@@ -365,7 +380,7 @@ function parseTurnContext(
   state: CodexParserState,
 ): CodexLineOutput {
   if (!isObject(entry.payload)) {
-    return { state: withFlag(state, 'invalid-turn-context'), events: [] };
+    return { state: withFlag(state, 'invalid-turn-context'), events: [], forwardCalibrationIncomplete: true };
   }
   const model = Object.prototype.hasOwnProperty.call(entry.payload, 'model')
     ? sanitizeCodexMetadataLabel(entry.payload.model)
@@ -379,6 +394,8 @@ function parseTurnContext(
       effort,
     },
     events: [],
+    ...(Object.prototype.hasOwnProperty.call(entry.payload, 'model') && model === undefined
+      ? { forwardCalibrationIncomplete: true } : {}),
   };
 }
 
@@ -481,7 +498,7 @@ function parseSessionMetadata(
   pseudonymize?: (raw: string) => string,
 ): CodexLineOutput {
   if (!isObject(entry.payload)) {
-    return { state: withFlag(state, 'invalid-session-meta'), events: [] };
+    return { state: withFlag(state, 'invalid-session-meta'), events: [], forwardCalibrationIncomplete: true };
   }
   const payload = entry.payload;
   const subagent = nestedObject(payload, 'source', 'subagent');
@@ -532,7 +549,7 @@ function parseSessionMetadata(
     sessionKey &&
     sessionKey !== state.sessionKey
   ) {
-    return { state: nextState, events: [] };
+    return { state: nextState, events: [], forwardCalibrationIncomplete: true };
   }
   const locksIdentity = !state.identityLocked && sessionKey !== undefined;
   nextState = {
@@ -555,7 +572,10 @@ function parseSessionMetadata(
     agentNickname: agentNickname ?? state.agentNickname,
     role,
   };
-  return { state: nextState, events: [] };
+  return { state: nextState, events: [],
+    ...((!pseudonymize && (rawSession || rawTree || rawParent || projectIdentity.keySource)) ||
+      (Object.prototype.hasOwnProperty.call(payload, 'id') && !rawSession)
+      ? { forwardCalibrationIncomplete: true } : {}) };
 }
 
 function structuralFromEventMessage(
@@ -614,12 +634,14 @@ function parseTokenCount(
     : undefined;
   if (!isObject(payload.info)) {
     return { state: limit ? state : withFlag(state, 'missing-token-info'), events: [], limit, quotaSource,
+      forwardCalibrationIncomplete: true,
       ...(!limit ? { quotaPairingIncomplete: true } : {}) };
   }
   const current = rawTokenCounts(info.total_token_usage);
   const last = rawTokenCounts(info.last_token_usage);
   if (!current && !last) {
     return { state: limit ? state : withFlag(state, 'invalid-token-count'), events: [], limit, quotaSource,
+      forwardCalibrationIncomplete: true,
       ...((!limit || info.last_token_usage != null || info.total_token_usage != null)
         ? { quotaPairingIncomplete: true } : {}) };
   }
@@ -676,8 +698,10 @@ function parseTokenCount(
   const quotaPairingIncomplete =
     (hasExplicitLast && !calibrationLastUsageIsValid(info.last_token_usage)) ||
     (!last && (regressed || componentClamped || !state.highWater));
+  const forwardCalibrationIncomplete = !last || regressed || componentClamped || quotaPairingIncomplete;
   if (!hasUsage(tokens)) {
     return { state: nextState, events: [], limit, lineageTokenKey, quotaSource,
+      ...(forwardCalibrationIncomplete ? { forwardCalibrationIncomplete: true } : {}),
       ...(quotaPairingIncomplete ? { quotaPairingIncomplete: true } : {}) };
   }
 
@@ -697,6 +721,7 @@ function parseTokenCount(
     qualityFlags: [...nextState.qualityFlags],
   };
   return { state: nextState, events: [event], limit, lineageTokenKey, quotaSource,
+    ...(forwardCalibrationIncomplete ? { forwardCalibrationIncomplete: true } : {}),
     ...(quotaPairingIncomplete ? { quotaPairingIncomplete: true } : {}) };
 }
 
@@ -707,7 +732,7 @@ export function parseCodexLine(
 ): CodexLineOutput {
   const entry = parseJsonObject(line);
   if (!entry) {
-    return { state: withFlag(state, 'invalid-json'), events: [], quotaPairingIncomplete: true };
+    return { state: withFlag(state, 'invalid-json'), events: [], quotaPairingIncomplete: true, forwardCalibrationIncomplete: true };
   }
   return { ...parseCodexEntry(entry, state, pseudonymize), observedAt: timestampOf(entry) };
 }
@@ -724,7 +749,7 @@ function parseCodexEntry(
   }
   if (type === 'event_msg') {
     if (!isObject(entry.payload)) {
-      return { state: withFlag(state, 'invalid-event-payload'), events: [] };
+      return { state: withFlag(state, 'invalid-event-payload'), events: [], forwardCalibrationIncomplete: true };
     }
     const effortEvidence = explicitReasoningEffort(entry.payload);
     const eventState = effortEvidence.present
@@ -743,7 +768,8 @@ function parseCodexEntry(
     };
   }
   if (type === 'response_item') {
-    return { state, events: [], structural: structuralFromResponseItem(entry) };
+    return { state, events: [], structural: structuralFromResponseItem(entry),
+      ...(!isObject(entry.payload) ? { forwardCalibrationIncomplete: true } : {}) };
   }
   if (
     type === 'world_state' ||
@@ -752,5 +778,5 @@ function parseCodexEntry(
   ) {
     return { state, events: [] };
   }
-  return { state: withFlag(state, 'unknown-event'), events: [] };
+  return { state: withFlag(state, 'unknown-event'), events: [], forwardCalibrationIncomplete: true };
 }

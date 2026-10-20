@@ -57,6 +57,14 @@ test('public official facts expose only numeric counts and known future expiry, 
   assert.doesNotMatch(JSON.stringify(p),/creditKey|dddddddd|eeeeeeee|accountScopeKey|sourceScopeKey/);
  }finally{Date.now=clock;}
 });
+test('official public state includes only runtime calibration progress, not baseline identities or source details',()=>{
+ const clock=Date.now;Date.now=()=>T;
+ try{const{e}=fixture();e.officialQuotaSample=sample;e.officialQuotaStatus='ready';
+  e.officialAccountEstimator.calibrationStatus=()=>({state:'append-incomplete',deltaPercent:2,intervals:1});
+  assert.deepEqual(e.officialQuotaPublicState().calibration,{state:'append-incomplete',deltaPercent:2,intervals:1});
+  assert.doesNotMatch(JSON.stringify(e.officialQuotaPublicState()),/accountScopeKey|sourceScopeKey|fingerprint|baseline|creditKey/);
+ }finally{Date.now=clock;}
+});
 test('late replies after cancellation cannot repopulate cleared account state or write history',async()=>{
  const clock=Date.now;Date.now=()=>T;
  try{const{e,writes}=fixture();let reply!:(v:unknown)=>void;

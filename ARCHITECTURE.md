@@ -1629,7 +1629,7 @@ positive-use reset changes retain cautious boundary evidence. Legacy P2 rules ar
 `codexAccountEstimate.ts` routes `inputs.codexForwardCalibration` to
 `codexForwardAccountEstimate.ts`. The producer issues an immutable, branded runtime
 primary census after a verified manifest: at most 16,384 sources / 8 MiB, with a
-64 MiB hashing cap. Admission needs the same complete source census, generation,
+64 MiB hashing cap. Admission retains every previous source with the same generation,
 continuity and pricebook, a fresh unconsumed proof, and exact scan-issued append
 offsets and usage times after the baseline and no later than the next official
 request. Changed sources without complete priced increments or matching local quota
@@ -1661,6 +1661,24 @@ unknown. Local and official percentage endpoints must match before fitting;
 known-zero quiet refreshes preserve alignment. Last counter observations survive
 blur so a later correction cannot restore a retired calibration cohort. EOF-packed
 partial lineage blocks preserve the same ordered-prefix semantics as full blocks.
+
+Forward-baseline validity is separate from historical completeness: reviewed old
+parse/count gaps can precede it, while every new unsafe line invalidates that
+append independently of sticky warning deduplication. Stale/identity/ownership
+failures and unknown quality flags remain blocking. Runtime calibration progress
+is projected as a fixed state enum plus paired-point/interval counts, never source
+identifiers or a persisted/restored baseline. Pending-only charts explain unknown
+capacity rather than implying zero or promising that waiting alone resolves it.
+
+A newly discovered root may join an interval only through branded live birth
+provenance: continuous absence from a prior verified census, a complete offset-zero
+scan and contiguous append chain, stable identity and no inherited prefix. All its
+initial dollars and times must fit the official bracket. One initial identity lock
+and one pre-token task boundary are allowed; later/repeated boundaries are not.
+Only 32 predecessor census summaries are retained. Children without independent
+owned-prefix proof, restored/copied scans, unsafe input and missing prices remain
+excluded by rejecting the whole interval; a removed old source is never replaced
+by a new birth. No history is replayed to establish this runtime authority.
 
 The comparison prioritizes identified account cycles. Anonymous reference cycles
 overlapping their observed coverage are omitted from both bars and summary rows,

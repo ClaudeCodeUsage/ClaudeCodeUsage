@@ -171,6 +171,115 @@ test('empty weekly history still displays enabled quota state; hiding weekly val
   assert.equal(p.renderWeeklyValuePanel('codex'), '');
 }));
 
+const calibrationStates = [
+  ['baseline', 'Waiting for the next comparable observation'],
+  ['percentage-step', 'Waiting for a quota percentage increase'],
+  ['first-step-discarded', 'First percentage step excluded; collecting the next interval'],
+  ['accumulating', 'Collecting paired observations'],
+  ['calibrated', 'Paired calibration available'],
+  ['source-unavailable', 'Local usage source unavailable'],
+  ['source-changed', 'Usage source changed; collecting a new baseline'],
+  ['append-incomplete', 'New usage evidence is incomplete'],
+  ['endpoint-mismatch', 'Usage and quota observation times do not align'],
+  ['unpriced-usage', 'New usage includes a model without a price'],
+  ['quota-blocked', 'Ordinary usage is blocked; calibration paused'],
+  ['continuity-gap', 'Observation continuity interrupted; collecting a new baseline'],
+] as const;
+const calibrationCopyKeys = ['calibrationBaseline', 'calibrationPercentageStep', 'calibrationFirstStepDiscarded',
+  'calibrationAccumulating', 'calibrationCalibrated', 'calibrationSourceUnavailable', 'calibrationSourceChanged',
+  'calibrationAppendIncomplete', 'calibrationEndpointMismatch', 'calibrationUnpricedUsage', 'calibrationQuotaBlocked',
+  'calibrationContinuityGap'] as const;
+
+test('live calibration reasons use a fixed state allowlist and preserve pending monetary values', () => english(() => {
+  for (const [state, reason] of calibrationStates) {
+    const { p, projection } = owner();
+    projection.officialQuota.calibration = { state, deltaPercent: 5, intervals: 1 };
+    const html = p.renderWeeklyValuePanel('codex'), quota = status(html);
+    assert.ok(quota.includes(reason), state);
+    assert.doesNotMatch(quota, /Collecting samples/);
+    assert.doesNotMatch(html, /class="stack-bar"|\$0\.00/);
+    if (state === 'accumulating' || state === 'calibrated') assert.match(quota, /Paired quota change: 5 percentage points/);
+    else assert.doesNotMatch(quota, /Paired quota change:/);
+  }
+}));
+
+test('a sub-threshold calibrated state reports progress without claiming a capacity fit', () => english(() => {
+  for (const deltaPercent of [0, 1, 4.99]) {
+    const { p, projection } = owner();
+    projection.officialQuota.calibration = { state: 'calibrated', deltaPercent, intervals: 1 };
+    const html = p.renderWeeklyValuePanel('codex'), quota = status(html);
+    assert.match(quota, /Collecting paired observations/);
+    assert.doesNotMatch(quota, /Paired calibration available/);
+    assert.doesNotMatch(html, /class="stack-bar"|\$0\.00/);
+    if (deltaPercent > 0) assert.match(quota, /Paired quota change:/);
+    else assert.doesNotMatch(quota, /Paired quota change:/);
+  }
+  for (const intervals of [0, -1, NaN, '1']) {
+    const { p, projection } = owner();
+    projection.officialQuota.calibration = { state: 'calibrated', deltaPercent: 5, intervals };
+    assert.match(status(p.renderWeeklyValuePanel('codex')), /Collecting paired observations/);
+    assert.doesNotMatch(status(p.renderWeeklyValuePanel('codex')), /Paired calibration available/);
+  }
+}));
+
+test('unknown calibration states and invalid progress never render arbitrary values', () => english(() => {
+  for (const state of ['__proto__', 'constructor', '<script>private-state</script>', 'unknown-state']) {
+    const { p, projection } = owner();
+    projection.officialQuota.calibration = { state, deltaPercent: 99, intervals: 99 };
+    const html = status(p.renderWeeklyValuePanel('codex'));
+    assert.match(html, /Collecting samples/);
+    assert.doesNotMatch(html, /private-state|unknown-state|__proto__|constructor|Paired quota change:/);
+  }
+  for (const deltaPercent of [NaN, Infinity, -1, 101, '5', '<img src=x>']) {
+    const { p, projection } = owner();
+    projection.officialQuota.calibration = { state: 'accumulating', deltaPercent, intervals: 1 };
+    const html = status(p.renderWeeklyValuePanel('codex'));
+    assert.match(html, /Collecting paired observations/);
+    assert.doesNotMatch(html, /NaN|Infinity|<img|Paired quota change:/);
+  }
+  const { p, projection } = owner();
+  projection.officialQuota.stale = true;
+  Object.defineProperty(projection.officialQuota, 'calibration', { get: () => assert.fail('stale observations cannot carry live calibration status') });
+  assert.doesNotThrow(() => p.renderWeeklyValuePanel('codex'));
+}));
+
+for (const locale of locales) {
+  test(`${locale}: calibration and unknown monetary hints are localized in the existing compact layout`, () => english(() => {
+    I18n.setLanguage(locale);
+    const copy = I18n.t.weeklyValue;
+    const { p, projection } = owner();
+    for (let index = 0; index < calibrationStates.length; index++) {
+      projection.officialQuota.calibration = { state: calibrationStates[index][0], deltaPercent: 5, intervals: 1 };
+      const text = status(p.renderWeeklyValuePanel('codex')), reason = copy[calibrationCopyKeys[index]];
+      assert.ok(reason.length > 0 && text.includes(reason), calibrationStates[index][0]);
+      if (locale !== 'en') assert.ok(!text.includes(calibrationStates[index][1]), calibrationStates[index][0]);
+    }
+    projection.officialQuota.calibration = { state: 'baseline', deltaPercent: 0, intervals: 0 };
+    let html = p.renderWeeklyValuePanel('codex');
+    assert.ok(status(html).includes(copy.calibrationBaseline));
+    assert.ok(html.includes(copy.monetaryPending));
+    assert.match(html, /class="table-hint" data-cycle-monetary-pending role="status"/);
+    if (locale !== 'en') {
+      assert.ok(!html.includes('Waiting for the next comparable observation'));
+      assert.ok(!html.includes('Cycle amounts are not yet available'));
+    }
+    projection.entries = [{ ...entry(), fullEquivalentUsd: null, unusedEquivalentUsd: null, usedEquivalentUsd: 0 }];
+    html = p.renderWeeklyValuePanel('codex');
+    assert.match(html, /data-cycle-pending/);
+    assert.ok(html.includes(copy.monetaryPending));
+    assert.doesNotMatch(html, /class="stack-bar"/);
+    projection.entries = [entry()];
+    html = p.renderWeeklyValuePanel('codex');
+    assert.match(html, /class="stack-bar"/);
+    assert.doesNotMatch(html, /data-cycle-monetary-pending/);
+    if (locale === 'zh-CN') {
+      assert.match(status(html), /等待下一次可比观测/);
+      projection.entries = [];
+      assert.match(p.renderWeeklyValuePanel('codex'), /— 表示未知，并非零/);
+    }
+  }));
+}
+
 test('malformed account and quota metadata cannot inject HTML or expose raw identity properties', () => english(() => {
   const attack = '<img src=x onerror="globalThis.bad=1">';
   const { p, projection } = owner(true, [entry('series-prefix-v1', attack)]);

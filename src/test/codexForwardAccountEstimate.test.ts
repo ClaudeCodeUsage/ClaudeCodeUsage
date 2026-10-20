@@ -45,6 +45,34 @@ function createEstimator(): CodexAccountEstimator {
   estimator.observe(sample(-1, 10), inputs(-1, 10, 0), 'api-v1');
   return estimator;
 }
+test('forward progress distinguishes a baseline, discarded first step, paired fit and unsafe append', () => {
+  const estimator = new CodexAccountEstimator();
+  estimator.observe(sample(0, 20), inputs(0, 20, 1000), 'api-v1');
+  assert.equal((estimator as any).calibrationStatus().state, 'baseline');
+  estimator.observe(sample(1, 22), inputs(1, 22, 3000), 'api-v1');
+  assert.equal((estimator as any).calibrationStatus().state, 'first-step-discarded');
+  estimator.observe(sample(2, 24), inputs(2, 24, 5000), 'api-v1');
+  assert.deepEqual((estimator as any).calibrationStatus(), { state: 'accumulating', deltaPercent: 2, intervals: 1 });
+  estimator.observe(sample(3, 30), inputs(3, 30, 7000, { calibrationAppend: undefined }), 'api-v1');
+  assert.equal((estimator as any).calibrationStatus().state, 'append-incomplete');
+  const publicStatus = (estimator as any).calibrationStatus();
+  publicStatus.deltaPercent = 99;
+  assert.notEqual((estimator as any).calibrationStatus().deltaPercent, 99);
+  assert.doesNotMatch(JSON.stringify(publicStatus), /account|source|key|fingerprint/i);
+});
+test('forward progress names mismatched endpoints and unpriced changed usage without exposing model or source IDs', () => {
+  const mismatched = createEstimator();
+  mismatched.observe(sample(0, 20), inputs(0, 19, 1000), 'api-v1');
+  assert.equal((mismatched as any).calibrationStatus().state, 'endpoint-mismatch');
+  const unpriced = createEstimator(), next = inputs(0, 20, 1000);
+  next.calibrationPricebook!.rates = [];
+  // Changing a pricebook is itself a new baseline. Its next append establishes
+  // that positive usage lacks a price, rather than pretending it costs zero.
+  unpriced.observe(sample(0, 20), next, 'api-v1');
+  const after = inputs(1, 30, 3000); after.calibrationPricebook!.rates = [];
+  unpriced.observe(sample(1, 30), after, 'api-v1');
+  assert.equal((unpriced as any).calibrationStatus().state, 'unpriced-usage');
+});
 test('an arbitrary initial percentage cannot calibrate capacity until the first observed step establishes a fresh start', () => {
   const estimator = new CodexAccountEstimator();
   estimator.observe(sample(0, 20), inputs(0, 20, 1000), 'api-v1');

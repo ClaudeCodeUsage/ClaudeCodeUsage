@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CodexIndexV1, CodexFileContribution } from './codexIndex';
 import type { ProviderTokenCounts } from '../providerTypes';
+import { isCodexForwardHistoricalQualityFlag } from './codexParser';
 import { codexQuotaObservationsFromLimit } from './codexQuotaHistory';
 import { CODEX_LINEAGE_FINGERPRINT_BYTES, CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK } from './codexLineage';
 import type { CodexQuotaCheckpoint, CodexQuotaIncompleteRange } from './codexQuotaCheckpoints';
@@ -10,6 +11,7 @@ export const CODEX_FORWARD_CALIBRATION_MAX_BYTES = 8 * 1024 * 1024;
 export const CODEX_FORWARD_APPEND_MAX_PER_SOURCE = 32;
 export const CODEX_FORWARD_APPEND_MAX_WINDOWS = 512;
 export const CODEX_FORWARD_APPEND_MAX_BYTES = 256 * 1024;
+export const CODEX_FORWARD_BIRTH_MAX_BASELINES = 32;
 const MAX_HASH_BYTES = 64 * 1024 * 1024;
 type Models = Readonly<Record<string, Readonly<ProviderTokenCounts>>>;
 export interface CodexForwardAppendWindow {
@@ -23,7 +25,8 @@ export interface CodexForwardCalibrationSource {
   readonly sourceKey: string;
   readonly canonical: boolean;
   readonly eligible: boolean;
-  /** Primary uncertainty only. Missing historical sidecars do not change it. */
+  /** Forward-baseline validity only. Approved old gaps never establish full
+   * history completeness; missing historical sidecars do not change it. */
   readonly uncertain: boolean;
   readonly bytes: number;
   readonly offset: number;
@@ -61,7 +64,11 @@ export interface CodexForwardCalibration {
 
 const trusted = new WeakSet<object>();
 const issued = new WeakMap<object, CodexForwardCalibration>();
-const provenance = new WeakMap<object, { fingerprints: string; generation: number }>();
+const provenance = new WeakMap<object, { fingerprints: string; generation: number; qualityFlags: readonly string[]; root: boolean }>();
+interface ProofSummary { readonly token: object; readonly keys: ReadonlySet<string>; readonly verifiedAt: number }
+const proofAncestry = new WeakMap<object, { summary: ProofSummary; recent: readonly ProofSummary[] }>();
+const births = new WeakMap<object, { readonly baselines: readonly object[]; readonly bornAt: number }>();
+const seenInitialScans = new WeakSet<object>();
 const HEX = /^[a-f0-9]{64}$/;
 const integer = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
 const time = (n: unknown): n is number => integer(n) && n > 0;
@@ -144,6 +151,27 @@ function unchangedUsage(before: CodexForwardCalibrationSource, after: CodexForwa
       components.every(k => (before.byModel![model]?.[k] ?? 0) === (after.byModel![model]?.[k] ?? 0)));
 }
 
+function zeroUsage(source: CodexForwardCalibrationSource): boolean {
+  return source.byModel !== null && Object.values(source.byModel).every(v => v.inputTotal === 0 && v.outputTotal === 0);
+}
+
+function completeBirthChain(source: CodexForwardCalibrationSource): boolean {
+  let offset = 0, usageThrough: number | null = null;
+  const windows = source.appendWindows;
+  if (!windows?.length || windows.length > CODEX_FORWARD_APPEND_MAX_PER_SOURCE) return false;
+  for (const window of windows) {
+    if (!window.complete || window.beforeOffset !== offset || window.throughOffset <= offset) return false;
+    if (window.minUsageAt === null) { if (window.maxUsageAt !== null) return false; }
+    else {
+      if (window.maxUsageAt === null || window.minUsageAt > window.maxUsageAt ||
+        usageThrough !== null && window.minUsageAt <= usageThrough) return false;
+      usageThrough = window.maxUsageAt;
+    }
+    offset = window.throughOffset;
+  }
+  return offset === source.offset && offset === source.bytes && (usageThrough !== null || zeroUsage(source));
+}
+
 /** No I/O, scanning, pricing, historical replay, account assertion or persistence.
  * Includes EVERY indexed physical source, not only usable canonical sources.
  * A missing manifest member makes the whole proof unavailable, never a partial census.
@@ -165,6 +193,11 @@ export function buildCodexForwardCalibration(
   // a proof, or merely passing the same index again, cannot restore authority.
   const previous = isCodexForwardCalibration(previousProof) && previousProof.indexGeneration === index.indexGeneration &&
     previousProof.verifiedAt <= verifiedAt ? new Map(previousProof.sources.map(source => [source.sourceKey, source])) : undefined;
+  const previousAncestry = previous ? proofAncestry.get(previousProof as object) : undefined;
+  // Summaries have no parent pointer: retaining 32 never retains an unbounded
+  // chain of old proofs. Absence is checked across every retained predecessor.
+  const recent = previousAncestry ? [previousAncestry.summary, ...previousAncestry.recent]
+    .slice(0, CODEX_FORWARD_BIRTH_MAX_BASELINES) : [];
   let windowCount = 0, windowBytes = 0;
   let bytes = 128, hashBytes = 0;
   for (const key of keys) {
@@ -179,12 +212,13 @@ export function buildCodexForwardCalibration(
       p.identityLocked === true && trace !== undefined &&
       integer(f.dev) && f.dev > 0 && integer(f.ino) && f.ino > 0 &&
       !f.compression && !f.compressionFailure && f.offset === f.size && !f.discardingOversizedLine &&
-      !f.lineageReconciliation && f.qualityFlags.length === 0 && p.qualityFlags.length === 0 &&
+      !f.lineageReconciliation && f.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
+      p.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
       reconciles(byModel, f.aggregate.total);
     // These bounds include structural events and are deliberately conservative.
     const session = f.aggregate.session;
     const dated = time(session.startedAt) && time(session.endedAt) && session.startedAt <= session.endedAt;
-    const eligible = valid && dated;
+    const eligible = valid && (dated || f.aggregate.total.inputTotal === 0 && f.aggregate.total.outputTotal === 0);
     const identity = [key, f.sourceArea, f.dev, f.ino, f.compression, p.schemaVersion,
       p.sessionKey, p.parentSessionKey, p.treeKey, p.role, p.identityLocked,
       l?.desiredPrefixEvents, l?.appliedPrefixEvents, canonical, ambiguousFileKeys.has(key)];
@@ -227,21 +261,37 @@ export function buildCodexForwardCalibration(
       f.discardingOversizedLine, primary, f.qualityFlags, p.qualityFlags]));
     let window = appendWindow(f, eligible);
     const candidate = Object.freeze({ ...fields, revision, ...(window ? { appendWindow: window } : {}) });
-    const origin = { fingerprints: trace ?? '', generation: index.indexGeneration };
+    const origin = { fingerprints: trace ?? '', generation: index.indexGeneration,
+      qualityFlags: [...new Set([...f.qualityFlags, ...p.qualityFlags])].sort(),
+      root: p.role === 'root' && !p.parentSessionKey && !session.parentSessionKey &&
+        l?.desiredPrefixEvents === 0 && l.appliedPrefixEvents === 0 };
     provenance.set(candidate, origin);
     const prior = previous?.get(key);
+    const initialScan = f.calibrationAppend;
+    const firstInitialPublication = initialScan?.beforeOffset === 0 && !seenInitialScans.has(initialScan);
+    if (initialScan?.beforeOffset === 0) seenInitialScans.add(initialScan);
+    let birth = prior && births.get(prior);
+    if (!prior && previous && previousAncestry && firstInitialPublication && origin.root && eligible &&
+      window?.complete && window.beforeOffset === 0 && previousAncestry.summary.verifiedAt < verifiedAt) {
+      const baselines: object[] = [];
+      for (const ancestor of recent) {
+        if (ancestor.keys.has(key)) break;
+        baselines.push(ancestor.token);
+      }
+      if (baselines.length) birth = { baselines: Object.freeze(baselines), bornAt: verifiedAt };
+    }
     if (window?.complete && prior?.eligible && candidate.eligible && prior.continuity === candidate.continuity &&
         prior.revision !== candidate.revision) {
       const ordered = window.minUsageAt === null
         ? unchangedUsage(prior, candidate)
-        : prior.usageThrough !== null && window.minUsageAt > prior.usageThrough;
+        : prior.usageThrough === null ? zeroUsage(prior) : window.minUsageAt > prior.usageThrough;
       if (!ordered || window.beforeOffset !== prior.offset || !isCodexForwardAppend(prior, candidate)) {
         // Per-scan ordering alone does not establish ordering across watcher
         // passes. Keep neither a bridge nor a compatibility admission for it.
         window = Object.freeze({ ...window, complete: false });
       }
     }
-    let history: readonly CodexForwardAppendWindow[] = window?.complete ? [window] : [];
+    let history: readonly CodexForwardAppendWindow[] = window?.complete && (window.beforeOffset !== 0 || birth) ? [window] : [];
     if (prior?.eligible && candidate.eligible && prior.continuity === candidate.continuity) {
       if (prior.revision === candidate.revision) {
         // A freshly verified, unchanged primary source may have been normalized
@@ -266,19 +316,34 @@ export function buildCodexForwardCalibration(
     if (bytes > CODEX_FORWARD_CALIBRATION_MAX_BYTES) return undefined;
     sources.push(source);
     provenance.set(source, origin);
+    if (birth && origin.root && source.eligible && (!prior || prior.continuity === source.continuity &&
+      (prior.revision === source.revision || window?.complete && isCodexForwardAppend(prior, source))) &&
+      completeBirthChain(source)) births.set(source, birth);
   }
   const proof: CodexForwardCalibration = Object.freeze({ schemaVersion: 1, indexGeneration: index.indexGeneration,
     verifiedAt, sources: Object.freeze(sources) });
-  trusted.add(proof); issued.set(verificationBound, proof); return proof;
+  trusted.add(proof); issued.set(verificationBound, proof);
+  proofAncestry.set(proof, { summary: { token: {}, keys: new Set(keys), verifiedAt }, recent });
+  return proof;
 }
 export function isCodexForwardCalibration(value: unknown): value is CodexForwardCalibration {
   return !!value && typeof value === 'object' && trusted.has(value);
+}
+/** Structural root-birth authority only. The consumer must still retain and
+ * validate every old source, all model pricing and the official time bracket. */
+export function isCodexForwardBirth(before: CodexForwardCalibration, after: CodexForwardCalibrationSource): boolean {
+  if (!isCodexForwardCalibration(before)) return false;
+  const base = proofAncestry.get(before), birth = births.get(after), origin = provenance.get(after);
+  return !!base && !!birth && !!origin && origin.root && after.eligible && !after.uncertain &&
+    origin.generation === before.indexGeneration && before.verifiedAt < birth.bornAt &&
+    !base.summary.keys.has(after.sourceKey) && birth.baselines.includes(base.summary.token) && completeBirthChain(after);
 }
 /** PRIMARY append continuity only, never temporal/calibration admission. Check
  * same full source census and fresh official bounds separately. No copied source authority. */
 export function isCodexForwardAppend(before: CodexForwardCalibrationSource, after: CodexForwardCalibrationSource): boolean {
   const a = provenance.get(before), b = provenance.get(after);
   if (!a || !b || a.generation !== b.generation || !before.eligible || !after.eligible ||
+    b.qualityFlags.some(flag => !a.qualityFlags.includes(flag)) ||
     before.continuity !== after.continuity || after.offset <= before.offset || after.bytes <= before.bytes ||
     !b.fingerprints.startsWith(a.fingerprints) || !before.byModel || !after.byModel) return false;
   return Object.entries(before.byModel).every(([model, tokens]) => Object.prototype.hasOwnProperty.call(after.byModel!, model) &&

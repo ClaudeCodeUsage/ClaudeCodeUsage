@@ -7,7 +7,7 @@ import {CodexCalibrationPricebook, copyCodexCalibrationPricebook, copyCodexCalib
 import {createHash} from 'node:crypto';
 import {isCodexCalibrationCensus, CodexCalibrationCensus} from './providers/codex/codexCalibrationCensus';
 import type { CodexOfficialQuotaSnapshot } from './providers/codex/codexOfficialQuota';
-import { CodexForwardAccountEstimator } from './codexForwardAccountEstimate';
+import { CodexForwardAccountEstimator, CodexCalibrationStatus } from './codexForwardAccountEstimate';
 
 export interface OfficialQuotaSample extends CodexOfficialQuotaSnapshot {
   quotaEpoch?:CodexQuotaEpoch;
@@ -175,6 +175,9 @@ function historicalRevision(before:Counter,current:Counter,after:number):boolean
 export class CodexAccountEstimator {
   private readonly forward = new CodexForwardAccountEstimator();
   private forwardMode = false;
+  calibrationStatus(): CodexCalibrationStatus {
+    return this.forwardMode ? this.forward.calibrationStatus() : { state: 'source-unavailable', deltaPercent: 0, intervals: 0 };
+  }
   private baseline?:Baseline;
   private lastObserved?:OfficialQuotaSample;
   private accumulated?:Accumulated;

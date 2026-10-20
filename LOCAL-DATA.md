@@ -185,6 +185,19 @@ known-zero quiet refreshes preserve alignment. Last counter observations survive
 blur so a later correction cannot restore a retired calibration cohort. EOF-packed
 partial lineage blocks preserve the same ordered-prefix semantics as full blocks.
 
+Approved old parsing/accounting gaps may precede a fresh forward baseline, but
+do not establish complete history. Each unsafe new line independently invalidates
+its append witness even when its diagnostic flag already existed. Stale state,
+identity/ownership failures and unknown quality flags remain blocking. The UI
+receives only a runtime allowlisted calibration state and numeric paired-point /
+interval counts; these progress facts are not persisted, restored or sent elsewhere.
+An entirely pending chart explicitly says that capacity is unknown, not zero.
+New root sources may join only with runtime birth provenance covering a full
+offset-zero scan, stable ownership and a contiguous append chain. Every old source
+must remain; all new dollars/timestamps must fit the official bracket. Predecessor
+census summaries are capped at 32 and are never saved. Unproven children, restored
+or copied witnesses, unsafe initial input and missing prices reject the interval.
+
 The comparison prioritizes identified account cycles. Anonymous reference cycles
 overlapping their observed coverage are omitted from both bars and summary rows,
 with an explicit omitted-cycle count. Their archive values remain unchanged and
