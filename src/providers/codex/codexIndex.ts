@@ -4311,7 +4311,7 @@ function sanitizePeriodMigration(
  * Validation additionally checks bounds, model labels and numeric subsets. */
 function sanitizeCodexQuotaCheckpointDto(state: CodexQuotaCheckpointState): CodexQuotaCheckpointState {
   return {
-    version: 3, indexedThrough: state.indexedThrough, prefixEvents: state.prefixEvents,
+    version: 4, indexedThrough: state.indexedThrough, prefixEvents: state.prefixEvents,
     ranges: state.ranges.map(range => ({ from: range.from, through: range.through,
       ...(range.resetAt !== undefined ? { resetAt: range.resetAt } : {}) })),
     rangesUnlocalized: state.rangesUnlocalized, pendingGapUnknown: state.pendingGapUnknown,
@@ -4319,11 +4319,11 @@ function sanitizeCodexQuotaCheckpointDto(state: CodexQuotaCheckpointState): Code
     activityFrom: state.activityFrom, activityThrough: state.activityThrough,
     observedTokens: sanitizeCheckpointTokenVector(state.observedTokens),
     excludedTokens: sanitizeCheckpointTokenVector(state.excludedTokens),
-    segment: state.segment, lastEventAt: state.lastEventAt, source: state.source, pendingBoundary: state.pendingBoundary,
+    segment: state.segment, segmentResetAt: state.segmentResetAt, lastEventAt: state.lastEventAt, source: state.source, pendingBoundary: state.pendingBoundary,
     complete: state.complete, segmentComplete: state.segmentComplete, overflow: state.overflow,
     byModel: sanitizeCheckpointModels(state.byModel),
     rows: state.rows.map(row => ({ segment: row.segment, from: row.from, through: row.through,
-      resetAt: row.resetAt, usedPercent: row.usedPercent, baseline: row.baseline,
+      resetAt: row.resetAt, observedResetAt: row.observedResetAt, usedPercent: row.usedPercent, baseline: row.baseline,
       complete: row.complete, byModel: sanitizeCheckpointModels(row.byModel),
       ...(row.baseline && row.baselineByModel !== undefined
         ? { baselineByModel: sanitizeCheckpointModels(row.baselineByModel) } : {}) })),

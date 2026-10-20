@@ -36,7 +36,7 @@ split-only 缓存写入仅在两个已知 TTL 分项明确且安全时恢复数�
 | 数据类别 | 来源 | 插件保留的内容 | 保留与清除 | 远程交互 |
 |---|---|---|---|---|
 | Claude 用量记录 | Claude Code 本地 `projects/**/*.jsonl` | 运行时用量记录和内存中的逐文件索引；仅在启用内容分析时保留有界提示样本 | 窗口重载/退出即释放。本地数据控制绝不触碰源日志；另行启用的“会话操作”可把一个精确确认的日志移入系统回收站（可恢复） | 默认无；只有用户另行预览并发送建议请求时才可能包含获准内容 |
-| Codex 用量记录 | `$CODEX_HOME/sessions` 与 `$CODEX_HOME/archived_sessions` 下递归的 `.jsonl` 和 `.jsonl.zst` 普通文件 | schema-3 增量索引：匿名文件键、decoded 偏移量、数值用量、日期、模型/effort、已净化结构聚合、可选压缩来源指纹／EOF 标记，以及含独立已准入基线请求的有界 version-3 额度／Token 检查点及数值不完整区间见证 | 保留到重建、明确清除、schema 替换或宿主移除；检查点迁移复用既有 period 重放 | 无 |
+| Codex 用量记录 | `$CODEX_HOME/sessions` 与 `$CODEX_HOME/archived_sessions` 下递归的 `.jsonl` 和 `.jsonl.zst` 普通文件 | schema-3 增量索引：匿名文件键、decoded 偏移量、数值用量、日期、模型/effort、已净化结构聚合、可选压缩来源指纹／EOF 标记，以及含独立已准入基线请求的有界 version-4 额度／Token 检查点及数值不完整区间见证 | 保留到重建、明确清除、schema 替换或宿主移除；检查点迁移复用既有 period 重放 | 无 |
 | Codex 标题 | 仅 `$CODEX_HOME/session_index.jsonl` | 流式读取 `id → thread_name` 供运行时显示；标题不写入索引 | 仅运行时 | 无 |
 | 周估算预览 | 既有数值检查点／聚合及本地／主动启用的官方额度样本 | `weekly-estimates-v1.json`：固定字段快照、含公开费率表及 parser／period 版本、区间／Δp／USD／Token／周期边界的可选配对窗口或官方增量证据、内部账号／窗口 HMAC、租约内来源账号序号及连接／未连接诊断 | 修订保留历史；4096 条／1 MiB 后停止新写入、不淘汰。清除屏障含证据起点；按账号清除保留其他／未归属记录，供应商／全部清除包含归档 | 计算／柱图／证据投影不联网；可选官方样本通过下述 daemon 边界获取 |
 | 额度观测 | Claude 官方响应、Codex 本地结构化事件或主动启用的 `codex-official-api` 样本 | 供应商、本机匿名作用域、原始观测／重置时间、比例、窗口标识、来源、可信度及标志；无原始账号 ID／邮箱 | 压缩后每个供应商／账号／周期最多 512 条、保留不超过 180 天；可单独或随全部派生数据清除 | 启用的 Claude 查询访问 Anthropic，可能刷新其凭据。可选 Codex 读取可经既有 daemon 访问 OpenAI，daemon 认证可能刷新；扩展不读取 Codex 凭据 |
@@ -150,10 +150,16 @@ R = F * (1 - p / 100)
 真实账号切换及 A → B → A 连续性仍未验证，合成覆盖不能替代真实账号验收。
 
 对于 Codex 历史日志，`providers/codex/codexQuotaCheckpoints.ts` 在既有索引流程
-完成谱系准入后保留 version-3 数值检查点。缺失或不兼容的状态通过既有可续传 period
+完成谱系准入后保留 version-4 数值检查点。缺失或不兼容的状态通过既有可续传 period
 重放升级，不另建扫描器。无变化的热刷新不重读用量记录正文，投影也不打开源日志。
 检查点只包含数值时间、百分比、分段／完整性状态、经清洗的逐模型 Token 计数及内部
 假名化来源键，不保留原始文本或原始 ID。
+
+version 4 将 `segmentResetAt` 固定为分段首次重置锚点。各行 `resetAt` 使用该
+规范首个 R，`observedResetAt` 保留该样本原始数值 R。±5分钟内的抖动始终与固定首锚点
+比较，不沿后续观测链式延展；配对绝不越过规范重置时刻。`observedResetAt` 仅在旧运行期
+输入中可选，严格 v4 存储必须包含该字段。全部 version-3 状态须经过有界 period 重放，
+不回接旧基线。主要额度观测的原始重置值保持不变。
 
 分段累计 `byModel` 不包含自身基线行。仅基线行另存 `baselineByModel`，记录该行
 已准入请求的 Token：空映射表示已知为零，字段缺失表示不可用。并发来源的包含区间可据此
@@ -164,7 +170,7 @@ R = F * (1 - p / 100)
 32 MiB 索引载荷预算；provider 投影上限为65,536点／32 MiB，详见
 [`codexQuotaCheckpoints.ts`](src/providers/codex/codexQuotaCheckpoints.ts) 常量。
 压缩保留分段端点，
-或整段移除旧分段，保证保留区间仍有基线。version 3 增加有界的
+或整段移除旧分段，保证保留区间仍有基线。version 4 保留有界的
 `CodexQuotaIncompleteRange` 数值区间见证：`from`、`through` 及可选 `resetAt`，
 通过 `codexQuotaIncompleteRanges` 投影。每状态最多512个合并缺口区间，投影最多65,536
 个区间，用于定位跳过、遗漏或归属不明的活动，不保存原始文本或 ID；合并粗化只会保守
@@ -277,7 +283,7 @@ gap 布尔值；累计
 账号和未归属记录；供应商／全部历史清除亦涵盖归档。屏障同时检查配对的 `windowEvidence.from`、
 `account-delta-v1` 的 `calibrationStart` 及 `observedAt`，其他实例的旧累计不能凭更晚观测时间重新进入。
 宿主在下一次采样时退役该账号受影响的运行期累计，重新建立基线；旧排队观测不能恢复已清数据。
-未变化投影不因时间经过重复归档 I/O。数值检查点 version 3 以增量字段接入既有索引及 period 重放。
+未变化投影不因时间经过重复归档 I/O。数值检查点 version 4 以增量字段接入既有索引及 period 重放。
 默认开启的 `showWeeklyEquivalentValue` 展示设置及包版本保持不变，不增加依赖。
 
 ## 分享工作台与导出

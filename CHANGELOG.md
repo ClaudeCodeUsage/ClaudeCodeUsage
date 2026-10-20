@@ -28,9 +28,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   USD／Δp 组件；独立连贯校准组仍可校准，无合格组时显示未知而非零。
   新精确输入撤下其覆盖的旧日级前缀估值，不改写归档金额；模型组合可改变
   估值，不以旧大金额钳制新结果。Claude 保持原有展示行为。
-- **Paired local quota estimates** — the existing index pass retains bounded version-3
+- **Paired local quota estimates** — the existing index pass retains bounded version-4
   numeric quota/Token checkpoints and incomplete-range witnesses. A gap affects overlapping
   components rather than every interval sharing a reset; unknown scope fails closed.
+  Reset jitter uses a fixed first-reset anchor within ±5 minutes, without chaining
+  or pairing past that reset. `observedResetAt` retains raw resets; all v3 states
+  use bounded replay without retrojoining old baselines. Primary quota observations stay raw.
   The strongest compatible cohort retains its own as-of sample.
   Baseline requests are stored separately from their own
   segment delta so concurrent intervals do not silently lose their USD. Overlapping
@@ -38,7 +41,9 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   gate is a local quality policy, not official measurement precision or an error
   bound. Local-window and official-delta amounts remain conditional proxies; equal
   reset times do not prove account identity or complete account usage.
-  中文：既有索引流程保留有界的 version-3 额度／Token 数值检查点及不完整区间见证。
+  中文：既有索引流程保留有界的 version-4 额度／Token 数值检查点及不完整区间见证。
+  重置抖动以固定首锚点的±5分钟为界，不链式延展，不越过该重置配对；`observedResetAt`
+  保留原始重置值。全部 v3 状态有界重放，不回接旧基线；主要额度观测保留原始值。
   缺口只影响重叠组件，不因 reset 相同污染所有区间；未知作用域安全拒绝。最强兼容校准组
   保留自身观测时点。基线请求与自身分段增量分开保存，
   避免并发区间静默漏算其 USD；重叠百分点区间只计一次。周期金额展示的5个百分点门槛

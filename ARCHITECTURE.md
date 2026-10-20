@@ -1678,12 +1678,21 @@ real account switching and A → B → A continuity remain unverified. Synthetic
 coverage is not real-account acceptance.
 
 For historical Codex logs, `providers/codex/codexQuotaCheckpoints.ts` retains
-version-3 numeric checkpoints during the existing lineage-admitted index pass.
+version-4 numeric checkpoints during the existing lineage-admitted index pass.
 The same resumable period replay upgrades missing or incompatible checkpoint
 state; this is not a second scanner. An unchanged warm refresh rereads no
 usage-record bodies, and projection never opens source logs. Checkpoints contain
 numeric times, percentages, segment/completeness state and sanitized per-model
 Token counts with internal pseudonymous source keys, never raw text or raw IDs.
+
+Version 4 fixes `segmentResetAt` to the segment's first reset anchor.
+Each row's `resetAt` uses that canonical first R; `observedResetAt` retains its
+original raw numeric R. Jitter within ±5 minutes is compared with the fixed
+first anchor, never chained through later observations. Pairing never extends
+beyond the canonical reset. `observedResetAt` is optional only for legacy runtime
+inputs; strict v4 storage requires it. Every version-3 state requires bounded
+period replay; old baselines are never retrojoined. Primary quota observations
+keep their raw reset values unchanged.
 
 A segment's cumulative `byModel` excludes its own baseline line. On baseline
 rows only, `baselineByModel` separately records the admitted request on that
@@ -1698,7 +1707,7 @@ entries per map. Retained and resumable-draft payloads share a 32 MiB index
 budget; the provider projection is bounded to 65,536 points / 32 MiB. See the
 [`codexQuotaCheckpoints.ts`](src/providers/codex/codexQuotaCheckpoints.ts) constants.
 Compaction keeps segment endpoints or removes whole old segments, preserving the baseline
-of any retained interval. Version 3 adds bounded `CodexQuotaIncompleteRange`
+of any retained interval. Version 4 retains bounded `CodexQuotaIncompleteRange`
 numeric interval witnesses: `from`, `through` and optional `resetAt`, exposed as
 `codexQuotaIncompleteRanges`. Up to 512 merged gap ranges per state and 65,536
 projected ranges localize skipped, omitted or ambiguous activity without raw
@@ -1872,7 +1881,7 @@ with a later observation timestamp. At its next sample the host retires that acc
 affected runtime sums and establishes a fresh baseline; queued stale observations
 cannot restore cleared data.
 Unchanged projections do not repeat archive I/O merely as time passes.
-Numeric checkpoint version 3 is an additive part of the existing index and
+Numeric checkpoint version 4 is an additive part of the existing index and
 period replay. The default-on `showWeeklyEquivalentValue` display setting and
 package version are unchanged; no new dependency is required.
 

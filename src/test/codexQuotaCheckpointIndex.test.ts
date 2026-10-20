@@ -63,25 +63,51 @@ test('old checkpoints replay on the existing bounded period pass while primary c
   assert.equal(migrated.index.files[key].aggregate.total.inputTotal, 1000);
   assert.equal((migrated.index.files[key] as any).quotaCheckpoints.rows[1].byModel['gpt-5'].inputTotal, 100);
 });
-test('legacy checkpoint shape replays to current semantics without resetting primary counts', async t => {
+test('legacy v1/v2/v3 checkpoints replay to current semantics without resetting primary counts', async t => {
   const f = await fixture(t);
   await writeFile(f.file, context + record(1, 900, 10) + record(2, 100, 11));
   const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
   const key = Object.keys(cold.index.files)[0];
-  const raw = JSON.parse(JSON.stringify(cold.index));
-  raw.files[key].quotaCheckpoints.version = 1;
-  delete raw.files[key].quotaCheckpoints.rows[0].baselineByModel;
-  const old = normalizeCodexIndex(raw)!;
-  assert.equal(old.files[key].quotaCheckpoints, undefined);
-  assert.equal(old.files[key].aggregate.total.inputTotal, 1000);
-  const replayed = await updateCodexIndex(old, await f.scan(), f.options);
-  assert.ok(replayed.bodyReads > 0);
-  const state = replayed.index.files[key].quotaCheckpoints!;
-  assert.equal(state.version, CODEX_QUOTA_CHECKPOINT_VERSION);
-  assert.equal(state.rows[0].baselineByModel!['gpt-5'].inputTotal, 900);
-  assert.deepEqual(state.rows[0].byModel, {});
-  assert.equal(state.rows[1].byModel['gpt-5'].inputTotal, 100);
-  assert.equal(replayed.index.files[key].aggregate.total.inputTotal, 1000);
+  for (const version of [1, 2, 3]) {
+    const raw = JSON.parse(JSON.stringify(cold.index));
+    raw.files[key].quotaCheckpoints.version = version;
+    delete raw.files[key].quotaCheckpoints.rows[0].baselineByModel;
+    const old = normalizeCodexIndex(raw)!;
+    assert.equal(old.files[key].quotaCheckpoints, undefined);
+    assert.equal(old.files[key].aggregate.total.inputTotal, 1000);
+    const replayed = await updateCodexIndex(old, await f.scan(), f.options);
+    assert.ok(replayed.bodyReads > 0);
+    const state = replayed.index.files[key].quotaCheckpoints!;
+    assert.equal(state.version, CODEX_QUOTA_CHECKPOINT_VERSION);
+    assert.equal(state.rows[0].baselineByModel!['gpt-5'].inputTotal, 900);
+    assert.deepEqual(state.rows[0].byModel, {});
+    assert.equal(state.rows[1].byModel['gpt-5'].inputTotal, 100);
+    assert.equal(replayed.index.files[key].aggregate.total.inputTotal, 1000);
+  }
+});
+
+test('jittered checkpoints preserve exact cold/append/reload pairing with the first reset anchor', async t => {
+  const f = await fixture(t);
+  const jitter = (i: number, input: number, used: number, delta: number) => {
+    const row = JSON.parse(record(i, input, used));
+    row.payload.rate_limits.secondary.resets_at = reset + delta;
+    return JSON.stringify(row) + '\n';
+  };
+  await writeFile(f.file, context + jitter(1, 500, 20, 0) + jitter(2, 100, 30, 5000));
+  const cold = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const key = Object.keys(cold.index.files)[0];
+  const loaded = normalizeCodexIndex(JSON.parse(JSON.stringify(cold.index)))!;
+  const warm = await updateCodexIndex(loaded, await f.scan(), f.options);
+  assert.equal(warm.bodyReads, 0);
+  await appendFile(f.file, jitter(3, 200, 40, -5000));
+  const appended = await updateCodexIndex(warm.index, await f.scan(), f.options);
+  const fresh = await updateCodexIndex(createEmptyCodexIndex('UTC'), await f.scan(), f.options);
+  const state = appended.index.files[key].quotaCheckpoints!;
+  assert.deepEqual(state, fresh.index.files[key].quotaCheckpoints);
+  assert.deepEqual(state.rows.map(row => row.resetAt), [reset, reset, reset]);
+  assert.deepEqual(state.rows.map(row => row.observedResetAt), [reset, reset + 5000, reset - 5000]);
+  assert.equal(state.rows[2].byModel['gpt-5'].inputTotal, 300);
+  assert.equal(appended.index.files[key].aggregate.total.inputTotal, 800);
 });
 test('provider publishes bounded canonical paired evidence with runtime file keys', async t => {
   const f = await fixture(t);

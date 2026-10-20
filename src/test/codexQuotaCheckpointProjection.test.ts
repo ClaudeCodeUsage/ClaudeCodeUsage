@@ -11,12 +11,14 @@ function stateFor(source: number, count: number) {
   state.segment = 1; state.source = 1; state.pendingBoundary = false;
   state.rows = Array.from({ length: count }, (_, n): typeof state.rows[number] => ({ segment: 1, from,
     through: from + n * 1000, resetAt: now - (source % 12) * week + week,
+    observedResetAt: now - (source % 12) * week + week,
     usedPercent: 10 + n, baseline: n === 0, complete: true,
     byModel: n === 0 ? {} : { 'gpt-5': { inputTotal: n * 100, outputTotal: n * 2,
       cachedInput: n * 20, reasoningOutput: n, sourceTotal: n * 102 } },
     ...(n === 0 ? { baselineByModel: { 'gpt-5': { inputTotal: 100, outputTotal: 2,
       cachedInput: 20, reasoningOutput: 1, sourceTotal: 102 } } } : {}),
   }));
+  state.segmentResetAt = state.rows[0].resetAt;
   state.byModel = { ...state.rows[count - 1].byModel };
   state.lastEventAt = state.rows[count - 1].through;
   return state;

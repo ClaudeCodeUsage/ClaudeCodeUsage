@@ -1004,7 +1004,7 @@ test('weekly value documentation separates paired-cycle estimates from primary u
     const contract = document.slice(start, end < 0 ? undefined : end).replace(/\s+/g, ' ');
     // Current paired-cycle fields, not retired daily-prefix columns or error-bound prose.
     for (const field of ['codexQuotaCheckpoints.ts', 'CodexQuotaIncompleteRange', 'codexQuotaIncompleteRanges',
-      'baselineByModel', 'byModel', 'codexWindowEstimate.ts', 'codexWindowEvidence.ts', 'windowEvidence',
+      'baselineByModel', 'byModel', 'segmentResetAt', 'observedResetAt', 'codexWindowEstimate.ts', 'codexWindowEvidence.ts', 'windowEvidence',
       'skippedIntervals', 'skippedUsd', 'weeklyEstimateArchive.ts', 'weeklyEstimateCoordinator.ts',
       'weeklyEstimateChart.ts', 'weekly-estimates-v1.json', 'codex.officialQuota.enabled',
       'codexAccountEstimate.ts', 'account-delta-v1', 'series-prefix-v1', 'codex-official-api',
@@ -1014,14 +1014,21 @@ test('weekly value documentation separates paired-cycle estimates from primary u
       'calibrationStart', 'windowEvidence.from', 'initialize', 'initialized', 'account/rateLimits/read']) {
       assert.ok(contract.includes(field), file + ' must document ' + field);
     }
-    for (const pattern of [/version[- ]3/, /512/, /256 KiB/, /65,536/, /32 MiB/, /4096/, /1 MiB/, /0600/, /HMAC/,
+    for (const pattern of [/version[- ]4/, /512/, /256 KiB/, /65,536/, /32 MiB/, /4096/, /1 MiB/, /0600/, /HMAC/,
       /F\s*=\s*ΔUSD\s*\/\s*\(Δp\s*\/\s*100\)/,
       /R\s*=\s*F\s*[*×]\s*\(1\s*[-−]\s*p\s*\/\s*100\)/]) {
       assert.match(contract, pattern, file);
     }
     assert.ok(contract.includes('showWeeklyQuotaPace'), file);
-    assert.doesNotMatch(contract, /version-2 (?:numeric checkpoints|数值检查点)|Numeric checkpoint version 2|数值检查点 version 2/);
+    assert.doesNotMatch(contract, /version-[23] (?:numeric checkpoints|数值检查点)|Numeric checkpoint version [23]|数值检查点 version [23]/);
     const facts = chinese ? [
+      /segmentResetAt.{0,40}分段首次重置锚点/,
+      /resetAt.{0,40}规范首个 R.{0,40}observedResetAt.{0,40}原始数值 R/,
+      /±5分钟.{0,40}固定首锚点.{0,30}不沿后续观测链式延展/,
+      /配对绝不越过规范重置时刻/,
+      /observedResetAt.{0,50}旧运行期.{0,40}可选.{0,40}严格 v4 存储必须/,
+      /全部 version-3 状态.{0,40}有界 period 重放.{0,40}不回接旧基线/,
+      /主要额度观测的原始重置值保持不变/,
       /时间上重叠.{0,60}组件.{0,50}端点相接.{0,30}独立/,
       /整个重叠组件.{0,40}USD 分子与 Δp 分母一起移出/,
       /缺口在获准区间之外.{0,60}reset 相同也不污染/,
@@ -1064,6 +1071,13 @@ test('weekly value documentation separates paired-cycle estimates from primary u
       /不新增.{0,40}原始日志扫描、网络请求、遥测或贡献流程/,
       /原生验收或真实账号验证已经完成/,
     ] : [
+      /segmentResetAt.{0,100}first reset anchor/i,
+      /resetAt.{0,60}canonical first R.{0,70}observedResetAt.{0,90}original raw numeric R/i,
+      /±5 minutes.{0,90}fixed first anchor.{0,100}never chained/i,
+      /pairing never extends beyond the canonical reset/i,
+      /observedResetAt.{0,80}optional only for legacy runtime inputs.{0,40}strict v4 storage requires it/i,
+      /every version-3 state requires bounded period replay.{0,60}old baselines are never retrojoined/i,
+      /primary quota observations keep their raw reset values unchanged/i,
       /time intervals overlap.{0,60}component.{0,40}touching intervals stay separate/i,
       /WHOLE overlapping component.{0,60}USD numerator and Δp denominator leave/i,
       /gap outside an admitted interval.{0,60}even within the same reset/i,

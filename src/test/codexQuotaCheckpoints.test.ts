@@ -74,11 +74,11 @@ test('unchanged percentages retain first and latest points without overflowing l
 });
 test('old episode eviction is explicit and a later segment remains usable', () => {
   const c = collector();
-  for (let i = 1; i <= CODEX_QUOTA_CHECKPOINT_LIMIT + 10; i++) c.add(line(i, 10, 1, start + 604800000 + i * 1000));
+  for (let i = 1; i <= CODEX_QUOTA_CHECKPOINT_LIMIT + 10; i++) c.add(line(i, 10, 1, start + 604800000 + i * 600001));
   assert.ok(c.state.rows.length <= CODEX_QUOTA_CHECKPOINT_LIMIT);
   assert.equal(c.state.overflow, true);
   assert.equal(c.state.complete, false);
-  c.add(line(CODEX_QUOTA_CHECKPOINT_LIMIT + 11, 11, 7, start + 604800000 + (CODEX_QUOTA_CHECKPOINT_LIMIT + 10) * 1000));
+  c.add(line(CODEX_QUOTA_CHECKPOINT_LIMIT + 11, 11, 7, start + 604800000 + (CODEX_QUOTA_CHECKPOINT_LIMIT + 10) * 600001));
   assert.equal(c.state.rows[c.state.rows.length - 1].complete, true);
   assert.equal(c.state.rows[c.state.rows.length - 1].byModel['gpt-5'].inputTotal, 7);
 });

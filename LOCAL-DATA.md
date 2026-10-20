@@ -21,7 +21,7 @@ credential, account-separation or explicit-network-consent restrictions.
 | Data class | Source | What is retained by the extension | Retention and clearing | Remote interaction |
 |---|---|---|---|---|
 | Claude usage records | Claude Code's local `projects/**/*.jsonl` | Runtime usage records and an in-memory per-file index; bounded prompt samples only when content analysis is enabled | Released on window reload/exit. Data controls never touch source logs; the separately opt-in Session Actions feature may move one exactly confirmed log to the OS trash (recoverable) | None unless the user separately previews and sends an advice request |
-| Codex usage records | `.jsonl` and `.jsonl.zst` regular files recursively under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` | A schema-3 incremental index of pseudonymous file keys, decoded offsets, numeric usage, dates, model/effort, sanitized structural aggregates, optional compressed-source fingerprints/EOF marker, and bounded version-3 quota/Token checkpoints with separate admitted baseline requests and numeric incomplete-range witnesses | Until rebuild, explicit clear, schema replacement, or host removal; checkpoint migration reuses existing period replay | None |
+| Codex usage records | `.jsonl` and `.jsonl.zst` regular files recursively under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` | A schema-3 incremental index of pseudonymous file keys, decoded offsets, numeric usage, dates, model/effort, sanitized structural aggregates, optional compressed-source fingerprints/EOF marker, and bounded version-4 quota/Token checkpoints with separate admitted baseline requests and numeric incomplete-range witnesses | Until rebuild, explicit clear, schema replacement, or host removal; checkpoint migration reuses existing period replay | None |
 | Codex titles | Exactly `$CODEX_HOME/session_index.jsonl` | `id → thread_name` is streamed for runtime display; titles are not written to the index | Runtime only | None |
 | Weekly estimate preview | Existing numeric checkpoints/aggregates and local/opt-in official quota samples | `weekly-estimates-v1.json`: fixed-field snapshots, optional paired-window or official-delta evidence with public ratebook/parser/period versions, intervals/Δp/USD/Tokens/cycle bounds, internal account/window HMACs, leased source-local account ordinal and linked/unlinked diagnostics | Revisions preserve history; 4096 entries / 1 MiB stop new writes, no eviction. Clear fences include evidence start; selected-account clear preserves other/unassigned records and provider/all clear includes the archive | Calculation/chart/evidence projection has no network; optional official sample acquisition uses the daemon boundary below |
 | Quota observations | Claude official response, structured Codex local events or opt-in `codex-official-api` sample | Provider, machine-local anonymous scope, original observed/reset times, fractions, window identity, source, confidence and flags; no raw account ID/email | At most 180 days and 512 observations per provider/account/period after compaction; clear separately or with all derived data | Enabled Claude lookup contacts Anthropic and may refresh its credentials. Optional Codex read can contact OpenAI through the existing daemon, whose authentication may refresh; the extension reads no Codex credentials |
@@ -204,12 +204,21 @@ real account switching and A → B → A continuity remain unverified. Synthetic
 coverage is not real-account acceptance.
 
 For historical Codex logs, `providers/codex/codexQuotaCheckpoints.ts` retains
-version-3 numeric checkpoints during the existing lineage-admitted index pass.
+version-4 numeric checkpoints during the existing lineage-admitted index pass.
 The same resumable period replay upgrades missing or incompatible checkpoint
 state; this is not a second scanner. An unchanged warm refresh rereads no
 usage-record bodies, and projection never opens source logs. Checkpoints contain
 numeric times, percentages, segment/completeness state and sanitized per-model
 Token counts with internal pseudonymous source keys, never raw text or raw IDs.
+
+Version 4 fixes `segmentResetAt` to the segment's first reset anchor.
+Each row's `resetAt` uses that canonical first R; `observedResetAt` retains its
+original raw numeric R. Jitter within ±5 minutes is compared with the fixed
+first anchor, never chained through later observations. Pairing never extends
+beyond the canonical reset. `observedResetAt` is optional only for legacy runtime
+inputs; strict v4 storage requires it. Every version-3 state requires bounded
+period replay; old baselines are never retrojoined. Primary quota observations
+keep their raw reset values unchanged.
 
 A segment's cumulative `byModel` excludes its own baseline line. On baseline
 rows only, `baselineByModel` separately records the admitted request on that
@@ -224,7 +233,7 @@ entries per map. Retained and resumable-draft payloads share a 32 MiB index
 budget; the provider projection is bounded to 65,536 points / 32 MiB. See the
 [`codexQuotaCheckpoints.ts`](src/providers/codex/codexQuotaCheckpoints.ts) constants.
 Compaction keeps segment endpoints or removes whole old segments, preserving the baseline
-of any retained interval. Version 3 adds bounded `CodexQuotaIncompleteRange`
+of any retained interval. Version 4 retains bounded `CodexQuotaIncompleteRange`
 numeric interval witnesses: `from`, `through` and optional `resetAt`, exposed as
 `codexQuotaIncompleteRanges`. Up to 512 merged gap ranges per state and 65,536
 projected ranges localize skipped, omitted or ambiguous activity without raw
@@ -397,7 +406,7 @@ with a later observation timestamp. At its next sample the host retires that acc
 affected runtime sums and establishes a fresh baseline; queued stale observations
 cannot restore cleared data.
 Unchanged projections do not repeat archive I/O merely as time passes.
-Numeric checkpoint version 3 is an additive part of the existing index and
+Numeric checkpoint version 4 is an additive part of the existing index and
 period replay. The default-on `showWeeklyEquivalentValue` display setting and
 package version are unchanged; no new dependency is required.
 

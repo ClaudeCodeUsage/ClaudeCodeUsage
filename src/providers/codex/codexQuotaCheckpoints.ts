@@ -1,6 +1,6 @@
 import type { ProviderTokenCounts } from '../providerTypes';
 import type { CodexLineOutput } from './codexParser';
-import { codexQuotaObservationsFromLimit } from './codexQuotaHistory';
+import { codexQuotaObservationsFromLimit, CODEX_QUOTA_RESET_CLUSTER_MS } from './codexQuotaHistory';
 import { sanitizeCodexMetadataLabel } from './codexMetadataLabel';
 import type { CodexSkippedLineWitness } from './codexJsonlScanner';
 
@@ -13,6 +13,9 @@ export interface CodexQuotaCheckpoint {
   from: number;
   through: number;
   resetAt: number;
+  /** Original provider reset for this sample; resetAt is the segment's first
+   * reset anchor. Optional only for legacy runtime inputs, never v4 storage. */
+  observedResetAt?: number;
   usedPercent: number;
   baseline: boolean;
   byModel: Readonly<Record<string, ProviderTokenCounts>>;
@@ -26,7 +29,7 @@ export interface CodexQuotaCheckpoint {
 }
 
 export interface CodexQuotaIncompleteRange { from: number; through: number; resetAt?: number }
-export const CODEX_QUOTA_CHECKPOINT_VERSION = 3;
+export const CODEX_QUOTA_CHECKPOINT_VERSION = 4;
 export const CODEX_QUOTA_GAP_LIMIT = 512;
 export const CODEX_QUOTA_RANGE_LIMIT = 65_536;
 export const CODEX_QUOTA_CHECKPOINT_LIMIT = 512;
@@ -52,6 +55,7 @@ export interface CodexQuotaCheckpointState {
   indexedThrough: number;
   prefixEvents: number;
   segment: number;
+  segmentResetAt: number;
   lastEventAt: number;
   /** Fixed enum distinguishes explicit Codex from an unspecified quota source. */
   source: 0 | 1 | 2;
@@ -64,7 +68,7 @@ export interface CodexQuotaCheckpointState {
 }
 
 export function createCodexQuotaCheckpointState(prefixEvents: number): CodexQuotaCheckpointState {
-  return { version: 3, indexedThrough: 0, prefixEvents, segment: 0, lastEventAt: 0, source: 0,
+  return { version: 4, indexedThrough: 0, prefixEvents, segment: 0, segmentResetAt: 0, lastEventAt: 0, source: 0,
     ranges: [], rangesUnlocalized: false, pendingGapUnknown: false, activityFrom: 0, activityThrough: 0,
     observedTokens: copyTokens({ inputTotal: 0, outputTotal: 0 }),
     excludedTokens: copyTokens({ inputTotal: 0, outputTotal: 0 }),
@@ -343,11 +347,14 @@ export function retainCodexQuotaCheckpoints(
     return;
   }
   const baseline = !!sample && (state.pendingBoundary || !previous ||
-    previous.resetAt !== sample.resetAt || sample.usedPercent < previous.usedPercent);
+    sample.observedAt >= state.segmentResetAt ||
+    Math.abs(state.segmentResetAt - sample.resetAt) > CODEX_QUOTA_RESET_CLUSTER_MS ||
+    sample.usedPercent < previous.usedPercent);
   const baselineByModel = baseline ? requestTokens : undefined;
   if (baseline) {
     flushUnpairedTail(state);
     state.byModel = {}; state.segment += 1; state.source = source;
+    state.segmentResetAt = sample.resetAt;
     state.lastEventAt = sample.observedAt;
     state.segmentComplete = baselineByModel !== undefined;
     if (state.segmentComplete && state.pendingGapFrom !== undefined) {
@@ -386,7 +393,7 @@ export function retainCodexQuotaCheckpoints(
     markCodexQuotaCheckpointGap(state);
   }
   const row: Row = { segment: state.segment, from: baseline ? sample.observedAt : previous!.from,
-    through: sample.observedAt, resetAt: sample.resetAt, usedPercent: sample.usedPercent,
+    through: sample.observedAt, resetAt: state.segmentResetAt, observedResetAt: sample.resetAt, usedPercent: sample.usedPercent,
     baseline, byModel: copyModels(state.byModel), complete: state.segmentComplete,
     ...(baselineByModel !== undefined ? { baselineByModel } : {}) };
   const beforePrevious = state.rows[state.rows.length - 2];
@@ -407,7 +414,7 @@ export function sanitizeCodexQuotaCheckpointState(value: unknown): CodexQuotaChe
   const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
   const integer = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
   if (!record(value) || value.version !== CODEX_QUOTA_CHECKPOINT_VERSION || !integer(value.indexedThrough) ||
-      !integer(value.prefixEvents) || !integer(value.segment) || !integer(value.lastEventAt) ||
+      !integer(value.prefixEvents) || !integer(value.segment) || !integer(value.segmentResetAt) || !integer(value.lastEventAt) ||
       ![0, 1, 2].includes(value.source as number) ||
       typeof value.pendingBoundary !== 'boolean' || typeof value.complete !== 'boolean' ||
       typeof value.segmentComplete !== 'boolean' ||
@@ -434,6 +441,7 @@ export function sanitizeCodexQuotaCheckpointState(value: unknown): CodexQuotaChe
   };
   const state = createCodexQuotaCheckpointState(value.prefixEvents);
   state.indexedThrough = value.indexedThrough; state.segment = value.segment;
+  state.segmentResetAt = value.segmentResetAt;
   state.lastEventAt = value.lastEventAt;
   state.source = value.source as 0 | 1 | 2; state.pendingBoundary = value.pendingBoundary;
   state.complete = value.complete; state.overflow = value.overflow;
@@ -460,7 +468,10 @@ export function sanitizeCodexQuotaCheckpointState(value: unknown): CodexQuotaChe
   state.byModel = byModel;
   for (const raw of value.rows) {
     if (!record(raw) || !integer(raw.segment) || !integer(raw.from) || !integer(raw.through) ||
-        !integer(raw.resetAt) || raw.from <= 0 || raw.through < raw.from || raw.resetAt <= raw.through ||
+        !integer(raw.resetAt) || !integer(raw.observedResetAt) || raw.from <= 0 || raw.through < raw.from ||
+        raw.resetAt <= raw.through || raw.observedResetAt <= raw.through ||
+        Math.abs(raw.observedResetAt - raw.resetAt) > CODEX_QUOTA_RESET_CLUSTER_MS ||
+        (raw.baseline === true && raw.observedResetAt !== raw.resetAt) ||
         typeof raw.usedPercent !== 'number' || !Number.isFinite(raw.usedPercent) ||
         raw.usedPercent < 0 || raw.usedPercent > 100 || typeof raw.baseline !== 'boolean' ||
         typeof raw.complete !== 'boolean') return undefined;
@@ -482,10 +493,12 @@ export function sanitizeCodexQuotaCheckpointState(value: unknown): CodexQuotaChe
       }
     } else if (!raw.baseline) return undefined;
     state.rows.push({ segment: raw.segment, from: raw.from, through: raw.through,
-      resetAt: raw.resetAt, usedPercent: raw.usedPercent, baseline: raw.baseline,
+      resetAt: raw.resetAt, observedResetAt: raw.observedResetAt, usedPercent: raw.usedPercent, baseline: raw.baseline,
       complete: raw.complete, byModel: counts,
       ...(baselineCounts ? { baselineByModel: baselineCounts } : {}) });
   }
+  const lastRow = state.rows[state.rows.length - 1];
+  if (lastRow && lastRow.segment === state.segment && lastRow.resetAt !== state.segmentResetAt) return undefined;
   enforceBudget(state);
   if (state.overflow) state.complete = false;
   return state;
