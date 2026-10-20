@@ -13,6 +13,7 @@ import {
 } from './codexSchema';
 import { safeProjectIdentity } from './codexIdentity';
 import { sanitizeCodexMetadataLabel } from './codexMetadataLabel';
+import { codexUsageRecordPairMarker, CodexUsageRecordPairMarker } from './codexUsageRecordPair';
 
 export interface CodexRawTokenCounts {
   inputTokens: number;
@@ -51,6 +52,8 @@ export interface CodexStructuralEvent {
 }
 
 export interface CodexLineOutput {
+  /** Numeric/hash-only, scan-local metadata evidence; never parser state or disk DTO. */
+  usageRecordPair?: CodexUsageRecordPairMarker;
   /** Runtime-only current-line failure, independent of sticky quality flags.
    * This does not change primary token attribution or persisted parser semantics. */
   forwardCalibrationIncomplete?: boolean;
@@ -729,12 +732,15 @@ export function parseCodexLine(
   line: string,
   state: CodexParserState,
   pseudonymize?: (raw: string) => string,
+  scanOrdinal?: number,
 ): CodexLineOutput {
   const entry = parseJsonObject(line);
   if (!entry) {
     return { state: withFlag(state, 'invalid-json'), events: [], quotaPairingIncomplete: true, forwardCalibrationIncomplete: true };
   }
-  return { ...parseCodexEntry(entry, state, pseudonymize), observedAt: timestampOf(entry) };
+  const parsed = { ...parseCodexEntry(entry, state, pseudonymize), observedAt: timestampOf(entry) };
+  const usageRecordPair = codexUsageRecordPairMarker(entry, parsed, scanOrdinal, pseudonymize);
+  return { ...parsed, ...(usageRecordPair ? { usageRecordPair } : {}) };
 }
 
 function parseCodexEntry(

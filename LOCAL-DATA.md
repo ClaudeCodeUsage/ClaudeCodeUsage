@@ -175,6 +175,16 @@ can distinguish the cause using enum state/reason, paired-point/interval counts
 and relative proof/bracket durations. No identifiers, model names, raw errors,
 extra cache, timer or telemetry flow are added; progress remains non-restorable.
 
+Observed `token_usage_record` compatibility is scan-local only: a record, validated
+response item and newly emitted exact-last count must occupy consecutive raw
+ordinals and physical lines, share locked thread/model context and request token
+components, and fall within five seconds. The earlier record time and count time
+both bound usage; cumulative scopes are not compared as identical totals. Metadata
+adds no tokens/USD and no marker, raw ID/body or pending pair is persisted. Split,
+unsafe, missing or replayed pairs remain ineligible. Primary parser schema, totals,
+signatures and warnings are unchanged. This observed layout does not establish a
+universal shared-request identity contract or make historical amounts complete.
+
 Each fresh continuity baseline starts unaligned: discard USD and points through
 the first observed increase of at least one percentage point, then measure from
 that observed step. Switches, gaps and invalid intervals restart alignment;

@@ -29,6 +29,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   但不能保证所有旧版本后续写入均安全。
 
 ### Fixed
+- **Forward usage-record compatibility** — recognize one strictly paired observed
+  metadata/response/count layout without duplicate tokens, primary schema changes,
+  historical replay or persisted pair state. Split, unsafe and replayed pairs stay
+  ineligible. Local diagnostics identify append and official-bracket edge failures.
+  中文：严格核验一种已观测的元数据／响应／计数配对，不重复计量、不改主解析版本、不重放历史、
+  不保存配对状态；跨扫描分割、不安全及重放配对仍拒绝，诊断区分追加与官方配对边界失败。
 - **Official sampling continuity** — local proof and rates are frozen before the
   quota request; concurrent refreshes cannot replace its calibration bracket.
   Exact unchanged metadata rereads preserve alignment without recounting USD.

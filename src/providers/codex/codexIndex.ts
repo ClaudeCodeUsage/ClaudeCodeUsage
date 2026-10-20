@@ -44,6 +44,7 @@ import {
   codexPeriodFitsAggregate,
 } from './codexPeriodIndex';
 import { parseJsonObject, stringField } from './codexSchema';
+import { CodexUsageRecordPairGuard } from './codexUsageRecordPair';
 import { CodexZstdError, type CodexZstdErrorCode } from './codexZstd';
 import {
   CodexManifest,
@@ -1162,6 +1163,8 @@ async function updateContribution(
     lineage.appliedPrefixEvents === 0 && contribution.qualityFlags.length === 0 && parserState.qualityFlags.length === 0;
   let initialIdentityLockSeen = false;
   let initialTaskBoundarySeen = false;
+  const usageRecordPair = new CodexUsageRecordPairGuard();
+  let forwardScanOrdinal = 0;
   let minUsageAt: number | null = null, maxUsageAt: number | null = null, lastUsageAt: number | null = null;
   let appendComplete = (beforeOffset > 0 || initialRootScan) && beforeOffset === contribution.size && !entry.compression &&
     !contribution.discardingOversizedLine && !contribution.lineageReconciliation &&
@@ -1228,7 +1231,7 @@ async function updateContribution(
       quotaCheckpoints,
       ...(beforeOffset > 0 || initialRootScan ? { calibrationAppend: Object.freeze({
         beforeOffset, throughOffset: cursor.offset, minUsageAt, maxUsageAt,
-        complete: appendComplete && cursor.offset === entry.size && !cursor.discardingOversizedLine &&
+        complete: appendComplete && usageRecordPair.complete && cursor.offset === entry.size && !cursor.discardingOversizedLine &&
           (!initialRootScan || initialIdentityLockSeen && parserState.identityLocked === true &&
             parserState.role === 'root' && !parserState.parentSessionKey &&
             lineage.desiredPrefixEvents === 0 && lineage.appliedPrefixEvents === 0),
@@ -1273,16 +1276,23 @@ async function updateContribution(
     },
     endExclusive,
     (line) => {
+      const ordinal = ++forwardScanOrdinal;
       if (line.trim() !== '') {
         const identityBefore = [parserState.sessionKey, parserState.parentSessionKey, parserState.treeKey, parserState.role];
         const lockedBefore = parserState.identityLocked === true;
         const flagsBefore = parserState.qualityFlags;
-        const parsed = parseCodexLine(line, parserState, pseudonymize);
+        const parsed = parseCodexLine(line, parserState, pseudonymize, ordinal);
+        const pair = usageRecordPair.observe(ordinal, parsed.usageRecordPair);
+        if (pair.unsafe) appendComplete = false;
+        if (pair.bounds) {
+          if (lastUsageAt !== null && pair.bounds.from < lastUsageAt) appendComplete = false;
+          minUsageAt = minUsageAt === null ? pair.bounds.from : Math.min(minUsageAt, pair.bounds.from);
+        }
         parserState = parsed.state;
         // Primary role normalization is deliberately broad. A declared child
         // with no resolvable parent must not acquire root-birth authority.
         let explicitRootMetadata = true;
-        if (parserState.role === 'root' && parsed.events.length === 0 && !parsed.structural) {
+        if (parserState.role === 'root' && parsed.events.length === 0 && !parsed.structural && !parsed.usageRecordPair) {
           const metadata = parseJsonObject(line);
           if (metadata?.type === 'session_meta' && isRecord(metadata.payload)) {
             const payload = metadata.payload;
@@ -1299,11 +1309,12 @@ async function updateContribution(
           !initialTaskBoundarySeen && lineage.tokenEvents === 0 && parserState.identityLocked === true &&
           parserState.role === 'root' && !parserState.parentSessionKey && desiredPrefixEvents === 0;
         if (initialTaskBoundary) initialTaskBoundarySeen = true;
-        if (parsed.forwardCalibrationIncomplete || parsed.quotaPairingIncomplete || !explicitRootMetadata ||
+        if ((parsed.forwardCalibrationIncomplete && !pair.waiveRecordFailure) || parsed.quotaPairingIncomplete || !explicitRootMetadata ||
             (parsed.lineageBoundary && !initialTaskBoundary) || parsed.quotaSource === 'other' ||
             (!initialLock && [parserState.sessionKey, parserState.parentSessionKey, parserState.treeKey, parserState.role]
               .some((value, i) => value !== identityBefore[i])) ||
-            parserState.qualityFlags.some(flag => !flagsBefore.includes(flag))) appendComplete = false;
+            parserState.qualityFlags.some(flag => !flagsBefore.includes(flag) &&
+              !(pair.waiveRecordFailure && flag === 'unknown-event'))) appendComplete = false;
         if (parsed.lineageTokenKey) {
           addLineageToken(lineage, parsed.lineageTokenKey);
         }
@@ -1380,12 +1391,12 @@ async function updateContribution(
             limits[limitKey] = parsed.limit;
           }
         }
-      }
+      } else if (usageRecordPair.observe(ordinal).unsafe) appendComplete = false;
     },
     async (progress) => {
       await onChunk(snapshot(progress.cursor), progress.bytesRead);
     },
-    undefined, undefined, witness => { appendComplete = false; quotaSkippedLine?.(witness); },
+    undefined, undefined, witness => { appendComplete = false; usageRecordPair.invalidate(); quotaSkippedLine?.(witness); },
   );
 
   if (!scan.reachedEnd) {

@@ -17,6 +17,9 @@ export const CODEX_CALIBRATION_DIAGNOSTIC_REASONS = Object.freeze([
   'proof-before-baseline', 'counter-correction', 'baseline-retired', 'not-forward-mode', 'quota-blocked',
   'source-changed', 'append-incomplete', 'endpoint-mismatch', 'unpriced-usage', 'percentage-step',
   'first-step-discarded', 'accumulating', 'calibrated', 'no-priced-increment', 'capacity-invalid', 'evidence-invalid',
+  'source-ineligible', 'append-unproven', 'append-window-missing', 'append-window-incomplete',
+  'append-chain-gap', 'append-vector-invalid', 'metadata-usage-mismatch', 'usage-time-missing',
+  'usage-before-baseline', 'usage-after-request', 'counter-overflow',
 ] as const);
 export type CodexCalibrationReason = typeof CODEX_CALIBRATION_DIAGNOSTIC_REASONS[number];
 export interface CodexCalibrationDiagnostics extends CodexCalibrationStatus {
@@ -28,6 +31,8 @@ export interface CodexCalibrationDiagnostics extends CodexCalibrationStatus {
 
 type Sample = OfficialQuotaSample;
 type Delta = { usd: number; priced: number; total: number; sources: number };
+type RejectedDelta = { state: CodexCalibrationState; reason: CodexCalibrationReason };
+const rejectDelta = (state: CodexCalibrationState, reason = statusReason(state)): RejectedDelta => ({ state, reason });
 type Run = { account: string; from: number; usd: number; priced: number; total: number; delta: number; intervals: number };
 type Pending = Delta & { sample: Sample };
 const MAX_GAP = 300_000, HEX = /^[a-f0-9]{64}$/;
@@ -72,53 +77,63 @@ function appendChain(before: CodexForwardCalibrationSource | undefined, after: C
  * An unchanged old source is not a missing increment; it grants no historical
  * completeness, owned-account identity or cross-device coverage. */
 function increment(before: CodexForwardCalibration, after: CodexForwardCalibration,
-  first: Sample, last: Sample, book: CodexCalibrationPricebook): Delta | CodexCalibrationState {
-  if (before.indexGeneration !== after.indexGeneration) return 'source-changed';
+  first: Sample, last: Sample, book: CodexCalibrationPricebook): Delta | RejectedDelta {
+  if (before.indexGeneration !== after.indexGeneration) return rejectDelta('source-changed');
   const old = new Map(before.sources.map(source => [source.sourceKey, source]));
   const current = new Map(after.sources.map(source => [source.sourceKey, source]));
   // Births extend the census; they never replace a missing or rewritten source.
-  if (before.sources.some(source => current.get(source.sourceKey)?.continuity !== source.continuity)) return 'source-changed';
-  if (after.sources.some(source => !old.has(source.sourceKey) && !isCodexForwardBirth(before, source))) return 'source-changed';
+  if (before.sources.some(source => current.get(source.sourceKey)?.continuity !== source.continuity)) return rejectDelta('source-changed');
+  if (after.sources.some(source => !old.has(source.sourceKey) && !isCodexForwardBirth(before, source))) return rejectDelta('source-changed');
   const rates = new Map(book.rates.map(rate => [rate.model, rate]));
   const endpoint = (proof: CodexForwardCalibration, sample: Sample, since?: number) => proof.sources.some(source =>
     source.eligible && source.quotaWitness && Math.abs(source.quotaWitness.resetAt - sample.resetAt) <= 300_000 &&
     source.quotaWitness.usedPercent === sample.usedPercent && source.quotaWitness.observedAt <= sample.requestedAt &&
     (since === undefined || source.quotaWitness.observedAt > since));
-  if (!endpoint(before, first)) return 'endpoint-mismatch';
+  if (!endpoint(before, first)) return rejectDelta('endpoint-mismatch');
   const out: Delta = { usd: 0, priced: 0, total: 0, sources: 0 };
   for (const source of after.sources) {
     const prior = old.get(source.sourceKey);
     if (prior && source.revision === prior.revision) continue;
-    if (!source.byModel || prior && (!isCodexForwardAppend(prior, source) || !prior.byModel)) return 'append-incomplete';
+    if (!source.eligible || prior && !prior.eligible) return rejectDelta('append-incomplete', 'source-ineligible');
+    if (!source.byModel || prior && !prior.byModel) return rejectDelta('append-incomplete', 'append-vector-invalid');
+    if (prior && !isCodexForwardAppend(prior, source)) return rejectDelta('append-incomplete', 'append-unproven');
     const window = appendChain(prior, source);
-    if (!window || !window.complete || window.beforeOffset !== (prior?.offset ?? 0) || window.throughOffset !== source.offset) return 'append-incomplete';
+    if (!window || !window.complete || window.beforeOffset !== (prior?.offset ?? 0) || window.throughOffset !== source.offset) {
+      return rejectDelta('append-incomplete', source.appendWindow?.complete === false ? 'append-window-incomplete' :
+        !source.appendWindows?.length && !source.appendWindow ? 'append-window-missing' : 'append-chain-gap');
+    }
     let tokens = 0, dollars = 0;
     for (const model of new Set([...Object.keys(prior?.byModel ?? {}), ...Object.keys(source.byModel)])) {
       const vector = parts.map(key => (source.byModel![model]?.[key] ?? 0) - (prior?.byModel?.[model]?.[key] ?? 0));
       const [input, cached, output, reasoning] = vector;
       if (!vector.every(n => Number.isSafeInteger(n) && n >= 0) || cached > input || reasoning > output ||
-        !Number.isSafeInteger(input + output)) return 'append-incomplete';
+        !Number.isSafeInteger(input + output)) return rejectDelta('append-incomplete', 'append-vector-invalid');
       if (input + output === 0) continue;
-      const rate = rates.get(model); if (!rate) return 'unpriced-usage';
+      const rate = rates.get(model); if (!rate) return rejectDelta('unpriced-usage');
       tokens += input + output;
       dollars += (input - cached) * rate.input + cached * rate.cachedInput + output * rate.output;
     }
     if (tokens === 0) {
       // Known metadata-only append. Unknown or zero-dated usage is not zero.
-      if (window.minUsageAt !== null || window.maxUsageAt !== null) return 'append-incomplete';
+      if (window.minUsageAt !== null || window.maxUsageAt !== null) return rejectDelta('append-incomplete', 'metadata-usage-mismatch');
       continue;
     }
-    if (window.minUsageAt === null || window.maxUsageAt === null || window.minUsageAt <= first.observedAt ||
-      window.maxUsageAt < window.minUsageAt || window.maxUsageAt > last.requestedAt) return 'append-incomplete';
+    if (window.minUsageAt === null || window.maxUsageAt === null || window.maxUsageAt < window.minUsageAt) {
+      return rejectDelta('append-incomplete', 'usage-time-missing');
+    }
+    if (window.minUsageAt <= first.observedAt) return rejectDelta('append-incomplete', 'usage-before-baseline');
+    if (window.maxUsageAt > last.requestedAt) return rejectDelta('append-incomplete', 'usage-after-request');
     const witness = source.quotaWitness;
     if (!witness || witness.observedAt < window.maxUsageAt || witness.observedAt > last.requestedAt ||
       Math.abs(witness.resetAt - last.resetAt) > 300_000 ||
-      witness.usedPercent < first.usedPercent || witness.usedPercent > last.usedPercent) return 'endpoint-mismatch';
-    if (source.incompleteRanges?.some(range => range.through > first.observedAt && range.from <= last.requestedAt)) return 'append-incomplete';
+      witness.usedPercent < first.usedPercent || witness.usedPercent > last.usedPercent) return rejectDelta('endpoint-mismatch');
+    if (source.incompleteRanges?.some(range => range.through > first.observedAt && range.from <= last.requestedAt)) {
+      return rejectDelta('append-incomplete', 'append-window-incomplete');
+    }
     out.usd += dollars; out.total += tokens; out.priced += tokens; out.sources++;
-    if (!Number.isFinite(out.usd) || out.usd > 1e12 || !Number.isSafeInteger(out.total)) return 'append-incomplete';
+    if (!Number.isFinite(out.usd) || out.usd > 1e12 || !Number.isSafeInteger(out.total)) return rejectDelta('append-incomplete', 'counter-overflow');
   }
-  if ((out.total > 0 || last.usedPercent !== first.usedPercent) && !endpoint(after, last, first.observedAt)) return 'endpoint-mismatch';
+  if ((out.total > 0 || last.usedPercent !== first.usedPercent) && !endpoint(after, last, first.observedAt)) return rejectDelta('endpoint-mismatch');
   return out;
 }
 
@@ -245,7 +260,7 @@ export class CodexForwardAccountEstimator {
       replace(!before ? 'baseline' : before.key !== key ? 'source-changed' : 'continuity-gap', reason); return;
     }
     const delta = increment(before.proof, proof, before.sample, sample, book);
-    if (typeof delta === 'string') { replace(delta); return; }
+    if ('state' in delta) { replace(delta.state, delta.reason); return; }
     this.baseline = { sample: safe, proof, book, key, aligned: before.aligned };
     const pending = this.pending ?? { sample: before.sample, usd: 0, priced: 0, total: 0, sources: 0 };
     pending.usd += delta.usd; pending.priced += delta.priced; pending.total += delta.total;

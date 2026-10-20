@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import { CodexForwardAccountEstimator } from '../codexForwardAccountEstimate';
 import { CodexAccountEstimator, OfficialQuotaSample } from '../codexAccountEstimate';
 import { createEmptyCodexIndex } from '../providers/codex/codexIndex';
+import type { CodexFileContribution } from '../providers/codex/codexIndex';
 import { createCodexParserState } from '../providers/codex/codexParser';
 import { buildCodexForwardCalibration } from '../providers/codex/codexForwardCalibration';
 import { formatCodexCalibrationDiagnostic } from '../refreshDiagnostics';
@@ -15,7 +16,7 @@ function sample(n: number, p = 20 + n): OfficialQuotaSample {
     requestedAt: T + n * M - 100, observedAt: T + n * M, resetAt: R, usedPercent: p,
     quotaEpoch: { startedAt: T - M, resetAnchorAt: R, startLowerAt: null, reason: 'initial' } };
 }
-function proof(n: number, verifiedAt = T + n * M - 500, p = 20 + n) {
+function proof(n: number, verifiedAt = T + n * M - 500, p = 20 + n, patch?: (file: CodexFileContribution) => void) {
   const i = createEmptyCodexIndex('UTC'), at = T + n * M - 1000, total = (n + 1) * 100;
   const tokens = { inputTotal: total, cachedInput: 0, outputTotal: 0, reasoningOutput: 0 };
   i.files[K] = { fileKey: K, sourceArea: 'sessions', size: 100 * (n + 1), offset: 100 * (n + 1), mtimeMs: at,
@@ -30,8 +31,24 @@ function proof(n: number, verifiedAt = T + n * M - 500, p = 20 + n) {
     ...(n ? { calibrationAppend: { beforeOffset: 100 * n, throughOffset: 100 * (n + 1),
       minUsageAt: at, maxUsageAt: at, complete: true } } : {}) };
   i.coverage.totalFiles = i.coverage.indexedFiles = 1;
+  patch?.(i.files[K]);
   return buildCodexForwardCalibration(i, true, new Set([K]), new Set(), verifiedAt)!;
 }
+test('append rejection diagnostics separate source validity, missing evidence and official timing edges', () => {
+  const cases = [
+    ['source-ineligible', (f: CodexFileContribution) => { f.qualityFlags.push('stale-file'); }],
+    ['append-window-missing', (f: CodexFileContribution) => { delete f.calibrationAppend; }],
+    ['append-window-incomplete', (f: CodexFileContribution) => { f.calibrationAppend!.complete = false; }],
+    ['usage-before-baseline', (f: CodexFileContribution) => { f.calibrationAppend!.minUsageAt = T; }],
+    ['usage-after-request', (f: CodexFileContribution) => { f.calibrationAppend!.maxUsageAt = sample(1).requestedAt + 1; }],
+  ] as const;
+  for (const [reason, patch] of cases) {
+    const e = new CodexForwardAccountEstimator(); e.observe(sample(0), proof(0), book);
+    assert.equal(e.observe(sample(1), proof(1, T + M - 500, 21, patch), book), undefined);
+    assert.equal(e.calibrationStatus().state, 'append-incomplete');
+    assert.equal(e.calibrationDiagnostics().reason, reason);
+  }
+});
 function statusShape(e: CodexForwardAccountEstimator | CodexAccountEstimator) {
   assert.deepEqual(Object.keys(e.calibrationStatus()).sort(), ['deltaPercent', 'intervals', 'state']);
 }

@@ -1655,6 +1655,18 @@ counts and relative proof age/bracket gap only. There are no source/account IDs,
 model labels, raw errors, new stores, network calls or timers; logging failure
 cannot invalidate successful quota facts.
 
+The existing append scanner recognizes one observed `token_usage_record` layout
+only as forward metadata evidence: consecutive raw ordinals and physical lines
+must be record, validated response item, then a newly emitted exact-last token
+count, with matching locked thread/model context and request components within
+five seconds. Both record and count timestamps bound the interval. Cumulative
+scopes are not equated; metadata adds no tokens or USD. This observed compatibility
+is not a universal shared-request identity contract. Missing, replayed, unsafe or
+split pairs fail closed, and no pair state survives a scan pass. Primary parser
+schema, totals, signatures, lineage and historical warning behavior remain intact;
+only the matched record's own forward failure can be waived. Fixed diagnostics
+separate append evidence failures from usage before/after the official bracket.
+
 Each fresh continuity baseline starts unaligned: discard USD and percentage points
 through the first observed increase of at least one point, then measure from that
 observed step. Switches, gaps and invalid intervals restart alignment. A percentage
