@@ -134,8 +134,17 @@ test('append starts forward checkpoints from the tail while keeping missing hist
   assert.equal(inputs.codexQuotaCheckpointsComplete, false);
   assert.deepEqual(inputs.codexQuotaCheckpoints!.map(row => row.complete), [true, true]);
   assert.deepEqual(inputs.codexQuotaIncompleteRanges, [{ from: 0, through: now + 3000 }]);
-  assert.deepEqual(file.calibrationAppend, { beforeOffset: cold.index.files[key].offset,
+  const { slices, ...window } = file.calibrationAppend!;
+  assert.deepEqual(window, { beforeOffset: cold.index.files[key].offset,
     throughOffset: file.offset, minUsageAt: now + 3000, maxUsageAt: now + 4000, complete: true });
+  assert.deepEqual(slices, [
+    { from: now + 3000, through: now + 3000, model: 'gpt-5',
+      tokens: { inputTotal: 50, cachedInput: 1, outputTotal: 2, reasoningOutput: 0, sourceTotal: 52 },
+      quota: { observedAt: now + 3000, resetAt: reset, usedPercent: 12 } },
+    { from: now + 4000, through: now + 4000, model: 'gpt-5',
+      tokens: { inputTotal: 25, cachedInput: 1, outputTotal: 2, reasoningOutput: 0, sourceTotal: 27 },
+      quota: { observedAt: now + 4000, resetAt: reset, usedPercent: 13 } },
+  ]);
   assert.equal(reloaded.files[key].calibrationAppend, undefined);
   const cache = path.join(f.root, 'append-proof-is-not-persisted.json');
   await saveCodexIndexAtomic(cache, result.index);

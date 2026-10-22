@@ -5,6 +5,7 @@ import { isCodexForwardHistoricalQualityFlag } from './codexParser';
 import { codexQuotaObservationsFromLimit } from './codexQuotaHistory';
 import { CODEX_LINEAGE_FINGERPRINT_BYTES, CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK } from './codexLineage';
 import type { CodexQuotaCheckpoint, CodexQuotaIncompleteRange } from './codexQuotaCheckpoints';
+import { copyCodexForwardSlices, CodexForwardUsageSlice } from './codexForwardSlices';
 
 export const CODEX_FORWARD_CALIBRATION_MAX_SOURCES = 16_384;
 export const CODEX_FORWARD_CALIBRATION_MAX_BYTES = 8 * 1024 * 1024;
@@ -20,6 +21,8 @@ export interface CodexForwardAppendWindow {
   readonly minUsageAt: number | null;
   readonly maxUsageAt: number | null;
   readonly complete: boolean;
+  /** Optional prospective numeric detail. Absence never authorizes cutting USD. */
+  readonly slices?: readonly CodexForwardUsageSlice[];
 }
 export interface CodexForwardCalibrationSource {
   readonly sourceKey: string;
@@ -141,8 +144,12 @@ function appendWindow(file: CodexFileContribution, eligible: boolean): CodexForw
     raw.beforeOffset >= raw.throughOffset || raw.throughOffset !== file.offset || typeof raw.complete !== 'boolean' ||
     !(raw.minUsageAt === null && raw.maxUsageAt === null ||
       time(raw.minUsageAt) && time(raw.maxUsageAt) && raw.minUsageAt <= raw.maxUsageAt)) return undefined;
+  const slices = copyCodexForwardSlices(raw.slices);
+  const bounded = slices && (slices.length === 0 ? raw.minUsageAt === null && raw.maxUsageAt === null :
+    slices[0].from === raw.minUsageAt && slices[slices.length - 1].through === raw.maxUsageAt);
   return Object.freeze({ beforeOffset: raw.beforeOffset, throughOffset: raw.throughOffset,
-    minUsageAt: raw.minUsageAt, maxUsageAt: raw.maxUsageAt, complete: raw.complete && eligible });
+    minUsageAt: raw.minUsageAt, maxUsageAt: raw.maxUsageAt, complete: raw.complete && eligible,
+    ...(bounded ? { slices } : {}) });
 }
 
 function unchangedUsage(before: CodexForwardCalibrationSource, after: CodexForwardCalibrationSource): boolean {
@@ -309,7 +316,13 @@ export function buildCodexForwardCalibration(
       retainedBytes = retained.length ? Buffer.byteLength(JSON.stringify(retained)) : 0;
     }
     windowCount += retained.length; windowBytes += retainedBytes;
-    const latestWindow = window ?? retained[retained.length - 1];
+    let latestWindow = window ?? retained[retained.length - 1];
+    if (latestWindow?.slices && !retained.includes(latestWindow)) {
+      // Compatibility timing may remain visible after its detail was evicted,
+      // but the standalone latest-window alias cannot bypass the detail budget.
+      const { slices: _omittedDetail, ...timing } = latestWindow;
+      latestWindow = Object.freeze(timing);
+    }
     const source = Object.freeze({ ...candidate, ...(latestWindow ? { appendWindow: latestWindow } : {}),
       appendWindows: Object.freeze(retained) });
     bytes += Buffer.byteLength(JSON.stringify(source));

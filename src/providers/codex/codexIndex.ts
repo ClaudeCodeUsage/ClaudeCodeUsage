@@ -45,6 +45,8 @@ import {
 } from './codexPeriodIndex';
 import { parseJsonObject, stringField } from './codexSchema';
 import { CodexUsageRecordPairGuard } from './codexUsageRecordPair';
+import { CodexForwardUsageSlice, copyCodexForwardSlices,
+  CODEX_FORWARD_SLICES_MAX_SLICES, CODEX_FORWARD_SLICES_MAX_BYTES } from './codexForwardSlices';
 import { CodexZstdError, type CodexZstdErrorCode } from './codexZstd';
 import {
   CodexManifest,
@@ -143,6 +145,7 @@ export interface CodexFileContribution {
     minUsageAt: number | null;
     maxUsageAt: number | null;
     complete: boolean;
+    slices?: readonly CodexForwardUsageSlice[];
   };
   quotaCheckpoints?: CodexQuotaCheckpointState;
   fileKey: string;
@@ -1164,6 +1167,10 @@ async function updateContribution(
   let initialIdentityLockSeen = false;
   let initialTaskBoundarySeen = false;
   const usageRecordPair = new CodexUsageRecordPairGuard();
+  // Scan-local numeric evidence only. Overflow/invalidity discards the entire
+  // capture, independently of existing primary totals and append admission.
+  let forwardSlices: CodexForwardUsageSlice[] | undefined = [];
+  let forwardSliceBytes = 2;
   let forwardScanOrdinal = 0;
   let minUsageAt: number | null = null, maxUsageAt: number | null = null, lastUsageAt: number | null = null;
   let appendComplete = (beforeOffset > 0 || initialRootScan) && beforeOffset === contribution.size && !entry.compression &&
@@ -1206,7 +1213,7 @@ async function updateContribution(
   let invalidEventTimestamp = false;
   let activeHourProofOverflow = false;
 
-  const snapshot = (cursor: CodexJsonlCursor): CodexFileContribution => {
+  const snapshot = (cursor: CodexJsonlCursor, finalized = false): CodexFileContribution => {
     syncSession(aggregate, parserState);
     if (activeToday) {
       activeToday.indexedThrough = cursor.offset;
@@ -1231,7 +1238,8 @@ async function updateContribution(
       quotaCheckpoints,
       ...(beforeOffset > 0 || initialRootScan ? { calibrationAppend: Object.freeze({
         beforeOffset, throughOffset: cursor.offset, minUsageAt, maxUsageAt,
-        complete: appendComplete && usageRecordPair.complete && cursor.offset === entry.size && !cursor.discardingOversizedLine &&
+        ...(forwardSlices ? { slices: Object.freeze([...forwardSlices]) } : {}),
+        complete: finalized && appendComplete && usageRecordPair.complete && cursor.offset === entry.size && !cursor.discardingOversizedLine &&
           (!initialRootScan || initialIdentityLockSeen && parserState.identityLocked === true &&
             parserState.role === 'root' && !parserState.parentSessionKey &&
             lineage.desiredPrefixEvents === 0 && lineage.appliedPrefixEvents === 0),
@@ -1320,6 +1328,9 @@ async function updateContribution(
         }
         if (quotaCheckpoints) retainCodexQuotaCheckpoints(quotaCheckpoints, parsed,
           desiredPrefixEvents === 0 || lineage.tokenEvents > desiredPrefixEvents);
+        // Metadata/duplicate/zero rows emit no primary usage and add no slice.
+        // Multiple events on one line cannot establish an unambiguous row cut.
+        if (parsed.events.length > 1) forwardSlices = undefined;
         for (const event of parsed.events) {
           // The parser's retained t:...|l:... signature exposes whether this is
           // a last-request event. A cumulative-only delta has no request bound.
@@ -1334,6 +1345,29 @@ async function updateContribution(
           }
           if (lineage.appliedPrefixEvents !== desiredPrefixEvents ||
               lineage.tokenEvents <= desiredPrefixEvents) appendComplete = false;
+          if (forwardSlices && event.tokens.inputTotal + event.tokens.outputTotal > 0) {
+            const base = { from: pair.bounds?.from ?? at, through: at, model: event.model, tokens: event.tokens };
+            let copied = copyCodexForwardSlices([base])?.[0];
+            if (copied && parsed.quotaSource === 'codex' && parsed.limit) {
+              const observations = codexQuotaObservationsFromLimit(parsed.limit);
+              if (observations.length === 1 && observations[0].observedAt === at) {
+                // A malformed optional quota must not invalidate sound primary
+                // numeric usage; it simply cannot be attached as a cut witness.
+                copied = copyCodexForwardSlices([{ ...base, quota: observations[0] }])?.[0] ?? copied;
+              }
+            }
+            const bytes = copied ? Buffer.byteLength(JSON.stringify(copied), 'utf8') : 0;
+            if (!copied || !parsed.lineageTokenKey || parsed.lineageTokenKey.endsWith('|l:-') ||
+              lineage.appliedPrefixEvents !== desiredPrefixEvents || lineage.tokenEvents <= desiredPrefixEvents ||
+              (forwardSlices.length > 0 && copied.from < forwardSlices[forwardSlices.length - 1].through) ||
+              forwardSlices.length >= CODEX_FORWARD_SLICES_MAX_SLICES ||
+              forwardSliceBytes + bytes + (forwardSlices.length > 0 ? 1 : 0) > CODEX_FORWARD_SLICES_MAX_BYTES) {
+              forwardSlices = undefined;
+            } else {
+              forwardSliceBytes += bytes + (forwardSlices.length > 0 ? 1 : 0);
+              forwardSlices.push(copied);
+            }
+          }
           if (usageDelta && !addCodexOriginEvent(usageDelta, event)) usageDelta = undefined;
           reduceUsage(aggregate, event);
           if (activeHourProof) {
@@ -1417,7 +1451,7 @@ async function updateContribution(
     packPendingLineageFingerprints(lineage);
   }
   if (scan.oversizedLines > 0 || scan.finalLineDiscarded) appendComplete = false;
-  const updated = snapshot(scan.cursor);
+  const updated = snapshot(scan.cursor, true);
   if (entry.compression === 'zstd' && scan.cursor.offset === entry.size && !scan.cursor.discardingOversizedLine) {
     updated.compressionVerified = true;
   }

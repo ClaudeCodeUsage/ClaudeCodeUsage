@@ -1667,6 +1667,25 @@ schema, totals, signatures, lineage and historical warning behavior remain intac
 only the matched record's own forward failure can be waived. Fixed diagnostics
 separate append evidence failures from usage before/after the official bracket.
 
+The existing pass can also attach prospective numeric `slices` to its runtime
+append witness: at most 128 requests / 64 KiB per pass, each with conservative
+request times, exact emitted primary components, sanitized model and optional
+same-line Codex quota. Missing detail or overflow means unavailable detail, not a
+partial numerator; primary totals and the existing whole-window admission remain
+unchanged. Slices share the existing 32-per-source / 512-window / 256-KiB live
+history budget, are rebuilt immutably at publication and never enter the P1 DTO.
+
+`codexForwardMatchedCuts.ts` is an offline-tested candidate projection, not a new
+estimator/archive route. It reconciles the ENTIRE append against every changed
+source's primary vector before constructing global right-inclusive local cuts.
+The numerator and percentage difference both belong to those local cuts, strictly
+inside a fresh official envelope; the official envelope is context, not the
+candidate's denominator. Missing offsets/detail, straddles, corrections, reset
+conflicts, unknown prices or replaced/deleted sources withhold the candidate.
+This does not change deployed RPC admission or create monetary receipts. Enabling
+such a route still requires its own alignment/cohort lifecycle and an evidence
+discriminator distinguishing local endpoints from official observation times.
+
 Each fresh continuity baseline starts unaligned: discard USD and percentage points
 through the first observed increase of at least one point, then measure from that
 observed step. Switches, gaps and invalid intervals restart alignment. A percentage

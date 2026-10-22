@@ -7,6 +7,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added
+- **Prospective calibration detail** — bounded runtime-only request slices support
+  an offline matched-cut candidate; complete append vectors are reconciled before
+  selecting its own local USD/percentage endpoints. Existing estimator admission
+  and monetary receipt formats are unchanged; the candidate is not activated.
+  中文：有界运行期请求数值明细支持离线端点候选计算；先核对完整追加向量，再选取自身的
+  金额／百分点端点。既有估算准入与金额收据结构不变，候选路径尚未启用。
 - **Optional official Codex quota** — default-off reads use an already-running
   local daemon. Rough account-numbered as-of estimates remain local proxies,
   distinct from source-linked historical estimates and primary usage totals.

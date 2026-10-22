@@ -185,6 +185,15 @@ unsafe, missing or replayed pairs remain ineligible. Primary parser schema, tota
 signatures and warnings are unchanged. This observed layout does not establish a
 universal shared-request identity contract or make historical amounts complete.
 
+Optional runtime append `slices` retain only request time envelopes, exact emitted
+primary token components, a sanitized model and optional same-line Codex numeric
+quota. Per-pass limits are 128 requests / 64 KiB; retained windows share the existing
+256-KiB live history cap. Overflow omits detail as a whole. Neither slices nor
+pending pair state survive P1 serialization/restart, and collection adds no source
+read, history replay, account attribution, body/ID field or persistent store.
+The candidate matched-cut projection is not connected to estimation or archive
+writes: it supplies no new receipt schema, monetary amount or restored baseline.
+
 Each fresh continuity baseline starts unaligned: discard USD and points through
 the first observed increase of at least one percentage point, then measure from
 that observed step. Switches, gaps and invalid intervals restart alignment;
