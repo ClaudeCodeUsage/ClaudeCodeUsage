@@ -69,6 +69,12 @@ formats: unknown is not treated as zero, at least twenty observations per provid
 are required, and no raw channel text is retained. The content-analysis setting
 path legitimately replaces providers; its I/O is separate from unchanged warm
 refreshes and is not asserted to be a presentation-only zero-I/O operation.
+The settle barrier includes the Codex scheduling gate and drain, even before a
+provider operation enters the active set; completed calls alone are not observed
+I/O records. Insufficient observed records remain a failure, not a reduced gate.
+
+中文审阅：等待边界包含 Codex 调度门与队列，即使 provider 操作尚未进入活动集合；
+调用返回不等于已观测到 I/O 完成记录。记录不足仍判失败，不降低验收数量门槛。
 
 Before claiming non-disruption, inspect the normal instance's relevant storage
 metadata/settings and installed-runtime hashes before/after. A separate window,

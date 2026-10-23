@@ -83,3 +83,20 @@ test('native settle does not turn a retirement failure into a passing resource a
     codexProviderRetirementFailure: new Error('test-only'), codexBackgroundStateWrite: Promise.resolve() };
   await assert.rejects(native().settle(instance), /native-test-runner:provider-retirement/);
 });
+
+test('native settle includes the scheduled Codex drain before its active operation exists', async () => {
+  for (const phase of ['gate', 'drain'] as const) {
+    let completed = false;
+    const instance: any = { initializationWrites: Promise.resolve(), initializationWriteFailure: null,
+      refreshGate: { active: false }, codexRefreshGate: { active: phase === 'gate' },
+      activeCodexRefreshes: new Set(), codexCheckpointHydration: null,
+      pendingResourceStops: new Set(), codexProviderRetirements: new Set(),
+      codexProviderRetirementFailure: null, codexBackgroundStateWrite: Promise.resolve() };
+    const drain = new Promise<void>(resolve => setTimeout(() => {
+      completed = true; instance.codexRefreshGate.active = false; instance.codexRefreshDrain = null; resolve();
+    }, 30));
+    instance.codexRefreshDrain = phase === 'drain' ? drain : null;
+    try { await native().settle(instance); assert.equal(completed, true, phase); }
+    finally { await drain; }
+  }
+});

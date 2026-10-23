@@ -71,7 +71,10 @@ function assertZeroBodyWarmRefreshes(io, minimum) {
 async function settle(instance) {
   await bounded(instance.initializationWrites, 60_000, 'initialization-timeout');
   const deadline = Date.now() + 60_000;
-  while (instance.refreshGate.active || instance.activeCodexRefreshes.size ||
+  // refreshData deliberately starts Codex work without awaiting it. Its drain
+  // can be waiting for provider retirement before entering active operations.
+  // Do not return (or detach the I/O probe) during that scheduled-work gap.
+  while (instance.refreshGate.active || instance.codexRefreshGate?.active || instance.codexRefreshDrain || instance.activeCodexRefreshes.size ||
       instance.codexCheckpointHydration || instance.pendingResourceStops.size ||
       instance.codexProviderRetirements.size) {
     if (Date.now() >= deadline) throw new Error('native-test-runner:settle-timeout');
