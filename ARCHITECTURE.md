@@ -1631,7 +1631,7 @@ contact OpenAI, and daemon-managed authentication may refresh credentials;
 a local proxy connection does not make this operation network-free.
 
 The host rejects custom Codex homes and remote extension hosts. Reads require
-the dashboard to be visible and the window focused; automatic attempts are at
+the window to be focused, including while editing documents; automatic attempts are at
 least 60 seconds apart and manual attempts at least 10 seconds apart. Existing
 refresh/visibility callbacks drive them, with no extra recurring timer.
 Failure, cancellation or unsupported sources produce unavailable state, not a
@@ -1720,7 +1720,7 @@ After discarding the first arbitrary percentage-step span, flat-percentage USD
 is sealed into bounded numeric prefix sums across polls. Residual unsealed detail
 is capped at 2048 rows / 256 KiB, the source set at 16,384, official context history
 at 32 points and compatible runs at 64. Context/account/epoch/pricing changes,
-blur, gaps and unsafe input retire the baseline; archived receipts never restore it.
+gaps and unsafe input retire the baseline; archived receipts never restore it.
 Method-two evidence below keeps local cuts distinct from the official range.
 Existing details display these two ranges separately, without a new chart or
 navigation surface. The method is implemented and routed in the working tree;
@@ -1772,7 +1772,7 @@ a pending account cycle never borrows an anonymous capacity.
 
 The historical aggregate compatibility path in `codexAccountEstimate.ts` retains
 the following separate contracts; they are not forward-calibration prerequisites.
-Account switches and blur break monetary continuity,
+Account switches break monetary continuity,
 but retain bounded same-account/epoch/price sums of previously admitted intervals;
 returning requires a fresh baseline and never bridges intervening usage. Failure,
 source/index/price invalidation, clearing and restart retire runtime calibration;

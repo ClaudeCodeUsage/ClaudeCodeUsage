@@ -28,12 +28,19 @@ function fixture(){
   quotaObservationRepository:{append:async()=>{writes++;return{schemaVersion:2,fingerprintAlgorithm:'hmac-sha256-v1',observations:[]};}}});
  return {e,calls:()=>calls,writes:()=>writes};
 }
-test('default-off and hidden dashboard make zero official transport calls',async()=>{
- for(const kind of ['off','hidden','quota-off','provider-off'] as const){const{e,calls,writes}=fixture();
-  if(kind==='hidden')e.webviewProvider.isDashboardVisible=()=>false;
-  else e.getConfiguration=()=>({codexEnabled:kind!=='provider-off',codexOfficialQuotaEnabled:kind!=='off',usageLimitTracking:kind!=='quota-off'});
+test('disabled official collection makes zero official transport calls',async()=>{
+ for(const kind of ['off','quota-off','provider-off'] as const){const{e,calls,writes}=fixture();
+  e.getConfiguration=()=>({codexEnabled:kind!=='provider-off',codexOfficialQuotaEnabled:kind!=='off',usageLimitTracking:kind!=='quota-off'});
   await e.refreshOfficialCodexQuota('manual');assert.equal(calls(),0);assert.equal(writes(),0);
  }
+});
+test('opted-in foreground collection works while editing documents; background still makes no request',async()=>{
+ const clock=Date.now;Date.now=()=>T;
+ try{const{e,calls,writes}=fixture();e.webviewProvider.isDashboardVisible=()=>false;
+  e.windowActivity.focused=false;await e.refreshOfficialCodexQuota('poll');assert.equal(calls(),0);
+  e.windowActivity.focused=true;await e.refreshOfficialCodexQuota('poll');
+  assert.equal(calls(),1);assert.equal(writes(),1);assert.equal(e.officialQuotaStatus,'ready');
+ }finally{Date.now=clock;}
 });
 test('custom source cannot query the default daemon or silently use its identity',async()=>{
  const{e,calls}=fixture();e.codexHome=()=>'/synthetic/other-home';
@@ -91,6 +98,23 @@ test('late replies after cancellation cannot repopulate cleared account state or
   const cancelled=e.cancelQuotaNetworks('cancelled');reply(sample);await Promise.all([pending,cancelled]);
   assert.equal(writes(),0);assert.notEqual(e.officialQuotaStatus,'ready');
   assert.equal(e.resourceOwnership.snapshotForTests().activeCount,0);
+ }finally{Date.now=clock;}
+});
+test('window blur preserves accepted calibration while cancelling late transport authority',async()=>{
+ const clock=Date.now;Date.now=()=>T;
+ try{const{e,writes}=fixture();let resets=0,breaks=0,reply!:(v:unknown)=>void;
+  e.officialAccountEstimator={reset(){resets++;},breakContinuity(){breaks++;}};
+  e.officialQuotaSource=e.codexHome();e.officialQuotaSample=sample;e.officialQuotaStatus='ready';
+  await e.cancelQuotaNetworks('window-blur');
+  assert.equal(resets,0);assert.equal(breaks,0);assert.equal(e.officialQuotaSample,sample);
+  e.officialQuotaReader=()=>new Promise(r=>reply=r);
+  const pending=e.refreshOfficialCodexQuota('manual');await Promise.resolve();
+  const cancelled=e.cancelQuotaNetworks('window-blur');reply({...sample,usedPercent:30});
+  await Promise.all([pending,cancelled]);
+  assert.equal(writes(),0);assert.equal(e.officialQuotaSample,sample);
+  assert.equal(resets,0);assert.equal(breaks,0);
+  assert.equal(e.resourceOwnership.snapshotForTests().activeCount,0);
+  await e.cancelQuotaNetworks('profile-change');assert.equal(resets,1);
  }finally{Date.now=clock;}
 });
 test('single flight and minimum cadence bound repeated manual and polling requests',async()=>{

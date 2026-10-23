@@ -43,6 +43,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   但不能保证所有旧版本后续写入均安全。
 
 ### Fixed
+- **Calibration across window focus changes** — preserve accepted in-memory
+  quota calibration when switching windows; resumed samples still require the
+  same account/cycle, fresh observations and complete usage evidence. Cancelled
+  late network replies remain rejected. Opted-in collection follows existing
+  foreground refreshes while editing documents, without requiring an open dashboard.
+  中文：切换窗口时保留已接受的内存额度校准；恢复采样仍核对同账号／周期、新鲜度和完整
+  用量证据，已取消请求的迟到响应仍被拒绝。主动启用后，采集随现有前台刷新执行，编辑文档时
+  也可采集，不再要求打开用量面板。
 - **Forward calibration diagnostics** — distinguish the first rejected source,
   append, numeric-detail, pricing or time guard without changing which monetary
   samples are accepted. Output remains local fixed enums, without identifiers.

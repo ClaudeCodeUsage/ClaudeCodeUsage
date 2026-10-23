@@ -162,7 +162,7 @@ contact OpenAI, and daemon-managed authentication may refresh credentials;
 a local proxy connection does not make this operation network-free.
 
 The host rejects custom Codex homes and remote extension hosts. Reads require
-the dashboard to be visible and the window focused; automatic attempts are at
+the window to be focused, including while editing documents; automatic attempts are at
 least 60 seconds apart and manual attempts at least 10 seconds apart. Existing
 refresh/visibility callbacks drive them, with no extra recurring timer.
 Failure, cancellation or unsupported sources produce unavailable state, not a
@@ -207,6 +207,10 @@ Matched collection reports its first rejected guard separately: unproven birth,
 source/append continuity, missing numeric slices, invalid slice order/vector,
 missing pricing, baseline-time overlap or usage after the official request.
 These fixed enum reasons do not identify a source or relax monetary eligibility.
+Window blur cancels in-flight network authority and recurring work but retains
+the accepted in-memory calibration baseline. On return, the ordinary account,
+epoch, freshness and full-append checks decide whether it remains comparable.
+No baseline is restored from disk or accepted solely because focus returned.
 
 Observed `token_usage_record` compatibility is scan-local only: a record, validated
 response item and newly emitted exact-last count must occupy consecutive raw
@@ -238,7 +242,7 @@ flags remain fatal; replacement scans grant no append or birth authority.
 After discarding the first arbitrary percentage-step span, flat-percentage USD
 is sealed into bounded numeric prefix sums across polls. Residual unsealed rows
 are capped at 2048 / 256 KiB, the source set at 16,384, official context history at
-32 points and compatible runs at 64. Context/account/epoch/pricing changes, blur,
+32 points and compatible runs at 64. Context/account/epoch/pricing changes,
 gaps or unsafe input retire the baseline; no receipt restores it. These runtime
 details add no persisted bodies, raw IDs, titles, paths or credentials.
 The method is implemented and routed; deployment and verification against actual
@@ -284,7 +288,7 @@ are never assigned to an account. Non-overlapping older references remain visibl
 a pending account cycle never borrows an anonymous capacity.
 
 The historical aggregate compatibility path in `codexAccountEstimate.ts` keeps the
-following separate rules; these do not gate forward calibration. Switch/blur breaks the monetary baseline
+following separate rules; these do not gate forward calibration. Account switching breaks the monetary baseline
 without bridging intervening use; bounded compatible account/epoch/price sums can
 be retained. Full clearing, source/index invalidation and restart clear runtime
 calibration; archived evidence never restores a pre-restart baseline. Actual model-rate

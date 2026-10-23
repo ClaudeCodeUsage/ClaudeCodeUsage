@@ -3096,9 +3096,11 @@ export class ClaudeCodeUsageExtension {
     >,
   ): Promise<void> {
     this.officialQuotaGeneration = (this.officialQuotaGeneration ?? 0) + 1;
-    if (condition === 'window-blur' && typeof this.officialAccountEstimator?.breakContinuity === 'function') {
-      this.officialAccountEstimator.breakContinuity();
-    } else this.officialAccountEstimator?.reset();
+    // Focus is a resource boundary, not evidence that account/usage continuity
+    // changed. Keep the last accepted runtime proof; observe() still validates
+    // freshness, account/epoch, pricebook and the complete physical append.
+    // Generation cancellation below continues to reject any late RPC result.
+    if (condition !== 'window-blur') this.officialAccountEstimator?.reset();
     if (condition !== 'window-blur') this.officialQuotaSample = undefined;
     this.officialQuotaLastAttempt = 0;
     this.officialQuotaStatus = condition === 'window-blur' && this.officialQuotaSample ? 'ready' : 'unavailable';
@@ -5028,7 +5030,7 @@ export class ClaudeCodeUsageExtension {
       this.officialAccountEstimator?.reset();this.officialQuotaSample=undefined;
       this.officialQuotaStatus='disabled';return;
     }
-    if(!this.webviewProvider.isDashboardVisible?.()||this.windowActivity?.focused===false)return;
+    if(this.windowActivity?.focused===false)return;
     const home=this.codexHome(config),defaultHome=path.join(os.homedir(),'.codex');
     if(path.resolve(home)!==path.resolve(defaultHome)||
       (typeof vscode.env?.remoteName==='string'&&vscode.env.remoteName.length>0)){
