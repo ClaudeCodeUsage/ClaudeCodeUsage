@@ -515,8 +515,11 @@ test('real paused host routes worker tail proof through the facade into shared u
       JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-6.1-astra', effort: 'max' } }) + '\n';
     const log = path.join(sessions, 'live.jsonl');
     fs.writeFileSync(log, header('synthetic-live') + token(500_000_000, 100_000_000, Date.now() - 3_600_000) + '\n');
+    // These are overlapping conflicting copies, not disjoint continuations.
+    // Separate wall-clock reads could differ under load and prove disjointness.
+    const conflictAt = Date.now() - 3_600_000;
     for (const [n, input] of [[1, 10], [2, 20]]) fs.writeFileSync(path.join(sessions, 'conflict-' + n + '.jsonl'),
-      header('synthetic-conflict') + token(input, 2, Date.now() - 3_600_000) + '\n');
+      header('synthetic-conflict') + token(input, 2, conflictAt) + '\n');
     config.codexDataDirectory = home; config.timezone = 'UTC'; config.enableAchievements = true;
     const file = path.join(root, 'achievements-v1.json');
     const owner = new UsageWebviewProvider({ globalState: { get: () => undefined, update: async () => undefined } }) as any;
