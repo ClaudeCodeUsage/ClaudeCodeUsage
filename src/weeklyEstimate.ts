@@ -25,6 +25,8 @@ export interface LocalWeeklyEstimate {
   quotaEpoch?:CodexQuotaEpoch;
   /** Runtime presentation only; never changes frozen archived amounts. */
   quotaCycle?:CodexQuotaCycle;
+  /** Display-only provenance of a frozen closed anonymous archive estimate. */
+  historicalRoughEstimate?:{source:'weekly-estimates-v1';pricingVersion:string};
   calibrationStart?:number;
   calibrationEvidence?:CodexCalibrationEvidence;
   windowEvidence?:CodexWindowEvidence;

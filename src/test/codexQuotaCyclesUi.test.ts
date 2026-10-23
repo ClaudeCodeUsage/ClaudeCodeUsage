@@ -43,6 +43,22 @@ function summaryRows(html: string): string[] {
   return [...html.matchAll(/<tr data-codex-cycle-summary-row>([\s\S]*?)<\/tr>/g)].map(row => row[1]);
 }
 
+test('archived rough references retain a labelled amount in both bar and detail without account attribution', () => run(() => {
+  const saved:any={provider:'codex',method:'series-prefix-v1',windowStart:reset-21*day,resetAt:reset-14*day,
+    observedAt:reset-16*day,estimatedAt:reset-15*day,usedEquivalentUsd:7,fullEquivalentUsd:200,
+    unusedEquivalentUsd:80,utilizationPercent:60,pricingCoverage:.8,
+    flags:['partial-history','partial-pricing','account-unattributed'],
+    historicalRoughEstimate:{source:'weekly-estimates-v1',pricingVersion:'api-v1'}};
+  saved.quotaCycle=require('../codexQuotaCycles').codexFallbackQuotaCycle(saved,now);
+  const html=owner([saved]).renderWeeklyValuePanel('codex');
+  assert.equal(labels(html).length,1);
+  assert.match(chartTitles(html)[0],/Archived rough estimate/);
+  assert.match(chartTitles(html)[0],/\$200\.00/);
+  const records=owner([saved]).renderWeeklyEstimateRecords('codex');
+  assert.equal(summaryRows(records).length,1);assert.match(records,/Archived rough estimate/);
+  assert.match(records,/80%/);assert.doesNotMatch(records,/private-account/);
+}));
+
 test('Codex compares ten-day reset cycles with short two-line account labels and complete accessible bounds', () => run(() => {
   const html = owner([entry()]).renderWeeklyValuePanel('codex');
   assert.match(html, /Cycle allowance · API-equivalent estimate/);

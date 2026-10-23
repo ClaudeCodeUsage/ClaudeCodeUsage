@@ -207,6 +207,10 @@ Matched collection reports its first rejected guard separately: unproven birth,
 source/append continuity, missing numeric slices, invalid slice order/vector,
 missing pricing, baseline-time overlap or usage after the official request.
 These fixed enum reasons do not identify a source or relax monetary eligibility.
+Closed anonymous archive amounts with coherent total/unused/percentage arithmetic
+can be displayed as archived rough estimates, preserving partial coverage and
+original timestamps. A display-only provenance marker never enters the archive
+or monetary admission; live partial fits and current account cycles cannot use it.
 Window blur cancels in-flight network authority and recurring work but retains
 the accepted in-memory calibration baseline. On return, the ordinary account,
 epoch, freshness and full-append checks decide whether it remains comparable.

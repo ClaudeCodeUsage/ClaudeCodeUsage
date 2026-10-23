@@ -7716,6 +7716,7 @@ export class UsageWebviewProvider {
 
   private weeklyEstimateMethod(entry: LocalWeeklyEstimate): string {
     const copy = I18n.t.weeklyValue, method: string = entry.method;
+    if (entry.historicalRoughEstimate) return copy.archivedRoughEstimate;
     if (entry.windowEvidence) return copy.pairedWindowEstimate;
     if (entry.fullEquivalentUsd === null) return copy.estimateBlocked;
     if (method === 'account-delta-v1') return copy.accountDeltaEstimate;
@@ -7999,6 +8000,7 @@ export class UsageWebviewProvider {
     const title = (point: typeof points[number]) => {
       const parts = [point.current ? copy.currentPeriod : '', this.weeklyAccountLabel(point.accountNumber), this.weeklyCycleDescription(point.quotaCycle, point.resetAt),
         copy.estimateAsOf + ': ' + this.cycleDate(point.observedAt!)];
+      if (point.historicalRoughEstimate) parts.push(copy.archivedRoughEstimate);
       if (point.fullEquivalentUsd === null) parts.push(copy.pendingCalibration);
       else parts.push(copy.fullValue + ': ' + this.weeklyTableCurrency(point.fullEquivalentUsd),
         copy.inferredUsed + ': ' + this.weeklyTableCurrency(point.usedEquivalentUsd),
@@ -8186,9 +8188,9 @@ export class UsageWebviewProvider {
       const usedLabel = point.usageAvailable === false
         ? '—'
         : I18n.formatCurrency(point.usedEquivalentUsd);
-      const title = point.asOfEstimate
+      const title = (point.historicalRoughEstimate ? copy.archivedRoughEstimate + ' · ' : '') + (point.asOfEstimate
         ? `${periodLabel(point)} · ${copy.estimateAsOf}: ${dateLabel(point.observedAt!)} · ${copy.fullValue}: ${I18n.formatCurrency(point.fullEquivalentUsd!)} · ${kind === 'estimate' ? copy.inferredUsed : copy.chartUsedValue}: ${usedLabel} · ${copy.chartUnusedValue}: ${I18n.formatCurrency(point.unusedEquivalentUsd!)}`
-        : `${periodLabel(point)} · ${copy.usedValue}: ${usedLabel}`;
+        : `${periodLabel(point)} · ${copy.usedValue}: ${usedLabel}`);
       return '<div class="hc-col"><div class="stack-bar" role="img" aria-label="' +
         this.escapeHtml(title) + '" title="' + this.escapeHtml(title) + '">' +
         '<div class="stack-seg seg-input" style="height:' + usedHeight.toFixed(2) + 'px"></div>' +

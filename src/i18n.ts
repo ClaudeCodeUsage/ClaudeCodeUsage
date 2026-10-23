@@ -1813,6 +1813,7 @@ export interface WeeklyValueCopy {
   roughEstimate: string;
   pairedEstimate: string;
   reconstructedEstimate: string;
+  archivedRoughEstimate: string;
   archiveLoading: string;
   archiveFull: string;
   archiveUnavailable: string;
@@ -2948,7 +2949,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     calibrationProgress: 'Paired quota change: {points} percentage points',
     monetaryPending: 'Cycle amounts are not yet available. — means unknown, not zero.',
     accountUsageScope: 'Numbers identify the observed official service account, not other Codex app logins or local usage ownership. Local totals include all local usage.',
-    reconstructedEstimate: 'Historical reconstruction', archiveLoading: 'Loading estimate archive',
+    archivedRoughEstimate: 'Archived rough estimate', reconstructedEstimate: 'Historical reconstruction', archiveLoading: 'Loading estimate archive',
     archiveFull: 'Estimate archive full: old records are retained; new archiving is paused. Clear quota history in local data management to free space.',
     archiveUnavailable: 'Estimate archive temporarily unavailable: this estimate was not saved; existing files will not be overwritten.',
     estimateBlocked: 'No usable conversion sample',
@@ -3019,7 +3020,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     calibrationProgress: '已配对 {points} 个百分点',
     monetaryPending: '周期金额待校准；— 表示未知，并非零。',
     accountUsageScope: '编号仅标识观测到的官方服务账号，不代表其他 Codex 应用的登录状态或本机用量归属。本机汇总包含全部本地用量。',
-    reconstructedEstimate: '历史重建', archiveLoading: '正在读取估算档案',
+    archivedRoughEstimate: '存档历史粗估', reconstructedEstimate: '历史重建', archiveLoading: '正在读取估算档案',
     archiveFull: '估算档案已满：旧记录保留，新增归档暂停；可在本地数据管理中清除额度历史。',
     archiveUnavailable: '估算档案暂不可用：本次估算未保存，已有文件不会覆盖。',
     estimateBlocked: '暂无可用换算样本',
@@ -3090,7 +3091,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     calibrationProgress: '已配對 {points} 個百分點',
     monetaryPending: '週期金額待校準；— 表示未知，並非零。',
     accountUsageScope: '編號僅標識觀測到的官方服務帳號，不代表其他 Codex 應用程式的登入狀態或本機用量歸屬。本機彙總包含全部本機用量。',
-    reconstructedEstimate: '歷史重建', archiveLoading: '正在讀取估算檔案',
+    archivedRoughEstimate: '存檔歷史粗估', reconstructedEstimate: '歷史重建', archiveLoading: '正在讀取估算檔案',
     archiveFull: '估算檔案已滿：舊記錄保留，新增封存暫停；可在本機資料管理中清除額度歷史。',
     archiveUnavailable: '估算檔案暫時無法使用：本次估算未儲存，既有檔案不會被覆寫。',
     estimateBlocked: '暫無可用換算樣本',
@@ -3161,7 +3162,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     calibrationProgress: '対応済みのクォータ変化：{points}ポイント',
     monetaryPending: '周期金額は校正待ちです。— は不明を示し、ゼロではありません。',
     accountUsageScope: '番号は観測した公式サービスのアカウントを識別し、他の Codex アプリのログイン状態やローカル使用量の帰属を示しません。ローカル集計は全使用量を含みます。',
-    reconstructedEstimate: '履歴再構成', archiveLoading: '推定アーカイブを読み込み中',
+    archivedRoughEstimate: '保存済みの過去の概算', reconstructedEstimate: '履歴再構成', archiveLoading: '推定アーカイブを読み込み中',
     archiveFull: '推定アーカイブが満杯です。既存記録は保持し、新規保存を停止しています。ローカルデータ管理で枠の履歴を消去できます。',
     archiveUnavailable: '推定アーカイブを一時的に利用できません。今回の推定は未保存で、既存ファイルは上書きしません。',
     estimateBlocked: '利用可能な換算サンプルなし',
@@ -3232,7 +3233,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     calibrationProgress: '대응된 할당량 변화: {points}퍼센트포인트',
     monetaryPending: '주기 금액은 보정 대기 중입니다. —는 0이 아닌 알 수 없음을 뜻합니다.',
     accountUsageScope: '번호는 관측된 공식 서비스 계정을 식별하며 다른 Codex 앱의 로그인 상태나 로컬 사용량 귀속을 뜻하지 않습니다. 로컬 합계는 모든 로컬 사용량을 포함합니다.',
-    reconstructedEstimate: '과거 재구성', archiveLoading: '추정 보관 기록 읽는 중',
+    archivedRoughEstimate: '보관된 과거 대략 추정', reconstructedEstimate: '과거 재구성', archiveLoading: '추정 보관 기록 읽는 중',
     archiveFull: '추정 보관 공간이 가득 찼습니다. 기존 기록은 유지하고 새 보관은 중단합니다. 로컬 데이터 관리에서 한도 기록을 지울 수 있습니다.',
     archiveUnavailable: '추정 보관 기록을 일시적으로 사용할 수 없습니다. 이번 추정은 저장되지 않았으며 기존 파일은 덮어쓰지 않습니다.',
     estimateBlocked: '사용 가능한 환산 표본 없음',
@@ -3303,7 +3304,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     calibrationProgress: 'Variação de cota pareada: {points} pontos percentuais',
     monetaryPending: 'Valores do ciclo aguardam calibração. — significa desconhecido, não zero.',
     accountUsageScope: 'Números identificam a conta observada no serviço oficial, não os logins de outros aplicativos Codex nem a atribuição do uso local. Os totais locais incluem todo o uso local.',
-    reconstructedEstimate: 'Reconstrução histórica', archiveLoading: 'Carregando arquivo de estimativas',
+    archivedRoughEstimate: 'Estimativa aproximada histórica arquivada', reconstructedEstimate: 'Reconstrução histórica', archiveLoading: 'Carregando arquivo de estimativas',
     archiveFull: 'Arquivo de estimativas cheio: registros antigos mantidos; novos arquivamentos pausados. Limpe o histórico de cotas no gerenciamento de dados locais para liberar espaço.',
     archiveUnavailable: 'Arquivo de estimativas temporariamente indisponível: esta estimativa não foi salva; arquivos existentes não serão sobrescritos.',
     estimateBlocked: 'Nenhuma amostra utilizável para conversão',
@@ -3374,7 +3375,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     calibrationProgress: 'Zugeordnete Kontingentänderung: {points} Prozentpunkte',
     monetaryPending: 'Zyklusbeträge warten auf Kalibrierung. — bedeutet unbekannt, nicht null.',
     accountUsageScope: 'Nummern kennzeichnen das beobachtete Konto des offiziellen Dienstes, nicht Anmeldungen anderer Codex-Apps oder die Zuordnung lokaler Nutzung. Lokale Summen enthalten die gesamte lokale Nutzung.',
-    reconstructedEstimate: 'Historische Rekonstruktion', archiveLoading: 'Schätzarchiv wird geladen',
+    archivedRoughEstimate: 'Archivierte historische Näherung', reconstructedEstimate: 'Historische Rekonstruktion', archiveLoading: 'Schätzarchiv wird geladen',
     archiveFull: 'Schätzarchiv voll: Alte Einträge bleiben erhalten, neue Archivierungen pausieren. Zum Freigeben von Platz den Kontingentverlauf in der lokalen Datenverwaltung löschen.',
     archiveUnavailable: 'Schätzarchiv vorübergehend nicht verfügbar: Diese Schätzung wurde nicht gespeichert; vorhandene Dateien werden nicht überschrieben.',
     estimateBlocked: 'Keine nutzbare Umrechnungsstichprobe',
@@ -3445,7 +3446,7 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
     calibrationProgress: 'Perubahan kuota berpasangan: {points} poin persentase',
     monetaryPending: 'Nilai siklus menunggu kalibrasi. — berarti tidak diketahui, bukan nol.',
     accountUsageScope: 'Nomor menandai akun layanan resmi yang diamati, bukan login aplikasi Codex lain atau kepemilikan penggunaan lokal. Total lokal mencakup semua penggunaan lokal.',
-    reconstructedEstimate: 'Rekonstruksi historis', archiveLoading: 'Memuat arsip estimasi',
+    archivedRoughEstimate: 'Perkiraan kasar historis tersimpan', reconstructedEstimate: 'Rekonstruksi historis', archiveLoading: 'Memuat arsip estimasi',
     archiveFull: 'Arsip estimasi penuh: catatan lama dipertahankan, pengarsipan baru dijeda. Hapus riwayat kuota di pengelolaan data lokal untuk mengosongkan ruang.',
     archiveUnavailable: 'Arsip estimasi sementara tidak tersedia: estimasi ini tidak disimpan; berkas yang ada tidak akan ditimpa.',
     estimateBlocked: 'Belum ada sampel konversi yang dapat digunakan',

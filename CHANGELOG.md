@@ -43,6 +43,12 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   但不能保证所有旧版本后续写入均安全。
 
 ### Fixed
+- **Archived Codex cycle estimates** — closed anonymous estimates remain visible
+  as archived rough estimates with their original amounts, timestamps and pricing
+  coverage. This display path does not qualify them as calibrated account capacity
+  or reuse them for a current account cycle.
+  中文：已结束的未归属周期估值恢复为“存档历史粗估”，保留原金额、时点和定价覆盖率；
+  该展示路径不将其认定为已校准账号容量，也不转用于当前账号周期。
 - **Calibration across window focus changes** — preserve accepted in-memory
   quota calibration when switching windows; resumed samples still require the
   same account/cycle, fresh observations and complete usage evidence. Cancelled

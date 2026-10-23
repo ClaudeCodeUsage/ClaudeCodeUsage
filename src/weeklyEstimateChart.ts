@@ -10,6 +10,7 @@ export interface WeeklyEstimateChartPoint extends WeeklyValuePoint {
   quotaEpoch?: CodexQuotaEpoch;
   quotaCycle?: CodexQuotaCycle;
   localWindowNumber?: number;
+  historicalRoughEstimate?:LocalWeeklyEstimate['historicalRoughEstimate'];
 }
 
 /** A presentation projection, never an update to the unique usage ledger or archive. */
@@ -70,6 +71,7 @@ export function projectWeeklyEstimateChart(
     observationGapMs:Math.max(0,now-entry.observedAt),confidence:'low',basis:'quota-observation',
     usageAvailable:entry.fullEquivalentUsd !== null,boundaryUncertain:entry.flags.includes('boundary-uncertain'),
     observedAt:entry.observedAt,observedResetAt:entry.resetAt,asOfEstimate:true,
+    ...(entry.historicalRoughEstimate?{historicalRoughEstimate:entry.historicalRoughEstimate}:{}),
     ...(typeof entry.accountNumber === 'number' && Number.isSafeInteger(entry.accountNumber) && entry.accountNumber > 0
       ? {accountNumber:entry.accountNumber} : {}),
     ...(entry.localWindowNumber===undefined?{}:{localWindowNumber:entry.localWindowNumber}),

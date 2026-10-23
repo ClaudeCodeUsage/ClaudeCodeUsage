@@ -216,7 +216,8 @@ export function compareCodexCycleEvidence(a: LocalWeeklyEstimate, b: LocalWeekly
   const strength = (entry: LocalWeeklyEstimate) => entry.windowEvidence?.deltaPercent ??
     entry.calibrationEvidence?.accumulated.deltaPercent ?? 0;
   return Number(codexCycleAmountEligible(b)) - Number(codexCycleAmountEligible(a)) ||
-    strength(b) - strength(a) || b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt;
+    strength(b) - strength(a) || Number(!!b.historicalRoughEstimate) - Number(!!a.historicalRoughEstimate) ||
+    b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt;
 }
 /** One summary per cycle, including pending cycles. Quality precedes recency;
  * a selected amount retains its own percentage and original as-of time. */
@@ -254,7 +255,9 @@ export function selectCodexCycleEstimates(entries: readonly LocalWeeklyEstimate[
         ? old.quotaCycle.id === entry.quotaCycle.id : old.quotaCycle && entry.quotaCycle && !old.quotaCycle.referenceOnly && !entry.quotaCycle.referenceOnly
         ? old.quotaCycle.id === entry.quotaCycle.id : old.quotaEpoch !== undefined || entry.quotaEpoch !== undefined
         ? (old.quotaCycle?.id ?? old.quotaEpoch?.startedAt) === (entry.quotaCycle?.id ?? entry.quotaEpoch?.startedAt)
-        : Math.abs(old.resetAt - entry.resetAt) <= TOLERANCE))) chosen.push(codexCycleAmountEligible(entry) ? entry :
+        : Math.abs(old.resetAt - entry.resetAt) <= TOLERANCE))) chosen.push(codexCycleAmountEligible(entry) ||
+          entry.historicalRoughEstimate?.source === 'weekly-estimates-v1' && entry.accountScopeKey === undefined &&
+          entry.accountNumber === undefined && !entry.quotaEpoch && entry.resetAt <= now ? entry :
           { ...entry, fullEquivalentUsd: null, unusedEquivalentUsd: null, fullRange: undefined });
   }
   return chosen;

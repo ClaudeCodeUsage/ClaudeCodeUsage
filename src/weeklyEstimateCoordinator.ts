@@ -148,7 +148,8 @@ function merge(saved: InternalEntry[], live: InternalEntry[]): InternalEntry[] {
   }
   return [...representatives.values()].sort((a, b) => b.resetAt - a.resetAt || b.observedAt - a.observedAt ||
     b.estimatedAt - a.estimatedAt || a.method.localeCompare(b.method)).slice(0, WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES)
-    .map(value => copy(value, value.provider)!);
+    .map(value => ({...copy(value, value.provider)!,
+      ...(value.historicalRoughEstimate ? {historicalRoughEstimate:{...value.historicalRoughEstimate}} : {})}));
 }
 function signature(state: State): string {
   return JSON.stringify([state.status, state.saved, state.clearedThrough, state.accountClearedThrough, [...state.accountNumbers]]);
@@ -224,13 +225,20 @@ export class WeeklyEstimateCoordinator {
     // fit whose source/lineage evidence was withdrawn by the current index.
     const saved = state.saved.filter(entry => !entry.windowEvidence || !reconstructed.some(current =>
       Math.abs(current.resetAt - entry.resetAt) <= 300_000));
-    const merged = merge(saved, visibleLive);
+    const historical = saved.map(entry => entry.provider === 'codex' && !entry.accountScopeKey &&
+      !entry.quotaEpoch && !entry.windowEvidence && !entry.calibrationEvidence && entry.resetAt <= now &&
+      entry.fullEquivalentUsd !== null && entry.fullEquivalentUsd > 0 && entry.unusedEquivalentUsd !== null &&
+      entry.pricingCoverage > 0 && entry.utilizationPercent !== null &&
+      Math.abs(entry.unusedEquivalentUsd - entry.fullEquivalentUsd * (1 - entry.utilizationPercent / 100)) <=
+        Math.max(.02, entry.fullEquivalentUsd * 1e-8)
+      ? {...entry, historicalRoughEstimate:{source:'weekly-estimates-v1' as const,pricingVersion:entry.pricingVersion??''}} : entry);
+    const merged = merge(historical, visibleLive);
     const paired = merged.filter(entry => entry.windowEvidence !== undefined);
     // Reconstructed precise evidence withdraws old daily-slice extrapolations
     // for the same reference bucket. Frozen archive bytes stay untouched.
     for (let i = 0; i < merged.length; i++) {
       const entry = merged[i];
-      if (entry.provider === 'codex' && !entry.accountScopeKey && !entry.windowEvidence && paired.some(other =>
+      if (entry.provider === 'codex' && !entry.accountScopeKey && !entry.windowEvidence && !entry.historicalRoughEstimate && paired.some(other =>
         other.windowEvidence!.cycle.id === codexFallbackQuotaCycle(entry).id || Math.abs(other.resetAt - entry.resetAt) <= 300_000)) {
         merged[i] = { ...entry, fullEquivalentUsd: null, unusedEquivalentUsd: null };
       }
