@@ -3,8 +3,9 @@ import { CodexForwardCalibration, CodexForwardCalibrationSource, isCodexForwardC
   isCodexForwardAppend, isCodexForwardBirth } from './codexForwardCalibration';
 import type { CodexForwardUsageSlice } from './codexForwardSlices';
 
-/** A candidate local monetary interval, NOT an official RPC interval or receipt.
- * No runtime estimator/archive route consumes this yet. Numeric evidence only;
+/** Reference projection of one complete local envelope, NOT an official RPC
+ * interval or receipt. Production rolling estimation uses the reconciled slice
+ * collector below rather than this non-streaming reference. Numeric evidence only;
  * no reads, account attribution, state restoration, percentage interpolation or
  * implicit admission based on the containing official percentage difference. */
 export interface CodexForwardMatchedInterval {
@@ -13,6 +14,11 @@ export interface CodexForwardMatchedInterval {
   officialEnvelope: { from: number; through: number; resetAt: number; percentFrom: number; percentThrough: number };
 }
 type Envelope = CodexForwardMatchedInterval['officialEnvelope'];
+export interface CodexForwardSliceDelta {
+  rows: ReadonlyArray<CodexForwardUsageSlice & { readonly sourceKey: string }>;
+  deltaUsd: number;
+  totalTokens: number;
+}
 const parts = ['inputTotal', 'cachedInput', 'outputTotal', 'reasoningOutput'] as const;
 const integer = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const time = (v: unknown): v is number => integer(v) && v > 0;
@@ -50,6 +56,37 @@ function detail(before: CodexForwardCalibrationSource | undefined, after: CodexF
     })) return;
   }
   return rows;
+}
+
+/** Whole, reconciled live append only. A caller must separately validate the
+ * official/account context and select its own global monetary cuts. */
+export function collectCodexForwardSliceDelta(before: unknown, after: unknown, rawBook: unknown): CodexForwardSliceDelta | undefined {
+  const book = copyCodexCalibrationPricebook(rawBook);
+  if (!book || !isCodexForwardCalibration(before) || !isCodexForwardCalibration(after) || before === after ||
+    before.indexGeneration !== after.indexGeneration || after.verifiedAt <= before.verifiedAt) return;
+  const old = new Map(before.sources.map(s => [s.sourceKey, s]));
+  const current = new Map(after.sources.map(s => [s.sourceKey, s]));
+  if (before.sources.some(s => current.get(s.sourceKey)?.continuity !== s.continuity)) return;
+  const rows: Array<CodexForwardUsageSlice & { readonly sourceKey: string }> = [];
+  const rates = new Map(book.rates.map(r => [r.model, r]));
+  let deltaUsd = 0, totalTokens = 0;
+  for (const s of after.sources) {
+    const prior = old.get(s.sourceKey);
+    if (prior?.revision === s.revision) continue;
+    if (!prior && !isCodexForwardBirth(before, s)) return;
+    const slices = detail(prior, s); if (!slices) return;
+    for (const row of slices) {
+      const rate = rates.get(row.model); if (!rate || row.from <= before.verifiedAt) return;
+      totalTokens += row.tokens.inputTotal + row.tokens.outputTotal;
+      const cached = row.tokens.cachedInput ?? 0;
+      deltaUsd += (row.tokens.inputTotal - cached) * rate.input + cached * rate.cachedInput + row.tokens.outputTotal * rate.output;
+      if (!integer(totalTokens) || !Number.isFinite(deltaUsd) || deltaUsd > 1e12 || rows.length >= 2048) return;
+      rows.push(Object.freeze({ ...row, sourceKey: s.sourceKey }));
+    }
+  }
+  rows.sort((a, b) => a.through - b.through || a.from - b.from || a.sourceKey.localeCompare(b.sourceKey));
+  if (Buffer.byteLength(JSON.stringify(rows)) > 256 * 1024) return;
+  return { rows: Object.freeze(rows), deltaUsd, totalTokens };
 }
 
 export function projectCodexForwardMatchedCuts(before: unknown, after: unknown, envelope: Envelope,

@@ -174,7 +174,9 @@ test('provider carries scanner windows across worker-equivalent reloads through 
       assert.ok(estimate && Math.abs(estimate.fullEquivalentUsd! - 5000 * rate / .1) < 1e-10);
       assert.equal(estimate.calibrationEvidence!.accumulated.deltaPercent, 10);
       assert.equal(estimate.calibrationEvidence!.accumulated.totalTokens, 5000);
-      assert.equal(estimate.calibrationEvidence!.collectionMode, 'forward-append-v1');
+      assert.equal(estimate.calibrationEvidence!.collectionMode, 'forward-matched-cut-v1');
+      assert.equal(estimate.calibrationEvidence!.methodVersion, 2);
+      assert.equal(estimate.calibrationEvidence!.matchedCut!.percentThrough - estimate.calibrationEvidence!.matchedCut!.percentFrom, 10);
     }
   }
   assert.equal(official.length, 3);

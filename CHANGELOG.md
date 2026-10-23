@@ -7,12 +7,20 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added
-- **Prospective calibration detail** — bounded runtime-only request slices support
-  an offline matched-cut candidate; complete append vectors are reconciled before
-  selecting its own local USD/percentage endpoints. Existing estimator admission
-  and monetary receipt formats are unchanged; the candidate is not activated.
-  中文：有界运行期请求数值明细支持离线端点候选计算；先核对完整追加向量，再选取自身的
-  金额／百分点端点。既有估算准入与金额收据结构不变，候选路径尚未启用。
+- **Matched local calibration** — implemented and routed a method that verifies
+  every source's primary delta, offsets and current physical snapshot before
+  matching local USD and percentage endpoints. Flat-percentage amounts survive
+  polling in bounded runtime sums; official observations remain separate current
+  context. Method-two numeric receipts retain both ranges in the existing archive
+  and details, with existing clearing and unchanged method-one semantics. Missing
+  declared forward proof never falls back to historical estimates. This method
+  has not yet been deployed or verified against actual usage; it does not establish
+  actual cycle spending or completion of the monetary-estimate goal.
+  中文：已实现并接入本地端点校准方法，先核验全部来源的主用量差额、偏移及当前物理快照，
+  再匹配本地金额与百分点端点；百分比不变时的金额以有界运行期累计跨轮询保留，官方观测
+  独立作为当前上下文。method-two 数值收据在既有归档及详情保留两个范围，沿用清除规则，
+  method-one 语义不变。已声明向前采集却缺少证明时不回退历史估算。尚未部署或经过实际
+  用量验证，不证明周期实际支出，也不宣称金额估算目标已完成。
 - **Optional official Codex quota** — default-off reads use an already-running
   local daemon. Rough account-numbered as-of estimates remain local proxies,
   distinct from source-linked historical estimates and primary usage totals.

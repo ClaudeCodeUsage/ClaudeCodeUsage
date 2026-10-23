@@ -99,6 +99,9 @@ e fuso horário. Reconstruir afeta só o índice ativo; Apagar Tudo inclui todas
 famílias exatas de arquivos de índice nesse armazenamento da extensão.
 Um HMAC de volume opcional com salt específico da máquina é apagado com o índice;
 UUIDs brutos, caminhos e nomes de volume não são armazenados.
+As evidências numéricas no arquivo semanal separam os intervalos de valor local do
+contexto oficial, sem logs brutos, títulos, caminhos ou credenciais. Seguem a exclusão
+existente por conta, provedor ou de todo o arquivo, sem chamadas adicionais.
 Ao mudar de fuso horário, um checkpoint completo e comprovado da mesma origem
 pode ser reutilizado em modo somente leitura; apenas os períodos de data/hora
 são migrados, sem reconstruir o histórico principal do zero.

@@ -58,6 +58,9 @@ export interface WeeklyEquivalentUsage {
 }
 
 export interface WeeklyValueInputs {
+  /** Runtime collection declaration; missing proof stays unavailable, never a
+   * request to substitute historical aggregate calibration. */
+  codexForwardCollectionVersion?: 1;
   /** Runtime file-local paired evidence; never account identity or daily interpolation. */
   codexQuotaCheckpoints?: readonly CodexQuotaCheckpoint[];
   /** Full retained local census: false on pending/evicted/ambiguous evidence.

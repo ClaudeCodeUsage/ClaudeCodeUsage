@@ -1755,6 +1755,9 @@ export interface WeeklyValueCopy {
   cycleSummary: string;
   cycleSummaryNote: string;
   calibrationEvidence: string;
+  calibrationMeasuredRange: string;
+  calibrationMatchedInterval: string;
+  calibrationOfficialEnvelope: string;
   pendingCalibration: string;
   evidenceIncomplete: string;
   localQuotaObservation: string;
@@ -2885,6 +2888,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   en: {
     cycleSummary: 'Cycle details', cycleSummaryNote: 'One bar and one row per reset cycle. Missing boundaries use 7-day references; estimates require paired calibration evidence.',
     calibrationEvidence: 'Calibration evidence', pendingCalibration: 'Awaiting calibration', evidenceIncomplete: 'Incomplete evidence',
+    calibrationMeasuredRange: 'Cumulative calibration time range', calibrationMatchedInterval: 'Latest measured interval',
+    calibrationOfficialEnvelope: 'Official observation interval',
     localQuotaObservation: 'Local quota observation', sourceConflict: 'Quota sources differ; account and cycle are not aligned',
     observedWindowChange: 'Observed window change',
     pairedWindowEstimate: 'Paired local-window estimate · account unverified', calibrationChange: 'Sample change',
@@ -2954,6 +2959,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   'zh-CN': {
     cycleSummary: '周期明细', cycleSummaryNote: '每个重置周期一柱、一行。缺少边界时使用七天参考；金额须有合格的配对校准证据。',
     calibrationEvidence: '校准证据', pendingCalibration: '待校准', evidenceIncomplete: '证据不完整',
+    calibrationMeasuredRange: '累计校准时间范围', calibrationMatchedInterval: '末段计量区间',
+    calibrationOfficialEnvelope: '官方观测区间',
     localQuotaObservation: '本地额度观测', sourceConflict: '额度来源存在差异，账号与周期尚未对齐',
     observedWindowChange: '已观测窗口变化',
     pairedWindowEstimate: '本地窗口配对估算（归属未核实）', calibrationChange: '样本变化',
@@ -3023,6 +3030,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   'zh-TW': {
     cycleSummary: '週期明細', cycleSummaryNote: '每個重設週期一柱、一列。缺少邊界時使用七天參考；金額須有合格的配對校準證據。',
     calibrationEvidence: '校準證據', pendingCalibration: '待校準', evidenceIncomplete: '證據不完整',
+    calibrationMeasuredRange: '累計校準時間範圍', calibrationMatchedInterval: '末段計量區間',
+    calibrationOfficialEnvelope: '官方觀測區間',
     localQuotaObservation: '本機額度觀測', sourceConflict: '額度來源存在差異，帳號與週期尚未對齊',
     observedWindowChange: '已觀測視窗變化',
     pairedWindowEstimate: '本機視窗配對估算（歸屬未核實）', calibrationChange: '樣本變化',
@@ -3092,6 +3101,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   ja: {
     cycleSummary: '周期の詳細', cycleSummaryNote: 'リセット周期ごとに棒と行を1つ表示。境界不明時は7日間の参考期間を使用し、金額には適格な対応サンプルが必要です。',
     calibrationEvidence: '校正の根拠', pendingCalibration: '校正待ち', evidenceIncomplete: '根拠が不完全',
+    calibrationMeasuredRange: '累積校正の時間範囲', calibrationMatchedInterval: '直近の計測区間',
+    calibrationOfficialEnvelope: '公式の観測区間',
     localQuotaObservation: 'ローカルのクォータ観測', sourceConflict: 'クォータの取得元が異なり、アカウントと周期は未照合です',
     observedWindowChange: '観測された期間の変化',
     pairedWindowEstimate: 'ローカル期間の対応推定（アカウント未確認）', calibrationChange: 'サンプル変化',
@@ -3161,6 +3172,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   ko: {
     cycleSummary: '주기 상세', cycleSummaryNote: '재설정 주기마다 막대와 행 하나를 표시합니다. 경계가 없으면 7일 참고 기간을 사용하며 금액에는 적격 짝지은 교정 증거가 필요합니다.',
     calibrationEvidence: '교정 근거', pendingCalibration: '교정 대기', evidenceIncomplete: '근거 불완전',
+    calibrationMeasuredRange: '누적 교정 시간 범위', calibrationMatchedInterval: '최근 측정 구간',
+    calibrationOfficialEnvelope: '공식 관측 구간',
     localQuotaObservation: '로컬 할당량 관측', sourceConflict: '할당량 출처가 달라 계정과 주기가 일치하는지 확인되지 않았습니다',
     observedWindowChange: '관측된 구간 변경',
     pairedWindowEstimate: '로컬 구간 짝지은 추정(계정 미확인)', calibrationChange: '표본 변화',
@@ -3230,6 +3243,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   'pt-BR': {
     cycleSummary: 'Detalhes dos ciclos', cycleSummaryNote: 'Uma barra e uma linha por ciclo de redefinição. Limites desconhecidos usam referências de 7 dias; valores exigem evidências de calibração pareada.',
     calibrationEvidence: 'Evidência de calibração', pendingCalibration: 'Aguardando calibração', evidenceIncomplete: 'Evidência incompleta',
+    calibrationMeasuredRange: 'Faixa de tempo da calibração acumulada', calibrationMatchedInterval: 'Último intervalo medido',
+    calibrationOfficialEnvelope: 'Intervalo de observação oficial',
     localQuotaObservation: 'Observação local da cota', sourceConflict: 'As fontes de cota diferem; conta e ciclo não estão alinhados',
     observedWindowChange: 'Mudança de janela observada',
     pairedWindowEstimate: 'Estimativa local pareada · conta não verificada', calibrationChange: 'Variação da amostra',
@@ -3299,6 +3314,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   'de-DE': {
     cycleSummary: 'Zyklusdetails', cycleSummaryNote: 'Ein Balken und eine Zeile je Reset-Zyklus. Unbekannte Grenzen nutzen 7-Tage-Referenzen; Beträge erfordern geeignete gepaarte Kalibrierungsbelege.',
     calibrationEvidence: 'Kalibrierungsbelege', pendingCalibration: 'Kalibrierung ausstehend', evidenceIncomplete: 'Unvollständige Belege',
+    calibrationMeasuredRange: 'Zeitraum der kumulierten Kalibrierung', calibrationMatchedInterval: 'Letztes Messintervall',
+    calibrationOfficialEnvelope: 'Offizielles Beobachtungsintervall',
     localQuotaObservation: 'Lokale Kontingentbeobachtung', sourceConflict: 'Kontingentquellen unterscheiden sich; Konto und Zyklus sind nicht abgeglichen',
     observedWindowChange: 'Beobachteter Fensterwechsel',
     pairedWindowEstimate: 'Gepaarte lokale Fensterschätzung · Konto ungeprüft', calibrationChange: 'Stichprobenänderung',
@@ -3368,6 +3385,8 @@ const WEEKLY_VALUE_COPY: Record<SupportedLanguage, WeeklyValueCopy> = {
   id: {
     cycleSummary: 'Detail siklus', cycleSummaryNote: 'Satu batang dan satu baris per siklus reset. Batas tak diketahui memakai referensi 7 hari; nilai memerlukan bukti kalibrasi berpasangan yang layak.',
     calibrationEvidence: 'Bukti kalibrasi', pendingCalibration: 'Menunggu kalibrasi', evidenceIncomplete: 'Bukti tidak lengkap',
+    calibrationMeasuredRange: 'Rentang waktu kalibrasi kumulatif', calibrationMatchedInterval: 'Interval pengukuran terakhir',
+    calibrationOfficialEnvelope: 'Interval pengamatan resmi',
     localQuotaObservation: 'Pengamatan kuota lokal', sourceConflict: 'Sumber kuota berbeda; akun dan siklus belum selaras',
     observedWindowChange: 'Perubahan jendela teramati',
     pairedWindowEstimate: 'Estimasi jendela lokal berpasangan · akun belum terverifikasi', calibrationChange: 'Perubahan sampel',

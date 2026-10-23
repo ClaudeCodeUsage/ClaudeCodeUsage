@@ -10,6 +10,15 @@ const book = { schemaVersion: 1, parserVersion: 4, periodVersion: 1,
   rates: [{ model: 'gpt-5', input: .01, cachedInput: .001, output: .02 }] };
 const envelope = { from: T + 7000, through: T + 300000, resetAt: R, percentFrom: 36, percentThrough: 40 };
 const project = (...args: unknown[]) => require('../providers/codex/codexForwardMatchedCuts').projectCodexForwardMatchedCuts(...args);
+test('rolling collection reconciles the whole physical append before any monetary cut', () => {
+  const f = fixture(), collect = require('../providers/codex/codexForwardMatchedCuts').collectCodexForwardSliceDelta;
+  const d = collect(f.before, f.after, book);
+  assert.equal(d.rows.length, 4); assert.equal(d.deltaUsd, 22); assert.equal(d.totalTokens, 2200);
+  assert.deepEqual(d.rows.map((x: any) => x.sourceKey), [K, K, K, K]);
+  assert.equal(collect(structuredClone(f.before), f.after, book), undefined);
+  const broken = fixture(undefined, x => { x.calibrationAppend.slices.pop(); });
+  assert.equal(collect(broken.before, broken.after, book), undefined);
+});
 function fixture(amounts = [100, 100, 1000, 1000], mutate?: (file: any) => void,
   peer?: 'normal' | 'straddle' | 'removed') {
   const index = createEmptyCodexIndex('UTC');

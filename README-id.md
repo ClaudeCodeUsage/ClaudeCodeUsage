@@ -196,6 +196,7 @@ retensi, migrasi, penghapusan, dan batas interaksi jarak jauh.
 | Log sumber | Milik penyedia, hanya-baca, tidak disalin utuh | Tidak ada secara default |
 | Indeks Codex | Agregat pseudonim terbatas, terpisah menurut direktori log, salt profil dan zona waktu; HMAC volume opsional dengan salt khusus mesin, tanpa UUID mentah, jalur atau nama volume, dihapus bersama indeks; bangun ulang hanya indeks aktif, Hapus Semua mencakup semua keluarga berkas indeks yang cocok persis | Tidak ada |
 | Riwayat kuota | Pengamatan jendela anonim terbatas, tanpa ID akun mentah | Kueri Claude saat aktif atau pembacaan daemon Codex opsional; yang terakhir dapat menghubungi OpenAI |
+| Estimasi mingguan | Bukti numerik memisahkan rentang nilai lokal dan konteks resmi; tanpa log mentah, judul, jalur atau kredensial; mengikuti penghapusan arsip per akun/penyedia/semua | Tanpa panggilan tambahan |
 | UI/berbagi | Filter serta judul/rentang/tujuan GitHub opsional | Publikasi hanya setelah konfirmasi tepat |
 | Saran/kunci | Bukti agregat terbatas; kunci hanya di SecretStorage | Hanya permintaan yang dipratinjau persis setelah tindakan Kirim terpisah |
 

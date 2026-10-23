@@ -8,6 +8,8 @@ import {createHash} from 'node:crypto';
 import {isCodexCalibrationCensus, CodexCalibrationCensus} from './providers/codex/codexCalibrationCensus';
 import type { CodexOfficialQuotaSnapshot } from './providers/codex/codexOfficialQuota';
 import { CodexForwardAccountEstimator, CodexCalibrationStatus, CodexCalibrationDiagnostics } from './codexForwardAccountEstimate';
+import { CodexForwardMatchedEstimator } from './codexForwardMatchedEstimator';
+import { isCodexForwardCalibration } from './providers/codex/codexForwardCalibration';
 
 export interface OfficialQuotaSample extends CodexOfficialQuotaSnapshot {
   quotaEpoch?:CodexQuotaEpoch;
@@ -174,12 +176,14 @@ function historicalRevision(before:Counter,current:Counter,after:number):boolean
  */
 export class CodexAccountEstimator {
   private readonly forward = new CodexForwardAccountEstimator();
+  private readonly matched = new CodexForwardMatchedEstimator();
+  private matchedMode = false;
   private forwardMode = false;
   calibrationStatus(): CodexCalibrationStatus {
-    return this.forwardMode ? this.forward.calibrationStatus() : { state: 'source-unavailable', deltaPercent: 0, intervals: 0 };
+    return this.forwardMode ? (this.matchedMode ? this.matched : this.forward).calibrationStatus() : { state: 'source-unavailable', deltaPercent: 0, intervals: 0 };
   }
   calibrationDiagnostics(): CodexCalibrationDiagnostics {
-    return this.forwardMode ? this.forward.calibrationDiagnostics() :
+    return this.forwardMode ? (this.matchedMode ? this.matched : this.forward).calibrationDiagnostics() :
       { state: 'source-unavailable', deltaPercent: 0, intervals: 0, reason: 'not-forward-mode' };
   }
   private baseline?:Baseline;
@@ -193,25 +197,30 @@ export class CodexAccountEstimator {
   private runKey(sample:OfficialQuotaSample,price:string,pricebook:CodexCalibrationPricebook|undefined,scope:string):string|undefined {
     return sample.quotaEpoch===undefined?undefined:JSON.stringify([sample.accountScopeKey,sample.sourceScopeKey,price,sample.quotaEpoch,pricebook,scope]);
   }
-  breakContinuity():void{this.baseline=undefined;this.lastObserved=undefined;this.accumulated=undefined;this.forward.breakContinuity();}
-  reset():void{this.breakContinuity();this.runs.clear();this.evidenceContext=undefined;this.forward.reset();this.forwardMode=false;}
+  breakContinuity():void{this.baseline=undefined;this.lastObserved=undefined;this.accumulated=undefined;this.forward.breakContinuity();this.matched.breakContinuity();}
+  reset():void{this.breakContinuity();this.runs.clear();this.evidenceContext=undefined;this.forward.reset();this.matched.reset();this.forwardMode=false;this.matchedMode=false;}
   /** Durable clearing retires affected runtime sums in other live instances. */
   invalidateThrough(account:string,through:number):void{
     if(!finite(through))return;
     this.forward.invalidateThrough(account,through);
+    this.matched.invalidateThrough(account,through);
     for(const [key,run] of this.runs)if(run.account===account&&run.from<=through)this.runs.delete(key);
     if(this.baseline?.sample.accountScopeKey===account&&
       (this.baseline.sample.observedAt<=through||(this.accumulated?.from??Infinity)<=through))this.breakContinuity();
   }
   observe(sample:OfficialQuotaSample,inputs:WeeklyValueInputs,pricingVersion:string):LocalWeeklyEstimate|undefined {
-    if(inputs.codexForwardCalibration!==undefined){
+    if(inputs.codexForwardCalibration!==undefined||inputs.codexForwardCollectionVersion===1){
       // A distinct producer proof authorizes forward intervals, not a relaxed
       // historical-completeness flag or a restored persisted baseline.
       this.baseline=undefined;this.lastObserved=undefined;this.accumulated=undefined;
-      this.runs.clear();this.evidenceContext=undefined;this.forwardMode=true;
-      return this.forward.observe(sample,inputs.codexForwardCalibration,inputs.calibrationPricebook);
+      this.runs.clear();this.evidenceContext=undefined;
+      const matchedMode=inputs.codexForwardCollectionVersion===1 ||
+        isCodexForwardCalibration(inputs.codexForwardCalibration)&&inputs.codexForwardCalibration.slicesVersion===1;
+      if(this.forwardMode&&matchedMode!==this.matchedMode){this.forward.reset();this.matched.reset();}
+      this.forwardMode=true;this.matchedMode=matchedMode;
+      return (matchedMode?this.matched:this.forward).observe(sample,inputs.codexForwardCalibration,inputs.calibrationPricebook);
     }
-    if(this.forwardMode){this.forward.reset();this.forwardMode=false;}
+    if(this.forwardMode){this.forward.reset();this.matched.reset();this.forwardMode=false;this.matchedMode=false;}
     if(!valid(sample)){this.reset();return undefined;}
     sample={...sample,...(sample.quotaEpoch===undefined?{}:{quotaEpoch:copyCodexQuotaEpoch(sample.quotaEpoch)!})};
     const pricebook=copyCodexCalibrationPricebook(inputs.calibrationPricebook);

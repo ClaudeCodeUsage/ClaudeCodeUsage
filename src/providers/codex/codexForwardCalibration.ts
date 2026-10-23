@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { CodexIndexV1, CodexFileContribution } from './codexIndex';
 import type { ProviderTokenCounts } from '../providerTypes';
 import { isCodexForwardHistoricalQualityFlag } from './codexParser';
+import { isCodexForwardFileQualityFlag } from './codexForwardQuality';
 import { codexQuotaObservationsFromLimit } from './codexQuotaHistory';
 import { CODEX_LINEAGE_FINGERPRINT_BYTES, CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK } from './codexLineage';
 import type { CodexQuotaCheckpoint, CodexQuotaIncompleteRange } from './codexQuotaCheckpoints';
@@ -59,6 +60,9 @@ export interface CodexForwardCalibrationSource {
 }
 export interface CodexForwardCalibration {
   readonly schemaVersion: 1;
+  /** Runtime collection capability, including a baseline before any slices.
+   * Consumers must still prove every required slice and interval bound. */
+  readonly slicesVersion?: 1;
   readonly indexGeneration: number;
   /** Verification START, before parsing/title latency and before the official RPC. */
   readonly verifiedAt: number;
@@ -66,7 +70,7 @@ export interface CodexForwardCalibration {
 }
 
 const trusted = new WeakSet<object>();
-const issued = new WeakMap<object, CodexForwardCalibration>();
+const issued = new WeakMap<object, { proof: CodexForwardCalibration; forwardSourcesCurrent: boolean | undefined }>();
 const provenance = new WeakMap<object, { fingerprints: string; generation: number; qualityFlags: readonly string[]; root: boolean }>();
 interface ProofSummary { readonly token: object; readonly keys: ReadonlySet<string>; readonly verifiedAt: number }
 const proofAncestry = new WeakMap<object, { summary: ProofSummary; recent: readonly ProofSummary[] }>();
@@ -188,9 +192,11 @@ export function buildCodexForwardCalibration(
   index: CodexIndexV1, currentManifestVerified: boolean,
   canonicalFileKeys: ReadonlySet<string>, ambiguousFileKeys: ReadonlySet<string>,
   verifiedAt = Date.now(), verificationBound: object = index, previousProof?: unknown,
+  forwardSourcesCurrent?: boolean,
 ): CodexForwardCalibration | undefined {
-  if (!currentManifestVerified || !time(verifiedAt)) return undefined;
-  const old = issued.get(verificationBound); if (old) return old;
+  if (!currentManifestVerified || forwardSourcesCurrent === false || !time(verifiedAt)) return undefined;
+  const old = issued.get(verificationBound);
+  if (old) return old.forwardSourcesCurrent === forwardSourcesCurrent ? old.proof : undefined;
   const keys = Object.keys(index.files).sort(), keySet = new Set(keys);
   if (index.schemaVersion !== 3 || !time(index.indexGeneration) ||
     keys.length > CODEX_FORWARD_CALIBRATION_MAX_SOURCES || keys.length !== index.coverage.totalFiles ||
@@ -219,7 +225,7 @@ export function buildCodexForwardCalibration(
       p.identityLocked === true && trace !== undefined &&
       integer(f.dev) && f.dev > 0 && integer(f.ino) && f.ino > 0 &&
       !f.compression && !f.compressionFailure && f.offset === f.size && !f.discardingOversizedLine &&
-      !f.lineageReconciliation && f.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
+      !f.lineageReconciliation && f.qualityFlags.every(flag => isCodexForwardFileQualityFlag(flag, forwardSourcesCurrent === true)) &&
       p.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
       reconciles(byModel, f.aggregate.total);
     // These bounds include structural events and are deliberately conservative.
@@ -333,9 +339,10 @@ export function buildCodexForwardCalibration(
       (prior.revision === source.revision || window?.complete && isCodexForwardAppend(prior, source))) &&
       completeBirthChain(source)) births.set(source, birth);
   }
-  const proof: CodexForwardCalibration = Object.freeze({ schemaVersion: 1, indexGeneration: index.indexGeneration,
+  const proof: CodexForwardCalibration = Object.freeze({ schemaVersion: 1,
+    ...(forwardSourcesCurrent === true ? { slicesVersion: 1 as const } : {}), indexGeneration: index.indexGeneration,
     verifiedAt, sources: Object.freeze(sources) });
-  trusted.add(proof); issued.set(verificationBound, proof);
+  trusted.add(proof); issued.set(verificationBound, { proof, forwardSourcesCurrent });
   proofAncestry.set(proof, { summary: { token: {}, keys: new Set(keys), verifiedAt }, recent });
   return proof;
 }

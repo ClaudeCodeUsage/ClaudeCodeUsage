@@ -45,6 +45,7 @@ import {
 } from './codexPeriodIndex';
 import { parseJsonObject, stringField } from './codexSchema';
 import { CodexUsageRecordPairGuard } from './codexUsageRecordPair';
+import { isCodexForwardFileQualityFlag } from './codexForwardQuality';
 import { CodexForwardUsageSlice, copyCodexForwardSlices,
   CODEX_FORWARD_SLICES_MAX_SLICES, CODEX_FORWARD_SLICES_MAX_BYTES } from './codexForwardSlices';
 import { CodexZstdError, type CodexZstdErrorCode } from './codexZstd';
@@ -505,6 +506,9 @@ export interface CodexIndexUpdateOptions {
 }
 
 export interface CodexIndexUpdateResult {
+  /** Runtime-only full-manifest physical-version/EOF verification. Never P1.
+   * Optional only for compatibility with older worker/result producers. */
+  forwardSourcesCurrent?: boolean;
   achievementUsageDelta?: CodexAchievementUsageDelta;
   index: CodexIndexV3;
   indexChanged: boolean;
@@ -1180,7 +1184,7 @@ async function updateContribution(
   let appendComplete = (beforeOffset > 0 || initialRootScan) && beforeOffset === contribution.size && !entry.compression &&
     !contribution.discardingOversizedLine && !contribution.lineageReconciliation &&
     lineage.appliedPrefixEvents === desiredPrefixEvents && isCodexUsageContributionCurrent(contribution) &&
-    contribution.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
+    contribution.qualityFlags.every(flag => isCodexForwardFileQualityFlag(flag, true)) &&
     parserState.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
     Number.isSafeInteger(contribution.dev) && contribution.dev! > 0 &&
     Number.isSafeInteger(contribution.ino) && contribution.ino! > 0 &&
@@ -2877,6 +2881,25 @@ function isWarmNoOp(
   });
 }
 
+/** A scanned manifest is not proof that budget-deferred cached cursors still
+ * describe its physical sources. Check every source, including noncanonical
+ * copies, without requiring historical calendar/rolling sidecars. */
+function forwardSourcesCurrent(index: CodexIndexV3, manifest: CodexManifest, failedFiles: number): boolean {
+  if (failedFiles !== 0 || Object.keys(index.files).length !== manifest.files.length ||
+      Object.keys(manifest.persistable).length !== manifest.files.length ||
+      new Set(manifest.files.map(entry => entry.fileKey)).size !== manifest.files.length) return false;
+  return manifest.files.every(entry => {
+    const file = index.files[entry.fileKey], persisted = manifest.persistable[entry.fileKey];
+    if (!file || !persisted || file.fileKey !== entry.fileKey || persisted.fileKey !== entry.fileKey ||
+        !isCodexUsageContributionCurrent(file) || file.identityChecked !== true ||
+        file.qualityFlags.some(flag => flag === 'stale-file' || flag === 'stale-reset-required') ||
+        file.offset !== entry.size || file.discardingOversizedLine) return false;
+    return (['sourceArea', 'size', 'mtimeMs', 'dev', 'ino', 'volumeKey',
+      'compression', 'storageSize', 'storageCtimeMs'] as const).every(field =>
+      file[field] === entry[field] && persisted[field] === entry[field]);
+  });
+}
+
 export async function updateCodexIndex(
   previous: CodexIndexV3,
   manifest: CodexManifest,
@@ -2953,6 +2976,7 @@ export async function updateCodexIndex(
   if (identityUpdates.length === 0 && isWarmNoOp(previous, manifest, diff, timeZone, asOfDay,
     options.allowHistoricalBackfill !== false, options.allowAchievementHourProof !== false, allowQuotaCheckpointBackfill)) {
     return {
+      forwardSourcesCurrent: forwardSourcesCurrent(previous, manifest, terminalCount),
       index: previous,
       indexChanged: false,
       bodyReads: 0,
@@ -3990,6 +4014,7 @@ export async function updateCodexIndex(
       timeZone, asOfDay, allowHistoricalBackfill, options.allowAchievementHourProof !== false, allowQuotaCheckpointBackfill);
   return {
     ...(achievementUsageDelta ? { achievementUsageDelta } : {}),
+    forwardSourcesCurrent: forwardSourcesCurrent(index, manifest, failedFiles),
     index,
     indexChanged: true,
     bodyReads,

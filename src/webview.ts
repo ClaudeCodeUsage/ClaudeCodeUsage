@@ -7944,11 +7944,20 @@ export class UsageWebviewProvider {
         '-' + (cycle?.fallbackDays === 7 ? 'reference' : safeReset);
       const summary = delta === undefined ? copy.calibrationEvidence : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta) +
         (entry.fullEquivalentUsd === null && delta < CODEX_MIN_CALIBRATION_PERCENT ? ' / ' + CODEX_MIN_CALIBRATION_PERCENT : '') + ' · n=' + intervals;
-      const from = evidence?.from ?? entry.calibrationStart;
-      const through = evidence?.calibratedThrough ?? entry.observedAt;
+      const matchedCut = account?.methodVersion === 2 && account.collectionMode === 'forward-matched-cut-v1' ? account.matchedCut : undefined;
+      const from = matchedCut ? entry.calibrationStart : evidence?.from ?? entry.calibrationStart;
+      const through = matchedCut?.through ?? evidence?.calibratedThrough ?? entry.observedAt;
+      const intervalFact = (label: string, attribute: string, interval: { from: number; through: number; percentFrom: number; percentThrough: number }) => {
+        const percent = new Intl.NumberFormat(I18n.getLocale(), { style: 'percent', maximumFractionDigits: 2 });
+        return '<dt>' + esc(label) + '</dt><dd ' + attribute + '>' + esc(this.cycleDate(interval.from) + ' – ' + this.cycleDate(interval.through) +
+          ' · ' + percent.format(interval.percentFrom / 100) + ' → ' + percent.format(interval.percentThrough / 100)) + '</dd>';
+      };
+      const matchedFacts = matchedCut && account ? intervalFact(copy.calibrationMatchedInterval, 'data-calibration-matched-interval', matchedCut) +
+        intervalFact(copy.calibrationOfficialEnvelope, 'data-calibration-official-envelope', account.interval) : '';
       const facts = '<dl data-cycle-evidence-facts><dt>' + esc(copy.estimateMethod) + '</dt><dd>' + esc(this.weeklyEstimateMethod(entry)) +
-        '</dd><dt>' + esc(copy.estimateAsOf) + '</dt><dd>' + esc((from ? this.cycleDate(from) + ' – ' : '') + this.cycleDate(through)) +
-        '</dd><dt>' + esc(copy.estimateUsed) + '</dt><dd>' + money(sampleAvailable ? entry.usedEquivalentUsd : null) +
+        '</dd><dt>' + esc(matchedCut ? copy.calibrationMeasuredRange : copy.estimateAsOf) + '</dt><dd' + (matchedCut ? ' data-calibration-measured-range' : '') + '>' +
+        esc((from ? this.cycleDate(from) + ' – ' : '') + this.cycleDate(through)) + '</dd>' + matchedFacts +
+        '<dt>' + esc(copy.estimateUsed) + '</dt><dd>' + money(sampleAvailable ? entry.usedEquivalentUsd : null) +
         '</dd><dt>' + esc(copy.calibrationChange) + '</dt><dd>' + (delta === undefined ? '—' : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta)) +
         '</dd><dt>' + esc(copy.pricingCoverage) + '</dt><dd>' + (sampleAvailable ? esc(this.formatPercent(entry.pricingCoverage)) : '—') + '</dd></dl>';
       return '<tr data-codex-cycle-summary-row><td class="date-cell" title="' + esc(description) + '">' + esc(dates) +

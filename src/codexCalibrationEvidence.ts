@@ -11,15 +11,19 @@ export interface CodexCalibrationPricebook {
 }
 export interface CodexCalibrationEvidence {
   schemaVersion: 1;
-  methodVersion: 1;
+  methodVersion: 1 | 2;
   /** Absent on historical receipts; never inferred for old evidence. */
-  collectionMode?: 'forward-append-v1';
+  collectionMode?: 'forward-append-v1' | 'forward-matched-cut-v1';
   pricebook: CodexCalibrationPricebook;
+  /** Real official observation/request endpoints, including their percentages. */
   interval: {
     from: number; through: number; requestedFrom: number; requestedThrough: number;
     percentFrom: number; percentThrough: number; deltaUsd: number;
     pricedTokens: number; totalTokens: number; linkedSources: number; excludedSources: number; continuityGap: boolean;
   };
+  /** Required in method two: interval USD/Tokens and accumulated deltaPercent
+   * measure matched cuts, while the official envelope remains the as-of fact. */
+  matchedCut?: { from: number; through: number; percentFrom: number; percentThrough: number };
   accumulated: { intervals: number; deltaPercent: number; deltaUsd: number; pricedTokens: number; totalTokens: number };
 }
 const MAX_MODELS = 64;
@@ -61,8 +65,9 @@ export function captureCodexCalibrationPricebook(models: Iterable<string>): Code
 }
 /** Fixed-field reconstruction prevents source keys/text/unknown fields from reaching disk. */
 export function copyCodexCalibrationEvidence(value: unknown): CodexCalibrationEvidence | undefined {
-  if (!object(value) || value.schemaVersion !== 1 || value.methodVersion !== 1 ||
-    (value.collectionMode !== undefined && value.collectionMode !== 'forward-append-v1') ||
+  if (!object(value) || value.schemaVersion !== 1 || (value.methodVersion !== 1 && value.methodVersion !== 2) ||
+    (value.methodVersion === 1 && value.collectionMode !== undefined && value.collectionMode !== 'forward-append-v1') ||
+    (value.methodVersion === 2 && value.collectionMode !== 'forward-matched-cut-v1') ||
     !object(value.interval) || !object(value.accumulated)) return undefined;
   const pricebook = copyCodexCalibrationPricebook(value.pricebook), i = value.interval, a = value.accumulated;
   // The first receipt shape predates partial-source calibration; absent means
@@ -76,14 +81,28 @@ export function copyCodexCalibrationEvidence(value: unknown): CodexCalibrationEv
     !finite(i.pricedTokens) || !finite(i.totalTokens) || i.pricedTokens <= 0 || i.pricedTokens > i.totalTokens ||
     !finite(i.linkedSources, 16_384) || !Number.isSafeInteger(i.linkedSources) || i.linkedSources < 1 ||
     !finite(excludedSources, 16_384) || !Number.isSafeInteger(excludedSources) ||
-    typeof i.continuityGap !== 'boolean' || !finite(a.intervals, 100) || !Number.isSafeInteger(a.intervals) || a.intervals < 1 ||
-    !finite(a.deltaPercent, 100) || a.deltaPercent < i.percentThrough - i.percentFrom || a.deltaPercent >= 100 ||
+    typeof i.continuityGap !== 'boolean') return undefined;
+  let matchedCut: CodexCalibrationEvidence['matchedCut'];
+  let deltaPercent = i.percentThrough - i.percentFrom;
+  if (value.methodVersion === 2) {
+    const cut = value.matchedCut;
+    if (!object(cut) || !time(cut.from) || !time(cut.through) || cut.from <= i.from ||
+      cut.through <= cut.from || cut.through > i.requestedThrough ||
+      !finite(cut.percentFrom, 100) || !finite(cut.percentThrough, 100) || cut.percentThrough >= 100 ||
+      cut.percentThrough - cut.percentFrom < 1 || cut.percentFrom < i.percentFrom || cut.percentThrough > i.percentThrough ||
+      i.continuityGap || excludedSources !== 0 || i.pricedTokens !== i.totalTokens || a.pricedTokens !== a.totalTokens) return undefined;
+    matchedCut = { from: cut.from, through: cut.through, percentFrom: cut.percentFrom, percentThrough: cut.percentThrough };
+    deltaPercent = cut.percentThrough - cut.percentFrom;
+  }
+  if (!finite(a.intervals, 100) || !Number.isSafeInteger(a.intervals) || a.intervals < 1 ||
+    !finite(a.deltaPercent, 100) || a.deltaPercent < deltaPercent || a.deltaPercent >= 100 ||
     !finite(a.deltaUsd) || a.deltaUsd < i.deltaUsd || !finite(a.pricedTokens) || a.pricedTokens < i.pricedTokens ||
     !finite(a.totalTokens) || a.totalTokens < i.totalTokens || a.pricedTokens > a.totalTokens ||
-    (a.intervals === 1 && (!close(a.deltaPercent, i.percentThrough - i.percentFrom) ||
+    (a.intervals === 1 && (!close(a.deltaPercent, deltaPercent) ||
       !close(a.deltaUsd, i.deltaUsd) || !close(a.pricedTokens, i.pricedTokens) || !close(a.totalTokens, i.totalTokens)))) return undefined;
-  return { schemaVersion: 1, methodVersion: 1, pricebook,
+  return { schemaVersion: 1, methodVersion: value.methodVersion, pricebook,
     ...(value.collectionMode === 'forward-append-v1' ? { collectionMode: 'forward-append-v1' as const } : {}),
+    ...(matchedCut === undefined ? {} : { collectionMode: 'forward-matched-cut-v1' as const, matchedCut }),
     interval: { from: i.from, through: i.through, requestedFrom: i.requestedFrom, requestedThrough: i.requestedThrough,
       percentFrom: i.percentFrom, percentThrough: i.percentThrough, deltaUsd: i.deltaUsd,
       pricedTokens: i.pricedTokens, totalTokens: i.totalTokens, linkedSources: i.linkedSources,
@@ -97,8 +116,9 @@ export function codexCalibrationEvidenceFitsEstimate(e: CodexCalibrationEvidence
   calibrationStart?: number; quotaEpoch?: { startedAt: number; resetAnchorAt: number };
 }): boolean {
   const a = e.accumulated, i = e.interval, full = a.deltaUsd / (a.deltaPercent / 100);
+  const calibrationFrom = e.methodVersion === 2 ? e.matchedCut?.from : i.from;
   return estimate.observedAt === i.through && estimate.utilizationPercent === i.percentThrough &&
-    estimate.calibrationStart !== undefined && estimate.calibrationStart <= i.from &&
+    estimate.calibrationStart !== undefined && calibrationFrom !== undefined && estimate.calibrationStart <= calibrationFrom &&
     estimate.quotaEpoch !== undefined && estimate.calibrationStart >= estimate.quotaEpoch.startedAt &&
     i.through < estimate.quotaEpoch.resetAnchorAt && close(a.deltaUsd, estimate.usedEquivalentUsd) &&
     estimate.fullEquivalentUsd !== null && close(full, estimate.fullEquivalentUsd) &&

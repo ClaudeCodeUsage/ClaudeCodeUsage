@@ -186,6 +186,16 @@ export function sameWeeklyEstimateQuotaPoint(left: WeeklyEstimateInput, right: W
   if (left.provider !== 'codex' || right.provider !== 'codex' || left.accountScopeKey !== right.accountScopeKey ||
     left.method !== right.method || left.pricingVersion !== right.pricingVersion ||
     left.utilizationPercent !== right.utilizationPercent) return false;
+  const a = left.calibrationEvidence, b = right.calibrationEvidence;
+  if (a?.methodVersion === 2 || b?.methodVersion === 2) {
+    // Official percentage can plateau while delayed local endpoints add a
+    // stronger, independently metered interval. Preserve that evidence, notably
+    // when it crosses the chart's minimum calibrated-point threshold.
+    if (a?.methodVersion !== b?.methodVersion || a?.collectionMode !== b?.collectionMode ||
+      left.calibrationStart !== right.calibrationStart || JSON.stringify(a?.accumulated) !== JSON.stringify(b?.accumulated) ||
+      JSON.stringify(a?.pricebook) !== JSON.stringify(b?.pricebook) ||
+      left.fullEquivalentUsd !== right.fullEquivalentUsd || left.unusedEquivalentUsd !== right.unusedEquivalentUsd) return false;
+  }
   if (left.fullEquivalentUsd === null && right.fullEquivalentUsd === null) {
     return left.localWindowKey !== undefined && left.localWindowKey === right.localWindowKey ||
       left.quotaEpoch !== undefined && right.quotaEpoch !== undefined && left.quotaEpoch.startedAt === right.quotaEpoch.startedAt;

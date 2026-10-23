@@ -105,6 +105,9 @@ Ein Neuaufbau betrifft nur den aktiven Index; „Alle löschen“ umfasst alle e
 zugehörigen Indexdateien in diesem Erweiterungsspeicher.
 Ein optionaler Volume-HMAC mit maschinenspezifischem Salt wird mit dem Index
 gelöscht; rohe UUIDs, Pfade oder Volume-Namen werden nicht gespeichert.
+Numerische Belege im Wochenarchiv trennen lokale Geldwertbereiche vom offiziellen
+Kontext, ohne Rohprotokolle, Titel, Pfade oder Zugangsdaten. Bestehende Löschregeln
+für Konto, Anbieter oder das gesamte Archiv gelten weiter; keine zusätzlichen Aufrufe.
 Ein Zeitzonenwechsel kann einen vollständigen, nachweislich quellengleichen
 Checkpoint schreibgeschützt wiederverwenden; nur Tages-/Stundenwerte werden
 migriert, ohne die Haupthistorie neu aufzubauen.

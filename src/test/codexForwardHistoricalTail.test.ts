@@ -96,8 +96,10 @@ test('repeated bad tail events remain incomplete even when their sticky flag alr
   }
 });
 
-test('fatal primary/identity flags and unknown classifications never become historical exemptions', async t => {
+test('fatal primary/identity flags and reset diagnostics without current-source authority remain blocked', async t => {
   const f = await fixture(t, gaps.unknown);
+  // This legacy proof call has no runtime forwardSourcesCurrent bit. Successful
+  // current-file reset recovery is covered separately with real scan results.
   for (const flag of ['missing-parent', 'stale-file', 'stale-reset-required', 'identity-conflict',
     'invalid-session-meta', 'missing-pseudonymizer', 'truncated-jsonl', 'replaced-jsonl', 'future-unreviewed-quality']) {
     for (const where of ['file', 'parser'] as const) {
