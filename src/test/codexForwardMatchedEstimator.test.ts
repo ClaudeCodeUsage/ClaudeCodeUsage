@@ -14,6 +14,7 @@ const sample = (at: number, p: number) => ({ accountScopeKey: 'a'.repeat(64), so
 const estimator = () => new (require('../codexForwardMatchedEstimator').CodexForwardMatchedEstimator)();
 function source(peer = false) {
   let index = createEmptyCodexIndex('UTC'), previous: CodexForwardCalibration | undefined;
+  let resetAt = R;
   const counts = { inputTotal: 100, cachedInput: 0, outputTotal: 0, reasoningOutput: 0 };
   index.files[K] = { fileKey: K, sourceArea: 'sessions', size: 100, offset: 100, mtimeMs: T - 1000,
     dev: 1, ino: 2, identityChecked: true, discardingOversizedLine: false, qualityFlags: [],
@@ -29,14 +30,14 @@ function source(peer = false) {
     f.aggregate.session.sessionKey = J; index.files[J] = f;
   }
   index.coverage.totalFiles = index.coverage.indexedFiles = peer ? 2 : 1;
-  return (at: number, rows: Array<[number, number, number]> = [], missing = false, peerRows: Array<[number, number, number]> = []) => {
+  const next = (at: number, rows: Array<[number, number, number]> = [], missing = false, peerRows: Array<[number, number, number]> = []) => {
     for (const [key, values] of [[K, rows], [J, peerRows]] as const) {
     const f = index.files[key]; if (!f) continue;
     const beforeOffset = f.offset;
     if (values.length) {
       const slices = values.map(([t, input, p]) => ({ from: T + t, through: T + t, model: 'gpt-5',
         tokens: { inputTotal: input, cachedInput: 0, outputTotal: 0, reasoningOutput: 0 },
-        quota: { observedAt: T + t, resetAt: R, usedPercent: p } }));
+        quota: { observedAt: T + t, resetAt, usedPercent: p } }));
       for (const row of slices) { f.aggregate.total.inputTotal += row.tokens.inputTotal;
         f.lineage!.pendingFingerprints.push(f.lineage!.tokenEvents.toString(16).padStart(32, '0')); f.lineage!.tokenEvents++; }
       f.aggregate.byModel = { 'gpt-5': { ...f.aggregate.total } };
@@ -55,6 +56,15 @@ function source(peer = false) {
     assert.ok(proof); previous = proof; index = normalizeCodexIndex(index)!;
     return proof as CodexForwardCalibration;
   };
+  return Object.assign(next, { setReset(value: number) { resetAt = value; } });
+}
+function calibrated() {
+  const next = source(), e = estimator();
+  e.observe(sample(0, 20), next(0), book);
+  e.observe(sample(120000, 22), next(120000, [[20000, 1000, 21], [100000, 1000, 22]]), book);
+  const first = e.observe(sample(240000, 24), next(240000, [[200000, 4000, 24]]), book);
+  assert.equal(first?.fullEquivalentUsd, 200);
+  return { next, e, first };
 }
 test('busy official RPC edges fit only matched local endpoints and preserve exact repeated-proof progress', () => {
   const next = source(), e = estimator();
@@ -128,4 +138,43 @@ test('production facade routes declared detailed collection and does not fall ba
   assert.equal(result?.calibrationEvidence?.methodVersion, 2);
   assert.equal(e.observe(sample(360000, 26), inputs(undefined), 'api-v1'), undefined);
   assert.equal(e.calibrationDiagnostics().reason, 'proof-missing');
+});
+test('A-B-A never includes the switched-account interval in matched USD', () => {
+  const { next, e } = calibrated();
+  assert.equal(e.observe({ ...sample(360000, 50), accountScopeKey: 'c'.repeat(64) },
+    next(360000, [[350000, 100000, 50]]), book), undefined);
+  assert.equal(e.observe(sample(480000, 50), next(480000, [[470000, 100000, 50]]), book), undefined);
+  assert.equal(e.observe(sample(600000, 52), next(600000, [[590000, 1000, 52]]), book), undefined);
+  const resumed = e.observe(sample(720000, 54), next(720000, [[710000, 2000, 54]]), book);
+  assert.equal(resumed?.usedEquivalentUsd, 6); assert.equal(resumed?.fullEquivalentUsd, 150);
+  assert.equal(resumed?.calibrationEvidence.accumulated.deltaPercent, 4);
+});
+test('a correction after blur retires the old matched cohort instead of counting its points twice', () => {
+  const { next, e } = calibrated(); e.breakContinuity();
+  e.observe(sample(360000, 23), next(360000, [[350000, 1000, 23]]), book);
+  assert.equal(e.calibrationDiagnostics().reason, 'counter-correction');
+  assert.equal(e.observe(sample(480000, 25), next(480000, [[470000, 1000, 25]]), book), undefined);
+  const result = e.observe(sample(600000, 27), next(600000, [[590000, 2000, 27]]), book);
+  assert.equal(result?.usedEquivalentUsd, 2); assert.equal(result?.calibrationEvidence.accumulated.intervals, 1);
+});
+test('an early reset starts a separately priced actual epoch without assuming its predecessor lasted seven days', () => {
+  const { next, e, first } = calibrated(), resetAt = R + 360000;
+  next.setReset(resetAt);
+  const changed = (at: number, p: number) => ({ ...sample(at, p), resetAt,
+    quotaEpoch: { startedAt: T + 367000, startLowerAt: T + 247000, resetAnchorAt: resetAt, reason: 'reset-change' as const } });
+  assert.equal(e.observe(changed(360000, 0), next(360000, [[350000, 1000, 0]]), book), undefined);
+  assert.equal(e.observe(changed(480000, 2), next(480000, [[470000, 1000, 2]]), book), undefined);
+  const current = e.observe(changed(600000, 7), next(600000, [[590000, 5000, 7]]), book);
+  assert.equal(current?.fullEquivalentUsd, 100); assert.equal(current?.usedEquivalentUsd, 5);
+  assert.equal(current?.calibrationEvidence.accumulated.deltaPercent, 5);
+  assert.equal(current?.calibrationEvidence.accumulated.intervals, 1);
+  assert.notEqual(current?.quotaEpoch.startedAt, first.quotaEpoch.startedAt);
+  assert.equal(current?.windowStart, T + 247000);
+});
+test('changed rates with the same public price label cannot reuse the earlier matched cohort', () => {
+  const { next, e } = calibrated(), changed = { ...book, rates: [{ ...book.rates[0], input: .002 }] };
+  assert.equal(e.observe(sample(360000, 26), next(360000, [[350000, 1000, 26]]), changed), undefined);
+  assert.equal(e.observe(sample(480000, 28), next(480000, [[470000, 1000, 28]]), changed), undefined);
+  const result = e.observe(sample(600000, 30), next(600000, [[590000, 2000, 30]]), changed);
+  assert.equal(result?.usedEquivalentUsd, 4); assert.equal(result?.calibrationEvidence.accumulated.deltaPercent, 2);
 });
