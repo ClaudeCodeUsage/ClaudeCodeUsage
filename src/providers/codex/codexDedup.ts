@@ -111,6 +111,65 @@ function permitsCountedRequestProof(flags: readonly string[], fileScoped = false
   ));
 }
 
+/** A request-empty member needs no request time range. This is not a claim of
+ * complete historical coverage, nor permission to drop the member or its flags.
+ * The caller still verifies EOF, identity and explicit zero lineage/prefixes. */
+function hasZeroRequestContribution(file: CodexFileContribution): boolean {
+  const fields = ['inputTotal', 'outputTotal', 'cachedInput', 'cacheWriteInput', 'reasoningOutput', 'sourceTotal'];
+  const zeroTokens = (tokens: ProviderTokenCounts): boolean => {
+    if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens) ||
+        tokens.inputTotal !== 0 || tokens.outputTotal !== 0) return false;
+    for (const key in tokens) {
+      if (!fields.includes(key) ||
+          (tokens[key as keyof ProviderTokenCounts] !== undefined && tokens[key as keyof ProviderTokenCounts] !== 0)) return false;
+    }
+    return true;
+  };
+  // Bound sidecar validation too; a forged zero aggregate cannot hide unbounded
+  // buckets or nonzero tokens in a historical projection.
+  let remainingBuckets = 256;
+  function everyBucket<T>(buckets: Record<string, T>, check: (value: T) => boolean): boolean {
+    if (!buckets || typeof buckets !== 'object' || Array.isArray(buckets)) return false;
+    for (const key in buckets) {
+      if (--remainingBuckets < 0 || !check(buckets[key])) return false;
+    }
+    return true;
+  }
+  const validStructural = (value: CodexFileContribution['aggregate']['structural']): boolean =>
+    !!value && structuralSignature(value).every(n => n !== null && Number.isSafeInteger(n) && n >= 0);
+  const { aggregate, parserState, quotaCheckpoints: checkpoints, calibrationAppend: append, hourProof } = file;
+  if (file.lineageReconciliation !== undefined || file.periodMigration !== undefined ||
+      file.todayMigration !== undefined || file.hourProofMigration !== undefined ||
+      parserState.highWater !== undefined || parserState.previousSnapshotSignature !== undefined ||
+      parserState.snapshotSignaturesBySource !== undefined && !everyBucket(parserState.snapshotSignaturesBySource, () => false) ||
+      !zeroTokens(aggregate.total) || !everyBucket(aggregate.byDay, zeroTokens) ||
+      !everyBucket(aggregate.byModel, zeroTokens) || !everyBucket(aggregate.byEffort, zeroTokens) ||
+      !validStructural(aggregate.structural)) return false;
+  // Structural-only activity can have times and nonzero counters without a
+  // token request. Validate it, but do not treat its range as request overlap.
+  const { startedAt, endedAt } = aggregate.session;
+  if (!(startedAt === undefined && endedAt === undefined) &&
+      !(typeof startedAt === 'number' && Number.isFinite(startedAt) &&
+        typeof endedAt === 'number' && Number.isFinite(endedAt) && startedAt <= endedAt)) return false;
+  if (aggregate.period !== undefined && (!aggregate.period ||
+      (aggregate.period.lineagePrefixEvents !== undefined && aggregate.period.lineagePrefixEvents !== 0) ||
+      !everyBucket(aggregate.period.days, day => !!day && zeroTokens(day.total) &&
+        everyBucket(day.byModel, zeroTokens) && everyBucket(day.byEffort, zeroTokens) && validStructural(day.structural)))) return false;
+  const zeroHour = (hour: { total: ProviderTokenCounts; byModel: Record<string, ProviderTokenCounts> }): boolean =>
+    !!hour && zeroTokens(hour.total) && everyBucket(hour.byModel, zeroTokens);
+  if (aggregate.today !== undefined && (!aggregate.today || !everyBucket(aggregate.today.hours, zeroHour) ||
+      aggregate.today.days !== undefined && !everyBucket(aggregate.today.days, hours => everyBucket(hours, zeroHour)))) return false;
+  if (checkpoints !== undefined && (!checkpoints || checkpoints.prefixEvents !== 0 || checkpoints.overflow !== false ||
+      !zeroTokens(checkpoints.observedTokens) || !zeroTokens(checkpoints.excludedTokens) ||
+      !everyBucket(checkpoints.byModel, zeroTokens) || !Array.isArray(checkpoints.rows) || checkpoints.rows.length !== 0)) return false;
+  if (hourProof !== undefined && (!hourProof || hourProof.prefixEvents !== 0 ||
+      !Array.isArray(hourProof.hours) || hourProof.hours.length !== 0)) return false;
+  if (append !== undefined && (!append || append.complete !== true || append.throughOffset !== file.offset ||
+      append.minUsageAt !== null || append.maxUsageAt !== null ||
+      append.slices !== undefined && (!Array.isArray(append.slices) || append.slices.length !== 0))) return false;
+  return true;
+}
+
 function isVerifiedContinuation(
   group: readonly CodexDeduplicationCandidate[],
   budget: { remaining: number },
@@ -135,14 +194,18 @@ function isVerifiedContinuation(
         parserState.parentSessionKey !== session.parentSessionKey ||
         parserState.projectKey !== session.projectKey || parserState.role !== session.role ||
         parserState.treeKey !== treeKey ||
-        typeof startedAt !== 'number' || !Number.isFinite(startedAt) ||
-        typeof endedAt !== 'number' || !Number.isFinite(endedAt) || startedAt > endedAt ||
         !lineage || lineage.appliedPrefixEvents !== 0 || lineage.desiredPrefixEvents !== 0 ||
-        !Number.isSafeInteger(lineage.tokenEvents) || lineage.tokenEvents <= 0 ||
+        !Number.isSafeInteger(lineage.tokenEvents) || lineage.tokenEvents < 0 ||
         !Array.isArray(lineage.fingerprintBlocks) || !Array.isArray(lineage.pendingFingerprints) ||
         lineage.fingerprintBlocks.length > lineage.tokenEvents ||
         lineage.pendingFingerprints.length > lineage.tokenEvents ||
         lineage.pendingFingerprints.length >= CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK) return false;
+    if (lineage.tokenEvents === 0) {
+      if (!hasZeroRequestContribution(contribution)) return false;
+      continue;
+    }
+    if (typeof startedAt !== 'number' || !Number.isFinite(startedAt) ||
+        typeof endedAt !== 'number' || !Number.isFinite(endedAt) || startedAt > endedAt) return false;
     fingerprints += lineage.tokenEvents;
     if (fingerprints > MAX_CONTINUATION_FINGERPRINTS || fingerprints > budget.remaining) return false;
     ranges.push({ start: startedAt, end: endedAt });

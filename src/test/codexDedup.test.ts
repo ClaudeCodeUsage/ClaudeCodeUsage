@@ -6,6 +6,7 @@ import {
 } from '../providers/codex/codexDedup';
 import { CodexFileContribution, createEmptyCodexIndex, updateCodexIndex } from '../providers/codex/codexIndex';
 import { CodexSourceArea } from '../providers/codex/codexManifest';
+import { createCodexQuotaCheckpointState } from '../providers/codex/codexQuotaCheckpoints';
 
 function contribution(
   fileKey: string,
@@ -439,13 +440,13 @@ test('failed fingerprint proofs consume the call budget while exact dedup remain
   assert.deepEqual([...result.canonicalFileKeys], [...files.map(file => file.fileKey), 'active']);
 });
 
-test('production parsing of synthetic same-session continuations lifts ambiguity without changing usage', async () => {
+test('production parsing of same-session continuations and metadata-only members preserves usage', async () => {
   const start = Date.parse('2026-10-20T06:00Z');
-  const bodies = [1000, 3000].map((input, index) => Buffer.from([
+  const bodies = [1000, 3000, 0, 0].map((input, index) => Buffer.from([
     { type: 'session_meta', payload: { id: 'synthetic-shared-session' } },
     { type: 'turn_context', payload: { model: 'gpt-5' } },
-    { type: 'event_msg', timestamp: new Date(start + index * 60_000).toISOString(),
-      payload: { type: 'token_count', info: { last_token_usage: { input_tokens: input, output_tokens: 0 } } } },
+    ...(input ? [{ type: 'event_msg', timestamp: new Date(start + index * 60_000).toISOString(),
+      payload: { type: 'token_count', info: { last_token_usage: { input_tokens: input, output_tokens: 0 } } } }] : []),
   ].map(row => JSON.stringify(row)).join('\n') + '\n'));
   const entries = bodies.map((body, index) => ({ fileKey: String(index + 1).repeat(64),
     sourceArea: 'sessions' as const, size: body.length, mtimeMs: start, dev: 1, ino: index + 10,
@@ -525,4 +526,111 @@ test('allowlisted historical flags cannot bypass identity, EOF, chronology or pr
     mutate(second);
     assertContinuationClassification([first, second], true);
   });
+});
+
+function emptyContinuation(key: string): CodexFileContribution {
+  const file = continuation(key, 0, []);
+  file.lineage!.fingerprintBlocks = [];
+  delete file.aggregate.session.startedAt;
+  delete file.aggregate.session.endedAt;
+  file.aggregate.total = { inputTotal: 0, outputTotal: 0 };
+  file.aggregate.byDay = {};
+  file.aggregate.byModel = {};
+  file.aggregate.byEffort = {};
+  file.aggregate.structural = { patchCalls: 0, toolCalls: 0, postPatchToolCalls: 0, compactCount: 0, taskCompleteCount: 0 };
+  file.quotaCheckpoints = createCodexQuotaCheckpointState(0);
+  file.quotaCheckpoints.indexedThrough = file.offset;
+  return file;
+}
+
+test('two verified empty members do not block eighteen real continuations with 27034 distinct fingerprints', () => {
+  const first = emptyContinuation('empty-first'), last = emptyContinuation('empty-last');
+  first.qualityFlags = ['oversized-jsonl-line', 'replaced-jsonl'];
+  first.quotaCheckpoints!.complete = false;
+  first.quotaCheckpoints!.rangesUnlocalized = true;
+  last.parserState.qualityFlags = ['unknown-event'];
+  const files = Array.from({ length: 18 }, (_, i) => largeContinuation(`part${i}`, i * 10, i * 1500, i === 17 ? 1534 : 1500));
+  assert.equal(files.reduce((sum, file) => sum + file.lineage!.tokenEvents, 0), 27034);
+  assertContinuationClassification([first, ...files, last], false);
+  assertContinuationClassification([...files.reverse(), last, first], false);
+});
+
+test('zero request proof admits valid structural activity and zero-valued buckets without inventing request times', () => {
+  const empty = emptyContinuation('empty');
+  empty.aggregate.structural.toolCalls = 3;
+  empty.aggregate.session.startedAt = 10;
+  empty.aggregate.session.endedAt = 40;
+  empty.aggregate.byModel.zero = { inputTotal: 0, outputTotal: 0, cachedInput: 0, sourceTotal: 0 };
+  empty.aggregate.period = { timeZone: 'UTC', indexedThrough: empty.offset, days: {
+    '2026-10-20': { total: { inputTotal: 0, outputTotal: 0 }, byModel: {}, byEffort: {}, structural: { ...empty.aggregate.structural } },
+  } };
+  empty.aggregate.today = { day: '2026-10-20', timeZone: 'UTC', indexedThrough: empty.offset,
+    hours: { '00': { total: { inputTotal: 0, outputTotal: 0 }, byModel: {} } }, days: {} };
+  assertContinuationClassification([continuation('first', 10, [fp(1)]), empty, continuation('last', 30, [fp(2)])], false);
+  assertContinuationClassification([emptyContinuation('a'), emptyContinuation('b')], false);
+});
+
+test('empty-member exemption cannot hide nonzero, malformed or unverified evidence', async t => {
+  const cases: Array<[string, (file: CodexFileContribution) => void]> = [
+    ...(['inputTotal', 'outputTotal', 'cachedInput', 'cacheWriteInput', 'reasoningOutput', 'sourceTotal'] as const)
+      .map(field => [field, (file: CodexFileContribution) => { file.aggregate.total[field] = 1; }] as [string, (file: CodexFileContribution) => void]),
+    ['NaN total', file => { file.aggregate.total.inputTotal = NaN; }],
+    ['negative total', file => { file.aggregate.total.outputTotal = -1; }],
+    ['unknown token field', file => { Object.assign(file.aggregate.total, { futureTokens: 1 }); }],
+    ['missing required count', file => { Reflect.deleteProperty(file.aggregate.total, 'inputTotal'); }],
+    ...(['byDay', 'byModel', 'byEffort'] as const).map(bucket => [bucket, (file: CodexFileContribution) => {
+      file.aggregate[bucket].hidden = { inputTotal: 0, outputTotal: 0, cacheWriteInput: 1 };
+    }] as [string, (file: CodexFileContribution) => void]),
+    ['malformed bucket', file => { Object.assign(file.aggregate.byModel, { hidden: null }); }],
+    ['too many zero buckets', file => { file.aggregate.byDay = Object.fromEntries(Array.from({ length: 257 }, (_, i) => [i, { inputTotal: 0, outputTotal: 0 }])); }],
+    ['period tokens', file => { file.aggregate.period = { timeZone: 'UTC', indexedThrough: file.offset, days: {
+      day: { total: { inputTotal: 1, outputTotal: 0 }, byModel: {}, byEffort: {}, structural: { ...file.aggregate.structural } },
+    } }; }],
+    ['today tokens', file => { file.aggregate.today = { day: 'day', timeZone: 'UTC', indexedThrough: file.offset,
+      hours: { '00': { total: { inputTotal: 0, outputTotal: 1 }, byModel: {} } } }; }],
+    ['rolling model tokens', file => { file.aggregate.today = { day: 'day', timeZone: 'UTC', indexedThrough: file.offset,
+      hours: {}, days: { day: { '00': { total: { inputTotal: 0, outputTotal: 0 }, byModel: { hidden: { inputTotal: 1, outputTotal: 0 } } } } } }; }],
+    ['checkpoint observed', file => { file.quotaCheckpoints!.observedTokens.inputTotal = 1; }],
+    ['checkpoint excluded', file => { file.quotaCheckpoints!.excludedTokens.outputTotal = 1; }],
+    ['checkpoint model', file => { file.quotaCheckpoints!.byModel.hidden = { inputTotal: 1, outputTotal: 0 }; }],
+    ['checkpoint rows', file => { file.quotaCheckpoints!.rows.push({ sourceKey: 'hidden' } as never); }],
+    ['checkpoint prefix', file => { file.quotaCheckpoints!.prefixEvents = 1; }],
+    ['checkpoint overflow', file => { file.quotaCheckpoints!.overflow = true; }],
+    ['hour proof', file => { file.hourProof = { version: 1, indexedThrough: file.offset, prefixEvents: 0, hours: [1] }; }],
+    ['malformed structural', file => { file.aggregate.structural.toolCalls = NaN; }],
+    ['negative structural', file => { file.aggregate.structural.patchCalls = -1; }],
+    ['inflight scan', file => { file.offset--; }],
+    ['discarding line', file => { file.discardingOversizedLine = true; }],
+    ['unverified compression', file => { file.compression = 'zstd'; }],
+    ['stale', file => { file.qualityFlags = ['stale-file']; }],
+    ['reset pending', file => { file.qualityFlags = ['stale-reset-required']; }],
+    ['identity unlocked', file => { file.parserState.identityLocked = false; }],
+    ['parent mismatch', file => { file.parserState.parentSessionKey = file.aggregate.session.parentSessionKey = 'other'; }],
+    ['missing parent', file => { file.qualityFlags = ['missing-parent']; }],
+    ['prefix', file => { file.lineage!.appliedPrefixEvents = 1; }],
+    ['desired prefix', file => { file.lineage!.desiredPrefixEvents = 1; }],
+    ['packed fingerprint', file => { file.lineage!.fingerprintBlocks = [Buffer.from(fp(1), 'hex').toString('base64')]; }],
+    ['pending fingerprint', file => { file.lineage!.pendingFingerprints = [fp(1)]; }],
+    ['unknown lineage', file => { delete file.lineage; }],
+    ['parser request baseline', file => { file.parserState.highWater = { inputTokens: 1, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 1 }; }],
+    ['parser request signature', file => { file.parserState.previousSnapshotSignature = 'synthetic-request'; }],
+    ['parser source signatures', file => { file.parserState.snapshotSignaturesBySource = { source: 'synthetic-request' }; }],
+    ['inflight reconciliation', file => { file.lineageReconciliation = {} as never; }],
+    ['inflight period', file => { file.periodMigration = {} as never; }],
+    ['inflight today', file => { file.todayMigration = {} as never; }],
+    ['inflight hours', file => { file.hourProofMigration = {} as never; }],
+    ['incomplete append', file => { file.calibrationAppend = { beforeOffset: 0, throughOffset: file.offset, minUsageAt: null, maxUsageAt: null, complete: false }; }],
+    ['hidden append requests', file => { file.calibrationAppend = { beforeOffset: 0, throughOffset: file.offset, minUsageAt: 10, maxUsageAt: 20, complete: true }; }],
+  ];
+  for (const [name, mutate] of cases) await t.test(name, () => {
+    const empty = emptyContinuation('empty');
+    mutate(empty);
+    assertContinuationClassification([empty, continuation('first', 10, [fp(1)]), continuation('last', 30, [fp(2)])], true);
+  });
+});
+
+test('empty members cannot excuse shared fingerprints or overlapping nonempty continuations', () => {
+  const empty = emptyContinuation('empty');
+  assertContinuationClassification([empty, continuation('a', 10, [fp(1)]), continuation('b', 30, [fp(1)])], true);
+  assertContinuationClassification([empty, continuation('a', 10, [fp(1)]), continuation('b', 15, [fp(2)])], true);
 });
