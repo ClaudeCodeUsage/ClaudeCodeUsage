@@ -4,6 +4,7 @@ import { normalizeQuotaWindows } from './quotaWindows';
 import { ProviderTokenCounts, UsageProvider } from './providers/providerTypes';
 import type { CodexCalibrationPricebook } from './codexCalibrationEvidence';
 import type { CodexQuotaCheckpoint } from './providers/codex/codexQuotaCheckpoints';
+import type { CodexWitnessCycle, CodexWitnessCoverage } from './codexWitnessCycles';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_CLUSTER_MS = 5 * 60 * 1000;
@@ -58,6 +59,12 @@ export interface WeeklyEquivalentUsage {
 }
 
 export interface WeeklyValueInputs {
+  /** Runtime-only retained local amounts before global checkpoint selection.
+   * Partial cache evidence is not official calibration or account ownership. */
+  codexWitnessCycles?: readonly CodexWitnessCycle[];
+  /** Runtime-only uncertainty retained even without a located witness cycle.
+   * Unlocated primary amounts must never be assigned to a cycle numerator. */
+  codexWitnessCoverage?: CodexWitnessCoverage;
   /** Runtime collection declaration; missing proof stays unavailable, never a
    * request to substitute historical aggregate calibration. */
   codexForwardCollectionVersion?: 1;

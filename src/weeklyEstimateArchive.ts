@@ -7,6 +7,8 @@ import { fingerprintForStableIdentity } from './quotaObservationStore';
 import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation, CodexQuotaEpoch } from './codexQuotaEpoch';
 import { CodexCalibrationEvidence, copyCodexCalibrationEvidence, codexCalibrationEvidenceFitsEstimate } from './codexCalibrationEvidence';
 import { CodexWindowEvidence, copyCodexWindowEvidence, codexWindowEvidenceFits } from './codexWindowEvidence';
+import type { CodexWitnessCycle } from './codexWitnessCycles';
+import { copyWeeklyEstimateWitness } from './weeklyEstimate';
 
 export const WEEKLY_ESTIMATE_ARCHIVE_FILE = 'weekly-estimates-v1.json';
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES = 4096;
@@ -14,7 +16,7 @@ export const WEEKLY_ESTIMATE_ARCHIVE_MAX_BYTES = 1024 * 1024;
 export const WEEKLY_ESTIMATE_ARCHIVE_MAX_CLEAR_FENCES = 128;
 export type WeeklyEstimateProvider = 'claude' | 'codex';
 export type WeeklyEstimateMethod = 'legacy-prefix-ratio' | 'rough-prefix-v2' | 'paired-delta' | 'owned-window'
-  | 'series-prefix-v1' | 'account-delta-v1';
+  | 'series-prefix-v1' | 'account-delta-v1' | 'request-witness-v1';
 export type WeeklyEstimateFlag = 'account-unattributed' | 'boundary-uncertain' | 'partial-pricing'
   | 'stale-observation' | 'counter-change' | 'reconstructed' | 'partial-history';
 
@@ -37,6 +39,7 @@ export interface WeeklyEstimateInput {
   calibrationStart?: number;
   calibrationEvidence?: CodexCalibrationEvidence;
   windowEvidence?: CodexWindowEvidence;
+  witnessCycle?: CodexWitnessCycle;
   localWindowKey?: string;
   fullRange?: { lower: number; upper: number };
   /** Optional machine-local 64 lowercase hex key. This is never ownership/identity proof. */
@@ -121,7 +124,7 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     !(value.unusedEquivalentUsd === null || money(value.unusedEquivalentUsd)) ||
     !(value.utilizationPercent === null || number(value.utilizationPercent, 100)) ||
     !number(value.pricingCoverage, 1) ||
-    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window', 'series-prefix-v1', 'account-delta-v1'].includes(value.method as string) ||
+    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window', 'series-prefix-v1', 'account-delta-v1', 'request-witness-v1'].includes(value.method as string) ||
     typeof value.pricingVersion !== 'string' || value.pricingVersion.length > 32 || !VERSION.test(value.pricingVersion) ||
     !(value.accountScopeKey === undefined || (typeof value.accountScopeKey === 'string' && HEX.test(value.accountScopeKey))) ||
     !Array.isArray(value.flags) || value.flags.length > 12 ||
@@ -140,6 +143,9 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
       value.calibrationStart as number | undefined))) return undefined;
   const calibrationEvidence = copyCodexCalibrationEvidence(value.calibrationEvidence);
   const windowEvidence = copyCodexWindowEvidence(value.windowEvidence);
+  const witnessCycle = copyWeeklyEstimateWitness(value as unknown as WeeklyEstimateInput);
+  if ((value.witnessCycle !== undefined || value.method === 'request-witness-v1') &&
+    (!witnessCycle || value.localWindowKey === undefined)) return undefined;
   if (value.localWindowKey !== undefined && (typeof value.localWindowKey !== 'string' || !HEX.test(value.localWindowKey))) return undefined;
   if (value.windowEvidence !== undefined && (!windowEvidence || value.provider !== 'codex' ||
     value.method !== 'series-prefix-v1' || value.localWindowKey === undefined ||
@@ -166,6 +172,7 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
     ...(quotaEpoch === undefined ? {} : { quotaEpoch }),
     ...(calibrationEvidence === undefined ? {} : { calibrationEvidence }),
     ...(windowEvidence === undefined ? {} : { windowEvidence }),
+    ...(witnessCycle === undefined ? {} : { witnessCycle }),
     ...(value.localWindowKey === undefined ? {} : { localWindowKey: value.localWindowKey as string }),
     ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber as number }),
     ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd as number }),
@@ -176,7 +183,7 @@ function copyInput(value: unknown): WeeklyEstimateInput | undefined {
 function semanticKey(input: WeeklyEstimateInput): string {
   const { observedAt, estimatedAt: _estimated, accountNumber: _number, ...values } = input;
   // New account/series methods retain each as-of measurement. Legacy signatures stay unchanged.
-  return JSON.stringify(input.method === 'series-prefix-v1' || input.method === 'account-delta-v1'
+  return JSON.stringify(input.method === 'series-prefix-v1' || input.method === 'account-delta-v1' || input.method === 'request-witness-v1'
     ? { ...values, observedAt } : values);
 }
 /** Official epoch snapshots retain the first as-of point at each percentage
@@ -186,6 +193,14 @@ export function sameWeeklyEstimateQuotaPoint(left: WeeklyEstimateInput, right: W
   if (left.provider !== 'codex' || right.provider !== 'codex' || left.accountScopeKey !== right.accountScopeKey ||
     left.method !== right.method || left.pricingVersion !== right.pricingVersion ||
     left.utilizationPercent !== right.utilizationPercent) return false;
+  // Plateaus can retain additional observed requests or changed coverage. Only
+  // an identical receipt (apart from requested as-of time) is redundant.
+  if (left.method === 'request-witness-v1') {
+    const a = copyWeeklyEstimateWitness(left), b = copyWeeklyEstimateWitness(right);
+    if (!a || !b) return false;
+    const { requestedThrough: _a, ...first } = a, { requestedThrough: _b, ...second } = b;
+    return JSON.stringify(first) === JSON.stringify(second);
+  }
   const a = left.calibrationEvidence, b = right.calibrationEvidence;
   if (a?.methodVersion === 2 || b?.methodVersion === 2) {
     // Official percentage can plateau while delayed local endpoints add a
@@ -324,6 +339,7 @@ export class WeeklyEstimateArchive {
       const through = cutoff(clearFences, raw.sourceKey, input.provider,
         weeklyEstimateAccountFingerprint(this.salt, input.provider, input.accountScopeKey));
       if (through !== undefined && (input.observedAt <= through ||
+        (input.witnessCycle !== undefined && input.witnessCycle.from <= through) ||
         (input.windowEvidence !== undefined && input.windowEvidence.from <= through) ||
         (input.method === 'account-delta-v1' && input.calibrationStart !== undefined && input.calibrationStart <= through))) throw new ArchiveFailure('invalid');
       const key = raw.windowKey;
@@ -424,6 +440,7 @@ export class WeeklyEstimateArchive {
         const through = cutoff(current.clearFences, this.sourceKey, input.provider,
           weeklyEstimateAccountFingerprint(this.salt, input.provider, input.accountScopeKey));
         if (through !== undefined && (input.observedAt <= through ||
+          (input.witnessCycle !== undefined && input.witnessCycle.from <= through) ||
           (input.windowEvidence !== undefined && input.windowEvidence.from <= through) ||
           (input.method === 'account-delta-v1' && input.calibrationStart !== undefined && input.calibrationStart <= through))) {
           return { ...this.result(current, current.bytes), outcome: 'cleared-observation' as const };

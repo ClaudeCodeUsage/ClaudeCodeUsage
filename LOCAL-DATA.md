@@ -23,7 +23,7 @@ credential, account-separation or explicit-network-consent restrictions.
 | Claude usage records | Claude Code's local `projects/**/*.jsonl` | Runtime usage records and an in-memory per-file index; bounded prompt samples only when content analysis is enabled | Released on window reload/exit. Data controls never touch source logs; the separately opt-in Session Actions feature may move one exactly confirmed log to the OS trash (recoverable) | None unless the user separately previews and sends an advice request |
 | Codex usage records | `.jsonl` and `.jsonl.zst` regular files recursively under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` | A schema-3 incremental index of pseudonymous file keys, decoded offsets, numeric usage, dates, model/effort, sanitized structural aggregates, optional compressed-source fingerprints/EOF marker, and bounded version-5 quota/Token checkpoints with separate admitted baseline requests and numeric incomplete-range witnesses | Until rebuild, explicit clear, schema replacement, or host removal; checkpoint migration reuses existing period replay | None |
 | Codex titles | Exactly `$CODEX_HOME/session_index.jsonl` | `id → thread_name` is streamed for runtime display; titles are not written to the index | Runtime only | None |
-| Weekly estimate preview | Existing numeric checkpoints/aggregates and local/opt-in official quota samples | `weekly-estimates-v1.json`: fixed-field snapshots, optional paired-window, official-delta or method-two matched-cut evidence with distinct local/official endpoints, public ratebook/parser/period versions, intervals/Δp/USD/Tokens/cycle bounds, internal account/window HMACs, leased source-local account ordinal and linked/unlinked diagnostics | Revisions preserve history; 4096 entries / 1 MiB stop new writes, no eviction. Clear fences include earliest monetary calibration start; selected-account clear preserves other/unassigned records and provider/all clear includes the archive | Calculation/chart/evidence projection has no network; optional official sample acquisition uses the daemon boundary below |
+| Weekly estimate preview | Existing numeric checkpoints/aggregates and local/opt-in official quota samples | `weekly-estimates-v1.json`: fixed-field snapshots, optional request-witness, paired-window, official-delta or method-two matched-cut receipts; actual/requested endpoints, public ratebook/parser/period versions, intervals/Δp/USD/priced and unpriced Tokens/cycle bounds, internal account/window HMACs, leased source-local account ordinal and linked/unlinked diagnostics | Revisions preserve history; 4096 entries / 1 MiB stop new writes, no eviction. Clear fences include earliest witness or monetary calibration start; selected-account clear preserves other/unassigned records and provider/all clear includes the archive | Calculation/chart/evidence projection has no network; optional official sample acquisition uses the daemon boundary below |
 | Quota observations | Claude official response, structured Codex local events or opt-in `codex-official-api` sample | Provider, machine-local anonymous scope, original times/fractions/window/source/confidence/flags; optional revision-1 sanitized official facts with at most two windows and 128 HMAC-keyed reset credits; no raw account/credit IDs or free text | At most 180 days and 512 observations per provider/account/period after compaction; embedded facts share account/provider/all clearing | Enabled Claude lookup contacts Anthropic and may refresh its credentials. Optional Codex read can contact OpenAI through the existing daemon, whose authentication may refresh; the extension reads no Codex credentials |
 | Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy/palette/provider/metric/show-amounts controls, gallery filter/size, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
 | Heatmap artifact (2.5.0) | At most 366 selected materialized civil-day aggregates | One accepted immutable SVG/Markdown artifact, opaque document-bound preview ID, source references and whitelisted config/quality identity | Runtime only; replaced/retired on control, source, pricing or display change, reset or disposal | None; preview/local export adds no source-log reads or network requests |
@@ -152,6 +152,47 @@ from optional BYOK AI advice, which never uses Claude subscription credentials.
 
 ## Weekly estimate preview and archive
 
+### Request-witness amounts and retained data
+
+The current `request-witness-v1` path retains priced observed local amounts U
+(`knownUsd`) even with unknown account ownership or incomplete coverage.
+It does not assign an account. Unknown models retain unpriced Token counts, never
+an imputed price. Conditional F = deltaUsd / (deltaPercent / 100) uses interval
+USD and percentage-point changes, not U divided by the current percentage.
+Missing F is null, not zero, and does not erase U. Neither value certifies complete
+account spending or a guaranteed lower bound.
+
+The provider aggregates admitted sources before the global checkpoint cap;
+per-source retention limits remain. Unlocated primary amounts, unpriced Tokens
+and rejected-source counts remain separate runtime coverage diagnostics.
+The existing `weekly-estimates-v1.json` stores a validated fixed-field
+`witnessCycle`: captured public ratebook, U and interval USD, priced/unpriced
+counts, coverage and conflict/missing-baseline flags, source/segment counts,
+actual `from`/`through`, requested cutoff `requestedThrough`, percentages and
+reset-episode bounds. No raw IDs, source vectors, paths, titles, bodies or credentials
+are added. `observedAt` uses actual retained `through`, not the requested cutoff.
+
+Stable internal episode keys use namespace, reset and episode start, not the
+compaction-sensitive earliest retained witness. A stronger frozen receipt under
+the same ratebook can preserve a historical earlier endpoint; it is not repriced
+or presented as current. Only a changed requested cutoff causes no repeat write.
+The archive stays schema 1, with 4096 entries / 1 MiB, no eviction and stop-on-full
+writes. Provider/all clear fences include the earliest witness `from`, preventing
+later snapshots from restoring cleared evidence; account-only clears preserve
+unattributed receipts.
+
+Witness mode no longer uses r21 legacy rough bars as its primary local view.
+Old full-strict forward estimates remain separate; their rules below do not
+require dropping witnessed U. This adds no full replay, parser bump, source I/O
+or network request, and reuses existing archive I/O. Official sampling waits for
+an in-flight local refresh before rechecking its guards; its opt-in network
+boundary remains below. Bounded continuation dedup proves only that admitted
+files do not share counted requests, not completeness or account ownership.
+See [architecture](ARCHITECTURE.md#retained-request-witnesses-request-witness-v1)
+for aggregation, conditional-F admission and receipt selection.
+
+### Existing official and strict calibration paths
+
 `codex.officialQuota.enabled` defaults off. With quota tracking enabled, the host
 can read the already-running official local Codex daemon through
 `providers/codex/codexOfficialQuota.ts` and `codexQuotaWebSocket.ts`: a short-lived
@@ -207,7 +248,7 @@ Matched collection reports its first rejected guard separately: unproven birth,
 source/append continuity, missing numeric slices, invalid slice order/vector,
 missing pricing, baseline-time overlap or usage after the official request.
 These fixed enum reasons do not identify a source or relax monetary eligibility.
-Closed anonymous archive amounts with coherent total/unused/percentage arithmetic
+Outside witness mode, closed anonymous archive amounts with coherent total/unused/percentage arithmetic
 can be displayed as archived rough estimates, preserving partial coverage and
 original timestamps. A display-only provenance marker never enters the archive
 or monetary admission; live partial fits and current account cycles cannot use it.
@@ -522,7 +563,7 @@ fields. Invalid monetary evidence leaves a pending cycle visible. Old archived
 amounts remain frozen even when their display eligibility changes, and
 overlapping estimates or accounts are never summed.
 
-Both bar segments use that snapshot: estimated used = F − R, estimated
+When capacity F is available, both bar segments use that snapshot: estimated used = F − R, estimated
 unused = R, total height = F. A closed cycle need not be exhausted.
 The table has one summary row per cycle with expandable calibration interval,
 Δp, amount and pricing evidence. Official and local observations retain their
@@ -610,8 +651,8 @@ the first stored as-of point rather than every live update. At 4096
 entries or 1 MiB new writes stop; reads remain available. Mutations reread under
 a cross-process lease and use symlink checks and atomic 0600 replacement.
 Older preview readers can reject new methods/fields.
-The archive document remains schema 1 and estimate method `account-delta-v1`;
-current readers accept both receipt versions without rewriting method-one meaning.
+The archive document remains schema 1; forward estimates retain method `account-delta-v1`.
+Current readers accept both forward receipt versions without rewriting method-one meaning.
 Source audit and compatibility tests establish that the audited pre-method-two
 readers reject `methodVersion: 2` and refuse record writes against such an archive.
 This is not a universal rollback-write guarantee. Preserve derived archives before

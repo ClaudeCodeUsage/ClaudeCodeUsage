@@ -1,4 +1,4 @@
-import type { LocalWeeklyEstimate } from './weeklyEstimate';
+import { copyWeeklyEstimateWitness, witnessQuotaCycle, type LocalWeeklyEstimate } from './weeklyEstimate';
 import type { QuotaObservationV2 } from './quotaObservationStore';
 import { copyCodexQuotaEpoch, codexQuotaEpochFromObservations, CodexQuotaEpoch } from './codexQuotaEpoch';
 
@@ -187,6 +187,8 @@ export function withCodexQuotaCycles(
   }
   return entries.map(entry => {
     if (entry.provider !== 'codex') return { ...entry };
+    const witness = copyWeeklyEstimateWitness(entry);
+    if (witness) return { ...entry, quotaCycle: witnessQuotaCycle(witness, now) };
     if (entry.windowEvidence) return { ...entry, quotaCycle: { ...entry.windowEvidence.cycle } };
     const id = aliases.get(entry) ?? entry.quotaEpoch?.startedAt;
     const cycle = entry.accountScopeKey && id !== undefined
@@ -198,6 +200,10 @@ export function withCodexQuotaCycles(
 /** Admission is separate from archive validity: old snapshots remain frozen,
  * but incomplete numerators and tiny new calibrations cannot price capacity. */
 export function codexCycleAmountEligible(entry: LocalWeeklyEstimate): boolean {
+  if (entry.method === 'request-witness-v1' || entry.witnessCycle) {
+    const witness = copyWeeklyEstimateWitness(entry);
+    return witness !== undefined && witness.referenceCapacityUsd !== null;
+  }
   if (entry.fullEquivalentUsd === null || !Number.isFinite(entry.fullEquivalentUsd) || entry.fullEquivalentUsd <= 0 ||
     entry.unusedEquivalentUsd === null || !Number.isFinite(entry.unusedEquivalentUsd) || entry.unusedEquivalentUsd < 0 ||
     entry.unusedEquivalentUsd > entry.fullEquivalentUsd ||
@@ -213,7 +219,8 @@ export function codexCycleAmountEligible(entry: LocalWeeklyEstimate): boolean {
   return !entry.flags.includes('partial-pricing');
 }
 export function compareCodexCycleEvidence(a: LocalWeeklyEstimate, b: LocalWeeklyEstimate): number {
-  const strength = (entry: LocalWeeklyEstimate) => entry.windowEvidence?.deltaPercent ??
+  const strength = (entry: LocalWeeklyEstimate) => entry.witnessCycle
+    ? entry.witnessCycle.percentThrough - entry.witnessCycle.percentFrom : entry.windowEvidence?.deltaPercent ??
     entry.calibrationEvidence?.accumulated.deltaPercent ?? 0;
   return Number(codexCycleAmountEligible(b)) - Number(codexCycleAmountEligible(a)) ||
     strength(b) - strength(a) || Number(!!b.historicalRoughEstimate) - Number(!!a.historicalRoughEstimate) ||
@@ -234,6 +241,7 @@ export function selectCodexCycleEstimates(entries: readonly LocalWeeklyEstimate[
   const rank = (entry: LocalWeeklyEstimate) => entry.method === 'account-delta-v1' ? 5 : entry.method === 'series-prefix-v1' ? 4 :
     entry.method === 'paired-delta' ? 3 : entry.method === 'rough-prefix-v2' ? 2 : 1;
   const ordered = entries.filter(entry => entry.provider === 'codex' && time(entry.windowStart) && time(entry.resetAt) &&
+    (!(entry.witnessCycle || entry.method === 'request-witness-v1') || copyWeeklyEstimateWitness(entry) !== undefined) &&
     entry.windowStart < entry.resetAt && time(entry.observedAt) && entry.observedAt >= entry.windowStart &&
     entry.observedAt < entry.resetAt && entry.observedAt <= now &&
     (entry.fullEquivalentUsd === null && entry.unusedEquivalentUsd === null ||
@@ -243,6 +251,7 @@ export function selectCodexCycleEstimates(entries: readonly LocalWeeklyEstimate[
     .map(entry => {
       const key = entry.localWindowKey ?? entry.localWindowNumber, cycle = key === undefined ? undefined : localCycles.get(key)?.cycle;
       if (cycle) return { ...entry, quotaCycle: { ...cycle } };
+      if (entry.witnessCycle) return { ...entry, quotaCycle: witnessQuotaCycle(entry.witnessCycle) };
       return !entry.windowEvidence && (entry.quotaCycle?.referenceOnly && entry.quotaCycle.fallbackDays !== 7 || (!entry.quotaCycle && !entry.quotaEpoch))
         ? { ...entry, quotaCycle: codexFallbackQuotaCycle(entry) } : entry;
     })

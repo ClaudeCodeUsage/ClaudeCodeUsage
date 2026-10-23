@@ -7,6 +7,19 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 ## [Unreleased]
 
 ### Added
+- **Retained Codex request amounts** — `request-witness-v1` keeps priced observed
+  local U separate from conditional capacity F = deltaUsd / (deltaPercent / 100).
+  Unknown ownership and unpriced-model coverage remain explicit. Frozen numeric
+  receipts preserve actual as-of endpoints and reset episodes in the existing
+  bounded archive; clearing includes the earliest witness. Witness mode replaces
+  the legacy rough-bar fallback without historical replay, a parser bump or extra
+  source I/O/network requests. Strict forward calibration remains separate;
+  these amounts establish neither complete account spending nor a guaranteed lower bound.
+  中文：`request-witness-v1` 将已观测本地已定价金额 U 与条件容量
+  F = deltaUsd / (deltaPercent / 100) 分开，保留未知归属与未定价模型覆盖信息。
+  数值收据在既有有界归档中冻结实际截至时点与重置周期，清除检查最早见证。
+  见证模式取代旧粗估柱回退，不新增历史重放、解析器版本升级或来源 I/O／网络请求。
+  严格向前校准仍独立保留；这些金额不证明完整账号支出或保证下界。
 - **Matched local calibration** — implemented and routed a method that verifies
   every source's primary delta, offsets and current physical snapshot before
   matching local USD and percentage endpoints. Flat-percentage amounts survive

@@ -1621,6 +1621,64 @@ helper README for normal-state before/after and background-launch requirements.
 
 ## Weekly estimate preview and archive
 
+### Retained request witnesses (`request-witness-v1`)
+
+The current provider bridge reduces each lineage-admitted, deduplicated source's
+retained numeric checkpoints against its primary model totals in
+`codexWitnessCycles.ts`, before the global checkpoint row/byte cap. Per-source
+retention limits still apply. Missing or unusable sources and unlocated primary
+amounts remain coverage diagnostics; they are not assigned to an arbitrary cycle.
+Unknown account ownership does not discard known amounts or attach an account label.
+Models absent from the captured ratebook retain unpriced Token counts, with no
+imputed price. Gaps and counter conflicts remain explicit.
+
+`knownUsd` (U) is the priced observed local request subtotal, including retained
+baseline requests where available. It is distinct from the interval's `deltaUsd`
+and the conditional capacity F = deltaUsd / (deltaPercent / 100), where
+deltaPercent is measured in percentage points. F requires at least five points,
+positive deltaUsd, available baselines and consistent endpoint percentages;
+otherwise it is null while U can remain available. Partial coverage or an
+interior counter conflict can accompany a conditional F. Neither U nor F
+certifies complete account use, account ownership or a guaranteed lower bound.
+When F exists, the capacity bar still shows inferred used F − R and unused R;
+without F, the bar can show U alone. U must not be relabelled F − R.
+
+The receipt's `through` is the latest retained numeric endpoint and supplies
+`observedAt`; `requestedThrough` is only the requested projection cutoff.
+Reset episodes use ordered same-source baseline transitions (a drop of at least
+15 points or positive-to-zero), retaining uncertain boundary brackets. Cross-source
+differences alone do not identify resets. The internal window HMAC uses the source
+namespace, reset anchor and episode start, not the retained `from`, so checkpoint
+compaction does not by itself create another episode.
+
+`weeklyEstimate.ts` validates the enclosing amounts against a fixed-field
+`witnessCycle` receipt. The existing schema-1 archive freezes its ratebook,
+amounts, priced/unpriced counts, coverage flags, endpoints and episode bounds.
+With the same ratebook, the coordinator can prefer a receipt with a no-later
+`from` and no smaller USD, priced or unpriced counts over a compacted live receipt,
+when at least one of these evidence dimensions is stronger;
+it keeps that receipt's original earlier as-of endpoint, without repricing or
+extending it to now. A later observed close boundary for the same episode updates
+display bounds separately; it does not rewrite that frozen receipt. Identical receipts differing only in `requestedThrough`
+do not cause repeat writes; additional requests at a flat percentage can do so.
+The existing 4096-entry / 1 MiB limits stop new writes without eviction.
+Provider/all clear fences check the earliest witness `from` as well as
+`observedAt`, blocking a later snapshot from restoring cleared evidence;
+selected-account clearing leaves these unattributed receipts alone.
+
+Witness mode replaces the r21 legacy rough-bar fallback as the primary local
+projection; old archive bytes remain unchanged. Existing full-strict forward
+estimates and official quota facts keep their separate admission rules below,
+and a shared reset does not join them to U. This change uses existing retained
+aggregates and archive writes: no full replay, parser-version bump, additional
+source I/O or network request. Before an official sample, the host awaits an
+in-flight local refresh and rechecks its guards. Bounded continuation dedup can
+lift ambiguity only after matching identity, disjoint timed ranges and no shared
+counted-request fingerprints; it grants neither historical completeness nor
+forward-calibration authority.
+
+### Existing official and strict calibration paths
+
 `codex.officialQuota.enabled` defaults off. With quota tracking enabled, the host
 can read the already-running official local Codex daemon through
 `providers/codex/codexOfficialQuota.ts` and `codexQuotaWebSocket.ts`: a short-lived
@@ -2004,7 +2062,7 @@ fields. Invalid monetary evidence leaves a pending cycle visible. Old archived
 amounts remain frozen even when their display eligibility changes, and
 overlapping estimates or accounts are never summed.
 
-Both bar segments use that snapshot: estimated used = F − R, estimated
+When capacity F is available, both bar segments use that snapshot: estimated used = F − R, estimated
 unused = R, total height = F. A closed cycle need not be exhausted.
 The table has one summary row per cycle with expandable calibration interval,
 Δp, amount and pricing evidence. Official and local observations retain their
@@ -2092,8 +2150,8 @@ retaining the first stored as-of point rather than every live render. At 4096
 entries or 1 MiB new writes stop; reads remain available. Mutations reread under
 a cross-process lease and use symlink checks and atomic 0600 replacement.
 Older preview readers can reject new methods/fields.
-The archive document remains schema 1 and estimate method `account-delta-v1`;
-current readers accept both receipt versions without rewriting method-one meaning.
+The archive document remains schema 1; forward estimates retain method `account-delta-v1`.
+Current readers accept both forward receipt versions without rewriting method-one meaning.
 Source audit and compatibility tests establish that the audited pre-method-two
 readers reject `methodVersion: 2` and refuse record writes against such an archive.
 This is not a universal rollback-write guarantee. Preserve derived archives before

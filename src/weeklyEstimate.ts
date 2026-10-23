@@ -4,9 +4,10 @@ import type { CodexCalibrationEvidence } from './codexCalibrationEvidence';
 import type { CodexQuotaCycle } from './codexQuotaCycles';
 import type { CodexWindowEvidence } from './codexWindowEvidence';
 import type { WeeklyEquivalentUsage, WeeklyQuotaObservation, WeeklyValueInputs, WeeklyValuePoint } from './weeklyValue';
+import { copyCodexWitnessCycle, CodexWitnessCycle } from './codexWitnessCycles';
 
 const WEEK=604_800_000, RESET_TOLERANCE=300_000;
-export type WeeklyEstimateMethod='legacy-prefix-ratio'|'rough-prefix-v2'|'series-prefix-v1'|'account-delta-v1'|'paired-delta'|'owned-window';
+export type WeeklyEstimateMethod='legacy-prefix-ratio'|'rough-prefix-v2'|'series-prefix-v1'|'account-delta-v1'|'paired-delta'|'owned-window'|'request-witness-v1';
 export type WeeklyEstimateFlag='account-unattributed'|'boundary-uncertain'|'partial-pricing'|
   'stale-observation'|'counter-change'|'reconstructed'|'partial-history';
 export interface LocalWeeklyEstimate {
@@ -27,6 +28,8 @@ export interface LocalWeeklyEstimate {
   quotaCycle?:CodexQuotaCycle;
   /** Display-only provenance of a frozen closed anonymous archive estimate. */
   historicalRoughEstimate?:{source:'weekly-estimates-v1';pricingVersion:string};
+  /** Frozen numeric request-witness receipt; does not identify an account. */
+  witnessCycle?:CodexWitnessCycle;
   calibrationStart?:number;
   calibrationEvidence?:CodexCalibrationEvidence;
   windowEvidence?:CodexWindowEvidence;
@@ -36,6 +39,57 @@ export interface LocalWeeklyEstimate {
   localWindowNumber?:number;
   /** Conditional time/percentage measurement range, NOT an account-capacity confidence interval. */
   fullRange?:{lower:number;upper:number};
+}
+
+/** Receipt admission also checks its enclosing numeric snapshot. A marker cannot
+ * upgrade an unrelated estimate or turn local requests into account ownership. */
+export function copyWeeklyEstimateWitness(value: Pick<LocalWeeklyEstimate,
+  'provider'|'method'|'windowStart'|'observedAt'|'resetAt'|'estimatedAt'|'usedEquivalentUsd'|
+  'fullEquivalentUsd'|'unusedEquivalentUsd'|'utilizationPercent'|'pricingCoverage'|
+  'witnessCycle'|'accountScopeKey'|'accountNumber'|'quotaEpoch'|'windowEvidence'|'calibrationEvidence'|'calibrationStart'|'fullRange'>): CodexWitnessCycle | undefined {
+  const cycle = copyCodexWitnessCycle(value.witnessCycle);
+  if (!cycle || value.provider !== 'codex' || value.method !== 'request-witness-v1' ||
+    value.accountScopeKey !== undefined || value.accountNumber !== undefined || value.quotaEpoch !== undefined ||
+    value.windowEvidence !== undefined || value.calibrationEvidence !== undefined ||
+    value.calibrationStart !== undefined || value.fullRange !== undefined ||
+    value.windowStart !== cycle.from || value.observedAt !== cycle.through || value.resetAt !== cycle.resetAt ||
+    value.estimatedAt < cycle.requestedThrough || value.usedEquivalentUsd !== cycle.knownUsd ||
+    value.fullEquivalentUsd !== cycle.referenceCapacityUsd || value.utilizationPercent !== cycle.percentThrough ||
+    value.pricingCoverage !== cycle.pricingCoverage || value.unusedEquivalentUsd !==
+      (cycle.referenceCapacityUsd === null ? null : cycle.referenceCapacityUsd * (1 - cycle.percentThrough / 100))) return undefined;
+  return cycle;
+}
+
+/** Observed episode bounds survive restart; a missing start remains uncertain. */
+export function witnessQuotaCycle(cycle: CodexWitnessCycle, now = cycle.requestedThrough): CodexQuotaCycle {
+  return { id: cycle.from, startAt: cycle.cycleStartAt, startLowerAt: cycle.cycleStartLowerAt,
+    endAt: cycle.cycleEndAt, endLowerAt: cycle.cycleEndLowerAt, closed: cycle.closed || cycle.cycleEndAt <= now,
+    scheduledResetAt: cycle.resetAt, boundaryUncertain: cycle.cycleStartAt === null ||
+      cycle.cycleStartLowerAt === null || cycle.cycleStartAt !== cycle.cycleStartLowerAt ||
+      cycle.cycleEndLowerAt !== cycle.cycleEndAt };
+}
+
+export function buildWitnessWeeklyEstimates(cycles: readonly CodexWitnessCycle[],
+  options: { now: number; windowKey(resetAt: number, cycleStartAt: number | null): string }): LocalWeeklyEstimate[] {
+  const entries: LocalWeeklyEstimate[] = [];
+  for (const raw of cycles) {
+    const cycle = copyCodexWitnessCycle(raw);
+    if (!cycle || cycle.requestedThrough > options.now) continue;
+    const quotaCycle = witnessQuotaCycle(cycle, options.now);
+    const flags: WeeklyEstimateFlag[] = ['account-unattributed'];
+    if (cycle.partial) flags.push('partial-history');
+    if (cycle.pricingCoverage < 1) flags.push('partial-pricing');
+    if (cycle.counterConflict) flags.push('counter-change');
+    if (quotaCycle.boundaryUncertain) flags.push('boundary-uncertain');
+    if (options.now - cycle.through > 6 * 3_600_000) flags.push('stale-observation');
+    entries.push({ provider: 'codex', method: 'request-witness-v1', windowStart: cycle.from,
+      observedAt: cycle.through, resetAt: cycle.resetAt, estimatedAt: options.now,
+      usedEquivalentUsd: cycle.knownUsd, fullEquivalentUsd: cycle.referenceCapacityUsd,
+      unusedEquivalentUsd: cycle.referenceCapacityUsd === null ? null : cycle.referenceCapacityUsd * (1 - cycle.percentThrough / 100),
+      utilizationPercent: cycle.percentThrough, pricingCoverage: cycle.pricingCoverage,
+      witnessCycle: cycle, quotaCycle, localWindowKey: options.windowKey(cycle.resetAt, cycle.cycleStartAt), flags });
+  }
+  return entries;
 }
 
 function validObservation(row:WeeklyQuotaObservation,provider:UsageProvider,now:number):boolean {

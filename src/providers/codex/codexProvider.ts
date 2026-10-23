@@ -2,6 +2,7 @@ import { lstat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { immutableCodexAchievementFiles } from '../../codexAchievementRevision';
 import { captureCodexCalibrationPricebook } from '../../codexCalibrationEvidence';
+import { buildCodexWitnessLedger, CodexWitnessSource } from '../../codexWitnessCycles';
 
 import {
   ProviderLimitSnapshot,
@@ -149,6 +150,7 @@ function displayOnlySnapshot(snapshot: CodexProviderSnapshot): CodexProviderSnap
       codexQuotaIncompleteRanges: undefined,
       codexCalibrationCensus: undefined,
       codexForwardCalibration: undefined,
+      codexWitnessCycles: snapshot.weeklyValueInputs.codexWitnessCycles?.map(cycle => ({ ...cycle, partial: true })),
       codexQuotaCheckpoints: snapshot.weeklyValueInputs.codexQuotaCheckpoints?.map(row => ({ ...row, complete: false })),
     } } : {}),
     files: snapshot.files.map((file) => {
@@ -499,6 +501,11 @@ function snapshotFromIndex(
     ),
   );
   const uncertainCheckpointFiles = new Set<string>();
+  const weeklyValueInputs = codexWeeklyValueInputs(
+    usageContributions, index.quotaHistory ?? [], index.coverage.period.timeZone,
+  );
+  const witnessSources: CodexWitnessSource[] = [];
+  let unavailableWitnessSources = 0;
   const omittedCheckpointResets = new Set<number>();
   const checkpointSegments: Array<CodexQuotaCheckpointSegment & {
     rows: NonNullable<CodexFileContribution['quotaCheckpoints']>['rows'] }> = [];
@@ -506,6 +513,27 @@ function snapshotFromIndex(
     deduplication.ambiguousFileKeys.size === 0 && usageContributions.length === contributions.length;
   for (const file of contributions) {
     const state = file.quotaCheckpoints;
+    // The primary contribution already excludes inherited requests. Its retained
+    // checkpoint prefix must describe that same applied contribution. Manifest
+    // freshness affects coverage, not the existence of these observed amounts.
+    const witnessReady = state &&
+      isCodexUsageContributionCurrent(file) && !file.lineageReconciliation &&
+      (file.lineage?.appliedPrefixEvents ?? 0) === (file.lineage?.desiredPrefixEvents ?? 0) &&
+      isCodexQuotaCheckpointCurrent(file) &&
+      state.prefixEvents === (file.lineage?.appliedPrefixEvents ?? 0) &&
+      !deduplication.ambiguousFileKeys.has(file.fileKey) &&
+      !file.qualityFlags.includes('missing-parent');
+    if (witnessReady) {
+      witnessSources.push({ rows: state.rows, primaryByModel: file.aggregate.byModel,
+        hasUnknownGap: !currentManifestVerified || !index.coverage.complete ||
+          !state.complete || state.overflow || state.rangesUnlocalized || state.ranges.length > 0 ||
+          state.pendingGapUnknown || state.pendingGapFrom !== undefined ||
+          file.offset !== file.size || file.discardingOversizedLine ||
+          file.qualityFlags.includes('stale-file') || !checkpointsCoverPrimaryTokens(file),
+      });
+    } else {
+      unavailableWitnessSources += 1;
+    }
     const ready = isCodexUsageContributionCurrent(file) && !file.lineageReconciliation &&
       file.offset === file.size && !file.discardingOversizedLine &&
       file.lineage?.appliedPrefixEvents === file.lineage?.desiredPrefixEvents &&
@@ -529,6 +557,12 @@ function snapshotFromIndex(
       segment.rows.push(row);
     }
   }
+  // Keep this reduction upstream of the global row/byte cap. A shared reset
+  // groups local observations only; it never supplies an account identity.
+  const witnessLedger = buildCodexWitnessLedger(witnessSources,
+    weeklyValueInputs.calibrationPricebook, {
+      now: Date.now(), unavailableSources: unavailableWitnessSources,
+    });
   const projection = projectCodexQuotaCheckpointSegments(checkpointSegments);
   const codexQuotaCheckpoints = projection.checkpoints;
   if (!projection.complete) codexQuotaCheckpointsComplete = false;
@@ -605,11 +639,9 @@ function snapshotFromIndex(
     qualityFlags: qualityCounts(contributions),
     limits,
     limit: limits[0] ?? null,
-    weeklyValueInputs: { ...codexWeeklyValueInputs(
-      usageContributions,
-      index.quotaHistory ?? [],
-      index.coverage.period.timeZone,
-    ), codexQuotaCheckpoints, codexQuotaCheckpointsComplete, codexQuotaIncompleteResets, codexQuotaIncompleteRanges,
+    weeklyValueInputs: { ...weeklyValueInputs, codexWitnessCycles: witnessLedger.cycles,
+    codexWitnessCoverage: witnessLedger.coverage,
+    codexQuotaCheckpoints, codexQuotaCheckpointsComplete, codexQuotaIncompleteResets, codexQuotaIncompleteRanges,
     codexCalibrationCensus: buildCodexCalibrationCensus(index, currentManifestVerified,
       canonicalFileKeys, deduplication.ambiguousFileKeys, verificationBeganAt),
     ...(forwardSourcesCurrent !== undefined ? { codexForwardCollectionVersion: 1 as const } : {}),
