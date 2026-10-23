@@ -89,6 +89,8 @@ for (const [theme, width] of [['light', 1280], ['dark', 320], ['highContrast', 3
     const key = await evidence.getAttribute('data-persist'), summary = evidence.locator(':scope > summary');
     await summary.focus(); await page.keyboard.press('Enter');
     await expect(evidence).toHaveAttribute('open', '');
+    expect((await evidence.boundingBox()).height).toBeLessThan(1000);
+    expect(await evidence.locator('[data-witness-known-usage]').evaluate(node => node.getBoundingClientRect().width)).toBeGreaterThan(80);
     await expect(evidence.locator('[data-witness-known-usage]')).toHaveText('$17.00');
     await expect(evidence.locator('[data-witness-delta]')).toHaveText('$9.00');
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('__ccu-vscode-state') ?? '{}').openDetails ?? []))

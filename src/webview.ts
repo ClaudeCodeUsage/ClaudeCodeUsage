@@ -8012,7 +8012,8 @@ export class UsageWebviewProvider {
         (this.weeklyEstimateReasons(entry) ? '<p class="table-hint">' + esc(this.weeklyEstimateReasons(entry)) + '</p>' : '') + '</details></td></tr>';
     }).join('');
     return '<details class="weekly-estimate-details" data-persist="weekly-estimate-codex"><summary>' + esc(copy.cycleSummary) +
-      '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table" data-weekly-table-provider="codex" data-codex-cycle-table><thead><tr>' +
+      '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table" data-weekly-table-provider="codex" data-codex-cycle-table' +
+      (hasWitness ? ' data-witness-cycle-table' : '') + '><thead><tr>' +
       [copy.period, copy.accountColumn, ...(hasWitness ? [copy.observedPricedUsage] : []), hasWitness ? copy.conditionalCapacity : copy.estimateFull,
         copy.inferredUsed, copy.estimateUnused, copy.estimateAsOf, copy.calibrationEvidence]
         .map(label => '<th>' + esc(label) + '</th>').join('') + '</tr></thead><tbody>' + rows +
@@ -14053,6 +14054,8 @@ export class UsageWebviewProvider {
       [data-codex-cycle-panel] [data-codex-cycle-table] .date-cell { min-width: 100px; white-space: nowrap; }
       [data-codex-cycle-panel] [data-codex-cycle-table] th:last-child,
       [data-codex-cycle-panel] [data-codex-cycle-table] td:last-child { min-width: 140px; }
+      [data-codex-cycle-panel] [data-witness-cycle-table] th:last-child,
+      [data-codex-cycle-panel] [data-witness-cycle-table] td:last-child { min-width: 320px; }
       [data-cycle-evidence] { max-width: 420px; }
       [data-codex-cycle-table] .cost-cell { color: var(--vscode-foreground); }
       [data-cycle-evidence] .table-hint { color: var(--vscode-foreground); }
