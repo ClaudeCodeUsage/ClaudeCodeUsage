@@ -181,7 +181,7 @@ test('birth denies stale/in-flight dollars, unknown pricing and mismatched curre
 test('birth never replaces old sources or admits unknown children, ambiguous copies or unsafe initial bytes', async () => {
   for (const kind of ['deleted', 'rewritten', 'child', 'ambiguous', 'unsafe'] as const) {
     const { fixture, estimator } = await aligned();
-    fixture.root(H, T + 3 * M - 1000, 30, 3000,
+    fixture.root(H, kind === 'ambiguous' ? T + M - 1000 : T + 3 * M - 1000, 30, 3000,
       kind === 'child' ? { parent: 'missing-synthetic-parent' } : kind === 'ambiguous' ? { id: K } : {});
     if (kind === 'deleted') fixture.files.delete(K);
     if (kind === 'rewritten') fixture.files.get(K)!.ino++;

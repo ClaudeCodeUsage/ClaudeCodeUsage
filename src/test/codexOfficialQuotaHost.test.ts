@@ -132,6 +132,15 @@ test('index-generation changes retire calibration and in-flight reply authority,
  assert.equal(resets,1);assert.equal(e.officialQuotaSample,undefined);
  assert.ok(e.officialQuotaGeneration>generation);
 });
+test('official sampling waits for an already-running local refresh before freezing its inputs',async()=>{
+ const clock=Date.now;Date.now=()=>T;
+ try{const{e,calls}=fixture();let finish!:()=>void;
+  e.codexRefreshDrain=new Promise<void>(resolve=>finish=resolve);
+  const pending=e.refreshOfficialCodexQuota('manual');await Promise.resolve();
+  assert.equal(calls(),0,'an unfinished local refresh cannot spend this sampling slot');
+  finish();await pending;assert.equal(calls(),1);
+ }finally{Date.now=clock;}
+});
 test('a renderer failure cannot reject a successful background quota read or retain its resource lease',async()=>{
  const clock=Date.now;Date.now=()=>T;
  try{const{e}=fixture();e.webviewProvider.refreshWeeklyEstimates=()=>{throw Error('synthetic-render-failure');};

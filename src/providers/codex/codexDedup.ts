@@ -1,5 +1,6 @@
 import type { ProviderTokenCounts } from '../providerTypes';
 import type { CodexFileContribution } from './codexIndex';
+import { CODEX_LINEAGE_FINGERPRINT_BYTES, CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK } from './codexLineage';
 
 export interface CodexDeduplication {
   canonicalFileKeys: Set<string>;
@@ -80,6 +81,114 @@ function isVerified(contribution: CodexFileContribution): boolean {
   );
 }
 
+// Runtime-only proof budget. Exhaustion excludes calibration, never usage.
+const MAX_CONTINUATION_FILES = 64;
+// Allow long retained sessions while bounding decoded work to 1 MiB per group
+// and 4 MiB per classification (the fingerprint map adds bounded overhead).
+const MAX_CONTINUATION_FINGERPRINTS = 65_536;
+const MAX_CLASSIFICATION_FINGERPRINTS = 262_144;
+const MAX_FINGERPRINT_BLOCK_LENGTH = Math.ceil(
+  CODEX_LINEAGE_FINGERPRINT_BYTES * CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK / 3,
+) * 4;
+
+// These diagnostics concern unparsed data or numeric attribution, not overlap
+// between known counted requests. Preserve them for completeness/forward-tail
+// consumers: a uniqueness proof does NOT certify missing historical usage.
+// Invalid timestamps, identity/parent failures, stale state and unknown flags
+// remain blockers. In particular, never infer chronology for an untimed request.
+const COUNTED_REQUEST_QUALITY_FLAGS = new Set([
+  'unknown-event', 'invalid-json', 'oversized-jsonl-line', 'invalid-event-payload',
+  'missing-token-info', 'invalid-token-count', 'invalid-turn-context',
+  'counter-regression', 'component-delta-clamped',
+]);
+
+function permitsCountedRequestProof(flags: readonly string[], fileScoped = false): boolean {
+  return flags.length <= 32 && flags.every(flag => typeof flag === 'string' && flag.length <= 64 && (
+    COUNTED_REQUEST_QUALITY_FLAGS.has(flag) ||
+    // A completed reparse retains these file diagnostics. EOF, identity and
+    // stale-state checks still apply; forward authority needs its own live proof.
+    fileScoped && (flag === 'replaced-jsonl' || flag === 'truncated-jsonl')
+  ));
+}
+
+function isVerifiedContinuation(
+  group: readonly CodexDeduplicationCandidate[],
+  budget: { remaining: number },
+): boolean {
+  if (group.length > MAX_CONTINUATION_FILES) return false;
+  const identity = group[0].contribution.aggregate.session;
+  const treeKey = group[0].contribution.parserState.treeKey;
+  let fingerprints = 0;
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const { contribution } of group) {
+    const { aggregate: { session }, parserState, lineage } = contribution;
+    const { startedAt, endedAt } = session;
+    if (!isVerified(contribution) || contribution.compressionFailure ||
+        !Number.isSafeInteger(contribution.size) || contribution.size < 0 ||
+        !permitsCountedRequestProof(contribution.qualityFlags, true) ||
+        !permitsCountedRequestProof(parserState.qualityFlags) ||
+        parserState.identityLocked !== true ||
+        session.sessionKey !== identity.sessionKey ||
+        session.parentSessionKey !== identity.parentSessionKey ||
+        session.projectKey !== identity.projectKey || session.role !== identity.role ||
+        parserState.sessionKey !== session.sessionKey ||
+        parserState.parentSessionKey !== session.parentSessionKey ||
+        parserState.projectKey !== session.projectKey || parserState.role !== session.role ||
+        parserState.treeKey !== treeKey ||
+        typeof startedAt !== 'number' || !Number.isFinite(startedAt) ||
+        typeof endedAt !== 'number' || !Number.isFinite(endedAt) || startedAt > endedAt ||
+        !lineage || lineage.appliedPrefixEvents !== 0 || lineage.desiredPrefixEvents !== 0 ||
+        !Number.isSafeInteger(lineage.tokenEvents) || lineage.tokenEvents <= 0 ||
+        !Array.isArray(lineage.fingerprintBlocks) || !Array.isArray(lineage.pendingFingerprints) ||
+        lineage.fingerprintBlocks.length > lineage.tokenEvents ||
+        lineage.pendingFingerprints.length > lineage.tokenEvents ||
+        lineage.pendingFingerprints.length >= CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK) return false;
+    fingerprints += lineage.tokenEvents;
+    if (fingerprints > MAX_CONTINUATION_FINGERPRINTS || fingerprints > budget.remaining) return false;
+    ranges.push({ start: startedAt, end: endedAt });
+  }
+  ranges.sort((left, right) => left.start - right.start);
+  if (ranges.some((range, index) => index > 0 && range.start <= ranges[index - 1].end)) return false;
+
+  // Charge the complete declared trace even if decoding or comparison later fails.
+  // Per-block size/count checks precede decoding; malformed counts cannot bypass
+  // this budget. The map holds at most one group's fingerprints, never the corpus.
+  budget.remaining -= fingerprints;
+  const owners = new Map<string, number>();
+  for (let owner = 0; owner < group.length; owner++) {
+    const lineage = group[owner].contribution.lineage!;
+    let seen = 0;
+    const accept = (fingerprint: string): boolean => {
+      const previousOwner = owners.get(fingerprint);
+      if (previousOwner !== undefined && previousOwner !== owner) return false;
+      owners.set(fingerprint, owner);
+      return true;
+    };
+    for (const block of lineage.fingerprintBlocks) {
+      if (typeof block !== 'string' || block.length === 0 ||
+          block.length > MAX_FINGERPRINT_BLOCK_LENGTH || block.length % 4 !== 0) return false;
+      const padding = (block.endsWith('=') ? 1 : 0) + (block.endsWith('==') ? 1 : 0);
+      const bytes = block.length / 4 * 3 - padding;
+      const count = bytes / CODEX_LINEAGE_FINGERPRINT_BYTES;
+      if (!Number.isInteger(count) || count <= 0 ||
+          count > CODEX_LINEAGE_FINGERPRINTS_PER_BLOCK || seen + count > lineage.tokenEvents) return false;
+      const decoded = Buffer.from(block, 'base64');
+      // Node's decoder accepts malformed input; require canonical packed evidence.
+      if (decoded.length !== bytes || decoded.toString('base64') !== block) return false;
+      seen += count;
+      for (let offset = 0; offset < bytes; offset += CODEX_LINEAGE_FINGERPRINT_BYTES) {
+        if (!accept(decoded.toString('hex', offset, offset + CODEX_LINEAGE_FINGERPRINT_BYTES))) return false;
+      }
+    }
+    if (seen + lineage.pendingFingerprints.length !== lineage.tokenEvents) return false;
+    for (const fingerprint of lineage.pendingFingerprints) {
+      if (typeof fingerprint !== 'string' || fingerprint.length !== CODEX_LINEAGE_FINGERPRINT_BYTES * 2 ||
+          !/^[a-f0-9]+$/.test(fingerprint) || !accept(fingerprint)) return false;
+    }
+  }
+  return true;
+}
+
 export function classifyCodexSessionDuplicates(
   files: Readonly<Record<string, CodexFileContribution>>,
 ): CodexDeduplication {
@@ -99,6 +208,7 @@ export function classifyCodexSessionDuplicates(
   }
 
   let ambiguousSessionGroups = 0;
+  const continuationBudget = { remaining: MAX_CLASSIFICATION_FINGERPRINTS };
   for (const group of groups.values()) {
     if (group.length === 1) {
       continue;
@@ -122,6 +232,10 @@ export function classifyCodexSessionDuplicates(
       exactDuplicateFileKeys.add(archive[0].recordKey);
       continue;
     }
+    // Canonical totals already contain continuations. Only lift the runtime
+    // exclusion after bounded evidence rules out shared counted requests;
+    // historical completeness and live calibration authority remain separate.
+    if (isVerifiedContinuation(group, continuationBudget)) continue;
     ambiguousSessionGroups += 1;
     for (const candidate of group) ambiguousFileKeys.add(candidate.recordKey);
   }

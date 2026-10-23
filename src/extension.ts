@@ -5024,6 +5024,11 @@ export class ClaudeCodeUsageExtension {
    * No service start, credential file, auth RPC, separate timer or corpus scan.
    */
   private async refreshOfficialCodexQuota(trigger:RefreshTrigger):Promise<void> {
+    // A visible dashboard can arrive before the local refresh publishes its
+    // verified view. Do not spend the sampling slot on that transient empty
+    // snapshot. Recheck every authority below after the existing drain settles.
+    const localDrain=this.codexRefreshDrain;
+    if(localDrain)await localDrain.catch(()=>undefined);
     const config=this.getConfiguration();
     if(this.disposed||this.localDataClearedRequiresReload||!config.codexEnabled||
       !config.codexOfficialQuotaEnabled||!config.usageLimitTracking){
