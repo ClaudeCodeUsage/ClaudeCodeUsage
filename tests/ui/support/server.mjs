@@ -65,6 +65,8 @@ const server = createServer(async (request, response) => {
       'weekly-rough-cross-week',
       'weekly-accounts',
       'weekly-cycles',
+      'weekly-witness',
+      'weekly-witness-updated',
       'weekly-reference-cycles',
       'weekly-paired-cycles',
       'weekly-paired-currency',

@@ -674,6 +674,8 @@ exports.renderHarness = async function renderHarness({
       ? await require('./weekly-account-fixture.cjs').weeklyAccountFixture(weeklyRoughPartialSnapshot(baseSnapshot), CODEX_WEBVIEW_NOW)
       : fixture === 'weekly-cycles'
       ? require('./weekly-cycle-fixture.cjs').weeklyCycleFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
+      : fixture === 'weekly-witness' || fixture === 'weekly-witness-updated'
+      ? require('./weekly-witness-fixture.cjs').weeklyWitnessFixture(baseSnapshot, CODEX_WEBVIEW_NOW, fixture === 'weekly-witness-updated')
       : fixture === 'weekly-reference-cycles'
       ? require('./weekly-cycle-fixture.cjs').weeklyReferenceFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
       : fixture === 'weekly-paired-cycles' || fixture === 'weekly-paired-currency'

@@ -9,7 +9,8 @@ const reasons = [
   'estimatePartialHistory', 'estimateObservationChanged',
 ] as const;
 const chartFields = ['chartUsedValue', 'chartUnusedValue', 'chartEstimateNote',
-  'fallbackCycle', 'fallbackCycleShort', 'fallbackObservedReset', 'cycleChartNote'] as const;
+  'fallbackCycle', 'fallbackCycleShort', 'fallbackObservedReset', 'cycleChartNote',
+  'witnessCycleSummaryNote', 'witnessCycleChartNote'] as const;
 const estimateMarkers: Record<SupportedLanguage, RegExp> = {
   en: /estimate/i, 'de-DE': /schätz/i, 'zh-TW': /估值/, 'zh-CN': /估值/,
   ja: /推定/, ko: /추정/, 'pt-BR': /estimad/i, id: /estimasi/i,
@@ -70,6 +71,11 @@ test('Chinese copy distinguishes factual caveats from an unavailable conversion 
     assert.match(chartNote, /重叠窗口.*不能相加/);
     assert.match(copy.multiAccount, /未核实.*混用.*偏差/);
     assert.match(copy.cycleChartNote, /已知.*重置.*未知.*固定.*7.*末次有效.*不相加/);
+    assert.match(copy.witnessCycleChartNote, /已观测重置.*分别显示.*计划重置时间相同/);
+    assert.match(copy.witnessCycleChartNote, /48.*重叠估值不可相加/);
+    assert.match(copy.witnessCycleSummaryNote, /未识别账号.*无法估算容量.*仍显示已观测定价用量/);
+    assert.doesNotMatch(copy.witnessCycleSummaryNote, /七天参考|须有.*校准/);
+    assert.match(copy.witnessNote, /容量.*区间定价增量.*额度变化.*推算已用.*容量减去未用.*并非已观测用量/);
     assert.doesNotMatch(copy.boundaryApproximation, /停止新增|缺少精确/);
   } finally {
     I18n.setLanguage(previous);

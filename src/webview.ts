@@ -127,7 +127,7 @@ import {
   WeeklyValuePoint,
   WeeklyValueInputs,
 } from './weeklyValue';
-import { buildLocalWeeklyEstimates, weeklyEstimateForPoint, LocalWeeklyEstimate } from './weeklyEstimate';
+import { buildLocalWeeklyEstimates, copyWeeklyEstimateWitness, weeklyEstimateForPoint, LocalWeeklyEstimate } from './weeklyEstimate';
 import { projectWeeklyEstimateChart } from './weeklyEstimateChart';
 import { CodexQuotaCycle, selectCodexCycleEstimates } from './codexQuotaCycles';
 import { codexQuotaPresentation } from './codexQuotaPresentation';
@@ -136,6 +136,7 @@ import { CODEX_MIN_CALIBRATION_PERCENT } from './codexWindowEvidence';
 export interface WeeklyEstimatePanelProjection {
   entries: LocalWeeklyEstimate[];
   status: 'loading' | 'ready' | 'full' | 'unavailable';
+  codexWitnessCoverage?: import('./codexWitnessCycles').CodexWitnessCoverage;
   officialQuota?: {
     status: 'disabled' | 'loading' | 'ready' | 'unavailable' | 'source-mismatch';
     accountNumber?: number;
@@ -7693,7 +7694,7 @@ export class UsageWebviewProvider {
     if(entry.flags.includes('account-unattributed'))reasons.push((entry.method as string) === 'account-delta-v1'
       ? copy.localAmountUnattributed : copy.estimateAccountUnknown);
     if(entry.flags.includes('partial-pricing'))reasons.push(copy.estimatePartialPricing+' ('+this.formatPercent(entry.pricingCoverage)+')');
-    if(entry.flags.includes('boundary-uncertain'))reasons.push(entry.method==='account-delta-v1' || entry.windowEvidence !== undefined
+    if(entry.flags.includes('boundary-uncertain'))reasons.push(entry.method==='account-delta-v1' || entry.windowEvidence !== undefined || entry.witnessCycle !== undefined
       ? copy.boundaryApproximate : copy.estimateBoundarySplit);
     if(entry.flags.includes('partial-history'))reasons.push(entry.provider === 'codex' ? copy.evidenceIncomplete : copy.estimatePartialHistory);
     if(entry.flags.includes('counter-change'))reasons.push(copy.estimateObservationChanged);
@@ -7716,6 +7717,7 @@ export class UsageWebviewProvider {
 
   private weeklyEstimateMethod(entry: LocalWeeklyEstimate): string {
     const copy = I18n.t.weeklyValue, method: string = entry.method;
+    if (entry.witnessCycle) return copy.witnessMethod;
     if (entry.historicalRoughEstimate) return copy.archivedRoughEstimate;
     if (entry.windowEvidence) return copy.pairedWindowEstimate;
     if (entry.fullEquivalentUsd === null) return copy.estimateBlocked;
@@ -7786,6 +7788,7 @@ export class UsageWebviewProvider {
   private renderOfficialWeeklyQuota(provider: SettingProvider, projection: WeeklyEstimatePanelProjection): string {
     if (provider !== 'codex' || !this.setting<boolean>('codex.officialQuota.enabled', false)) return '';
     const quota = projection.officialQuota, copy = I18n.t.weeklyValue;
+    const witnessStatus = this.weeklyWitnessStatus(projection);
     const esc = (value: string): string => this.escapeHtml(value);
     let state = quota?.status ?? 'unavailable';
     const accountNumber = this.weeklyAccountNumber(quota?.accountNumber);
@@ -7814,7 +7817,7 @@ export class UsageWebviewProvider {
       if (quota.ordinaryUsageAllowed === false) text += ' · ' + copy.ordinaryUsageBlocked;
       if (quota.stale === true) {
         text += ' · ' + copy.estimateStale;
-      } else {
+      } else if (witnessStatus === undefined) {
         const calibration = this.weeklyCalibrationHint(quota.calibration);
         if (calibration) text += ' · ' + calibration;
         else {
@@ -7836,7 +7839,36 @@ export class UsageWebviewProvider {
       text = state === 'loading' ? copy.officialQuotaLoading : state === 'disabled' ? copy.officialQuotaDisabled :
         state === 'source-mismatch' ? copy.officialQuotaSourceMismatch : copy.officialQuotaUnavailable;
     }
-    return '<p class="table-hint weekly-official-quota" role="status">' + esc(text) + '</p>';
+    return '<p class="table-hint weekly-official-quota" role="status">' + esc(text) + '</p>' +
+      (witnessStatus === undefined ? '' : '<p class="table-hint" data-witness-status role="status">' + esc(witnessStatus) + '</p>');
+  }
+
+  private weeklyWitnessStatus(projection: WeeklyEstimatePanelProjection): string | undefined {
+    const now = Date.now(), copy = I18n.t.weeklyValue;
+    const witnesses = projection.entries.map(copyWeeklyEstimateWitness).filter((witness): witness is NonNullable<typeof witness> =>
+      witness !== undefined && witness.requestedThrough <= now).sort((a, b) => b.through - a.through);
+    const coverage = projection.codexWitnessCoverage;
+    if (coverage === undefined && witnesses.length === 0) return undefined;
+    // Local receipts are not linked to the official account by a matching reset.
+    const latest = witnesses[0], parts = [copy.localAmountUnattributed];
+    if (latest) {
+      parts.push(copy.estimateAsOf + ': ' + this.cycleDate(latest.through),
+        copy.observedPricedUsage + ': ' + this.weeklyTableCurrency(latest.knownUsd));
+      if (latest.referenceCapacityUsd !== null) parts.push(copy.conditionalCapacity + ': ' + this.weeklyTableCurrency(latest.referenceCapacityUsd));
+      parts.push(copy.pricingCoverage + ': ' + this.formatPercent(latest.pricingCoverage));
+      if (latest.partial) parts.push(copy.evidenceIncomplete);
+      if (latest.closed || latest.resetAt <= now) parts.push(copy.estimateStale);
+    } else parts.push(copy.witnessNoCycle);
+    if (coverage && [coverage.unplacedSources, coverage.unlocatedUnpricedTokens, coverage.rejectedSources]
+      .every(n => Number.isSafeInteger(n) && n >= 0) && Number.isFinite(coverage.unlocatedPrimaryUsd) && coverage.unlocatedPrimaryUsd >= 0) {
+      const number = (n: number) => new Intl.NumberFormat(I18n.getLocale()).format(n);
+      if (coverage.unplacedSources > 0 || coverage.unlocatedPrimaryUsd > 0 || coverage.unlocatedUnpricedTokens > 0) parts.push(
+        copy.witnessUnlocatedSources + ': ' + number(coverage.unplacedSources),
+        copy.witnessUnlocatedUsage + ': ' + this.weeklyTableCurrency(coverage.unlocatedPrimaryUsd),
+        copy.witnessUnlocatedTokens + ': ' + number(coverage.unlocatedUnpricedTokens));
+      if (coverage.rejectedSources > 0) parts.push(copy.witnessExcludedSources + ': ' + number(coverage.rejectedSources));
+    }
+    return parts.join(' · ');
   }
 
   private renderWeeklyEstimateRecords(provider: SettingProvider, supplied?: WeeklyEstimatePanelProjection): string {
@@ -7920,6 +7952,9 @@ export class UsageWebviewProvider {
 
   private cycleState(entry: LocalWeeklyEstimate): string {
     const copy = I18n.t.weeklyValue;
+    if (entry.witnessCycle) return [entry.witnessCycle.partial ? copy.evidenceIncomplete : '',
+      entry.witnessCycle.counterConflict ? copy.sourceConflict : '',
+      entry.accountNumber === undefined ? copy.accountUnassigned : ''].filter(Boolean).join(' · ');
     if (entry.flags.includes('counter-change') && entry.fullEquivalentUsd === null) return copy.sourceConflict;
     if (entry.fullEquivalentUsd === null) return entry.windowEvidence?.complete === false || entry.flags.includes('partial-history')
       ? copy.evidenceIncomplete : copy.pendingCalibration;
@@ -7930,24 +7965,27 @@ export class UsageWebviewProvider {
   private renderCodexCycleRecords(projection: WeeklyEstimatePanelProjection): string {
     const copy = I18n.t.weeklyValue, esc = (s: string) => this.escapeHtml(s);
     const money = (n: number | null) => n === null ? '—' : esc(this.weeklyTableCurrency(n));
-    const rows = this.codexCycleEntries(projection).map(entry => {
+    const entries = this.codexCycleEntries(projection), hasWitness = entries.some(entry => entry.witnessCycle !== undefined);
+    const rows = entries.map(entry => {
       const cycle = entry.quotaCycle, description = this.weeklyCycleDescription(cycle, entry.resetAt);
       const dates = (cycle?.startAt ? this.cycleDate(cycle.startAt, true) + ' – ' : '') + this.cycleDate(cycle?.endAt ?? entry.resetAt, true);
-      const evidence = entry.windowEvidence, account = entry.calibrationEvidence;
-      const sampleAvailable = evidence ? evidence.intervals > 0 : account !== undefined || entry.fullEquivalentUsd !== null ||
-        entry.method !== 'account-delta-v1' || entry.usedEquivalentUsd > 0;
-      const delta = evidence?.deltaPercent ?? account?.accumulated.deltaPercent;
-      const intervals = evidence?.intervals ?? account?.accumulated.intervals;
+      const evidence = entry.windowEvidence, account = entry.calibrationEvidence, witness = entry.witnessCycle;
+      const sampleAvailable = witness !== undefined || (evidence ? evidence.intervals > 0 : account !== undefined || entry.fullEquivalentUsd !== null ||
+        entry.method !== 'account-delta-v1' || entry.usedEquivalentUsd > 0);
+      const delta = witness ? witness.percentThrough - witness.percentFrom : evidence?.deltaPercent ?? account?.accumulated.deltaPercent;
+      const intervals = witness?.segments ?? evidence?.intervals ?? account?.accumulated.intervals;
       const state = this.cycleState(entry);
       const safeCycleId = typeof cycle?.id === 'number' && Number.isSafeInteger(cycle.id) && cycle.id > 0 ? cycle.id : entry.resetAt;
       const safeReset = Number.isSafeInteger(entry.resetAt) && entry.resetAt > 0 ? entry.resetAt : 0;
-      const key = 'quota-evidence-codex-' + (this.weeklyAccountNumber(entry.accountNumber) ?? 'u') + '-' + safeCycleId +
+      // Retained request endpoints may shift after compaction within one episode.
+      const evidenceCycleId = witness ? witness.cycleStartAt ?? 'initial' : safeCycleId;
+      const key = 'quota-evidence-codex-' + (this.weeklyAccountNumber(entry.accountNumber) ?? 'u') + '-' + evidenceCycleId +
         '-' + (cycle?.fallbackDays === 7 ? 'reference' : safeReset);
       const summary = delta === undefined ? copy.calibrationEvidence : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta) +
-        (entry.fullEquivalentUsd === null && delta < CODEX_MIN_CALIBRATION_PERCENT ? ' / ' + CODEX_MIN_CALIBRATION_PERCENT : '') + ' · n=' + intervals;
+        (!witness && entry.fullEquivalentUsd === null && delta < CODEX_MIN_CALIBRATION_PERCENT ? ' / ' + CODEX_MIN_CALIBRATION_PERCENT : '') + ' · n=' + intervals;
       const matchedCut = account?.methodVersion === 2 && account.collectionMode === 'forward-matched-cut-v1' ? account.matchedCut : undefined;
-      const from = matchedCut ? entry.calibrationStart : evidence?.from ?? entry.calibrationStart;
-      const through = matchedCut?.through ?? evidence?.calibratedThrough ?? entry.observedAt;
+      const from = witness?.from ?? (matchedCut ? entry.calibrationStart : evidence?.from ?? entry.calibrationStart);
+      const through = witness?.through ?? matchedCut?.through ?? evidence?.calibratedThrough ?? entry.observedAt;
       const intervalFact = (label: string, attribute: string, interval: { from: number; through: number; percentFrom: number; percentThrough: number }) => {
         const percent = new Intl.NumberFormat(I18n.getLocale(), { style: 'percent', maximumFractionDigits: 2 });
         return '<dt>' + esc(label) + '</dt><dd ' + attribute + '>' + esc(this.cycleDate(interval.from) + ' – ' + this.cycleDate(interval.through) +
@@ -7958,12 +7996,14 @@ export class UsageWebviewProvider {
       const facts = '<dl data-cycle-evidence-facts><dt>' + esc(copy.estimateMethod) + '</dt><dd>' + esc(this.weeklyEstimateMethod(entry)) +
         '</dd><dt>' + esc(matchedCut ? copy.calibrationMeasuredRange : copy.estimateAsOf) + '</dt><dd' + (matchedCut ? ' data-calibration-measured-range' : '') + '>' +
         esc((from ? this.cycleDate(from) + ' – ' : '') + this.cycleDate(through)) + '</dd>' + matchedFacts +
-        '<dt>' + esc(copy.estimateUsed) + '</dt><dd>' + money(sampleAvailable ? entry.usedEquivalentUsd : null) +
-        '</dd><dt>' + esc(copy.calibrationChange) + '</dt><dd>' + (delta === undefined ? '—' : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta)) +
-        '</dd><dt>' + esc(copy.pricingCoverage) + '</dt><dd>' + (sampleAvailable ? esc(this.formatPercent(entry.pricingCoverage)) : '—') + '</dd></dl>';
+        (witness ? this.weeklyWitnessFacts(witness).map(fact => '<dt>' + esc(fact.label) + '</dt><dd ' + fact.attribute + '>' + esc(fact.value) + '</dd>').join('') :
+        '<dt>' + esc(copy.estimateUsed) + '</dt><dd>' + money(sampleAvailable ? entry.usedEquivalentUsd : null) + '</dd>') +
+        '<dt>' + esc(copy.calibrationChange) + '</dt><dd>' + (delta === undefined ? '—' : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta)) +
+        '</dd>' + (witness ? '' : '<dt>' + esc(copy.pricingCoverage) + '</dt><dd>' + (sampleAvailable ? esc(this.formatPercent(entry.pricingCoverage)) : '—') + '</dd>') + '</dl>';
       return '<tr data-codex-cycle-summary-row><td class="date-cell" title="' + esc(description) + '">' + esc(dates) +
         (state ? '<span class="model-details" data-cycle-state>' + esc(state) + '</span>' : '') + '</td><td>' + esc(this.weeklyAccountLabel(entry.accountNumber)) +
-        '</td><td class="cost-cell">' + money(entry.fullEquivalentUsd) + '</td><td class="cost-cell">' +
+        '</td>' + (hasWitness ? '<td class="cost-cell">' + money(witness?.knownUsd ?? null) + '</td>' : '') +
+        '<td class="cost-cell">' + money(entry.fullEquivalentUsd) + '</td><td class="cost-cell">' +
         money(entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null ? null : entry.fullEquivalentUsd - entry.unusedEquivalentUsd) +
         '</td><td class="cost-cell">' + money(entry.unusedEquivalentUsd) + '</td><td class="date-cell">' + esc(this.cycleDate(entry.observedAt)) +
         '<span class="model-details" data-cycle-state>' + (entry.utilizationPercent === null ? '—' : esc(this.formatPercent(entry.utilizationPercent / 100))) +
@@ -7973,9 +8013,25 @@ export class UsageWebviewProvider {
     }).join('');
     return '<details class="weekly-estimate-details" data-persist="weekly-estimate-codex"><summary>' + esc(copy.cycleSummary) +
       '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table" data-weekly-table-provider="codex" data-codex-cycle-table><thead><tr>' +
-      [copy.period, copy.accountColumn, copy.estimateFull, copy.inferredUsed, copy.estimateUnused, copy.estimateAsOf, copy.calibrationEvidence]
+      [copy.period, copy.accountColumn, ...(hasWitness ? [copy.observedPricedUsage] : []), hasWitness ? copy.conditionalCapacity : copy.estimateFull,
+        copy.inferredUsed, copy.estimateUnused, copy.estimateAsOf, copy.calibrationEvidence]
         .map(label => '<th>' + esc(label) + '</th>').join('') + '</tr></thead><tbody>' + rows +
-      '</tbody></table></div><p class="table-hint">' + esc(copy.estimateNote) + '</p></details>';
+      '</tbody></table></div><p class="table-hint">' + esc(hasWitness ? copy.witnessNote : copy.estimateNote) + '</p></details>';
+  }
+
+  private weeklyWitnessFacts(witness: NonNullable<LocalWeeklyEstimate['witnessCycle']>): Array<{ label: string; value: string; attribute: string }> {
+    const copy = I18n.t.weeklyValue, number = (n: number) => new Intl.NumberFormat(I18n.getLocale()).format(n);
+    return [
+      { label: copy.observedPricedUsage, value: this.weeklyTableCurrency(witness.knownUsd), attribute: 'data-witness-known-usage' },
+      { label: copy.witnessDelta, value: this.weeklyTableCurrency(witness.deltaUsd), attribute: 'data-witness-delta' },
+      { label: copy.pricingCoverage, value: this.formatPercent(witness.pricingCoverage), attribute: 'data-witness-pricing-coverage' },
+      { label: copy.witnessUnpricedTokens, value: number(witness.unpricedTokens), attribute: 'data-witness-unpriced-tokens' },
+      { label: copy.witnessSources, value: number(witness.sources) + ' / ' + number(witness.segments), attribute: 'data-witness-sources' },
+      { label: copy.witnessExcludedSources, value: number(witness.unavailableSources), attribute: 'data-witness-excluded-sources' },
+      ...(witness.partial ? [{ label: copy.evidenceIncomplete, value: copy.witnessNote, attribute: 'data-witness-partial' }] : []),
+      ...(witness.baselineMissing ? [{ label: copy.witnessBaselineMissing, value: copy.evidenceIncomplete, attribute: 'data-witness-baseline-missing' }] : []),
+      ...(witness.counterConflict ? [{ label: copy.sourceConflict, value: copy.evidenceIncomplete, attribute: 'data-witness-counter-conflict' }] : []),
+    ];
   }
 
   private renderCodexCyclePanel(projection: WeeklyEstimatePanelProjection): string {
@@ -7993,30 +8049,33 @@ export class UsageWebviewProvider {
       typeof quota.usedPercent === 'number' && Number.isFinite(quota.usedPercent) && quota.usedPercent >= 0 && quota.usedPercent <= 100 &&
       this.weeklyAccountNumber(quota.accountNumber) === this.weeklyAccountNumber(projection.activeAccountNumber);
     const entries = this.codexCycleEntries(projection);
+    const cycleSummaryNote = entries.some(entry => entry.witnessCycle !== undefined)
+      ? copy.witnessCycleSummaryNote : copy.cycleSummaryNote;
     const points = projectWeeklyEstimateChart('codex', [], entries, { now, limit: 48,
       ...(officialEnabled ? { activeAccountNumber: projection.activeAccountNumber, activeQuotaEpochStartedAt: projection.activeQuotaEpochStartedAt } : {}),
       accountIdentityAvailable: identityAvailable }).reverse();
-    const known = points.some(p => p.fullEquivalentUsd !== null), max = Math.max(1, ...points.map(p => p.fullEquivalentUsd ?? 0));
+    const known = points.some(p => p.usageAvailable), max = Math.max(1, ...points.map(p => p.fullEquivalentUsd ?? p.witnessCycle?.knownUsd ?? 0));
     const title = (point: typeof points[number]) => {
       const parts = [point.current ? copy.currentPeriod : '', this.weeklyAccountLabel(point.accountNumber), this.weeklyCycleDescription(point.quotaCycle, point.resetAt),
         copy.estimateAsOf + ': ' + this.cycleDate(point.observedAt!)];
       if (point.historicalRoughEstimate) parts.push(copy.archivedRoughEstimate);
-      if (point.fullEquivalentUsd === null) parts.push(copy.pendingCalibration);
-      else parts.push(copy.fullValue + ': ' + this.weeklyTableCurrency(point.fullEquivalentUsd),
+      if (point.fullEquivalentUsd === null && !point.witnessCycle) parts.push(copy.pendingCalibration);
+      else if (point.fullEquivalentUsd !== null) parts.push((point.witnessCycle ? copy.conditionalCapacity : copy.fullValue) + ': ' + this.weeklyTableCurrency(point.fullEquivalentUsd),
         copy.inferredUsed + ': ' + this.weeklyTableCurrency(point.usedEquivalentUsd),
         copy.estimateUnused + ': ' + this.weeklyTableCurrency(point.unusedEquivalentUsd!));
+      if (point.witnessCycle) parts.push(copy.witnessMethod, ...this.weeklyWitnessFacts(point.witnessCycle).map(fact => fact.label + ': ' + fact.value));
       if (point.utilizationPercent !== null) parts.push(this.formatPercent(point.utilizationPercent / 100));
-      if (!point.quotaCycle || point.quotaCycle.referenceOnly || point.accountNumber === undefined) parts.push(copy.low, copy.estimateReference);
+      if (!point.witnessCycle && (!point.quotaCycle || point.quotaCycle.referenceOnly || point.accountNumber === undefined)) parts.push(copy.low, copy.estimateReference);
       return parts.filter(Boolean).join(' · ');
     };
     const bars = points.map(point => {
       const text = esc(title(point));
-      if (point.fullEquivalentUsd === null) return '<div class="hc-col"><div data-cycle-pending role="img" tabindex="0" aria-label="' +
+      if (point.fullEquivalentUsd === null && !point.witnessCycle) return '<div class="hc-col"><div data-cycle-pending role="img" tabindex="0" aria-label="' +
         text + '" title="' + text + '">—</div></div>';
-      const used = point.usedEquivalentUsd / max * 120, unused = point.unusedEquivalentUsd! / max * 120;
+      const used = point.usedEquivalentUsd / max * 120, unused = (point.unusedEquivalentUsd ?? 0) / max * 120;
       return '<div class="hc-col"><div class="stack-bar" role="img" tabindex="0" aria-label="' + text + '" title="' + text + '">' +
-        '<div class="stack-seg seg-input" style="height:' + used.toFixed(2) + 'px"></div>' +
-        '<div class="stack-seg seg-cache-read" style="height:' + unused.toFixed(2) + 'px"></div></div></div>';
+        '<div class="stack-seg ' + (point.fullEquivalentUsd === null ? 'seg-output' : 'seg-input') + '" style="height:' + used.toFixed(2) + 'px"></div>' +
+        (point.unusedEquivalentUsd === null ? '' : '<div class="stack-seg seg-cache-read" style="height:' + unused.toFixed(2) + 'px"></div>') + '</div></div>';
     }).join('');
     const labels = points.map(point => {
       const parts = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric', timeZone: I18n.getTimezone() || undefined })
@@ -8041,8 +8100,11 @@ export class UsageWebviewProvider {
       ? '<p class="table-hint" data-unassigned-cycle-overlap role="status">' + esc(copy.unassignedCycleOverlap
         .replace('{count}', new Intl.NumberFormat(I18n.getLocale()).format(omitted))) + '</p>' : '';
     const chart = points.length ? '<div class="composition-chart" data-codex-cycle-chart data-weekly-estimate-chart style="--cycle-count:' + points.length + '">' +
-      '<div class="stack-legend"><span class="legend-item"><span class="legend-dot seg-input"></span>' + esc(copy.inferredUsed) + '</span>' +
-      '<span class="legend-item"><span class="legend-dot seg-cache-read"></span>' + esc(copy.estimateUnused) + '</span></div>' +
+      '<div class="stack-legend">' + (points.some(point => point.fullEquivalentUsd !== null) || !points.some(point => point.witnessCycle)
+        ? '<span class="legend-item"><span class="legend-dot seg-input"></span>' + esc(copy.inferredUsed) + '</span>' +
+          '<span class="legend-item"><span class="legend-dot seg-cache-read"></span>' + esc(copy.estimateUnused) + '</span>' : '') +
+      (points.some(point => point.fullEquivalentUsd === null && point.witnessCycle)
+        ? '<span class="legend-item"><span class="legend-dot seg-output"></span>' + esc(copy.observedPricedUsage) + '</span>' : '') + '</div>' +
       '<div class="hc-wrap"><div class="hc-yaxis"><span class="hc-yval">' + (known ? esc(this.weeklyTableCurrency(max)) : '—') +
       '</span><span class="hc-yval">' + (known ? esc(this.weeklyTableCurrency(max / 2)) : '—') + '</span><span class="hc-yval">' +
       (known ? esc(this.weeklyTableCurrency(0)) : '—') + '</span></div><div class="hc-main"><div class="hc-scroll" tabindex="0">' +
@@ -8053,7 +8115,7 @@ export class UsageWebviewProvider {
       projection.status === 'loading' ? copy.archiveLoading : '';
     const indexing = this.codexView?.periodCoverage?.allTime?.complete === false ? '<p class="table-hint" role="status">' + esc(copy.cycleIndexedSubtotal) + '</p>' : '';
     return '<div class="daily-breakdown" data-codex-cycle-panel><div class="section-header"><h3>' + esc(copy.cycleTitle + ' · ' + I18n.t.providers.codexBeta) +
-      '</h3></div>' + official + local + transition + conflict + overlap + indexing + '<p class="table-hint">' + esc(copy.cycleSummaryNote) + '</p>' + pending + chart +
+      '</h3></div>' + official + local + transition + conflict + overlap + indexing + '<p class="table-hint">' + esc(cycleSummaryNote) + '</p>' + pending + chart +
       (archive ? '<p class="table-hint" role="status">' + esc(archive) + '</p>' : '') + this.renderCodexCycleRecords(projection) +
       '<p class="table-hint">' + esc(copy.description) + '</p></div>';
   }
@@ -8219,7 +8281,7 @@ export class UsageWebviewProvider {
       this.escapeHtml(label) + '</span>';
     return '<div class="composition-chart"' + (kind ? ' data-weekly-' + kind + '-chart' : '') + '>' +
       (kind ? '<h4>' + this.escapeHtml(copy.estimateChartTitle) + '</h4><p class="table-hint">' +
-        this.escapeHtml(copy.cycleChartNote) + '</p>' : '') + '<div class="stack-legend">' +
+        this.escapeHtml(chartPoints.some(point => point.witnessCycle !== undefined) ? copy.witnessCycleChartNote : copy.cycleChartNote) + '</p>' : '') + '<div class="stack-legend">' +
       legend('seg-input', kind === 'estimate' ? copy.inferredUsed : copy.chartUsedValue) +
       (chartPoints.some((point) => point.unusedEquivalentUsd !== null)
         ? legend('seg-cache-read', copy.chartUnusedValue)

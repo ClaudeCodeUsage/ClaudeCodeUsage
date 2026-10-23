@@ -11,6 +11,7 @@ export interface WeeklyEstimateChartPoint extends WeeklyValuePoint {
   quotaCycle?: CodexQuotaCycle;
   localWindowNumber?: number;
   historicalRoughEstimate?:LocalWeeklyEstimate['historicalRoughEstimate'];
+  witnessCycle?:LocalWeeklyEstimate['witnessCycle'];
 }
 
 /** A presentation projection, never an update to the unique usage ledger or archive. */
@@ -45,7 +46,7 @@ export function projectWeeklyEstimateChart(
     entry.method==='paired-delta'?3:entry.method==='rough-prefix-v2'?2:1;
   valid.sort((a,b)=>b.observedAt-a.observedAt||rank(b)-rank(a)||b.estimatedAt-a.estimatedAt);
   const chosen:LocalWeeklyEstimate[]=[];
-  if(provider==='codex')chosen.push(...selectCodexCycleEstimates(all));
+  if(provider==='codex')chosen.push(...selectCodexCycleEstimates(all, now));
   for(const entry of provider==='codex'?[]:valid){
     // Compare to the selected representative, not a chain of neighboring resets.
     if(!chosen.some(other=>(other.accountNumber??other.accountScopeKey)===(entry.accountNumber??entry.accountScopeKey)&&
@@ -64,14 +65,17 @@ export function projectWeeklyEstimateChart(
         : options.accountIdentityAvailable===true&&options.activeAccountNumber===entry.accountNumber)&&
       ((provider!=='codex'&&options.activeQuotaEpochStartedAt===undefined)||
         (options.activeQuotaEpochStartedAt!==undefined&&activeDisplayId!==undefined&&entry.quotaCycle?.id===activeDisplayId)),
-    usedEquivalentUsd:entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null ? 0 :
+    // A capacity stack is inferred use. Without capacity, show only witnessed
+    // priced requests; retain that distinct amount alongside any inferred stack.
+    usedEquivalentUsd:entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null ? entry.witnessCycle?.knownUsd ?? 0 :
       entry.fullEquivalentUsd-entry.unusedEquivalentUsd,
     fullEquivalentUsd:entry.fullEquivalentUsd,unusedEquivalentUsd:entry.unusedEquivalentUsd,
     utilizationPercent:entry.utilizationPercent,pricingCoverage:entry.pricingCoverage,
     observationGapMs:Math.max(0,now-entry.observedAt),confidence:'low',basis:'quota-observation',
-    usageAvailable:entry.fullEquivalentUsd !== null,boundaryUncertain:entry.flags.includes('boundary-uncertain'),
+    usageAvailable:entry.fullEquivalentUsd !== null || entry.witnessCycle !== undefined,boundaryUncertain:entry.flags.includes('boundary-uncertain'),
     observedAt:entry.observedAt,observedResetAt:entry.resetAt,asOfEstimate:true,
     ...(entry.historicalRoughEstimate?{historicalRoughEstimate:entry.historicalRoughEstimate}:{}),
+    ...(entry.witnessCycle?{witnessCycle:{...entry.witnessCycle}}:{}),
     ...(typeof entry.accountNumber === 'number' && Number.isSafeInteger(entry.accountNumber) && entry.accountNumber > 0
       ? {accountNumber:entry.accountNumber} : {}),
     ...(entry.localWindowNumber===undefined?{}:{localWindowNumber:entry.localWindowNumber}),
