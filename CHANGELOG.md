@@ -14,13 +14,13 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   context. Method-two numeric receipts retain both ranges in the existing archive
   and details, with existing clearing and unchanged method-one semantics. Missing
   declared forward proof never falls back to historical estimates. This method
-  has not yet been deployed or verified against actual usage; it does not establish
+  has not yet passed actual monetary-usage acceptance; it does not establish
   actual cycle spending or completion of the monetary-estimate goal.
   中文：已实现并接入本地端点校准方法，先核验全部来源的主用量差额、偏移及当前物理快照，
   再匹配本地金额与百分点端点；百分比不变时的金额以有界运行期累计跨轮询保留，官方观测
   独立作为当前上下文。method-two 数值收据在既有归档及详情保留两个范围，沿用清除规则，
-  method-one 语义不变。已声明向前采集却缺少证明时不回退历史估算。尚未部署或经过实际
-  用量验证，不证明周期实际支出，也不宣称金额估算目标已完成。
+  method-one 语义不变。已声明向前采集却缺少证明时不回退历史估算。尚未通过实际金额
+  用量验收，不证明周期实际支出，也不宣称金额估算目标已完成。
 - **Optional official Codex quota** — default-off reads use an already-running
   local daemon. Rough account-numbered as-of estimates remain local proxies,
   distinct from source-linked historical estimates and primary usage totals.
@@ -43,6 +43,11 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   但不能保证所有旧版本后续写入均安全。
 
 ### Fixed
+- **Forward calibration diagnostics** — distinguish the first rejected source,
+  append, numeric-detail, pricing or time guard without changing which monetary
+  samples are accepted. Output remains local fixed enums, without identifiers.
+  中文：向前校准诊断区分首个被拒绝的来源、追加、数值明细、定价或时间条件，不改变金额
+  样本的准入规则；输出仍仅为本地固定枚举，不包含标识。
 - **Codex volume identity** — reuse an unchanged source cache across device
   renumbering only with proven same-volume/inode identity. An optional salted
   volume HMAC shares the index's lifecycle; legacy entries and unsupported or

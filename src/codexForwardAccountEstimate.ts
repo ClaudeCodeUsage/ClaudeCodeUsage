@@ -20,6 +20,7 @@ export const CODEX_CALIBRATION_DIAGNOSTIC_REASONS = Object.freeze([
   'source-ineligible', 'append-unproven', 'append-window-missing', 'append-window-incomplete',
   'append-chain-gap', 'append-vector-invalid', 'metadata-usage-mismatch', 'usage-time-missing',
   'usage-before-baseline', 'usage-after-request', 'counter-overflow',
+  'birth-unproven', 'slice-detail-missing', 'slice-order-invalid',
 ] as const);
 export type CodexCalibrationReason = typeof CODEX_CALIBRATION_DIAGNOSTIC_REASONS[number];
 export interface CodexCalibrationDiagnostics extends CodexCalibrationStatus {

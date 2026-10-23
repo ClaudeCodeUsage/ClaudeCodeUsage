@@ -131,6 +131,10 @@ test('exact unchanged metadata proof reuse reports a no-op without changing exis
 });
 
 test('calibration formatter emits allowlisted enums and numeric fields only, without invoking accessors', () => {
+  for (const reason of ['birth-unproven', 'slice-detail-missing', 'slice-order-invalid', 'usage-after-request']) {
+    assert.match(formatCodexCalibrationDiagnostic({ state: 'append-incomplete', reason, deltaPercent: 0,
+      intervals: 0, privateId: 'PRIVATE-CANARY' }), new RegExp(`reason=${reason} `));
+  }
   assert.equal(formatCodexCalibrationDiagnostic({ state: 'continuity-gap', reason: 'proof-reused',
     deltaPercent: 2, intervals: 1, proofAgeMs: 500, bracketGapMs: 60000 }),
   'codex-calibration state=continuity-gap reason=proof-reused deltaPercent=2 intervals=1 proofAgeMs=500 bracketGapMs=60000');

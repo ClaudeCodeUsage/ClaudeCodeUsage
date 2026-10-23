@@ -126,6 +126,18 @@ test('missing append detail, copied proofs, correction and blur cannot resurrect
   assert.equal(e.observe(sample(480000, 25), next(480000, [[470000, 1000, 25]]), book), undefined);
   assert.equal(e.calibrationStatus().deltaPercent, 0);
 });
+test('matched diagnostics distinguish missing numeric detail from usage after the official request', () => {
+  for (const kind of ['missing-detail', 'after-request'] as const) {
+    const next = source(), e = estimator(); e.observe(sample(0, 20), next(0), book);
+    const rows: Array<[number, number, number]> = kind === 'missing-detail'
+      ? [[100000, 1000, 22]] : [[120101, 1000, 22]];
+    assert.equal(e.observe(sample(120000, 22), next(120000, rows, kind === 'missing-detail'), book), undefined);
+    assert.equal(e.calibrationStatus().state, 'append-incomplete');
+    assert.equal(e.calibrationDiagnostics().reason,
+      kind === 'missing-detail' ? 'slice-detail-missing' : 'usage-after-request');
+    assert.equal(e.calibrationStatus().deltaPercent, 0);
+  }
+});
 test('production facade routes declared detailed collection and does not fall back to historical amounts on missing proof', () => {
   const next = source(), e = new CodexAccountEstimator();
   const inputs = (proof: unknown) => ({ codexForwardCollectionVersion: 1, codexForwardCalibration: proof,

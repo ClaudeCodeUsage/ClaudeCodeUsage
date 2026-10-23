@@ -10,6 +10,90 @@ const book = { schemaVersion: 1, parserVersion: 4, periodVersion: 1,
   rates: [{ model: 'gpt-5', input: .01, cachedInput: .001, output: .02 }] };
 const envelope = { from: T + 7000, through: T + 300000, resetAt: R, percentFrom: 36, percentThrough: 40 };
 const project = (...args: unknown[]) => require('../providers/codex/codexForwardMatchedCuts').projectCodexForwardMatchedCuts(...args);
+const inspect = (...args: unknown[]) => require('../providers/codex/codexForwardMatchedCuts').inspectCodexForwardSliceDelta(...args);
+const collect = (...args: unknown[]) => require('../providers/codex/codexForwardMatchedCuts').collectCodexForwardSliceDelta(...args);
+function rejected(before: unknown, after: unknown, pricebook: unknown, reason: string) {
+  // Exact shape also prevents identifiers, source rows or raw explanations leaking.
+  assert.deepEqual(inspect(before, after, pricebook), { ok: false, reason });
+  assert.equal(collect(before, after, pricebook), undefined);
+}
+
+test('slice inspection distinguishes missing detail, incomplete windows and invalid append vectors', () => {
+  for (const [mutate, reason] of [
+    [(f: any) => { delete f.calibrationAppend.slices; }, 'slice-detail-missing'],
+    [(f: any) => { f.calibrationAppend.complete = false; }, 'append-window-incomplete'],
+    [(f: any) => { f.calibrationAppend.slices[1].tokens.inputTotal++; }, 'append-vector-invalid'],
+  ] as const) {
+    const f = fixture(undefined, mutate);
+    rejected(f.before, f.after, book, reason);
+    assert.equal(project(f.before, f.after, envelope, book), undefined);
+  }
+});
+
+test('slice inspection distinguishes an append chain gap from a missing window', () => {
+  const f = fixture();
+  for (const missing of [false, true]) {
+    const next = normalizeCodexIndex(f.next)!;
+    if (!missing) next.files[K].calibrationAppend = { ...f.file.calibrationAppend!, beforeOffset: 200 };
+    // A live proof without a predecessor cannot retain the missing prefix.
+    const after = buildCodexForwardCalibration(next, true, new Set([K]), new Set(), T + 290000, {})!;
+    assert.ok(after);
+    rejected(f.before, after, book, missing ? 'append-window-missing' : 'append-chain-gap');
+    assert.equal(project(f.before, after, envelope, book), undefined);
+  }
+});
+
+test('slice inspection distinguishes changed continuity and an unproven append', () => {
+  for (const [mutate, reason] of [
+    [(f: any) => { f.ino++; }, 'source-changed'],
+    [(f: any) => { f.lineage.pendingFingerprints[0] = 'f'.repeat(32); }, 'append-unproven'],
+    [(f: any) => { f.identityChecked = false; }, 'source-ineligible'],
+  ] as const) {
+    const f = fixture(undefined, mutate);
+    rejected(f.before, f.after, book, reason);
+  }
+  const removed = fixture(undefined, undefined, 'removed');
+  rejected(removed.before, removed.after, book, 'source-changed');
+});
+
+test('slice inspection rejects unproven new roots and children before consuming their detail', () => {
+  const f = fixture(), empty = createEmptyCodexIndex('UTC');
+  empty.indexGeneration = f.before.indexGeneration;
+  const before = buildCodexForwardCalibration(empty, true, new Set(), new Set(), T, {})!;
+  for (const child of [false, true]) {
+    const next = normalizeCodexIndex(f.next)!;
+    if (child) {
+      const file = next.files[K];
+      file.parserState.role = file.aggregate.session.role = 'subagent';
+      file.parserState.parentSessionKey = file.aggregate.session.parentSessionKey = J;
+    }
+    const after = buildCodexForwardCalibration(next, true, new Set([K]), new Set(), T + 290000, {}, before)!;
+    assert.ok(after);
+    rejected(before, after, book, 'birth-unproven');
+    assert.equal(project(before, after, envelope, book), undefined);
+  }
+});
+
+test('slice inspection reports the first failed proof, pricing or observation predicate', () => {
+  const f = fixture();
+  rejected(undefined, undefined, undefined, 'invalid-pricebook');
+  rejected(structuredClone(f.before), f.after, book, 'proof-missing');
+  rejected(f.before, f.before, book, 'proof-reused');
+  rejected(f.after, f.before, book, 'observation-order');
+  rejected(f.before, f.after, { ...book, rates: [] }, 'unpriced-usage');
+  const overflow = fixture([1e12, 1e12, 1e12, 1e12]);
+  rejected(overflow.before, overflow.after, { ...book, rates: [{ ...book.rates[0], input: 1 }] }, 'counter-overflow');
+});
+
+test('successful slice inspection exactly matches the legacy collector math and frozen rows', () => {
+  for (const peer of [undefined, 'normal'] as const) {
+    const f = fixture(undefined, undefined, peer), delta = collect(f.before, f.after, book);
+    assert.deepEqual(inspect(f.before, f.after, book), { ok: true, delta });
+    assert.equal(delta.deltaUsd, peer ? 27 : 22);
+    assert.equal(delta.totalTokens, peer ? 2700 : 2200);
+    assert.ok(Object.isFrozen(delta.rows) && delta.rows.every(Object.isFrozen));
+  }
+});
 test('rolling collection reconciles the whole physical append before any monetary cut', () => {
   const f = fixture(), collect = require('../providers/codex/codexForwardMatchedCuts').collectCodexForwardSliceDelta;
   const d = collect(f.before, f.after, book);

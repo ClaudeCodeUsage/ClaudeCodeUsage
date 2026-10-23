@@ -203,6 +203,10 @@ One fixed-field local `codex-calibration` output record per existing cadenced re
 can distinguish the cause using enum state/reason, paired-point/interval counts
 and relative proof/bracket durations. No identifiers, model names, raw errors,
 extra cache, timer or telemetry flow are added; progress remains non-restorable.
+Matched collection reports its first rejected guard separately: unproven birth,
+source/append continuity, missing numeric slices, invalid slice order/vector,
+missing pricing, baseline-time overlap or usage after the official request.
+These fixed enum reasons do not identify a source or relax monetary eligibility.
 
 Observed `token_usage_record` compatibility is scan-local only: a record, validated
 response item and newly emitted exact-last count must occupy consecutive raw

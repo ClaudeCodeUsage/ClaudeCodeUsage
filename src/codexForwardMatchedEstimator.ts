@@ -4,7 +4,7 @@ import type { CodexCalibrationDiagnostics, CodexCalibrationReason, CodexCalibrat
 import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation } from './codexQuotaEpoch';
 import { copyCodexCalibrationEvidence, copyCodexCalibrationPricebook, CodexCalibrationPricebook } from './codexCalibrationEvidence';
 import { CodexForwardCalibration, isCodexForwardCalibration } from './providers/codex/codexForwardCalibration';
-import { collectCodexForwardSliceDelta } from './providers/codex/codexForwardMatchedCuts';
+import { inspectCodexForwardSliceDelta } from './providers/codex/codexForwardMatchedCuts';
 import type { CodexForwardUsageSlice } from './providers/codex/codexForwardSlices';
 import { CODEX_MIN_CALIBRATION_PERCENT } from './codexWindowEvidence';
 
@@ -127,8 +127,10 @@ export class CodexForwardMatchedEstimator {
       replace('baseline', last && sample.usedPercent < last.percent ? 'counter-correction' : !this.baseline ? 'baseline-empty' : 'observation-gap'); return;
     }
     const before = this.baseline;
-    const delta = collectCodexForwardSliceDelta(before.proof, proof, book);
-    if (!delta || delta.rows.some(row => row.through > sample.requestedAt)) { replace('append-incomplete', 'append-incomplete'); return; }
+    const inspected = inspectCodexForwardSliceDelta(before.proof, proof, book);
+    if (!inspected.ok) { replace('append-incomplete', inspected.reason); return; }
+    const delta = inspected.delta;
+    if (delta.rows.some(row => row.through > sample.requestedAt)) { replace('append-incomplete', 'usage-after-request'); return; }
     this.baseline = { sample: safe, proof, key, book };
     this.rows.push(...delta.rows);
     this.rows.sort((a, b) => a.through - b.through || a.from - b.from);

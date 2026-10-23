@@ -19,74 +19,105 @@ export interface CodexForwardSliceDelta {
   deltaUsd: number;
   totalTokens: number;
 }
+/** Bounded diagnostics only: never attach source identifiers or raw detail. */
+export type CodexForwardSliceFailureReason =
+  | 'invalid-pricebook' | 'proof-missing' | 'proof-reused' | 'source-changed'
+  | 'observation-order' | 'source-ineligible' | 'append-unproven'
+  | 'append-window-incomplete' | 'append-chain-gap' | 'append-window-missing'
+  | 'append-vector-invalid' | 'usage-before-baseline' | 'unpriced-usage'
+  | 'counter-overflow' | 'birth-unproven' | 'slice-detail-missing' | 'slice-order-invalid';
+type SliceFailure = { ok: false; reason: CodexForwardSliceFailureReason };
+export type CodexForwardSliceInspection = { ok: true; delta: CodexForwardSliceDelta } | SliceFailure;
+const failure = (reason: CodexForwardSliceFailureReason): SliceFailure => ({ ok: false, reason });
 const parts = ['inputTotal', 'cachedInput', 'outputTotal', 'reasoningOutput'] as const;
 const integer = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 const time = (v: unknown): v is number => integer(v) && v > 0;
 const percent = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < 100;
 
-function detail(before: CodexForwardCalibrationSource | undefined, after: CodexForwardCalibrationSource): readonly CodexForwardUsageSlice[] | undefined {
-  if (!after.eligible || !after.byModel || before && (!before.eligible || !before.byModel || !isCodexForwardAppend(before, after))) return;
+function detail(before: CodexForwardCalibrationSource | undefined, after: CodexForwardCalibrationSource):
+  { ok: true; rows: readonly CodexForwardUsageSlice[] } | SliceFailure {
+  if (!after.eligible) return failure('source-ineligible');
+  if (!after.byModel) return failure('append-vector-invalid');
+  if (before) {
+    if (!before.eligible) return failure('source-ineligible');
+    if (!before.byModel) return failure('append-vector-invalid');
+    if (!isCodexForwardAppend(before, after)) return failure('append-unproven');
+  }
   const start = before?.offset ?? 0, rows: CodexForwardUsageSlice[] = [];
   let offset = start, last: number | null = null;
-  if (after.appendWindow?.complete === false) return;
+  if (after.appendWindow?.complete === false) return failure('append-window-incomplete');
   for (const w of after.appendWindows ?? []) {
     if (w.throughOffset <= offset) continue;
-    if (!w.complete || w.beforeOffset !== offset || w.throughOffset > after.offset || !w.slices) return;
+    if (!w.complete) return failure('append-window-incomplete');
+    if (w.beforeOffset !== offset || w.throughOffset > after.offset) return failure('append-chain-gap');
+    if (!w.slices) return failure('slice-detail-missing');
     for (const slice of w.slices) {
-      if (last !== null && slice.from < last || before?.usageThrough !== null && before?.usageThrough !== undefined &&
-        slice.from <= before.usageThrough) return;
+      if (last !== null && slice.from < last) return failure('slice-order-invalid');
+      if (before?.usageThrough !== null && before?.usageThrough !== undefined &&
+        slice.from <= before.usageThrough) return failure('usage-before-baseline');
       rows.push(slice); last = slice.through;
     }
     offset = w.throughOffset;
   }
-  if (offset !== after.offset) return;
+  if (offset !== after.offset) return failure('append-window-missing');
   // Reconcile the ENTIRE physical append, including dollars outside the proposed
   // monetary cut. Missing/overflowed detail cannot be mistaken for zero usage.
   const sums = new Map<string, number[]>();
   for (const row of rows) {
     const sum = sums.get(row.model) ?? [0, 0, 0, 0];
     parts.forEach((key, i) => { sum[i] += row.tokens[key] ?? 0; });
-    if (!sum.every(integer)) return;
+    if (!sum.every(integer)) return failure('counter-overflow');
     sums.set(row.model, sum);
   }
   for (const model of new Set([...Object.keys(before?.byModel ?? {}), ...Object.keys(after.byModel), ...sums.keys()])) {
     if (parts.some((key, i) => {
       const delta = (after.byModel![model]?.[key] ?? 0) - (before?.byModel?.[model]?.[key] ?? 0);
       return !integer(delta) || delta !== (sums.get(model)?.[i] ?? 0);
-    })) return;
+    })) return failure('append-vector-invalid');
   }
-  return rows;
+  return { ok: true, rows };
 }
 
 /** Whole, reconciled live append only. A caller must separately validate the
  * official/account context and select its own global monetary cuts. */
 export function collectCodexForwardSliceDelta(before: unknown, after: unknown, rawBook: unknown): CodexForwardSliceDelta | undefined {
+  const result = inspectCodexForwardSliceDelta(before, after, rawBook);
+  return result.ok ? result.delta : undefined;
+}
+
+/** Same acceptance and math as the collector; the first failing predicate emits
+ * only a fixed code. This performs no I/O and grants no estimator admission. */
+export function inspectCodexForwardSliceDelta(before: unknown, after: unknown, rawBook: unknown): CodexForwardSliceInspection {
   const book = copyCodexCalibrationPricebook(rawBook);
-  if (!book || !isCodexForwardCalibration(before) || !isCodexForwardCalibration(after) || before === after ||
-    before.indexGeneration !== after.indexGeneration || after.verifiedAt <= before.verifiedAt) return;
+  if (!book) return failure('invalid-pricebook');
+  if (!isCodexForwardCalibration(before) || !isCodexForwardCalibration(after)) return failure('proof-missing');
+  if (before === after) return failure('proof-reused');
+  if (before.indexGeneration !== after.indexGeneration) return failure('source-changed');
+  if (after.verifiedAt <= before.verifiedAt) return failure('observation-order');
   const old = new Map(before.sources.map(s => [s.sourceKey, s]));
   const current = new Map(after.sources.map(s => [s.sourceKey, s]));
-  if (before.sources.some(s => current.get(s.sourceKey)?.continuity !== s.continuity)) return;
+  if (before.sources.some(s => current.get(s.sourceKey)?.continuity !== s.continuity)) return failure('source-changed');
   const rows: Array<CodexForwardUsageSlice & { readonly sourceKey: string }> = [];
   const rates = new Map(book.rates.map(r => [r.model, r]));
   let deltaUsd = 0, totalTokens = 0;
   for (const s of after.sources) {
     const prior = old.get(s.sourceKey);
     if (prior?.revision === s.revision) continue;
-    if (!prior && !isCodexForwardBirth(before, s)) return;
-    const slices = detail(prior, s); if (!slices) return;
-    for (const row of slices) {
-      const rate = rates.get(row.model); if (!rate || row.from <= before.verifiedAt) return;
+    if (!prior && !isCodexForwardBirth(before, s)) return failure('birth-unproven');
+    const result = detail(prior, s); if (!result.ok) return result;
+    for (const row of result.rows) {
+      const rate = rates.get(row.model); if (!rate) return failure('unpriced-usage');
+      if (row.from <= before.verifiedAt) return failure('usage-before-baseline');
       totalTokens += row.tokens.inputTotal + row.tokens.outputTotal;
       const cached = row.tokens.cachedInput ?? 0;
       deltaUsd += (row.tokens.inputTotal - cached) * rate.input + cached * rate.cachedInput + row.tokens.outputTotal * rate.output;
-      if (!integer(totalTokens) || !Number.isFinite(deltaUsd) || deltaUsd > 1e12 || rows.length >= 2048) return;
+      if (!integer(totalTokens) || !Number.isFinite(deltaUsd) || deltaUsd > 1e12 || rows.length >= 2048) return failure('counter-overflow');
       rows.push(Object.freeze({ ...row, sourceKey: s.sourceKey }));
     }
   }
   rows.sort((a, b) => a.through - b.through || a.from - b.from || a.sourceKey.localeCompare(b.sourceKey));
-  if (Buffer.byteLength(JSON.stringify(rows)) > 256 * 1024) return;
-  return { rows: Object.freeze(rows), deltaUsd, totalTokens };
+  if (Buffer.byteLength(JSON.stringify(rows)) > 256 * 1024) return failure('counter-overflow');
+  return { ok: true, delta: { rows: Object.freeze(rows), deltaUsd, totalTokens } };
 }
 
 export function projectCodexForwardMatchedCuts(before: unknown, after: unknown, envelope: Envelope,
@@ -110,7 +141,8 @@ export function projectCodexForwardMatchedCuts(before: unknown, after: unknown, 
     const prior = old.get(s.sourceKey);
     if (prior?.revision === s.revision) continue;
     if (!prior && !isCodexForwardBirth(before, s)) return;
-    const rows = detail(prior, s); if (!rows) return;
+    const result = detail(prior, s); if (!result.ok) return;
+    const rows = result.rows;
     if (rows.some(row => row.from <= before.verifiedAt || row.through > envelope.through)) return;
     all.push(...rows.map(row => ({ row, source })));
   }
