@@ -885,7 +885,8 @@ test('weekly comparison without quota samples keeps records and an empty state',
   await expect(panel).not.toContainText('Monday-to-Monday UTC calendar weeks');
   await expect(panel.locator('.weekly-value-details')).toHaveCount(0);
   await expect(panel.locator('[data-weekly-actual-chart]')).toHaveCount(0);
-  await expect(panel.locator('.table-hint').filter({ hasText: /^No usable conversion sample$/ })).toBeVisible();
+  await expect(panel.locator('[data-cycle-monetary-pending]')).toBeVisible();
+  await expect(panel.locator('[data-cycle-monetary-pending]')).toContainText('unknown');
   await expect(panel.locator('[data-weekly-estimate-chart], [data-cycle-pending], .stack-bar')).toHaveCount(0);
   await expect(panel.locator('.weekly-estimate-details')).toHaveCount(1);
   await panel.locator('.weekly-estimate-details > summary').click();

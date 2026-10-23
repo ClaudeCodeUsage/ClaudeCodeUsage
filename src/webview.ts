@@ -7661,6 +7661,8 @@ export class UsageWebviewProvider {
       // The runtime source-revision authority belongs only to the official
       // estimator. Keep presentation inputs explicit; never read/spread it.
       return input ? { usage: input.usage, observations: input.observations,
+        codexWitnessCycles: input.codexWitnessCycles,
+        codexWitnessCoverage: input.codexWitnessCoverage,
         codexQuotaCheckpoints: input.codexQuotaCheckpoints,
         codexQuotaCheckpointsComplete: input.codexQuotaCheckpointsComplete,
         codexQuotaIncompleteResets: input.codexQuotaIncompleteResets,

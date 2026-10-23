@@ -33,6 +33,20 @@ function owner(entries: LocalWeeklyEstimate[]): any {
   p.weeklyEstimateProjector = () => ({ entries, status: 'ready' });
   return p;
 }
+test('real view input boundary carries numeric witnesses into the coordinator without runtime authority',()=>{
+ const p:any=Object.create(Provider.prototype),w=entry(30).witnessCycle!;
+ const coverage={unplacedSources:1,unlocatedPrimaryUsd:4,unlocatedUnpricedTokens:5,rejectedSources:2};
+ p.codexView={weeklyValueInputs:{usage:[],observations:[],codexWitnessCycles:[w],codexWitnessCoverage:coverage,
+  get codexForwardCalibration(){throw Error('runtime authority accessed');}},periodCoverage:{allTime:{complete:false}}};
+ let seen:any;
+ p.weeklyEstimateProjector=(_provider:any,input:any)=>{seen=input;return{entries:buildWitnessWeeklyEstimates(input.codexWitnessCycles??[],
+  {now:N,windowKey:()=> 'fixture'}),status:'ready'};};
+ const clock=Date.now;Date.now=()=>N;
+ try{const result=p.weeklyEstimateProjection('codex');assert.equal(result.entries.length,1);
+  assert.equal(seen.codexWitnessCycles[0],w);assert.deepEqual(seen.codexWitnessCoverage,coverage);
+  assert.equal(result.entries[0].fullEquivalentUsd,30);assert.ok(!('codexForwardCalibration' in seen));
+ }finally{Date.now=clock;}
+});
 test('legacy pending cycles retain their existing inferred-use legend',()=>{
  const clock=Date.now;Date.now=()=>N;
  try{
