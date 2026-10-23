@@ -62,7 +62,7 @@ is not deletion; its remaining canonical source is reconciled without adding it 
 
 Same-directory, same-basename plain JSONL is canonical and the compressed HMAC
 key strips `.zst`; selection does not assert identical contents. Cross-area copies
-still require full-census lineage deduplication. Encoding/physical-version changes
+still require full-census lineage deduplication. Encoding/other physical-version changes
 invalidate old completion evidence and trigger quiet targeted historical rereads,
 including moves with changed ctime; they do not create new live-usage receipts.
 
@@ -76,6 +76,31 @@ within those hard caps. Cold backfills containing compressed sources use at most
 two file-pass workers. Native Node Zstd (22.15+ / 23.8+) adds no dependency.
 Unsupported hosts report the limitation and retain last-good verified totals.
 See [architecture](ARCHITECTURE.md) for the implementation boundary.
+
+## Codex volume identity (P1)
+
+Each source in the existing schema-3 P1 index may retain optional `volumeKey`, a
+machine-salted HMAC of its stable filesystem `VolumeUUID`. No raw UUID, path or
+volume name is retained. On macOS, a bounded metadata helper runs `/bin/df -P`
+on an allowed usage root to resolve its mount device, validates the
+`/dev/diskN[sN]*` form (numeric `N`), then runs `diskutil info -plist` on that device.
+The commands share a total three-second deadline. Results are cached against root `dev`/`ino`;
+either changing invalidates that cache. Unsupported hosts or inspection failure
+use strict device/inode matching. Identity adds no credential or source-body I/O;
+existing compressed-source checks of at most 18 header bytes remain unchanged.
+
+Equal proven volume key and inode, with unchanged representation/other fingerprints,
+permit cache reuse after device renumbering. Known different volume keys reject
+reuse even at the same device number. Legacy records lacking `volumeKey` cannot
+bridge a device change; they learn it when device/inode already match or after a
+fresh scan. There is no parser/schema bump or forced rescan for this field.
+
+The field lives and clears with its P1 contribution under the existing
+rebuild/clear lifecycle; there is no separate store or remote disclosure. Older
+readers may drop it, requiring later revalidation; this is not a universal
+rollback-write guarantee. Primary usage totals are unaffected. Runtime calibration
+may still retire on a device change; persisted volume identity must not restore
+its prior baseline.
 
 ## What is never cached
 

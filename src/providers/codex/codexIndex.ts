@@ -137,6 +137,8 @@ export interface CodexFileAggregate {
 }
 
 export interface CodexFileContribution {
+  /** Salted stable-volume provenance; absent on legacy or unsupported hosts. */
+  volumeKey?: string;
   /** Runtime-only timing of one verified scan, possibly initial offset zero;
    * initial authority requires the producer's separate branded birth predicate. */
   calibrationAppend?: {
@@ -985,6 +987,7 @@ function previousManifest(index: CodexIndexV3): CodexPersistedManifest {
               mtimeMs: file.mtimeMs,
               dev: file.dev,
               ino: file.ino,
+              ...(file.volumeKey ? { volumeKey: file.volumeKey } : {}),
               ...(file.compression === 'zstd' ? { compression: file.compression,
                 storageSize: file.storageSize, storageCtimeMs: file.storageCtimeMs } : {}),
             },
@@ -1007,6 +1010,7 @@ function contributionFor(
     mtimeMs: 0,
     dev: entry.dev,
     ino: entry.ino,
+    ...(entry.volumeKey ? { volumeKey: entry.volumeKey } : {}),
     ...compressedSourceMetadata(entry),
     offset: 0,
     discardingOversizedLine: false,
@@ -1229,6 +1233,7 @@ async function updateContribution(
       mtimeMs: entry.mtimeMs,
       dev: entry.dev,
       ino: entry.ino,
+      ...(entry.volumeKey ? { volumeKey: entry.volumeKey } : {}),
       ...compressedSourceMetadata(entry),
       ...(entry.compression === 'zstd' ? { compressionVerified: undefined } : {}),
       offset: cursor.offset,
@@ -2927,6 +2932,17 @@ export async function updateCodexIndex(
     ),
   };
   const diff = diffCodexManifest(previousManifest(previous), manifest.persistable);
+  // A manifest comparison may prove unchanged identity across a device-number
+  // remap only with matching stable-volume evidence. Legacy rows learn that
+  // evidence only while device/inode already match, never after a mismatch.
+  const unchangedKeys = new Set(diff.unchanged);
+  const identityUpdates = manifest.files.filter(entry => {
+    const prior = previous.files[entry.fileKey];
+    return unchangedKeys.has(entry.fileKey) && prior && isCodexUsageContributionCurrent(prior) &&
+      typeof entry.volumeKey === 'string' && /^[a-f0-9]{64}$/.test(entry.volumeKey) &&
+      (prior.volumeKey === entry.volumeKey || prior.volumeKey === undefined && prior.dev === entry.dev && prior.ino === entry.ino) &&
+      (prior.volumeKey !== entry.volumeKey || prior.dev !== entry.dev);
+  });
   const terminalCount = manifest.files.filter(entry => hasCurrentCompressionFailure(previous.files[entry.fileKey], entry)).length;
   const originAppends = new Set(usageWindow ? diff.appended.filter(key => {
     const prior = previous.files[key], entry = manifest.persistable[key];
@@ -2934,7 +2950,7 @@ export async function updateCodexIndex(
       prior.dev === entry.dev && prior.ino === entry.ino;
   }) : []);
   const originCandidates = new Map<string, CodexAchievementUsageDelta>();
-  if (isWarmNoOp(previous, manifest, diff, timeZone, asOfDay,
+  if (identityUpdates.length === 0 && isWarmNoOp(previous, manifest, diff, timeZone, asOfDay,
     options.allowHistoricalBackfill !== false, options.allowAchievementHourProof !== false, allowQuotaCheckpointBackfill)) {
     return {
       index: previous,
@@ -2949,6 +2965,11 @@ export async function updateCodexIndex(
     };
   }
   const index = cloneIndex(previous);
+  for (const entry of identityUpdates) {
+    const contribution = index.files[entry.fileKey];
+    contribution.volumeKey = entry.volumeKey;
+    contribution.dev = entry.dev;
+  }
   // Seed the durable neutral history before moved/removed files disappear.
   // This also upgrades an older index without rereading unchanged JSONL.
   mergeCodexQuotaHistory(index);
@@ -2991,6 +3012,7 @@ export async function updateCodexIndex(
     contribution.mtimeMs = entry.mtimeMs;
     contribution.dev = entry.dev;
     contribution.ino = entry.ino;
+    contribution.volumeKey = entry.volumeKey;
     contribution.parserState.fileKey = move.toKey;
     if (contribution.lineageReconciliation) {
       contribution.lineageReconciliation.parserState.fileKey = move.toKey;
@@ -5074,6 +5096,8 @@ function sanitizeFileContribution(
     ...(optionalNumber(contribution.ino) !== undefined
       ? { ino: optionalNumber(contribution.ino) }
       : {}),
+    ...(typeof contribution.volumeKey === 'string' && /^[a-f0-9]{64}$/.test(contribution.volumeKey)
+      ? { volumeKey: contribution.volumeKey } : {}),
     ...(contribution.compression === 'zstd' ? {
       compression: 'zstd' as const,
       storageSize: finiteNumber(contribution.storageSize),

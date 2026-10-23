@@ -213,7 +213,7 @@ retention, migration, clearing, and remote-interaction contract.
 | Data | Local retention | Remote behavior |
 |---|---|---|
 | Source logs | Provider-owned, read-only; never copied wholesale | None by default |
-| Codex index | Bounded pseudonymous aggregates, isolated by source directory, profile salt and timezone; rebuild affects the active index, Clear All includes all exact index families | None |
+| Codex index | Bounded pseudonymous aggregates, isolated by source directory, profile salt and timezone; optional machine-salted volume HMAC, no raw UUID, path or volume name, cleared with the index; rebuild affects the active index, Clear All includes all exact index families | None |
 | Quota history | Bounded anonymous window observations; no raw account ID | Enabled Claude lookup or optional Codex daemon read; the latter may contact OpenAI |
 | UI/share state | Filters plus optional title/range and GitHub destination strings | Publish only after exact explicit confirmation |
 | Advice state/key | Bounded aggregate evidence; key only in SecretStorage | Exact previewed request only after a separate Send action |

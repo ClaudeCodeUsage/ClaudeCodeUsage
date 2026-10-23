@@ -749,11 +749,26 @@ response、command、tool arguments、raw line、raw path、账户名、凭据�
 这是规范来源选择，不声称两份表示字节相同；跨活动／归档区的副本仍通过完整清单的
 lineage 去重。源文件只读，解压明文不落地。
 
+既有 schema-3 P1 逐来源贡献可保留可选 `volumeKey`：由稳定文件系统 `VolumeUUID`
+经本机盐 HMAC 派生，不保存原始 UUID、路径或卷名。macOS 上的有界元数据辅助器先对
+允许的用量根目录执行 `/bin/df -P` 解析挂载设备，验证其符合 `/dev/diskN[sN]*` 格式
+（`N` 为数字），再对该设备执行 `diskutil info -plist`。两个命令共用总计三秒的截止时间。
+结果按根目录 `dev`／`ino` 缓存，任一变化即作废。
+不支持的宿主或检查失败时继续严格匹配设备号／inode。身份识别不增加凭据或来源正文 I/O；
+既有压缩来源最多 18 字节 header 检查保持不变。
+
+只有已证明相同的 `volumeKey`、相同 inode 及未变的表示／其余指纹，才允许跨设备号重编号
+复用缓存。已知卷键不同，即使设备号相同也拒绝复用。缺少 `volumeKey` 的旧记录不能
+跨设备号变化建立连续性；仅在设备号／inode 已匹配时或完成新扫描后学习该键。
+该可选字段不提升 parser／schema 版号，也不强制重扫；随 P1 保留和清除。旧读取器可能
+丢弃字段，使后续需要重新验证，不能据此承诺所有降级版本后续写入均安全。主用量总量
+不受影响；运行期校准仍可能因设备号变化而退役，不能凭此持久身份恢复先前基线。
+
 Manifest `size`、parser 游标与 migration offset 继续使用解压后的字节坐标。
 仅压缩记录新增 `compression: 'zstd'`、`storageSize`（物理字节数）与 `storageCtimeMs`；
 `mtimeMs`／`dev`／`ino` 同样描述物理文件。schema 3 以附加字段保留这些指纹及
 `compressionVerified: true` 持久标记，不提升 schema 版号；缺少这些字段的旧记录仍按 plain 处理。
-该标记要求核验帧 EOF，不能仅凭 `offset === size` 建立。编码或物理版本变化须定向重读
+该标记要求核验帧 EOF，不能仅凭 `offset === size` 建立。编码或其他物理版本变化须定向重读
 历史，包括同 inode、同大小覆写后恢复 mtime。压缩文件移动且指纹变化时，也将目标键
 标为 replacement；这些历史重整静默进行，不产生新的 live usage receipt。
 

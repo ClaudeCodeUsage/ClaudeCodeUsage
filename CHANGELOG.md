@@ -35,6 +35,14 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
   但不能保证所有旧版本后续写入均安全。
 
 ### Fixed
+- **Codex volume identity** — reuse an unchanged source cache across device
+  renumbering only with proven same-volume/inode identity. An optional salted
+  volume HMAC shares the index's lifecycle; legacy entries and unsupported or
+  failed volume inspection retain strict device checks. Primary totals are
+  unaffected; runtime calibration may still retire on a device change.
+  中文：只有已证明同卷／同 inode 且来源未变时，才跨设备号重编号复用缓存。可选的加盐卷
+  HMAC 随索引保留和清除；旧记录、不支持或卷检查失败时仍严格核对设备号。主总量不受
+  影响，运行期校准仍可能因设备号变化而退役。
 - **Forward usage-record compatibility** — recognize one strictly paired observed
   metadata/response/count layout without duplicate tokens, primary schema changes,
   historical replay or persisted pair state. Split, unsafe and replayed pairs stay

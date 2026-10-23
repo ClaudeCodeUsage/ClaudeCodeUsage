@@ -103,6 +103,8 @@ speichert abgeleitete, pseudonyme Nutzungsdaten statt Gesprächsinhalten.
 Die Indizes sind nach Protokollverzeichnis, Profil-Salt und Zeitzone getrennt.
 Ein Neuaufbau betrifft nur den aktiven Index; „Alle löschen“ umfasst alle exakt
 zugehörigen Indexdateien in diesem Erweiterungsspeicher.
+Ein optionaler Volume-HMAC mit maschinenspezifischem Salt wird mit dem Index
+gelöscht; rohe UUIDs, Pfade oder Volume-Namen werden nicht gespeichert.
 Ein Zeitzonenwechsel kann einen vollständigen, nachweislich quellengleichen
 Checkpoint schreibgeschützt wiederverwenden; nur Tages-/Stundenwerte werden
 migriert, ohne die Haupthistorie neu aufzubauen.

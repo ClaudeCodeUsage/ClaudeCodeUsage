@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { beforeEach, test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import {
   mkdtemp,
@@ -11,6 +11,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { createHmac } from 'node:crypto';
+import * as volumeIdentity from '../providers/codex/codexVolumeIdentity';
+
+beforeEach(t => {
+  // Keep native disk metadata out of synthetic discovery tests on every OS.
+  if ('mock' in t) t.mock.method(volumeIdentity, 'resolveCodexVolumeIdentity', async () => undefined);
+});
 
 import {
   CodexPersistedManifest,
@@ -18,7 +24,103 @@ import {
   pseudonymousFileKey,
   resolveCodexHome,
   scanCodexManifest,
+  stableIdentityMatches,
+  stableIdentityChanged,
 } from '../providers/codex/codexManifest';
+
+test('stable volume identity bridges device renumbering but never a known volume collision', () => {
+  const before = { fileKey: 'key', sourceArea: 'sessions' as const, size: 10, mtimeMs: 1,
+    dev: 1, ino: 2, volumeKey: 'a'.repeat(64) };
+  const renumbered = { ...before, dev: 9 };
+  assert.equal(stableIdentityMatches(before, renumbered), true);
+  assert.equal(stableIdentityChanged(before, renumbered), false);
+  assert.deepEqual(diffCodexManifest({ key: before }, { key: renumbered }).unchanged, ['key']);
+  assert.deepEqual(diffCodexManifest({ old: before }, { new: { ...renumbered, fileKey: 'new' } }).moved,
+    [{ fromKey: 'old', toKey: 'new' }]);
+  for (const after of [{ ...before, volumeKey: 'b'.repeat(64) }, { ...renumbered, volumeKey: 'b'.repeat(64) }]) {
+    assert.equal(stableIdentityMatches(before, after), false);
+    assert.equal(stableIdentityChanged(before, after), true);
+    assert.deepEqual(diffCodexManifest({ key: before }, { key: after }).replaced, ['key']);
+    const moved = diffCodexManifest({ old: before }, { new: { ...after, fileKey: 'new' } });
+    assert.deepEqual(moved.moved, []);
+    assert.deepEqual(moved.added, ['new']);
+    assert.deepEqual(moved.removed, ['old']);
+  }
+});
+
+test('missing and invalid volume keys keep strict device fallback and cannot bridge devices', () => {
+  const entry = { fileKey: 'key', sourceArea: 'sessions' as const, size: 10, mtimeMs: 1, dev: 1, ino: 2 };
+  for (const volumeKey of [undefined, '', 'bad', 'A'.repeat(64), 'x'.repeat(64)]) {
+    const before = { ...entry, volumeKey };
+    const after = { ...entry, volumeKey: 'a'.repeat(64) };
+    assert.equal(stableIdentityMatches(before, after), true);
+    assert.equal(stableIdentityMatches(before, { ...after, dev: 2 }), false);
+    assert.deepEqual(diffCodexManifest({ key: before }, { key: { ...after, dev: 2 } }).replaced, ['key']);
+  }
+  assert.equal(stableIdentityMatches({ ...entry, dev: 0 }, { ...entry, dev: 0 }), false);
+  assert.equal(stableIdentityMatches({ ...entry, ino: 0 }, { ...entry, ino: 0 }), false);
+});
+
+test('volume matches preserve inode, append, mtime and compressed replacement checks', () => {
+  const before = { fileKey: 'key', sourceArea: 'sessions' as const, size: 10, mtimeMs: 1,
+    dev: 1, ino: 2, volumeKey: 'a'.repeat(64) };
+  const after = { ...before, dev: 9 };
+  assert.deepEqual(diffCodexManifest({ key: before }, { key: { ...after, size: 11, mtimeMs: 2 } }).appended, ['key']);
+  assert.deepEqual(diffCodexManifest({ key: before }, { key: { ...after, size: 9, mtimeMs: 2 } }).truncated, ['key']);
+  for (const change of [{ ino: 3 }, { mtimeMs: 2 }, { compression: 'zstd' as const, storageSize: 5, storageCtimeMs: 1 }]) {
+    assert.deepEqual(diffCodexManifest({ key: before }, { key: { ...after, ...change } }).replaced, ['key']);
+  }
+  const compressed = { ...before, compression: 'zstd' as const, storageSize: 5, storageCtimeMs: 1 };
+  for (const change of [{ storageCtimeMs: 2 }, { storageSize: 6 }, { size: 11 }, { mtimeMs: 2 }]) {
+    assert.deepEqual(diffCodexManifest({ key: compressed }, { key: { ...compressed, dev: 9, ...change } }).replaced, ['key']);
+  }
+});
+
+test('manifest attaches only its own root volume key to matching-device files', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-volume-manifest-'));
+  const originalLstat = fs.lstat;
+  try {
+    for (const area of ['sessions', 'archived_sessions']) {
+      await mkdir(path.join(root, area));
+      await writeFile(path.join(root, area, 'local.jsonl'), '{}\n');
+    }
+    await mkdir(path.join(root, 'sessions', 'mount'));
+    await writeFile(path.join(root, 'sessions', 'mount', 'other.jsonl'), '{}\n');
+    t.mock.method(fs, 'lstat', async (target: string) => {
+      const stat = await originalLstat(target);
+      // Simulate a nested mount without mounting or inspecting real disks.
+      if (target.includes(`${path.sep}mount${path.sep}`)) stat.dev += 1;
+      return stat;
+    });
+    const inspected: string[] = [];
+    const manifest = await scanCodexManifest(root, 'salt', async (allowedRoot, salt) => {
+      inspected.push(allowedRoot);
+      assert.equal(salt, 'salt');
+      return { dev: (await originalLstat(allowedRoot)).dev,
+        key: (path.basename(allowedRoot) === 'sessions' ? 'a' : 'b').repeat(64) };
+    });
+    assert.deepEqual(inspected, [path.join(root, 'sessions'), path.join(root, 'archived_sessions')]);
+    assert.equal(manifest.files.length, 3);
+    for (const file of manifest.files) {
+      const expected = file.absolutePath.includes(`${path.sep}mount${path.sep}`) ? undefined
+        : (file.sourceArea === 'sessions' ? 'a' : 'b').repeat(64);
+      assert.equal(file.volumeKey, expected);
+      assert.equal(manifest.persistable[file.fileKey].volumeKey, expected);
+      if (expected === undefined) {
+        assert.equal(Object.prototype.hasOwnProperty.call(file, 'volumeKey'), false);
+        assert.equal(Object.prototype.hasOwnProperty.call(manifest.persistable[file.fileKey], 'volumeKey'), false);
+      }
+    }
+    for (const key of ['', 'invalid', 'A'.repeat(64)]) {
+      const invalid = await scanCodexManifest(root, 'salt', async allowedRoot => ({
+        dev: (await originalLstat(allowedRoot)).dev, key,
+      }));
+      assert.ok(invalid.files.every(file => !Object.prototype.hasOwnProperty.call(file, 'volumeKey')));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('Codex discovery reads only allowlisted JSONL roots', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'ccu-codex-manifest-'));
@@ -102,7 +204,7 @@ test('manifest diff separates append, truncate, replace, archive move, and delet
     unchanged: ['unchanged'],
     appended: ['append'],
     truncated: ['truncate'],
-    replaced: ['replace'],
+    replaced: ['replace', 'moveNew'],
     moved: [{ fromKey: 'moveOld', toKey: 'moveNew' }],
     added: ['added'],
     removed: ['deleted'],

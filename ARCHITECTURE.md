@@ -1074,13 +1074,34 @@ final `.zst`. This canonical source selection makes no byte-equivalence claim.
 Copies across active/archive areas still use the full-census lineage deduplication.
 Sources are read-only and decoded plaintext is never written to disk.
 
+The existing schema-3 P1 per-source contribution may retain an optional
+`volumeKey`: a machine-salted HMAC of the stable filesystem `VolumeUUID`, never
+the raw UUID, path or volume name. On macOS, a bounded metadata helper runs
+`/bin/df -P` on an allowed usage root to resolve its mount device, validates the
+`/dev/diskN[sN]*` form (numeric `N`), then runs `diskutil info -plist` on that device.
+The commands share a total three-second deadline. Results are cached against each
+root's `dev`/`ino`, invalidating them when either changes. Unsupported hosts or
+failed inspection retain strict device/inode matching. Identity adds no credential
+or source-body I/O; the existing compressed-source checks of at most 18 header
+bytes are unchanged.
+
+Equal proven `volumeKey` plus equal inode and unchanged representation/other fingerprints
+permits cache reuse across device renumbering. Known different volume keys reject
+reuse even when device numbers match. A legacy entry without `volumeKey` cannot
+bridge a changed device: it learns the key only when device/inode already match
+or after a fresh scan. This optional field needs no parser/schema bump or forced
+rescan. It lives and clears with P1; old readers may drop it and require later
+revalidation, without a universal rollback-write guarantee. Primary usage totals
+are unaffected; runtime calibration may retire on a device change and must not
+restore its prior baseline from this persisted identity.
+
 Manifest `size`, parser cursors and migration offsets remain decoded byte
 coordinates. Only compressed entries add `compression: 'zstd'`, `storageSize`
 (physical bytes) and `storageCtimeMs`; `mtimeMs`/`dev`/`ino` also describe the physical
 file. Schema 3 adds these fields and the persisted `compressionVerified: true`
 marker without changing its version; old entries without them remain plain.
 The marker requires verified frame EOF, not merely `offset === size`. Encoding or
-physical-version changes force a targeted historical reread, including a same-inode,
+other physical-version changes force a targeted historical reread, including a same-inode,
 same-size overwrite with restored mtime. A compressed move with changed fingerprints
 also replaces the destination. Such reconciliation is quiet and creates no new
 live-usage receipt.
