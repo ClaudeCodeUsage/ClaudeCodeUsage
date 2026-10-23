@@ -125,7 +125,41 @@ import {
   summarizeEquivalentUsage,
   WeeklyQuotaObservation,
   WeeklyValuePoint,
+  WeeklyValueInputs,
 } from './weeklyValue';
+import { buildLocalWeeklyEstimates, copyWeeklyEstimateWitness, weeklyEstimateForPoint, LocalWeeklyEstimate } from './weeklyEstimate';
+import { projectWeeklyEstimateChart } from './weeklyEstimateChart';
+import { CodexQuotaCycle, selectCodexCycleEstimates } from './codexQuotaCycles';
+import { codexQuotaPresentation } from './codexQuotaPresentation';
+import { CODEX_MIN_CALIBRATION_PERCENT } from './codexWindowEvidence';
+
+export interface WeeklyEstimatePanelProjection {
+  entries: LocalWeeklyEstimate[];
+  status: 'loading' | 'ready' | 'full' | 'unavailable';
+  codexWitnessCoverage?: import('./codexWitnessCycles').CodexWitnessCoverage;
+  officialQuota?: {
+    status: 'disabled' | 'loading' | 'ready' | 'unavailable' | 'source-mismatch';
+    accountNumber?: number;
+    usedPercent?: number;
+    resetAt?: number;
+    observedAt?: number;
+    quotaEpochStartedAt?: number;
+    stale?: boolean;
+    resetCreditCount?: number | null;
+    resetCreditNextExpiryAt?: number | null;
+    ordinaryUsageAllowed?: boolean | null;
+    calibration?: {
+      state: 'baseline' | 'percentage-step' | 'first-step-discarded' | 'accumulating' | 'calibrated' |
+        'source-unavailable' | 'source-changed' | 'append-incomplete' | 'endpoint-mismatch' |
+        'unpriced-usage' | 'quota-blocked' | 'continuity-gap';
+      deltaPercent: number;
+      intervals: number;
+    };
+  };
+  activeAccountNumber?: number;
+  activeQuotaEpochStartedAt?: number;
+  unassignedCyclesOmitted?: number;
+}
 import {
   defaultDashboardProvider,
 } from './codexView';
@@ -1267,6 +1301,10 @@ export class UsageWebviewProvider {
   private claudeQuotaPaceSnapshot: QuotaPaceAdapterSnapshot | null = null;
   private lastWeeklyQuotaPaceHtml: string | undefined;
   private claudeWeeklyQuotaHistory: WeeklyQuotaObservation[] = [];
+  private weeklyEstimateProjector?: (
+    provider: SettingProvider, inputs: WeeklyValueInputs, now: number,
+  ) => WeeklyEstimatePanelProjection;
+  public onWeeklyQuotaVisible?: () => void;
   private quotaWarnDismissed: boolean = false;
   // Extension-host hooks make the optimizer use the same prepare -> preview ->
   // explicit send boundary as advice, without exposing keys to the webview.
@@ -2467,6 +2505,12 @@ export class UsageWebviewProvider {
       enableScripts: true,
       retainContextWhenHidden: true,
     });
+    let wasVisible = this.panel.visible === true;
+    this.panel.onDidChangeViewState?.(event => {
+      const visible = event.webviewPanel.visible === true;
+      if (visible && !wasVisible) this.notifyWeeklyQuotaVisible();
+      wasVisible = visible;
+    });
 
     this.panel.onDidDispose(() => {
       this.panel = undefined;
@@ -3132,6 +3176,7 @@ export class UsageWebviewProvider {
     });
 
     this.updateWebview();
+    this.notifyWeeklyQuotaVisible();
   }
 
   /** Compatibility commands enter the same preview-first workspace instead of
@@ -3415,15 +3460,22 @@ export class UsageWebviewProvider {
 
   /** Receive quota utilisation (decoupled from local data; see extension.ts). */
   updateQuota(usageLimits: ClaudeApiUsageResponse | null): void {
-    if (!usageLimits) {
-      return;
-    }
-    const changed = JSON.stringify(usageLimits) !== JSON.stringify(this.usageLimits);
+    const changed = JSON.stringify(usageLimits) !== JSON.stringify(this.usageLimits) ||
+      (usageLimits === null && ((this.claudeWeeklyQuotaHistory?.length ?? 0) > 0 ||
+        this.claudeQuotaPaceSnapshot != null));
     if (!changed) return;
     this.usageLimits = usageLimits;
+    if (usageLimits === null) {
+      this.claudeWeeklyQuotaHistory = [];
+      this.claudeQuotaPaceSnapshot = null;
+      this.quotaWarnDismissed = false;
+    }
     // Re-render only on change so the cheap quota poll doesn't redraw the
     // dashboard (and reset scroll position) every tick.
-    if (changed && this.panel && !this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)) {
+    // Null is explicit account/source retirement, not a failed refresh. It must
+    // withdraw the previous account's quota even when automatic delivery is off.
+    if (this.panel && (usageLimits === null ||
+      (!this.isLoading && this.setting<boolean>('dashboardAutoRefresh', true)))) {
       this.updateWebview();
     }
   }
@@ -7579,22 +7631,496 @@ export class UsageWebviewProvider {
       sharingWorkspace + dailyBreakdown;
   }
 
-  private weeklyValuePoints(provider: SettingProvider): WeeklyValuePoint[] {
-    const now = Date.now();
+  setWeeklyEstimateProjector(projector: (
+    provider: SettingProvider, inputs: WeeklyValueInputs, now: number,
+  ) => WeeklyEstimatePanelProjection): void {
+    this.weeklyEstimateProjector = projector;
+  }
+
+  public isDashboardVisible(): boolean {
+    return this.panel?.visible === true;
+  }
+
+  private notifyWeeklyQuotaVisible(): void {
+    if (!this.setting<boolean>('codex.officialQuota.enabled', false)) return;
+    try { void Promise.resolve(this.onWeeklyQuotaVisible?.()).catch(() => undefined); }
+    catch { /* Quota refresh must not interrupt dashboard visibility or controls. */ }
+  }
+
+  refreshWeeklyEstimates(force = false): void {
+    if (this.panel && !this.isLoading && (force || this.setting<boolean>('dashboardAutoRefresh', true))) this.updateWebview();
+  }
+
+  private weeklyValueInputs(provider: SettingProvider): WeeklyValueInputs | undefined {
     if (provider === 'claude' && (this.weeklyUsageCache?.records !== this.allRecords ||
       this.weeklyUsageCache.pricing !== getPricingLastFetched() || this.weeklyUsageCache.backend !== getPricingBackend())) {
       this.weeklyUsageCache = { records: this.allRecords, pricing: getPricingLastFetched(), backend: getPricingBackend(), usage: claudeWeeklyEquivalentUsage(this.allRecords) };
     }
-    const inputs = provider === 'codex'
-      ? this.codexView?.weeklyValueInputs
-      : {
-          observations: this.claudeWeeklyQuotaHistory,
-          usage: this.weeklyUsageCache!.usage,
-        };
-    if (!inputs) {
-      return [];
+    if (provider === 'codex') {
+      const input = this.codexView?.weeklyValueInputs;
+      // The runtime source-revision authority belongs only to the official
+      // estimator. Keep presentation inputs explicit; never read/spread it.
+      return input ? { usage: input.usage, observations: input.observations,
+        codexWitnessCycles: input.codexWitnessCycles,
+        codexWitnessCoverage: input.codexWitnessCoverage,
+        codexQuotaCheckpoints: input.codexQuotaCheckpoints,
+        codexQuotaCheckpointsComplete: input.codexQuotaCheckpointsComplete,
+        codexQuotaIncompleteResets: input.codexQuotaIncompleteResets,
+        codexQuotaIncompleteRanges: input.codexQuotaIncompleteRanges,
+        calibrationPricebook: input.calibrationPricebook,
+        calibrationSourceScope: input.calibrationSourceScope,
+        accountUsageCoverage: input.accountUsageCoverage,
+        localHistoryComplete: this.codexView!.periodCoverage.allTime.complete } : undefined;
     }
-    return buildWeeklyValueTimeline(provider, inputs, { now });
+    return { observations: this.claudeWeeklyQuotaHistory, usage: this.weeklyUsageCache!.usage };
+  }
+
+  private weeklyValuePoints(provider: SettingProvider): WeeklyValuePoint[] {
+    const inputs = this.weeklyValueInputs(provider);
+    return inputs ? buildWeeklyValueTimeline(provider, provider === 'codex'
+      ? { ...inputs, observations: [] } : inputs, { now: Date.now(),
+        ...(provider === 'codex' ? { limit: Number.MAX_SAFE_INTEGER } : {}),
+      }) : [];
+  }
+
+  private weeklyEstimateProjection(provider: SettingProvider): WeeklyEstimatePanelProjection {
+    const inputs = this.weeklyValueInputs(provider) ?? { observations: [], usage: [] };
+    const now = Date.now();
+    return this.weeklyEstimateProjector?.(provider, inputs, now) ?? {
+      entries: buildLocalWeeklyEstimates(provider, inputs, { now }), status: 'ready' as const,
+    };
+  }
+
+  private weeklyEstimateReasons(entry: LocalWeeklyEstimate): string {
+    const copy=I18n.t.weeklyValue,reasons:string[]=[];
+    if(entry.flags.includes('account-unattributed'))reasons.push((entry.method as string) === 'account-delta-v1'
+      ? copy.localAmountUnattributed : copy.estimateAccountUnknown);
+    if(entry.flags.includes('partial-pricing'))reasons.push(copy.estimatePartialPricing+' ('+this.formatPercent(entry.pricingCoverage)+')');
+    if(entry.flags.includes('boundary-uncertain'))reasons.push(entry.method==='account-delta-v1' || entry.windowEvidence !== undefined || entry.witnessCycle !== undefined
+      ? copy.boundaryApproximate : copy.estimateBoundarySplit);
+    if(entry.flags.includes('partial-history'))reasons.push(entry.provider === 'codex' ? copy.evidenceIncomplete : copy.estimatePartialHistory);
+    if(entry.flags.includes('counter-change'))reasons.push(copy.estimateObservationChanged);
+    return reasons.join(' · ');
+  }
+
+  private weeklyTableCurrency(value: number): string {
+    // The column heading carries estimate semantics, including display FX.
+    return I18n.formatCurrency(value).replace(/^≈/,'');
+  }
+
+  private weeklyAccountNumber(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+  }
+
+  private weeklyAccountLabel(value: unknown): string {
+    const number = this.weeklyAccountNumber(value), copy = I18n.t.weeklyValue;
+    return number === undefined ? copy.accountUnassigned : copy.accountLabel.replace('{number}', String(number));
+  }
+
+  private weeklyEstimateMethod(entry: LocalWeeklyEstimate): string {
+    const copy = I18n.t.weeklyValue, method: string = entry.method;
+    if (entry.witnessCycle) return copy.witnessMethod;
+    if (entry.historicalRoughEstimate) return copy.archivedRoughEstimate;
+    if (entry.windowEvidence) return copy.pairedWindowEstimate;
+    if (entry.fullEquivalentUsd === null) return copy.estimateBlocked;
+    if (method === 'account-delta-v1') return copy.accountDeltaEstimate;
+    if (method === 'series-prefix-v1') return copy.seriesEstimate;
+    return method === 'paired-delta' ? copy.pairedEstimate : copy.roughEstimate;
+  }
+
+  private weeklyCycleDescription(cycle: CodexQuotaCycle | undefined, scheduledResetAt: number): string {
+    const copy = I18n.t.weeklyValue;
+    const valid = (value: unknown): value is number => typeof value === 'number' &&
+      Number.isFinite(value) && value > 0 && value <= 8.64e15;
+    const date = (value: number): string => new Intl.DateTimeFormat(I18n.getLocale(), {
+      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      timeZone: I18n.getTimezone() || undefined,
+    }).format(new Date(value));
+    const bound = (upper: number, lower: number | null): string => lower === upper ? date(upper) :
+      valid(lower) && lower < upper ? '(' + date(lower) + ' – ' + date(upper) + ']' : '≤ ' + date(upper);
+    if (cycle?.fallbackDays === 7 && valid(cycle.startAt) && valid(cycle.endAt)) {
+      const utc = (value: number): string => new Intl.DateTimeFormat(I18n.getLocale(), {
+        year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+        timeZone: 'UTC', hourCycle: 'h23',
+      }).format(new Date(value));
+      const observedReset = valid(cycle.scheduledResetAt) ? cycle.scheduledResetAt : scheduledResetAt;
+      return copy.fallbackCycle + ': ' + utc(cycle.startAt) + ' – ' + utc(cycle.endAt) + ' UTC' +
+        (valid(observedReset) ? ' · ' + copy.fallbackObservedReset + ': ' + date(observedReset) : '');
+    }
+    const parts = [cycle && valid(cycle.startAt)
+      ? copy.cycleStart + ': ' + bound(cycle.startAt, cycle.startLowerAt) : copy.cycleStartUnknown];
+    if (cycle?.closed && valid(cycle.endAt)) parts.push(copy.cycleEnd + ': ' + bound(cycle.endAt, cycle.endLowerAt));
+    const scheduled = cycle && valid(cycle.scheduledResetAt) ? cycle.scheduledResetAt : scheduledResetAt;
+    if (valid(scheduled)) parts.push(copy.scheduledReset + ': ' + date(scheduled));
+    if (cycle && (cycle.boundaryUncertain || cycle.startAt !== null && cycle.startAt !== cycle.startLowerAt ||
+      cycle.closed && cycle.endAt !== cycle.endLowerAt)) parts.push(copy.cycleBoundaryUncertain);
+    return parts.join(' · ');
+  }
+
+  private weeklyCalibrationHint(calibration: NonNullable<WeeklyEstimatePanelProjection['officialQuota']>['calibration']): string | undefined {
+    if (!calibration) return undefined;
+    const copy = I18n.t.weeklyValue;
+    const points = typeof calibration.deltaPercent === 'number' && Number.isFinite(calibration.deltaPercent) &&
+      calibration.deltaPercent >= 0 && calibration.deltaPercent <= 100 ? calibration.deltaPercent : undefined;
+    let text: string;
+    switch (calibration.state) {
+      case 'baseline': return copy.calibrationBaseline;
+      case 'percentage-step': return copy.calibrationPercentageStep;
+      case 'first-step-discarded': return copy.calibrationFirstStepDiscarded;
+      case 'source-unavailable': return copy.calibrationSourceUnavailable;
+      case 'source-changed': return copy.calibrationSourceChanged;
+      case 'append-incomplete': return copy.calibrationAppendIncomplete;
+      case 'endpoint-mismatch': return copy.calibrationEndpointMismatch;
+      case 'unpriced-usage': return copy.calibrationUnpricedUsage;
+      case 'quota-blocked': return copy.calibrationQuotaBlocked;
+      case 'continuity-gap': return copy.calibrationContinuityGap;
+      case 'accumulating': text = copy.calibrationAccumulating; break;
+      case 'calibrated':
+        text = points !== undefined && points >= CODEX_MIN_CALIBRATION_PERCENT &&
+          Number.isSafeInteger(calibration.intervals) && calibration.intervals > 0
+          ? copy.calibrationCalibrated : copy.calibrationAccumulating;
+        break;
+      default: return undefined; // Never display arbitrary state strings.
+    }
+    if (points !== undefined && points > 0) text += ' · ' + copy.calibrationProgress.replace('{points}',
+      new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(points));
+    return text;
+  }
+
+  private renderOfficialWeeklyQuota(provider: SettingProvider, projection: WeeklyEstimatePanelProjection): string {
+    if (provider !== 'codex' || !this.setting<boolean>('codex.officialQuota.enabled', false)) return '';
+    const quota = projection.officialQuota, copy = I18n.t.weeklyValue;
+    const witnessStatus = this.weeklyWitnessStatus(projection);
+    const esc = (value: string): string => this.escapeHtml(value);
+    let state = quota?.status ?? 'unavailable';
+    const accountNumber = this.weeklyAccountNumber(quota?.accountNumber);
+    const active = this.weeklyAccountNumber(projection.activeAccountNumber);
+    if (state === 'ready' && accountNumber !== undefined && active !== undefined && accountNumber !== active) state = 'source-mismatch';
+    const ready = state === 'ready' && quota &&
+      typeof quota.usedPercent === 'number' && Number.isFinite(quota.usedPercent) && quota.usedPercent >= 0 && quota.usedPercent <= 100 &&
+      typeof quota.observedAt === 'number' && Number.isFinite(quota.observedAt) && quota.observedAt > 0 && quota.observedAt <= Date.now() &&
+      typeof quota.resetAt === 'number' && Number.isFinite(quota.resetAt) && quota.resetAt > quota.observedAt && quota.resetAt <= 8.64e15;
+    let text: string;
+    if (ready) {
+      const date = (value: number): string => new Intl.DateTimeFormat(I18n.getLocale(), {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined,
+      }).format(new Date(value));
+      text = `${copy.officialQuotaTitle} · ${accountNumber === undefined ? copy.accountIdentified : this.weeklyAccountLabel(accountNumber)} · ${this.formatPercent(quota.usedPercent! / 100)} · ` +
+        `${copy.resetsAt} ${date(quota.resetAt!)} · ${copy.estimateAsOf} ${date(quota.observedAt!)}`;
+      // These facts belong to the same observed snapshot as the quota, including
+      // its stale marker. Read only the public scalar projection, never credits.
+      const count = quota.resetCreditCount;
+      text += ' · ' + copy.resetCreditCount + ': ' + (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
+        ? new Intl.NumberFormat(I18n.getLocale()).format(count) : copy.resetCreditUnknown);
+      const expiry = quota.resetCreditNextExpiryAt;
+      if (typeof expiry === 'number' && Number.isSafeInteger(expiry) && expiry > Date.now() && expiry <= 8.64e15) {
+        text += ' · ' + copy.resetCreditNextExpiry + ': ' + date(expiry);
+      }
+      if (quota.ordinaryUsageAllowed === false) text += ' · ' + copy.ordinaryUsageBlocked;
+      if (quota.stale === true) {
+        text += ' · ' + copy.estimateStale;
+      } else if (witnessStatus === undefined) {
+        const calibration = this.weeklyCalibrationHint(quota.calibration);
+        if (calibration) text += ' · ' + calibration;
+        else {
+          const latest = projection.entries.filter(entry => entry.provider === 'codex' &&
+            (entry.method as string) === 'account-delta-v1' && accountNumber !== undefined &&
+            this.weeklyAccountNumber((entry as LocalWeeklyEstimate & { accountNumber?: number }).accountNumber) === accountNumber &&
+            (quota.quotaEpochStartedAt === undefined || entry.quotaEpoch?.startedAt === quota.quotaEpochStartedAt) &&
+            Math.abs(entry.resetAt - quota.resetAt!) <= 300_000)
+            .sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt)[0];
+          if (!latest || !Number.isFinite(latest.observedAt) || latest.observedAt <= 0 || latest.observedAt > quota.observedAt! || latest.fullEquivalentUsd === null ||
+            !Number.isFinite(latest.fullEquivalentUsd) || latest.fullEquivalentUsd <= 0 || latest.unusedEquivalentUsd === null ||
+            !Number.isFinite(latest.unusedEquivalentUsd) || latest.unusedEquivalentUsd < 0 || latest.unusedEquivalentUsd > latest.fullEquivalentUsd) {
+            text += ' · ' + copy.collectingSamples;
+          }
+        }
+      }
+    } else {
+      if (state === 'ready') state = 'unavailable';
+      text = state === 'loading' ? copy.officialQuotaLoading : state === 'disabled' ? copy.officialQuotaDisabled :
+        state === 'source-mismatch' ? copy.officialQuotaSourceMismatch : copy.officialQuotaUnavailable;
+    }
+    return '<p class="table-hint weekly-official-quota" role="status">' + esc(text) + '</p>' +
+      (witnessStatus === undefined ? '' : '<p class="table-hint" data-witness-status role="status">' + esc(witnessStatus) + '</p>');
+  }
+
+  private weeklyWitnessStatus(projection: WeeklyEstimatePanelProjection): string | undefined {
+    const now = Date.now(), copy = I18n.t.weeklyValue;
+    const witnesses = projection.entries.map(copyWeeklyEstimateWitness).filter((witness): witness is NonNullable<typeof witness> =>
+      witness !== undefined && witness.requestedThrough <= now).sort((a, b) => b.through - a.through);
+    const coverage = projection.codexWitnessCoverage;
+    if (coverage === undefined && witnesses.length === 0) return undefined;
+    // Local receipts are not linked to the official account by a matching reset.
+    const latest = witnesses[0], parts = [copy.localAmountUnattributed];
+    if (latest) {
+      parts.push(copy.estimateAsOf + ': ' + this.cycleDate(latest.through),
+        copy.observedPricedUsage + ': ' + this.weeklyTableCurrency(latest.knownUsd));
+      if (latest.referenceCapacityUsd !== null) parts.push(copy.conditionalCapacity + ': ' + this.weeklyTableCurrency(latest.referenceCapacityUsd));
+      parts.push(copy.pricingCoverage + ': ' + this.formatPercent(latest.pricingCoverage));
+      if (latest.partial) parts.push(copy.evidenceIncomplete);
+      if (latest.closed || latest.resetAt <= now) parts.push(copy.estimateStale);
+    } else parts.push(copy.witnessNoCycle);
+    if (coverage && [coverage.unplacedSources, coverage.unlocatedUnpricedTokens, coverage.rejectedSources]
+      .every(n => Number.isSafeInteger(n) && n >= 0) && Number.isFinite(coverage.unlocatedPrimaryUsd) && coverage.unlocatedPrimaryUsd >= 0) {
+      const number = (n: number) => new Intl.NumberFormat(I18n.getLocale()).format(n);
+      if (coverage.unplacedSources > 0 || coverage.unlocatedPrimaryUsd > 0 || coverage.unlocatedUnpricedTokens > 0) parts.push(
+        copy.witnessUnlocatedSources + ': ' + number(coverage.unplacedSources),
+        copy.witnessUnlocatedUsage + ': ' + this.weeklyTableCurrency(coverage.unlocatedPrimaryUsd),
+        copy.witnessUnlocatedTokens + ': ' + number(coverage.unlocatedUnpricedTokens));
+      if (coverage.rejectedSources > 0) parts.push(copy.witnessExcludedSources + ': ' + number(coverage.rejectedSources));
+    }
+    return parts.join(' · ');
+  }
+
+  private renderWeeklyEstimateRecords(provider: SettingProvider, supplied?: WeeklyEstimatePanelProjection): string {
+    if (this.usesCycleQuotaPanel(provider)) return this.renderCodexCycleRecords(supplied ?? this.weeklyEstimateProjection(provider));
+    const projection=supplied??this.weeklyEstimateProjection(provider),copy=I18n.t.weeklyValue;
+    const esc = (value: string): string => this.escapeHtml(value);
+    const date = (value: number): string => {
+      try { return new Intl.DateTimeFormat(I18n.getLocale(), { year: 'numeric', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', timeZone: I18n.getTimezone() || undefined }).format(new Date(value)); }
+      catch { return new Date(value).toISOString(); }
+    };
+    const money = (value: number | null): string => value === null ? '—' : esc(this.weeklyTableCurrency(value));
+    const entries = provider === 'codex' ? [
+      ...selectCodexCycleEstimates(projection.entries),
+      // Uncalibrated observations remain audit evidence, never another bar.
+      ...projection.entries.filter(entry => entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null),
+    ].sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt) : projection.entries;
+    const rows = entries.map(entry => {
+      const method = this.weeklyEstimateMethod(entry);
+      const reasons=this.weeklyEstimateReasons(entry);
+      const range = entry.fullRange ? '<br><span class="model-details">' + money(entry.fullRange.lower) +
+        ' – ' + money(entry.fullRange.upper) + '</span>' : '';
+      // Use the chart's eligibility and F-R semantics, not an interval sample
+      // numerator, for the Codex whole-cycle inferred-used column.
+      const inferred = provider === 'codex'
+        ? projectWeeklyEstimateChart('codex', [], [entry], { now: Date.now() })[0]?.usedEquivalentUsd ?? null
+        : entry.usedEquivalentUsd;
+      const epoch = provider === 'codex' ? entry.quotaEpoch : undefined;
+      const reference = provider === 'codex' && (!entry.quotaCycle || entry.quotaCycle.referenceOnly === true ||
+        this.weeklyAccountNumber(entry.accountNumber) === undefined);
+      const segment = epoch && Number.isFinite(epoch.startedAt) && epoch.startedAt > 0 && epoch.startedAt <= 8.64e15
+        ? '<br><span class="model-details">' + esc(copy.observationSegment + ' ' + date(epoch.startedAt) +
+          (epoch.reason === 'reset-change' ? ' · ' + copy.quotaChanged :
+            epoch.reason === 'counter-drop' ? ' · ' + copy.counterDecreased : '')) + '</span>' : '';
+      return '<tr><td class="date-cell">' + esc(provider === 'codex'
+        ? this.weeklyCycleDescription(entry.quotaCycle, entry.resetAt) : date(entry.resetAt)) + '</td><td class="date-cell">' +
+        (entry.calibrationStart === undefined ? '' : esc(date(entry.calibrationStart)) + ' – ') +
+        esc(date(entry.observedAt)) + segment + '</td><td class="cost-cell">' +
+        money(inferred) +
+        '</td><td class="number-cell">' + (entry.utilizationPercent === null ? '—' : this.formatPercent(entry.utilizationPercent / 100)) +
+        '</td><td class="cost-cell">' + money(entry.fullEquivalentUsd) + range +
+        '</td><td class="cost-cell">' + money(entry.unusedEquivalentUsd) + '</td>' +
+        (provider === 'codex' ? '<td class="cost-cell">' + money(entry.usedEquivalentUsd) + '</td>' : '') + '<td>' + esc(method) +
+        (reference ? '<br><span class="model-details">' + esc(copy.low + ' · ' + copy.estimateReference) + '</span>' : '') +
+        (reasons?'<br><span class="model-details">'+esc(reasons)+'</span>':'')+
+        (entry.flags.includes('stale-observation') ? '<br><span class="model-details">' + esc(copy.estimateStale) + '</span>' : '') +
+        (entry.flags.includes('reconstructed') ? '<br><span class="model-details">' + esc(copy.reconstructedEstimate) + '</span>' : '') +
+        '</td>' + (provider === 'codex' ? '<td>' + esc(this.weeklyAccountLabel(
+          (entry as LocalWeeklyEstimate & { accountNumber?: number }).accountNumber)) + '</td>' : '') + '</tr>';
+    }).join('');
+    const status = projection.status === 'full' ? copy.archiveFull : projection.status === 'unavailable' ?
+      copy.archiveUnavailable : projection.status === 'loading' ? copy.archiveLoading : '';
+    return (status ? '<p class="table-hint" role="status">' + esc(status) + '</p>' : '') +
+      '<details class="weekly-estimate-details" data-persist="weekly-estimate-' + provider +
+      '"><summary>' + esc(copy.estimateDetails) + '</summary><p class="table-hint">' + esc(copy.estimateNote) +
+      '</p><div class="daily-table-container" tabindex="0"><table class="daily-table"' +
+      (provider === 'codex' ? ' data-weekly-table-provider="codex"' : '') + '><thead><tr>' +
+      [provider === 'codex' ? copy.period : copy.resetsAt, copy.estimateAsOf, provider === 'codex' ? copy.inferredUsed : copy.estimateUsed,
+        copy.utilization, copy.estimateFull, copy.estimateUnused,
+        ...(provider === 'codex' ? [copy.estimateUsed] : []), copy.estimateMethod,
+        ...(provider === 'codex' ? [copy.accountColumn] : [])]
+        .map(label => '<th>' + esc(label) + '</th>').join('') + '</tr></thead><tbody>' + rows +
+      '</tbody></table></div></details>';
+  }
+
+  private codexCycleEntries(projection: WeeklyEstimatePanelProjection): LocalWeeklyEstimate[] {
+    return selectCodexCycleEstimates(projection.entries, Date.now()).sort((a, b) =>
+      (b.quotaCycle?.endAt ?? b.resetAt) - (a.quotaCycle?.endAt ?? a.resetAt) || b.observedAt - a.observedAt).slice(0, 48);
+  }
+
+  private usesCycleQuotaPanel(provider: SettingProvider): boolean { return provider === 'codex'; }
+
+  private cycleDate(value: number, short = false): string {
+    if (!Number.isFinite(value) || value <= 0 || value > 8.64e15) return '—';
+    try { return new Intl.DateTimeFormat(I18n.getLocale(), short ? {
+      month: 'numeric', day: 'numeric', timeZone: I18n.getTimezone() || undefined,
+    } : { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      timeZone: I18n.getTimezone() || undefined }).format(new Date(value)); }
+    catch { return new Date(value).toISOString(); }
+  }
+
+  private cycleState(entry: LocalWeeklyEstimate): string {
+    const copy = I18n.t.weeklyValue;
+    if (entry.witnessCycle) return [entry.witnessCycle.partial ? copy.evidenceIncomplete : '',
+      entry.witnessCycle.counterConflict ? copy.sourceConflict : '',
+      entry.accountNumber === undefined ? copy.accountUnassigned : ''].filter(Boolean).join(' · ');
+    if (entry.flags.includes('counter-change') && entry.fullEquivalentUsd === null) return copy.sourceConflict;
+    if (entry.fullEquivalentUsd === null) return entry.windowEvidence?.complete === false || entry.flags.includes('partial-history')
+      ? copy.evidenceIncomplete : copy.pendingCalibration;
+    return entry.quotaCycle?.fallbackDays === 7 ? copy.fallbackCycleShort :
+      entry.accountNumber === undefined ? copy.accountUnassigned : entry.quotaCycle?.boundaryUncertain ? copy.boundaryApproximate : '';
+  }
+
+  private renderCodexCycleRecords(projection: WeeklyEstimatePanelProjection): string {
+    const copy = I18n.t.weeklyValue, esc = (s: string) => this.escapeHtml(s);
+    const money = (n: number | null) => n === null ? '—' : esc(this.weeklyTableCurrency(n));
+    const entries = this.codexCycleEntries(projection), hasWitness = entries.some(entry => entry.witnessCycle !== undefined);
+    const rows = entries.map(entry => {
+      const cycle = entry.quotaCycle, description = this.weeklyCycleDescription(cycle, entry.resetAt);
+      const dates = (cycle?.startAt ? this.cycleDate(cycle.startAt, true) + ' – ' : '') + this.cycleDate(cycle?.endAt ?? entry.resetAt, true);
+      const evidence = entry.windowEvidence, account = entry.calibrationEvidence, witness = entry.witnessCycle;
+      const sampleAvailable = witness !== undefined || (evidence ? evidence.intervals > 0 : account !== undefined || entry.fullEquivalentUsd !== null ||
+        entry.method !== 'account-delta-v1' || entry.usedEquivalentUsd > 0);
+      const delta = witness ? witness.percentThrough - witness.percentFrom : evidence?.deltaPercent ?? account?.accumulated.deltaPercent;
+      const intervals = witness?.segments ?? evidence?.intervals ?? account?.accumulated.intervals;
+      const state = this.cycleState(entry);
+      const safeCycleId = typeof cycle?.id === 'number' && Number.isSafeInteger(cycle.id) && cycle.id > 0 ? cycle.id : entry.resetAt;
+      const safeReset = Number.isSafeInteger(entry.resetAt) && entry.resetAt > 0 ? entry.resetAt : 0;
+      // Retained request endpoints may shift after compaction within one episode.
+      const evidenceCycleId = witness ? witness.cycleStartAt ?? 'initial' : safeCycleId;
+      const key = 'quota-evidence-codex-' + (this.weeklyAccountNumber(entry.accountNumber) ?? 'u') + '-' + evidenceCycleId +
+        '-' + (cycle?.fallbackDays === 7 ? 'reference' : safeReset);
+      const summary = delta === undefined ? copy.calibrationEvidence : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta) +
+        (!witness && entry.fullEquivalentUsd === null && delta < CODEX_MIN_CALIBRATION_PERCENT ? ' / ' + CODEX_MIN_CALIBRATION_PERCENT : '') + ' · n=' + intervals;
+      const matchedCut = account?.methodVersion === 2 && account.collectionMode === 'forward-matched-cut-v1' ? account.matchedCut : undefined;
+      const from = witness?.from ?? (matchedCut ? entry.calibrationStart : evidence?.from ?? entry.calibrationStart);
+      const through = witness?.through ?? matchedCut?.through ?? evidence?.calibratedThrough ?? entry.observedAt;
+      const intervalFact = (label: string, attribute: string, interval: { from: number; through: number; percentFrom: number; percentThrough: number }) => {
+        const percent = new Intl.NumberFormat(I18n.getLocale(), { style: 'percent', maximumFractionDigits: 2 });
+        return '<dt>' + esc(label) + '</dt><dd ' + attribute + '>' + esc(this.cycleDate(interval.from) + ' – ' + this.cycleDate(interval.through) +
+          ' · ' + percent.format(interval.percentFrom / 100) + ' → ' + percent.format(interval.percentThrough / 100)) + '</dd>';
+      };
+      const matchedFacts = matchedCut && account ? intervalFact(copy.calibrationMatchedInterval, 'data-calibration-matched-interval', matchedCut) +
+        intervalFact(copy.calibrationOfficialEnvelope, 'data-calibration-official-envelope', account.interval) : '';
+      const facts = '<dl data-cycle-evidence-facts><dt>' + esc(copy.estimateMethod) + '</dt><dd>' + esc(this.weeklyEstimateMethod(entry)) +
+        '</dd><dt>' + esc(matchedCut ? copy.calibrationMeasuredRange : copy.estimateAsOf) + '</dt><dd' + (matchedCut ? ' data-calibration-measured-range' : '') + '>' +
+        esc((from ? this.cycleDate(from) + ' – ' : '') + this.cycleDate(through)) + '</dd>' + matchedFacts +
+        (witness ? this.weeklyWitnessFacts(witness).map(fact => '<dt>' + esc(fact.label) + '</dt><dd ' + fact.attribute + '>' + esc(fact.value) + '</dd>').join('') :
+        '<dt>' + esc(copy.estimateUsed) + '</dt><dd>' + money(sampleAvailable ? entry.usedEquivalentUsd : null) + '</dd>') +
+        '<dt>' + esc(copy.calibrationChange) + '</dt><dd>' + (delta === undefined ? '—' : 'Δp=' + new Intl.NumberFormat(I18n.getLocale(), { maximumFractionDigits: 2 }).format(delta)) +
+        '</dd>' + (witness ? '' : '<dt>' + esc(copy.pricingCoverage) + '</dt><dd>' + (sampleAvailable ? esc(this.formatPercent(entry.pricingCoverage)) : '—') + '</dd>') + '</dl>';
+      return '<tr data-codex-cycle-summary-row><td class="date-cell" title="' + esc(description) + '">' + esc(dates) +
+        (state ? '<span class="model-details" data-cycle-state>' + esc(state) + '</span>' : '') + '</td><td>' + esc(this.weeklyAccountLabel(entry.accountNumber)) +
+        '</td>' + (hasWitness ? '<td class="cost-cell">' + money(witness?.knownUsd ?? null) + '</td>' : '') +
+        '<td class="cost-cell">' + money(entry.fullEquivalentUsd) + '</td><td class="cost-cell">' +
+        money(entry.fullEquivalentUsd === null || entry.unusedEquivalentUsd === null ? null : entry.fullEquivalentUsd - entry.unusedEquivalentUsd) +
+        '</td><td class="cost-cell">' + money(entry.unusedEquivalentUsd) + '</td><td class="date-cell">' + esc(this.cycleDate(entry.observedAt)) +
+        '<span class="model-details" data-cycle-state>' + (entry.utilizationPercent === null ? '—' : esc(this.formatPercent(entry.utilizationPercent / 100))) +
+        '</span></td><td><details data-cycle-evidence data-persist="' + esc(key) + '"><summary>' + esc(summary) + '</summary>' +
+        facts + '<p class="table-hint">' + esc(description) + '</p>' +
+        (this.weeklyEstimateReasons(entry) ? '<p class="table-hint">' + esc(this.weeklyEstimateReasons(entry)) + '</p>' : '') + '</details></td></tr>';
+    }).join('');
+    return '<details class="weekly-estimate-details" data-persist="weekly-estimate-codex"><summary>' + esc(copy.cycleSummary) +
+      '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table" data-weekly-table-provider="codex" data-codex-cycle-table' +
+      (hasWitness ? ' data-witness-cycle-table' : '') + '><thead><tr>' +
+      [copy.period, copy.accountColumn, ...(hasWitness ? [copy.observedPricedUsage] : []), hasWitness ? copy.conditionalCapacity : copy.estimateFull,
+        copy.inferredUsed, copy.estimateUnused, copy.estimateAsOf, copy.calibrationEvidence]
+        .map(label => '<th>' + esc(label) + '</th>').join('') + '</tr></thead><tbody>' + rows +
+      '</tbody></table></div><p class="table-hint">' + esc(hasWitness ? copy.witnessNote : copy.estimateNote) + '</p></details>';
+  }
+
+  private weeklyWitnessFacts(witness: NonNullable<LocalWeeklyEstimate['witnessCycle']>): Array<{ label: string; value: string; attribute: string }> {
+    const copy = I18n.t.weeklyValue, number = (n: number) => new Intl.NumberFormat(I18n.getLocale()).format(n);
+    return [
+      { label: copy.observedPricedUsage, value: this.weeklyTableCurrency(witness.knownUsd), attribute: 'data-witness-known-usage' },
+      { label: copy.witnessDelta, value: this.weeklyTableCurrency(witness.deltaUsd), attribute: 'data-witness-delta' },
+      { label: copy.pricingCoverage, value: this.formatPercent(witness.pricingCoverage), attribute: 'data-witness-pricing-coverage' },
+      { label: copy.witnessUnpricedTokens, value: number(witness.unpricedTokens), attribute: 'data-witness-unpriced-tokens' },
+      { label: copy.witnessSources, value: number(witness.sources) + ' / ' + number(witness.segments), attribute: 'data-witness-sources' },
+      { label: copy.witnessExcludedSources, value: number(witness.unavailableSources), attribute: 'data-witness-excluded-sources' },
+      ...(witness.partial ? [{ label: copy.evidenceIncomplete, value: copy.witnessNote, attribute: 'data-witness-partial' }] : []),
+      ...(witness.baselineMissing ? [{ label: copy.witnessBaselineMissing, value: copy.evidenceIncomplete, attribute: 'data-witness-baseline-missing' }] : []),
+      ...(witness.counterConflict ? [{ label: copy.sourceConflict, value: copy.evidenceIncomplete, attribute: 'data-witness-counter-conflict' }] : []),
+    ];
+  }
+
+  private renderCodexCyclePanel(projection: WeeklyEstimatePanelProjection): string {
+    const copy = I18n.t.weeklyValue, esc = (s: string) => this.escapeHtml(s), now = Date.now();
+    const inputs = this.weeklyValueInputs('codex');
+    const officialEnabled = this.setting<boolean>('codex.officialQuota.enabled', false);
+    const quota = officialEnabled ? projection.officialQuota : undefined;
+    const recentCheckpoints = (inputs?.codexQuotaCheckpoints ?? []).filter(row =>
+      row.baseline || row.through >= now - 2 * 86400000).map(row => ({ provider: 'codex' as const, seriesKey: 'local-paired',
+      sourceKey: row.sourceKey, observedAt: row.through, resetAt: row.resetAt, usedPercent: row.usedPercent }));
+    const sources = codexQuotaPresentation([...(inputs?.observations ?? []), ...recentCheckpoints], quota, now);
+    const identityAvailable = quota?.status === 'ready' && !quota.stale && !sources.conflict &&
+      typeof quota.observedAt === 'number' && Number.isFinite(quota.observedAt) && quota.observedAt > 0 && quota.observedAt <= now &&
+      typeof quota.resetAt === 'number' && Number.isFinite(quota.resetAt) && quota.resetAt > now &&
+      typeof quota.usedPercent === 'number' && Number.isFinite(quota.usedPercent) && quota.usedPercent >= 0 && quota.usedPercent <= 100 &&
+      this.weeklyAccountNumber(quota.accountNumber) === this.weeklyAccountNumber(projection.activeAccountNumber);
+    const entries = this.codexCycleEntries(projection);
+    const cycleSummaryNote = entries.some(entry => entry.witnessCycle !== undefined)
+      ? copy.witnessCycleSummaryNote : copy.cycleSummaryNote;
+    const points = projectWeeklyEstimateChart('codex', [], entries, { now, limit: 48,
+      ...(officialEnabled ? { activeAccountNumber: projection.activeAccountNumber, activeQuotaEpochStartedAt: projection.activeQuotaEpochStartedAt } : {}),
+      accountIdentityAvailable: identityAvailable }).reverse();
+    const known = points.some(p => p.usageAvailable), max = Math.max(1, ...points.map(p => p.fullEquivalentUsd ?? p.witnessCycle?.knownUsd ?? 0));
+    const title = (point: typeof points[number]) => {
+      const parts = [point.current ? copy.currentPeriod : '', this.weeklyAccountLabel(point.accountNumber), this.weeklyCycleDescription(point.quotaCycle, point.resetAt),
+        copy.estimateAsOf + ': ' + this.cycleDate(point.observedAt!)];
+      if (point.historicalRoughEstimate) parts.push(copy.archivedRoughEstimate);
+      if (point.fullEquivalentUsd === null && !point.witnessCycle) parts.push(copy.pendingCalibration);
+      else if (point.fullEquivalentUsd !== null) parts.push((point.witnessCycle ? copy.conditionalCapacity : copy.fullValue) + ': ' + this.weeklyTableCurrency(point.fullEquivalentUsd),
+        copy.inferredUsed + ': ' + this.weeklyTableCurrency(point.usedEquivalentUsd),
+        copy.estimateUnused + ': ' + this.weeklyTableCurrency(point.unusedEquivalentUsd!));
+      if (point.witnessCycle) parts.push(copy.witnessMethod, ...this.weeklyWitnessFacts(point.witnessCycle).map(fact => fact.label + ': ' + fact.value));
+      if (point.utilizationPercent !== null) parts.push(this.formatPercent(point.utilizationPercent / 100));
+      if (!point.witnessCycle && (!point.quotaCycle || point.quotaCycle.referenceOnly || point.accountNumber === undefined)) parts.push(copy.low, copy.estimateReference);
+      return parts.filter(Boolean).join(' · ');
+    };
+    const bars = points.map(point => {
+      const text = esc(title(point));
+      if (point.fullEquivalentUsd === null && !point.witnessCycle) return '<div class="hc-col"><div data-cycle-pending role="img" tabindex="0" aria-label="' +
+        text + '" title="' + text + '">—</div></div>';
+      const used = point.usedEquivalentUsd / max * 120, unused = (point.unusedEquivalentUsd ?? 0) / max * 120;
+      return '<div class="hc-col"><div class="stack-bar" role="img" tabindex="0" aria-label="' + text + '" title="' + text + '">' +
+        '<div class="stack-seg ' + (point.fullEquivalentUsd === null ? 'seg-output' : 'seg-input') + '" style="height:' + used.toFixed(2) + 'px"></div>' +
+        (point.unusedEquivalentUsd === null ? '' : '<div class="stack-seg seg-cache-read" style="height:' + unused.toFixed(2) + 'px"></div>') + '</div></div>';
+    }).join('');
+    const labels = points.map(point => {
+      const parts = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric', timeZone: I18n.getTimezone() || undefined })
+        .formatToParts(new Date(point.quotaCycle?.endAt ?? point.resetAt));
+      const date = parts.find(p => p.type === 'month')!.value + '/' + parts.find(p => p.type === 'day')!.value;
+      const account = this.weeklyAccountNumber(point.accountNumber);
+      const marker = point.quotaCycle?.fallbackDays === 7 ? copy.fallbackCycleShort :
+        (account === undefined ? '?' : '#' + account) + (point.current ? ' ' + copy.currentPeriodShort : '');
+      return '<div class="hc-xlabel" title="' + esc(title(point)) + '"><span>' + esc(date) + '</span><span>' + esc(marker) + '</span></div>';
+    }).join('');
+    const official = this.renderOfficialWeeklyQuota('codex', projection);
+    const local = sources.local ? '<p class="table-hint" data-local-quota>' + esc(copy.localQuotaObservation + ' · ' +
+      this.formatPercent(sources.local.usedPercent / 100) + ' · ' + copy.resetsAt + ' ' + this.cycleDate(sources.local.resetAt) +
+      ' · ' + copy.estimateAsOf + ' ' + this.cycleDate(sources.local.observedAt) +
+      (now - sources.local.observedAt >= 300000 ? ' · ' + copy.estimateStale : '')) + '</p>' : '';
+    const transition = sources.change ? '<p class="table-hint" data-local-window-change>' + esc(copy.observedWindowChange + ' · ' +
+      this.cycleDate(sources.change.beforeAt) + ' → ' + this.cycleDate(sources.change.observedAt) + ' · ' +
+      this.formatPercent(sources.change.beforePercent / 100) + ' → ' + this.formatPercent(sources.change.usedPercent / 100)) + '</p>' : '';
+    const conflict = sources.conflict ? '<p class="table-hint" data-cycle-source-conflict role="status">' + esc(copy.sourceConflict) + '</p>' : '';
+    const omitted = projection.unassignedCyclesOmitted;
+    const overlap = typeof omitted === 'number' && Number.isSafeInteger(omitted) && omitted > 0 && omitted <= 1e6
+      ? '<p class="table-hint" data-unassigned-cycle-overlap role="status">' + esc(copy.unassignedCycleOverlap
+        .replace('{count}', new Intl.NumberFormat(I18n.getLocale()).format(omitted))) + '</p>' : '';
+    const chart = points.length ? '<div class="composition-chart" data-codex-cycle-chart data-weekly-estimate-chart style="--cycle-count:' + points.length + '">' +
+      '<div class="stack-legend">' + (points.some(point => point.fullEquivalentUsd !== null) || !points.some(point => point.witnessCycle)
+        ? '<span class="legend-item"><span class="legend-dot seg-input"></span>' + esc(copy.inferredUsed) + '</span>' +
+          '<span class="legend-item"><span class="legend-dot seg-cache-read"></span>' + esc(copy.estimateUnused) + '</span>' : '') +
+      (points.some(point => point.fullEquivalentUsd === null && point.witnessCycle)
+        ? '<span class="legend-item"><span class="legend-dot seg-output"></span>' + esc(copy.observedPricedUsage) + '</span>' : '') + '</div>' +
+      '<div class="hc-wrap"><div class="hc-yaxis"><span class="hc-yval">' + (known ? esc(this.weeklyTableCurrency(max)) : '—') +
+      '</span><span class="hc-yval">' + (known ? esc(this.weeklyTableCurrency(max / 2)) : '—') + '</span><span class="hc-yval">' +
+      (known ? esc(this.weeklyTableCurrency(0)) : '—') + '</span></div><div class="hc-main"><div class="hc-scroll" tabindex="0">' +
+      '<div class="hc-plot"><div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div><div class="hc-bars">' + bars +
+      '</div></div><div class="hc-xlabels">' + labels + '</div></div></div></div></div>' : '';
+    const pending = !known ? '<p class="table-hint" data-cycle-monetary-pending role="status">' + esc(copy.monetaryPending) + '</p>' : '';
+    const archive = projection.status === 'full' ? copy.archiveFull : projection.status === 'unavailable' ? copy.archiveUnavailable :
+      projection.status === 'loading' ? copy.archiveLoading : '';
+    const indexing = this.codexView?.periodCoverage?.allTime?.complete === false ? '<p class="table-hint" role="status">' + esc(copy.cycleIndexedSubtotal) + '</p>' : '';
+    return '<div class="daily-breakdown" data-codex-cycle-panel><div class="section-header"><h3>' + esc(copy.cycleTitle + ' · ' + I18n.t.providers.codexBeta) +
+      '</h3></div>' + official + local + transition + conflict + overlap + indexing + '<p class="table-hint">' + esc(cycleSummaryNote) + '</p>' + pending + chart +
+      (archive ? '<p class="table-hint" role="status">' + esc(archive) + '</p>' : '') + this.renderCodexCycleRecords(projection) +
+      '<p class="table-hint">' + esc(copy.description) + '</p></div>';
   }
 
   /** Shared reset-aligned allowance-value renderer for Claude and Codex. The
@@ -7605,11 +8131,21 @@ export class UsageWebviewProvider {
       return '';
     }
     const copy = I18n.t.weeklyValue;
-    const points = this.weeklyValuePoints(provider);
+    const points = provider === 'codex' ? [] : this.weeklyValuePoints(provider);
+    const estimates=this.weeklyEstimateProjection(provider);
+    if (this.usesCycleQuotaPanel(provider)) return this.renderCodexCyclePanel(estimates);
+    const observedChartPoints=projectWeeklyEstimateChart(provider,provider === 'codex' ? [] : points,estimates.entries,{now:Date.now(),limit:provider === 'codex' ? 48 : 8,
+      ...(provider === 'codex' && this.setting<boolean>('codex.officialQuota.enabled', false) ? {
+        activeAccountNumber: estimates.activeAccountNumber,
+        activeQuotaEpochStartedAt: estimates.activeQuotaEpochStartedAt,
+        accountIdentityAvailable: estimates.officialQuota?.status === 'ready' && estimates.officialQuota.stale !== true,
+      } : {}),
+    }).reverse();
     const providerLabel = provider === 'codex'
       ? I18n.t.providers.codexBeta
       : I18n.t.providers.claude;
-    const heading = this.escapeHtml(`${copy.title} · ${providerLabel}`);
+    const heading = this.escapeHtml(`${provider === 'codex' ? copy.cycleTitle : copy.title} · ${providerLabel}`);
+    const officialQuota = this.renderOfficialWeeklyQuota(provider, estimates);
     const notes = [
       copy.description,
       copy.historyFromLogs,
@@ -7617,17 +8153,19 @@ export class UsageWebviewProvider {
         ? [copy.calendarFallback]
         : []),
       ...(provider === 'codex' ? [copy.multiAccount] : []),
-      ...(provider === 'codex' && points.some((point) => point.boundaryUncertain)
+      ...(provider === 'codex' && this.setting<boolean>('codex.officialQuota.enabled', false) ? [copy.accountUsageScope] : []),
+      ...(provider === 'codex' && estimates.entries.some(entry => entry.flags.includes('boundary-uncertain'))
         ? [copy.boundaryApproximation]
         : []),
       ...(provider === 'codex' && this.codexView && !this.codexView.periodCoverage.allTime.complete
-        ? [copy.indexedSubtotal]
+        ? [copy.cycleIndexedSubtotal]
         : []),
     ].map((line) => this.escapeHtml(line)).join('<br>');
-    if (points.length === 0) {
+    if (points.length === 0 && observedChartPoints.length === 0) {
       return '<div class="daily-breakdown"><div class="section-header"><h3>' +
-        heading + '</h3></div><p class="table-hint">' + notes + '</p>' +
-        '<div class="no-data"><p>' + this.escapeHtml(copy.noData) + '</p></div></div>';
+        heading + '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' +
+        '<div class="no-data"><p>' + this.escapeHtml(provider === 'codex' ? copy.estimateBlocked : copy.noData) + '</p></div>' +
+        this.renderWeeklyEstimateRecords(provider,estimates) + '</div>';
     }
 
     const dateLabel = (value: number, short = false, dateOnly = false): string => {
@@ -7648,13 +8186,13 @@ export class UsageWebviewProvider {
                 hour: '2-digit' as const,
                 minute: '2-digit' as const,
               }),
-          timeZone: I18n.getTimezone(),
+          timeZone: I18n.getTimezone() || undefined,
         }).format(new Date(value));
       } catch {
         return new Date(value).toISOString().slice(0, 10);
       }
     };
-    const periodLabel = (point: WeeklyValuePoint, short = false): string => {
+    const periodBaseLabel = (point: WeeklyValuePoint, short = false): string => {
       if (point.current) {
         if (short) {
           return copy.currentPeriodShort;
@@ -7662,11 +8200,23 @@ export class UsageWebviewProvider {
         const range = dateLabel(point.windowStart, false, true) + ' – ' +
           dateLabel(point.resetAt - 1, false, true);
         return point.basis === 'quota-observation'
-          ? `${copy.currentPeriod} · ${range} (${copy.resetsAt} ${dateLabel(point.resetAt)})`
+          ? `${copy.currentPeriod} · ${range} (${copy.resetsAt} ${dateLabel(point.observedResetAt ?? point.resetAt)})`
           : `${copy.currentPeriod} · ${range}`;
       }
       return dateLabel(point.windowStart, short, true) + ' – ' +
         dateLabel(point.resetAt - 1, short, true);
+    };
+    const periodLabel = (point: WeeklyValuePoint & { asOfEstimate?: boolean; accountNumber?: number;
+      quotaEpoch?: { startedAt: number; reason: string }; quotaCycle?: CodexQuotaCycle }, short = false): string => {
+      const account = provider === 'codex' && point.asOfEstimate && this.weeklyAccountNumber(point.accountNumber) !== undefined
+        ? this.weeklyAccountLabel(point.accountNumber) : '';
+      if (provider === 'codex' && point.asOfEstimate) {
+        return [point.current && point.quotaCycle && !point.quotaCycle.closed && !point.quotaCycle.referenceOnly
+          ? copy.currentPeriod : '', account || copy.accountUnassigned,
+          ...(!point.quotaCycle || point.quotaCycle.referenceOnly === true || !account ? [copy.low, copy.estimateReference] : []),
+          this.weeklyCycleDescription(point.quotaCycle, point.observedResetAt ?? point.resetAt)].filter(Boolean).join(' · ');
+      }
+      return periodBaseLabel(point, short);
     };
     const confidenceLabel = (point: WeeklyValuePoint): string => {
       if (point.boundaryUncertain) {
@@ -7681,7 +8231,7 @@ export class UsageWebviewProvider {
         default: return copy.usageOnly;
       }
     };
-    const chartPoints = points.slice(0, 8).reverse();
+    const renderChart = (chartPoints: ReturnType<typeof projectWeeklyEstimateChart>, kind?: 'estimate'): string => {
     const maxValue = Math.max(
       1,
       ...chartPoints.map((point) =>
@@ -7703,25 +8253,41 @@ export class UsageWebviewProvider {
       const usedLabel = point.usageAvailable === false
         ? '—'
         : I18n.formatCurrency(point.usedEquivalentUsd);
-      const title = `${periodLabel(point)} · ${copy.usedValue}: ${usedLabel}`;
-      return '<div class="hc-col"><div class="stack-bar" title="' +
-        this.escapeHtml(title) + '">' +
+      const title = (point.historicalRoughEstimate ? copy.archivedRoughEstimate + ' · ' : '') + (point.asOfEstimate
+        ? `${periodLabel(point)} · ${copy.estimateAsOf}: ${dateLabel(point.observedAt!)} · ${copy.fullValue}: ${I18n.formatCurrency(point.fullEquivalentUsd!)} · ${kind === 'estimate' ? copy.inferredUsed : copy.chartUsedValue}: ${usedLabel} · ${copy.chartUnusedValue}: ${I18n.formatCurrency(point.unusedEquivalentUsd!)}`
+        : `${periodLabel(point)} · ${copy.usedValue}: ${usedLabel}`);
+      return '<div class="hc-col"><div class="stack-bar" role="img" aria-label="' +
+        this.escapeHtml(title) + '" title="' + this.escapeHtml(title) + '">' +
         '<div class="stack-seg seg-input" style="height:' + usedHeight.toFixed(2) + 'px"></div>' +
         (point.unusedEquivalentUsd !== null
           ? '<div class="stack-seg seg-cache-read" style="height:' + unusedHeight.toFixed(2) + 'px"></div>'
           : '') +
         '</div></div>';
     }).join('');
-    const xlabels = chartPoints.map((point) =>
-      '<div class="hc-xlabel">' + this.escapeHtml(periodLabel(point, true)) + '</div>',
-    ).join('');
+    const xlabels = chartPoints.map((point) => {
+      if (provider !== 'codex' || kind !== 'estimate') return '<div class="hc-xlabel">' +
+        this.escapeHtml(periodLabel(point, true)) + '</div>';
+      const cycle = point.quotaCycle;
+      const parts = new Intl.DateTimeFormat('en-US', { month: 'numeric', day: 'numeric',
+        timeZone: I18n.getTimezone() || undefined }).formatToParts(new Date(cycle?.endAt ?? point.resetAt));
+      const shortDate = parts.find(part => part.type === 'month')!.value + '/' + parts.find(part => part.type === 'day')!.value;
+      const number = this.weeklyAccountNumber(point.accountNumber);
+      const account = number === undefined ? '?' : '#' + number;
+      const marker = cycle?.fallbackDays === 7 ? copy.fallbackCycleShort : [account, point.current && cycle && !cycle.closed && !cycle.referenceOnly
+        ? copy.currentPeriodShort : ''].filter(Boolean).join(' · ');
+      const title = periodLabel(point) + ' · ' + copy.estimateAsOf + ': ' + dateLabel(point.observedAt!);
+      return '<div class="hc-xlabel" title="' + this.escapeHtml(title) + '"><span>' + this.escapeHtml(shortDate) +
+        '</span><span>' + this.escapeHtml(marker) + '</span></div>';
+    }).join('');
     const legend = (cls: string, label: string): string =>
       '<span class="legend-item"><span class="legend-dot ' + cls + '"></span>' +
       this.escapeHtml(label) + '</span>';
-    const chart = '<div class="composition-chart"><div class="stack-legend">' +
-      legend('seg-input', copy.usedValue) +
+    return '<div class="composition-chart"' + (kind ? ' data-weekly-' + kind + '-chart' : '') + '>' +
+      (kind ? '<h4>' + this.escapeHtml(copy.estimateChartTitle) + '</h4><p class="table-hint">' +
+        this.escapeHtml(chartPoints.some(point => point.witnessCycle !== undefined) ? copy.witnessCycleChartNote : copy.cycleChartNote) + '</p>' : '') + '<div class="stack-legend">' +
+      legend('seg-input', kind === 'estimate' ? copy.inferredUsed : copy.chartUsedValue) +
       (chartPoints.some((point) => point.unusedEquivalentUsd !== null)
-        ? legend('seg-cache-read', copy.unusedValue)
+        ? legend('seg-cache-read', copy.chartUnusedValue)
         : '') +
       '</div><div class="hc-wrap"><div class="hc-yaxis"><span class="hc-yval">' +
       I18n.formatCurrency(maxValue) + '</span><span class="hc-yval">' +
@@ -7730,30 +8296,50 @@ export class UsageWebviewProvider {
       '<div class="hc-main"><div class="hc-scroll" tabindex="0"><div class="hc-plot">' +
       '<div class="hc-grid hc-grid-top"></div><div class="hc-grid hc-grid-mid"></div>' +
       '<div class="hc-bars">' + bars + '</div></div><div class="hc-xlabels">' +
-      xlabels + '</div></div></div></div></div>';
+      xlabels + '</div></div></div></div></div>' + '<p class="table-hint">' +
+        (kind === 'estimate' && chartPoints.some(point => !point.quotaCycle || point.quotaCycle.referenceOnly === true ||
+          this.weeklyAccountNumber(point.accountNumber) === undefined)
+          ? this.escapeHtml(copy.low + ' · ' + copy.estimateReference) + '<br>' : '') +
+        this.escapeHtml(kind === 'estimate' ? copy.estimateReconciliationNote : copy.chartEstimateNote) + '</p>';
+    };
+    const chart = provider === 'codex' ? '' : renderChart(observedChartPoints);
+    const estimateChart = provider === 'codex' && observedChartPoints.length
+      ? renderChart(observedChartPoints, 'estimate') : '';
+    if (provider === 'codex') {
+      return '<div class="daily-breakdown"><div class="section-header"><h3>' + heading +
+        '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' +
+        estimateChart + this.renderWeeklyEstimateRecords(provider, estimates) + '</div>';
+    }
     const dash = '—';
-    const tableRows = points.map((point) =>
+    const tableRows = points.map((point) => {
+      const estimate=point.fullEquivalentUsd===null?weeklyEstimateForPoint(point,estimates.entries):undefined;
+      const full=estimate?.fullEquivalentUsd??point.fullEquivalentUsd;
+      const unused=estimate?.unusedEquivalentUsd??point.unusedEquivalentUsd;
+      const percent=estimate?.utilizationPercent??point.utilizationPercent;
+      const observed=estimate?.observedAt??point.observedAt;
+      return (
       '<tr><td class="date-cell">' + this.escapeHtml(periodLabel(point)) + '</td>' +
       '<td class="cost-cell">' +
-      (point.usageAvailable === false ? dash : I18n.formatCurrency(point.usedEquivalentUsd)) + '</td>' +
+      (point.usageAvailable === false ? dash : this.weeklyTableCurrency(point.usedEquivalentUsd)) + '</td>' +
       '<td class="number-cell">' +
-      (point.utilizationPercent === null ? dash : this.formatPercent(point.utilizationPercent / 100)) + '</td>' +
+      (percent === null ? dash : this.formatPercent(percent / 100) +
+        (observed === undefined ? '' : ' · ' + this.escapeHtml(dateLabel(observed)))) + '</td>' +
       '<td class="cost-cell">' +
-      (point.fullEquivalentUsd === null ? dash : I18n.formatCurrency(point.fullEquivalentUsd)) + '</td>' +
+      (full === null ? dash : this.weeklyTableCurrency(full)) + '</td>' +
       '<td class="cost-cell">' +
-      (point.unusedEquivalentUsd === null ? dash : I18n.formatCurrency(point.unusedEquivalentUsd)) + '</td>' +
-      '<td>' + this.escapeHtml(confidenceLabel(point)) + '</td>' +
-      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td></tr>',
-    ).join('');
+      (unused === null ? dash : this.weeklyTableCurrency(unused)) + '</td>' +
+      '<td>' + this.escapeHtml(estimate ? copy.low + ' · ' + this.weeklyEstimateMethod(estimate) : confidenceLabel(point)) + '</td>' +
+      '<td class="number-cell">' + this.formatPercent(point.pricingCoverage) + '</td></tr>'
+    );}).join('');
     return '<div class="daily-breakdown"><div class="section-header"><h3>' + heading +
-      '</h3></div><p class="table-hint">' + notes + '</p>' + chart +
+      '</h3></div>' + officialQuota + '<p class="table-hint">' + notes + '</p>' + chart +
       '<details class="weekly-value-details"><summary>' + this.escapeHtml(copy.periodDetails) +
       '</summary><div class="daily-table-container" tabindex="0"><table class="daily-table"><thead><tr>' +
       '<th>' + this.escapeHtml(copy.period) + '</th><th>' + this.escapeHtml(copy.usedValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.utilization) + '</th><th>' + this.escapeHtml(copy.fullValue) + '</th>' +
       '<th>' + this.escapeHtml(copy.unusedValue) + '</th><th>' + this.escapeHtml(copy.confidence) + '</th>' +
       '<th>' + this.escapeHtml(copy.pricingCoverage) + '</th></tr></thead><tbody>' +
-      tableRows + '</tbody></table></div></details></div>';
+      tableRows + '</tbody></table></div></details>' + estimateChart + this.renderWeeklyEstimateRecords(provider,estimates) + '</div>';
   }
 
   /** Claude's legacy Share Card remains a provider-truthful presentation inside
@@ -12175,12 +12761,46 @@ export class UsageWebviewProvider {
         margin-top: 12px;
       }
 
-      .weekly-value-details {
+      .weekly-value-details, .weekly-estimate-details {
         margin-top: var(--ccu-space-3);
         border-top: 1px solid var(--ccu-border);
       }
 
-      .weekly-value-details > summary {
+      .weekly-value-details .date-cell, .weekly-estimate-details .date-cell {
+        white-space: normal;
+      }
+
+      .weekly-estimate-details .model-details {
+        color: var(--vscode-foreground);
+      }
+
+      .weekly-estimate-details th:last-child, .weekly-estimate-details td:last-child {
+        min-width: 140px;
+      }
+
+      .weekly-value-details [data-weekly-table-provider="codex"] {
+        min-width: 820px;
+      }
+
+      .weekly-estimate-details [data-weekly-table-provider="codex"] {
+        min-width: 1080px;
+      }
+
+      [data-weekly-table-provider="codex"] .date-cell {
+        min-width: 140px;
+      }
+
+      .weekly-estimate-details [data-weekly-table-provider="codex"] th:nth-child(8),
+      .weekly-estimate-details [data-weekly-table-provider="codex"] td:nth-child(8) {
+        min-width: 160px;
+      }
+
+      .weekly-estimate-details [data-weekly-table-provider="codex"] th:last-child,
+      .weekly-estimate-details [data-weekly-table-provider="codex"] td:last-child {
+        min-width: 72px;
+      }
+
+      .weekly-value-details > summary, .weekly-estimate-details > summary {
         width: fit-content;
         padding-top: var(--ccu-space-3);
         color: var(--vscode-textLink-foreground);
@@ -12188,7 +12808,7 @@ export class UsageWebviewProvider {
         font-weight: 600;
       }
 
-      .weekly-value-details > summary:focus-visible {
+      .weekly-value-details > summary:focus-visible, .weekly-estimate-details > summary:focus-visible {
         outline: 1px solid var(--ccu-focus);
         outline-offset: 3px;
       }
@@ -13375,6 +13995,76 @@ export class UsageWebviewProvider {
         font-size: 10px;
         color: var(--vscode-descriptionForeground);
       }
+
+      [data-weekly-estimate-chart] .hc-col,
+      [data-weekly-estimate-chart] .hc-xlabel {
+        width: 44px;
+      }
+
+      [data-weekly-estimate-chart] .hc-bars,
+      [data-weekly-estimate-chart] .hc-xlabels {
+        gap: 2px;
+      }
+
+      [data-weekly-estimate-chart] .stack-bar {
+        width: 36px;
+      }
+
+      [data-weekly-estimate-chart] .hc-xlabel > span {
+        display: block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 14px;
+      }
+
+      [data-codex-cycle-chart] .hc-plot,
+      [data-codex-cycle-chart] .hc-xlabels {
+        width: calc(var(--cycle-count) * 46px - 2px);
+        min-width: 0;
+      }
+
+      [data-codex-cycle-chart] .stack-bar { width: 40px; }
+      [data-codex-cycle-chart] .hc-wrap { margin-bottom: 12px; }
+      [data-codex-cycle-chart] .stack-bar:focus-visible,
+      [data-cycle-pending]:focus-visible,
+      [data-cycle-evidence] > summary:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 2px;
+      }
+      [data-cycle-pending] {
+        color: var(--vscode-descriptionForeground);
+        min-height: 24px;
+        line-height: 24px;
+      }
+      [data-cycle-source-conflict] {
+        padding: 6px 10px;
+        border-left: 2px solid var(--vscode-charts-orange);
+        background: var(--vscode-editor-background);
+      }
+      [data-cycle-state] {
+        display: block;
+        color: var(--vscode-descriptionForeground);
+        font-size: 11px;
+        margin-top: 3px;
+        white-space: normal;
+        max-width: 180px;
+      }
+      [data-codex-cycle-panel] [data-codex-cycle-table] { min-width: 760px; }
+      [data-codex-cycle-panel] [data-codex-cycle-table] td,
+      [data-codex-cycle-panel] [data-codex-cycle-table] th { vertical-align: top; }
+      [data-codex-cycle-panel] [data-codex-cycle-table] .date-cell { min-width: 100px; white-space: nowrap; }
+      [data-codex-cycle-panel] [data-codex-cycle-table] th:last-child,
+      [data-codex-cycle-panel] [data-codex-cycle-table] td:last-child { min-width: 140px; }
+      [data-codex-cycle-panel] [data-witness-cycle-table] th:last-child,
+      [data-codex-cycle-panel] [data-witness-cycle-table] td:last-child { min-width: 320px; }
+      [data-cycle-evidence] { max-width: 420px; }
+      [data-codex-cycle-table] .cost-cell { color: var(--vscode-foreground); }
+      [data-cycle-evidence] .table-hint { color: var(--vscode-foreground); }
+      [data-cycle-evidence] > summary { cursor: pointer; white-space: nowrap; color: var(--vscode-textLink-foreground); }
+      [data-cycle-evidence-facts] { margin: 10px 0; display: grid; gap: 4px 10px; grid-template-columns: auto 1fr; }
+      [data-cycle-evidence-facts] dt { color: var(--vscode-descriptionForeground); }
+      [data-cycle-evidence-facts] dd { margin: 0; overflow-wrap: anywhere; }
 
       [data-codex-time-series],
       [data-codex-time-series] .chart-content,

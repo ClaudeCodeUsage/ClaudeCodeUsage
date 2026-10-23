@@ -136,3 +136,13 @@ test('quota history remains bounded even when resets are numerous', () => {
   assert.equal(history.length, CODEX_QUOTA_HISTORY_LIMIT);
   assert.equal(history[0].resetAt < history[history.length - 1].resetAt, true);
 });
+test('malformed percentages are rejected rather than persisted as zero or full usage', () => {
+  const RESET = Date.parse('2026-10-19T12:00:00Z');
+  const NOW = RESET - 1000;
+  for (const usedPercent of [-1, 101, NaN, Infinity]) {
+    const row = { provider: 'codex' as const, seriesKey: 'codex' as const,
+      observedAt: NOW, resetAt: RESET, usedPercent };
+    assert.deepEqual(appendCodexQuotaHistory([], [row]), []);
+    assert.deepEqual(codexQuotaObservationsFromLimit(limit(NOW, RESET, usedPercent)), []);
+  }
+});

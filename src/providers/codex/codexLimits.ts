@@ -14,10 +14,6 @@ export interface CodexLimitView {
   source?: ProviderLimitSnapshot['source'];
 }
 
-function percent(value: number): number {
-  return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
-}
-
 /**
  * Classify what a local log actually observed. A window without a reset is
  * deliberately stale: a point-in-time log cannot establish it as current.
@@ -32,9 +28,11 @@ export function buildCodexLimitViews(
 
   const views: CodexLimitView[] = [];
   for (const snapshot of observed) {
+    if (!Number.isFinite(snapshot.observedAt) || snapshot.observedAt > now) continue;
     const name = snapshot.limitName;
     for (const window of snapshot.windows) {
-      const usedPercent = percent(window.usedPercent);
+      const usedPercent = window.usedPercent;
+      if (!Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100) continue;
       const resetsAt = window.resetsAt;
       views.push({
         state: resetsAt !== undefined && resetsAt > now ? 'current' : 'expired',

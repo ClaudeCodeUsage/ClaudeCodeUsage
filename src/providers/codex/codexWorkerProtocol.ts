@@ -34,6 +34,8 @@ export type CodexWorkerRequest =
   | { type: 'cancel'; requestId: string };
 
 export interface CodexWorkerResult {
+  /** Runtime-only manifest-to-current-contribution verification; absent on old workers. */
+  forwardSourcesCurrent?: boolean;
   achievementUsageDelta?: CodexAchievementUsageDelta;
   index: CodexIndexV1;
   indexRecovery?: CodexIndexRecovery;

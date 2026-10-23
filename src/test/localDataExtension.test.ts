@@ -127,7 +127,7 @@ test('host inventory exposes only value-free location classes and random quota s
   const serialized = JSON.stringify(inventory);
   assert.equal(inventory.schemaVersion, 1);
   assert.deepEqual(inventory.rows.map((row: any) => row.id), [
-    'R1', 'R2', 'P1', 'P2', 'P3-P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12',
+    'R1', 'R2', 'P1', 'P2', 'P2a', 'P3-P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12',
   ]);
   assert.doesNotMatch(serialized, /Users\/private|private-owner|private-repo/);
   assert.doesNotMatch(serialized, /fingerprint-private-canary|window-private-canary|machine-salt-canary/);

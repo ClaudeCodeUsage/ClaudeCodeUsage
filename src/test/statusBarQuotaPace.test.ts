@@ -89,18 +89,24 @@ test('Codex pace consumes the provided trusted DTO, never infers account identit
   assert.doesNotMatch(m.createCodexQuotaTooltip(limit, T + 31 * 60_000, evidence()).value, /116%/);
 }));
 
-test('normalizer fallback zero and unknown weekly kind never acquire forecast authority', () => at(T, () => {
+test('invalid percentages fabricate no quota display or forecast; unknown weekly kinds have no forecast authority', () => at(T, () => {
   I18n.setLanguage('en');
   const m = manager();
   enable(m, true);
+  let quotaVisible = false;
+  m.quotaItem.show = () => { quotaVisible = true; };
+  m.quotaItem.hide = () => { quotaVisible = false; };
   const zero = evidence();
   zero.windows[0].usedPercent = 0;
   m.updateQuota({ seven_day: { utilization: NaN, resets_at: quota.seven_day.resets_at } }, zero);
-  assert.doesNotMatch(m.quotaItem.tooltip.value, /Weekly quota pace/);
+  assert.equal(quotaVisible, false, 'invalid quota cannot show a fabricated zero');
+  assert.equal(m.quotaItem.text, '');
+  assert.equal(m.quotaItem.tooltip, undefined, 'invalid quota cannot create a forecast tooltip');
   zero.windows[0].kind = 'weekly_scoped';
   m.updateQuota({ limits: [{ kind: 'unknown_future_kind', group: 'weekly', percent: 0,
     resets_at: quota.seven_day.resets_at, scope: { surface: 'Mystery' } }] }, zero);
-  assert.doesNotMatch(m.quotaItem.tooltip.value, /Weekly quota pace/);
+  assert.equal(quotaVisible, false, 'a zero scoped quota stays hidden');
+  assert.equal(m.quotaItem.tooltip, undefined, 'a hidden scoped quota cannot create a forecast tooltip');
 }));
 
 test('early sample shows reference only and scoped weekly rows keep their independent names', () => {

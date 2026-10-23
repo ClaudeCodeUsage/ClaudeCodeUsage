@@ -55,6 +55,11 @@ imagens e detalhes na [página principal completa em inglês](README.md).
 
 ## Novidades da v2.5
 
+- **Comparação de cotas Codex por ciclo** — uma barra e uma linha de resumo por ciclo,
+  com evidências expansíveis, calibração pendente e conflitos; valores são estimativas locais condicionais.
+  A leitura oficial vem desativada e pode contatar a OpenAI; exibe créditos de redefinição quando disponíveis.
+  Calibra novos incrementos sem reprocessar o histórico de cotas. Veja [privacidade](LOCAL-DATA.md).
+
 - **Conquistas locais** — veja medalhas, progresso e próximos objetivos. Ativas por padrão;
   desative em Local achievements nas configurações (`enableAchievements`). As datas vêm dos
   logs retidos, não do histórico completo da conta; a calibração manual atualiza as datas compatíveis.
@@ -78,7 +83,9 @@ raciocínio já fazem parte da saída. Não some essas parcelas outra vez. O
 **custo equivalente de API** é apenas uma estimativa com preços conhecidos,
 não uma fatura nem cobrança da assinatura. Custos e limites de Claude e Codex
 não são somados entre si. Registros ausentes ou ainda não indexados podem
-reduzir os totais mostrados; o limite do Codex é a última observação local.
+reduzir os totais mostrados; por padrão, o limite do Codex é a última observação local.
+
+
 
 ## Instalação e privacidade
 
@@ -90,6 +97,11 @@ localmente; o índice do Codex guarda agregados pseudônimos, não o conteúdo
 das conversas. Os índices são separados por diretório de registros, salt do perfil
 e fuso horário. Reconstruir afeta só o índice ativo; Apagar Tudo inclui todas as
 famílias exatas de arquivos de índice nesse armazenamento da extensão.
+Um HMAC de volume opcional com salt específico da máquina é apagado com o índice;
+UUIDs brutos, caminhos e nomes de volume não são armazenados.
+As evidências numéricas no arquivo semanal separam os intervalos de valor local do
+contexto oficial, sem logs brutos, títulos, caminhos ou credenciais. Seguem a exclusão
+existente por conta, provedor ou de todo o arquivo, sem chamadas adicionais.
 Ao mudar de fuso horário, um checkpoint completo e comprovado da mesma origem
 pode ser reutilizado em modo somente leitura; apenas os períodos de data/hora
 são migrados, sem reconstruir o histórico principal do zero.

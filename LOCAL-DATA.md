@@ -5,23 +5,26 @@ only bounded derived state needed for fast refresh and reset-aware estimates,
 and never treats API-equivalent cost as a bill.
 
 This page is the current inventory and versioned data-contract supplement for
-version 2.5.0, combining achievements and compressed-log
-compatibility. The
+version 2.5.0, combining achievements and compressed-log compatibility,
+with the unreleased optional Codex quota/account-estimate additions below. The
 historical v2.3.1 field-level baseline is in
 [`docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md).
-The later compression, sharing, quota-pace and achievement sections here govern their added
+The later compression, sharing, quota-pace, weekly-estimate preview and achievement sections here govern their added
 runtime/persistent fields and exact clearing rules, including the canonical v2
 envelope and twelve sharing keys. They do not relax unchanged baseline source-log,
 credential, account-separation or explicit-network-consent restrictions.
+
+中文说明见 [本地数据与隐私](LOCAL-DATA.zh-CN.md)。
 
 ## What the extension reads and retains
 
 | Data class | Source | What is retained by the extension | Retention and clearing | Remote interaction |
 |---|---|---|---|---|
 | Claude usage records | Claude Code's local `projects/**/*.jsonl` | Runtime usage records and an in-memory per-file index; bounded prompt samples only when content analysis is enabled | Released on window reload/exit. Data controls never touch source logs; the separately opt-in Session Actions feature may move one exactly confirmed log to the OS trash (recoverable) | None unless the user separately previews and sends an advice request |
-| Codex usage records | `.jsonl` and `.jsonl.zst` regular files recursively under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` | A schema-3 incremental index of pseudonymous file keys, decoded offsets, numeric usage, dates, model/effort, sanitized structural aggregates, and optional compressed-source fingerprints/EOF marker | Until rebuild, explicit clear, schema replacement, or host removal | None |
+| Codex usage records | `.jsonl` and `.jsonl.zst` regular files recursively under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions` | A schema-3 incremental index of pseudonymous file keys, decoded offsets, numeric usage, dates, model/effort, sanitized structural aggregates, optional compressed-source fingerprints/EOF marker, and bounded version-5 quota/Token checkpoints with separate admitted baseline requests and numeric incomplete-range witnesses | Until rebuild, explicit clear, schema replacement, or host removal; checkpoint migration reuses existing period replay | None |
 | Codex titles | Exactly `$CODEX_HOME/session_index.jsonl` | `id → thread_name` is streamed for runtime display; titles are not written to the index | Runtime only | None |
-| Quota observations | Claude's official quota response or structured Codex rate-limit events | Provider, machine-local anonymous account epoch, observed/reset time, period, used/remaining fraction, anonymous window identity, source, confidence, and quality flags | At most 180 days and 512 observations per provider/account/period after boundary-preserving compaction; clear separately or with all derived data | Claude quota lookup contacts Anthropic when enabled; an expired Claude token is refreshed with Anthropic and written back to its credential source. Codex quota evidence is local |
+| Weekly estimate preview | Existing numeric checkpoints/aggregates and local/opt-in official quota samples | `weekly-estimates-v1.json`: fixed-field snapshots, optional request-witness, paired-window, official-delta or method-two matched-cut receipts; actual/requested endpoints, public ratebook/parser/period versions, intervals/Δp/USD/priced and unpriced Tokens/cycle bounds, internal account/window HMACs, leased source-local account ordinal and linked/unlinked diagnostics | Revisions preserve history; 4096 entries / 1 MiB stop new writes, no eviction. Clear fences include earliest witness or monetary calibration start; selected-account clear preserves other/unassigned records and provider/all clear includes the archive | Calculation/chart/evidence projection has no network; optional official sample acquisition uses the daemon boundary below |
+| Quota observations | Claude official response, structured Codex local events or opt-in `codex-official-api` sample | Provider, machine-local anonymous scope, original times/fractions/window/source/confidence/flags; optional revision-1 sanitized official facts with at most two windows and 128 HMAC-keyed reset credits; no raw account/credit IDs or free text | At most 180 days and 512 observations per provider/account/period after compaction; embedded facts share account/provider/all clearing | Enabled Claude lookup contacts Anthropic and may refresh its credentials. Optional Codex read can contact OpenAI through the existing daemon, whose authentication may refresh; the extension reads no Codex credentials |
 | Settings and UI preferences | User choices | Typed extension settings, selected tab/filters, bounded background-work state, sharing presentation, Share Card draft controls, heatmap title/range/privacy/palette/provider/metric/show-amounts controls, gallery filter/size, and the optional display-currency preset | Until reset, clear, or uninstall; ordinary VS Code settings may participate in Settings Sync | No extension-initiated transfer; no exchange-rate lookup |
 | Heatmap artifact (2.5.0) | At most 366 selected materialized civil-day aggregates | One accepted immutable SVG/Markdown artifact, opaque document-bound preview ID, source references and whitelisted config/quality identity | Runtime only; replaced/retired on control, source, pricing or display change, reset or disposal | None; preview/local export adds no source-log reads or network requests |
 | Weekly quota pace (2.5.0) | Existing successful raw quota cache and original observation time | Runtime-only ≤16-window numeric projection, original-response metadata and bounded verified-account/window continuity anchors; default-off shared `showWeeklyQuotaPace` STATE preference | No extra observation store; source/credential invalidation withdraws forecasts and disposal releases runtime state | None added; does not enable quota tracking or request new credentials |
@@ -59,7 +62,7 @@ is not deletion; its remaining canonical source is reconciled without adding it 
 
 Same-directory, same-basename plain JSONL is canonical and the compressed HMAC
 key strips `.zst`; selection does not assert identical contents. Cross-area copies
-still require full-census lineage deduplication. Encoding/physical-version changes
+still require full-census lineage deduplication. Encoding/other physical-version changes
 invalidate old completion evidence and trigger quiet targeted historical rereads,
 including moves with changed ctime; they do not create new live-usage receipts.
 
@@ -73,6 +76,31 @@ within those hard caps. Cold backfills containing compressed sources use at most
 two file-pass workers. Native Node Zstd (22.15+ / 23.8+) adds no dependency.
 Unsupported hosts report the limitation and retain last-good verified totals.
 See [architecture](ARCHITECTURE.md) for the implementation boundary.
+
+## Codex volume identity (P1)
+
+Each source in the existing schema-3 P1 index may retain optional `volumeKey`, a
+machine-salted HMAC of its stable filesystem `VolumeUUID`. No raw UUID, path or
+volume name is retained. On macOS, a bounded metadata helper runs `/bin/df -P`
+on an allowed usage root to resolve its mount device, validates the
+`/dev/diskN[sN]*` form (numeric `N`), then runs `diskutil info -plist` on that device.
+The commands share a total three-second deadline. Results are cached against root `dev`/`ino`;
+either changing invalidates that cache. Unsupported hosts or inspection failure
+use strict device/inode matching. Identity adds no credential or source-body I/O;
+existing compressed-source checks of at most 18 header bytes remain unchanged.
+
+Equal proven volume key and inode, with unchanged representation/other fingerprints,
+permit cache reuse after device renumbering. Known different volume keys reject
+reuse even at the same device number. Legacy records lacking `volumeKey` cannot
+bridge a device change; they learn it when device/inode already match or after a
+fresh scan. There is no parser/schema bump or forced rescan for this field.
+
+The field lives and clears with its P1 contribution under the existing
+rebuild/clear lifecycle; there is no separate store or remote disclosure. Older
+readers may drop it, requiring later revalidation; this is not a universal
+rollback-write guarantee. Primary usage totals are unaffected. Runtime calibration
+may still retire on a device change; persisted volume identity must not restore
+its prior baseline.
 
 ## What is never cached
 
@@ -122,43 +150,530 @@ If it is expired, the existing refresh token is sent to
 back to that profile's credential file or macOS Keychain item. This is separate
 from optional BYOK AI advice, which never uses Claude subscription credentials.
 
-Different anonymous account fingerprints are not merged into an account-level
-fact. Current-cycle total/unused API-equivalent estimates nevertheless retain
-the existing low-confidence local-history calculation when account attribution
-is uncertain; they are not verified account balances or remaining subscription
-allowances. For Codex this can compare eligible usage from one local home/window,
-potentially spanning several sign-ins, with the latest applicable quota-observation
-cluster. It does not identify or divide the result among accounts.
+## Weekly estimate preview and archive
 
-Each valid sample estimates total equivalent as the local priced used value
-through that sample divided by its observed used fraction. Several samples use
-an evidence-weighted median; coverage, attribution and boundary uncertainty lower
-confidence. The displayed full estimate is no smaller than the currently known
-used equivalent, and unused is the difference when the candidate remains valid.
-For example, local API-equivalent use of USD 74 at an observed 74% gives an
-estimated total of USD 100 and an unused equivalent of USD 26 when current use
-still equals 74. This does not mean USD 26 of account credit is available.
-If cumulative known local use exceeds the aggregate candidate, unused is withheld
-rather than shown as a fabricated zero; the comparison does not use only the
-newly added amount. Missing positive usage or valid observations leaves used value
-only. Completed Codex display windows receiving multiple distinct quota series
-also remain usage-only, but a single unattributed series may retain low-confidence
-total/unused estimates after completion.
+### Request-witness amounts and retained data
 
-The 2026-10-11 maintainer decision keeps this current-period estimate unchanged.
-Accurate per-account calculation is deferred until multi-account compatibility
-can establish account/window ownership. This is separate from the elapsed-time
-forecast controlled by `showWeeklyQuotaPace`; its trusted-account/window admission
-rules are not relaxed. No extra request, credential lookup or identity store is
-introduced by this documentation clarification.
+The current `request-witness-v1` path retains priced observed local amounts U
+(`knownUsd`) even with unknown account ownership or incomplete coverage.
+It does not assign an account. Unknown models retain unpriced Token counts, never
+an imputed price. Conditional F = deltaUsd / (deltaPercent / 100) uses interval
+USD and percentage-point changes, not U divided by the current percentage.
+Missing F is null, not zero, and does not erase U. Neither value certifies complete
+account spending or a guaranteed lower bound.
 
-Display-currency conversion is presentation-only. Pricing, aggregation,
-persistence, sorting, and comparisons remain USD-denominated. The extension
-stores only one validated preset code and resolves it against bundled reference
-rates dated 2026-09-09. Rates are not editable and no lookup is performed.
-Converted estimates carry `≈`; provider-native money such as actual usage
-credits remains in its reported currency. The snapshot derives currency-per-USD
-values from the [ECB euro reference rates](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html).
+The provider aggregates admitted sources before the global checkpoint cap;
+per-source retention limits remain. Unlocated primary amounts, unpriced Tokens
+and rejected-source counts remain separate runtime coverage diagnostics.
+The existing `weekly-estimates-v1.json` stores a validated fixed-field
+`witnessCycle`: captured public ratebook, U and interval USD, priced/unpriced
+counts, coverage and conflict/missing-baseline flags, source/segment counts,
+actual `from`/`through`, requested cutoff `requestedThrough`, percentages and
+reset-episode bounds. No raw IDs, source vectors, paths, titles, bodies or credentials
+are added. `observedAt` uses actual retained `through`, not the requested cutoff.
+
+Stable internal episode keys use namespace, reset and episode start, not the
+compaction-sensitive earliest retained witness. A stronger frozen receipt under
+the same ratebook can preserve a historical earlier endpoint; it is not repriced
+or presented as current. Only a changed requested cutoff causes no repeat write.
+The archive stays schema 1, with 4096 entries / 1 MiB, no eviction and stop-on-full
+writes. Provider/all clear fences include the earliest witness `from`, preventing
+later snapshots from restoring cleared evidence; account-only clears preserve
+unattributed receipts.
+
+Witness mode no longer uses r21 legacy rough bars as its primary local view.
+Old full-strict forward estimates remain separate; their rules below do not
+require dropping witnessed U. This adds no full replay, parser bump, source I/O
+or network request, and reuses existing archive I/O. Official sampling waits for
+an in-flight local refresh before rechecking its guards; its opt-in network
+boundary remains below. Bounded continuation dedup proves only that admitted
+files do not share counted requests, not completeness or account ownership.
+See [architecture](ARCHITECTURE.md#retained-request-witnesses-request-witness-v1)
+for aggregation, conditional-F admission and receipt selection.
+
+### Existing official and strict calibration paths
+
+`codex.officialQuota.enabled` defaults off. With quota tracking enabled, the host
+can read the already-running official local Codex daemon through
+`providers/codex/codexOfficialQuota.ts` and `codexQuotaWebSocket.ts`: a short-lived
+`app-server proxy` carries WebSocket frames over stdio. The only application messages are
+`initialize`, `initialized` and `account/rateLimits/read`. The extension never
+starts the daemon, initiates login or reads credentials. The quota API can
+contact OpenAI, and daemon-managed authentication may refresh credentials;
+a local proxy connection does not make this operation network-free.
+
+The host rejects custom Codex homes and remote extension hosts. Reads require
+the window to be focused, including while editing documents; automatic attempts are at
+least 60 seconds apart and manual attempts at least 10 seconds apart. Existing
+refresh/visibility callbacks drive them, with no extra recurring timer.
+Failure, cancellation or unsupported sources produce unavailable state, not a
+substitute account from local logs. Successful current quota identity does not
+prove ownership of local usage.
+
+Official P2 observations are durable epoch checkpoints even before a monetary
+estimate exists. `codexQuotaEpoch.ts` copies first observation, fixed reset anchor,
+optional lower boundary and cautious reason, never an invented exact manual-reset
+time. With validated new `officialFacts`, unused planned-reset drift before the
+deadline and same-window nonzero corrections of at most one percentage point do
+not split cycles; corrections still retire calibration. Larger drops, positive-to-zero
+changes and positive-use reset changes retain cautious boundaries. Legacy P2 rules stay intact.
+
+`CodexAccountEstimator` in `codexAccountEstimate.ts` routes declared
+`codexForwardCollectionVersion: 1` or trusted proof `slicesVersion: 1` to
+`codexForwardMatchedEstimator.ts`; older forward proofs retain the method-one
+`codexForwardAccountEstimate.ts` route. Declared forward collection with missing
+proof never falls back to historical estimation. Both require a fresh verified
+primary census and exact scan-issued append offsets/usage times.
+The bounded immutable runtime proof (16,384 sources / 8 MiB; 64 MiB hashing cap)
+includes every primary source; changed sources need complete priced increments
+and matching local quota witnesses, or the whole interval is withheld. Unchanged
+old sources need no historical-sidecar migration; `allTime` completion is not a
+forward-calibration prerequisite. Census, append witnesses and baselines are never
+persisted or restored. Method-one archive evidence can retain numeric
+`collectionMode: 'forward-append-v1'` receipts. This adds no runtime dependency,
+source I/O, scanner or anonymous contribution; existing opt-in official reads retain
+the daemon/network boundary above. Forward samples/proofs use five-minute freshness
+bounds and accumulate verified increments until an increase of at least one
+percentage point is observed, with the final sample below 100%.
+
+Local proof/rates/pricing version are captured before the official RPC, not after
+concurrent watcher or persistence work. A fresh exact baseline-proof reread with
+unchanged account/context/epoch/percentage is quota-facts-only and preserves the
+monetary baseline without counting USD twice; other proof reuse remains rejected.
+One fixed-field local `codex-calibration` output record per existing cadenced read
+can distinguish the cause using enum state/reason, paired-point/interval counts
+and relative proof/bracket durations. No identifiers, model names, raw errors,
+extra cache, timer or telemetry flow are added; progress remains non-restorable.
+Matched collection reports its first rejected guard separately: unproven birth,
+source/append continuity, missing numeric slices, invalid slice order/vector,
+missing pricing, baseline-time overlap or usage after the official request.
+These fixed enum reasons do not identify a source or relax monetary eligibility.
+Outside witness mode, closed anonymous archive amounts with coherent total/unused/percentage arithmetic
+can be displayed as archived rough estimates, preserving partial coverage and
+original timestamps. A display-only provenance marker never enters the archive
+or monetary admission; live partial fits and current account cycles cannot use it.
+Window blur cancels in-flight network authority and recurring work but retains
+the accepted in-memory calibration baseline. On return, the ordinary account,
+epoch, freshness and full-append checks decide whether it remains comparable.
+No baseline is restored from disk or accepted solely because focus returned.
+
+Observed `token_usage_record` compatibility is scan-local only: a record, validated
+response item and newly emitted exact-last count must occupy consecutive raw
+ordinals and physical lines, share locked thread/model context and request token
+components, and fall within five seconds. The earlier record time and count time
+both bound usage; cumulative scopes are not compared as identical totals. Metadata
+adds no tokens/USD and no marker, raw ID/body or pending pair is persisted. Split,
+unsafe, missing or replayed pairs remain ineligible. Primary parser schema, totals,
+signatures and warnings are unchanged. This observed layout does not establish a
+universal shared-request identity contract or make historical amounts complete.
+
+Optional runtime append `slices` retain only request time envelopes, exact emitted
+primary token components, a sanitized model and optional same-line Codex numeric
+quota. Per-pass limits are 128 requests / 64 KiB; retained windows share the existing
+256-KiB live history cap. Overflow omits detail as a whole. Neither slices nor
+pending pair state survive P1 serialization/restart, and collection adds no source
+read, history replay, account attribution, body/ID field or persistent store.
+The matched route first reconciles every changed source's complete primary delta,
+exact offsets and current physical snapshot, then uses the same global local cuts
+for both numeric USD and local Δp. Official request/observation times and
+percentages remain context and current as-of facts, never substituted into the
+local numerator or denominator. It reuses the existing public model ratebook.
+
+Runtime-only `forwardSourcesCurrent` verifies manifest-versus-contribution
+identity/version/EOF. False withholds proof; absent cannot exempt file-level
+`replaced-jsonl`/`truncated-jsonl` diagnostics. Only fresh current-source verification
+can admit those file reset diagnostics for a new future baseline. Unsafe parser
+flags remain fatal; replacement scans grant no append or birth authority.
+After discarding the first arbitrary percentage-step span, flat-percentage USD
+is sealed into bounded numeric prefix sums across polls. Residual unsealed rows
+are capped at 2048 / 256 KiB, the source set at 16,384, official context history at
+32 points and compatible runs at 64. Context/account/epoch/pricing changes,
+gaps or unsafe input retire the baseline; no receipt restores it. These runtime
+details add no persisted bodies, raw IDs, titles, paths or credentials.
+The method is implemented and routed; deployment and verification against actual
+usage remain outstanding.
+
+Each fresh continuity baseline starts unaligned: discard USD and points through
+the first observed increase of at least one percentage point, then measure from
+that observed step. Switches, gaps and invalid intervals restart alignment;
+same-cycle percentage decreases retire the old calibration cohort without themselves
+creating a new cycle or reusing its points. Runtime context additionally binds
+`planType`, `spendControlReached` and `ordinaryUsageAllowed`, alongside actual rates;
+changes break continuity, without extending the persisted facts allowlist.
+Alignment does not guarantee unbiased estimates or establish an error bound.
+
+The live producer retains at most 32 append windows per source and 512 windows /
+256 KiB overall. A branded previous proof from the same provider can bridge an
+unchanged normalized warm reload or a verified ordered append, never a restart,
+copied proof, changed owner/generation or unknown gap. The consumer selects an
+exact offset chain for its own official bracket; missing/evicted prefixes remain
+unknown. Method-one fitting requires matching local and official percentage endpoints;
+known-zero quiet refreshes preserve alignment. Last counter observations survive
+blur so a later correction cannot restore a retired calibration cohort. EOF-packed
+partial lineage blocks preserve the same ordered-prefix semantics as full blocks.
+
+Approved old parsing/accounting gaps may precede a fresh forward baseline, but
+do not establish complete history. Each unsafe new line independently invalidates
+its append witness even when its diagnostic flag already existed. Stale state,
+identity/ownership failures and unknown quality flags remain blocking, subject
+only to the verified file-reset diagnostic rule above, never unsafe parser flags. The UI
+receives only a runtime allowlisted calibration state and numeric paired-point /
+interval counts; these progress facts are not persisted, restored or sent elsewhere.
+An entirely pending chart explicitly says that capacity is unknown, not zero.
+New root sources may join only with runtime birth provenance covering a full
+offset-zero scan, stable ownership and a contiguous append chain. Every old source
+must remain; all new dollars/timestamps must fit the official bracket. Predecessor
+census summaries are capped at 32 and are never saved. Unproven children, restored
+or copied witnesses, unsafe initial input and missing prices reject the interval.
+
+The comparison prioritizes identified account cycles. Anonymous reference cycles
+overlapping their observed coverage are omitted from both bars and summary rows,
+with an explicit omitted-cycle count. Their archive values remain unchanged and
+are never assigned to an account. Non-overlapping older references remain visible;
+a pending account cycle never borrows an anonymous capacity.
+
+The historical aggregate compatibility path in `codexAccountEstimate.ts` keeps the
+following separate rules; these do not gate forward calibration. Account switching breaks the monetary baseline
+without bridging intervening use; bounded compatible account/epoch/price sums can
+be retained. Full clearing, source/index invalidation and restart clear runtime
+calibration; archived evidence never restores a pre-restart baseline. Actual model-rate
+changes break the baseline even if the public pricing-version label is unchanged.
+Valid epoch intervals may span up to 65 minutes with complete indexes
+and consistent local witnesses; over five minutes adds a continuity warning.
+Legacy callers retain the five-minute cap. Unexpired older quota observations
+retain their original timestamp and a stale marker, not current account authority.
+Recent-observation continuity is tracked
+separately from that baseline: a valid unsaturated unchanged-percentage read updates
+`lastObserved` while preserving the original monetary baseline. Continuous
+unchanged reads can therefore span more than five minutes without discarding
+the work awaiting a percentage increase.
+Historical aggregate calibration requires a verified current manifest and complete current/all-time
+indexing. Historical `ambiguousSessionGroups` can leave `coverage.identity.complete`
+false after a full scan; that global flag no longer blocks an otherwise verified
+unambiguous subset. Deduplication supplies runtime-only `ambiguousFileKeys`, and the
+provider attaches the verified `calibrationSourceScope` exclusion set. The estimator
+uses only unambiguous sources; primary totals and identity quality flags stay intact,
+and the subset is never presented as complete account usage. Receipts retain only
+the `excludedSources` count, not excluded keys; exclusions add `partial-history`.
+Index rebuilds, `indexGeneration` or exclusion-set changes require a fresh baseline.
+Unmatched or conflicting sources, detectable revisions to already-closed historical
+buckets and late backfill at/before the baseline are excluded from calibration.
+Optional `inputs.codexCalibrationCensus` is a runtime-only source census from
+`codexCalibrationCensus.ts` via `buildCodexCalibrationCensus(index, verified,
+canonical, ambiguous, verifiedAt = Date.now())`. Its schema-1 envelope contains
+`indexGeneration`, `verifiedAt` and every indexed source, including noncanonical
+and ambiguous files: `sourceKey`, `revision`, `continuity`, `bytes`, `canonical`,
+`eligible`, `uncertain`, `activityThrough`, `usageThrough`, `usageRevision` and
+`ranges`. Bounds are 16,384 sources /
+8 MiB, with a 64 MiB hashing-processing cap; no partial census is issued.
+The producer's WeakSet brand admits only its immutable runtime objects;
+serialized or copied proof confers no authority. Reusing an old index object
+returns the original proof and verification time. Each subsequent official
+increment needs a distinct, unconsumed proof verified after its baseline and
+no later than its sample, with at most five minutes of lag.
+The provider conservatively stamps the verification attempt's start, before
+worker parsing or title loading; publication latency cannot renew that proof.
+
+Only a fresh official increment may waive an uncertain source whose revision
+and lineage continuity are unchanged and whose known activity ends at/before
+the baseline. Changed or newly eligible uncertain sources get no static waiver;
+missing current increments still withhold the whole interval. This grants no
+account ownership, historical repricing or historical completeness. Census
+proof is never persisted, exported or rendered, and adds no source I/O.
+`activityThrough` includes nonusage metadata; `usageThrough` uses the numeric
+usage/quota boundary in `state.lastEventAt`, and `usageRevision` binds complete
+model vectors and pairing/uncertainty provenance, not physical byte metadata.
+A fully parsed metadata-only append may count as known zero only when both
+source snapshots are complete and eligible, numeric provenance is unchanged,
+usage is no later than baseline, and activity is no later than sample. This
+exception cannot turn unknown tails, parse gaps, future activity or new sources
+into zero; missing projection of a current usage increment still withholds the interval.
+
+For both forward and historical compatibility estimates, each admitted interval must have an increase of at least
+one percentage point and end below 100%. That interval admission rule is distinct
+from the five-percentage-point cycle display gate below. Compatible admitted intervals within
+the same account/epoch/price scope are aggregated, including compatible earlier
+intervals retained across a switch or blur, but never the transition gap:
+`linkedLocalDeltaUsd` is the sum of their
+linked local priced increments (ΣlinkedUSD), and `deltaPercent` is the sum of
+their matching percentage-point increases (ΣdeltaP), not just the latest pair:
+
+```text
+F = linkedLocalDeltaUsd / (deltaPercent / 100)
+R = F * (1 - p / 100)
+```
+
+This is a quota-scoped local incremental proxy, not an owned account total or a
+complete cross-device amount. Late events indistinguishable within a daily aggregate
+remain unresolved: this low-confidence proxy does not establish per-request timing
+or precision. `usedEquivalentUsd` is the sum of admitted
+calibration increments, not the actual-used total or proof of owned USD. Actual-used
+statistics remain separate usage projections with their own coverage/attribution limits;
+`F` is conditional full-capacity equivalent, not account spending. `calibrationStart` preserves the run's first
+admitted monetary interval start (the earliest local cut in method two, not its
+older official context anchor). The unused estimate
+is frozen at the same as-of sample. Never subtract later local usage to create
+a live balance. A current official sample does not prove historical account
+ownership or continuity across account switches.
+
+For historical Codex logs, `providers/codex/codexQuotaCheckpoints.ts` retains
+version-5 numeric checkpoints during the existing lineage-admitted index pass.
+Quota-only replay for missing or incompatible checkpoint state requires the
+explicit internal historical path (`allowQuotaCheckpointBackfill: true`), now
+defaulting false. Independently required primary and period migrations are unchanged
+and may still rebuild checkpoints in their own work; there is no second scanner.
+An unchanged warm refresh rereads no
+usage-record bodies, and projection never opens source logs. Checkpoints contain
+numeric times, percentages, segment/completeness state and sanitized per-model
+Token counts with internal pseudonymous source keys, never raw text or raw IDs.
+
+For quota calibration only, `codexParser.ts` validates raw numeric
+`last_token_usage` cost components before compatibility defaults or clamps.
+Valid request components survive a cumulative-only counter regression.
+Present optional cached/reasoning fields must be nonnegative safe integers,
+cached-input aliases must agree, cached input cannot exceed input, reasoning
+cannot exceed output, and input + output must be safe. `last.total_tokens`
+remains independent context size, not a request-component sum. These stricter
+pairing checks leave primary totals, high-water updates, warnings and dedup
+unchanged.
+
+Version 5 keeps `segmentResetAt` fixed to the segment's first reset anchor.
+Each row's `resetAt` uses that canonical first R; `observedResetAt` retains its
+original raw numeric R. Jitter within ±5 minutes is compared with the fixed
+first anchor, never chained through later observations. Pairing never extends
+beyond the canonical reset. `observedResetAt` is optional only for legacy runtime
+inputs; strict v5 storage requires it. When version-1–4 sidecars are rebuilt,
+they require bounded period replay; they are not relabelled and old baselines are never retrojoined.
+Primary quota observations
+keep their raw reset values unchanged.
+
+A segment's cumulative `byModel` excludes its own baseline line. On baseline
+rows only, `baselineByModel` separately records the admitted request on that
+line: an empty map means known zero, absence means unavailable. This lets an
+enclosing interval from a concurrent source include that request's USD without
+counting it in its own segment delta. If the required baseline request cannot
+be established, its whole overlapping component is rejected rather than silently
+omitting its value.
+
+Retention is bounded to 512 points / 256 KiB per file, with at most 16 model
+entries per map. Retained and resumable-draft payloads share a 32 MiB index
+budget; the provider projection is bounded to 65,536 points / 32 MiB. See the
+[`codexQuotaCheckpoints.ts`](src/providers/codex/codexQuotaCheckpoints.ts) constants.
+Compaction keeps segment endpoints or removes whole old segments, preserving the baseline
+of any retained interval. Version 5 retains bounded `CodexQuotaIncompleteRange`
+numeric interval witnesses: `from`, `through` and optional `resetAt`, exposed as
+`codexQuotaIncompleteRanges`. Up to 512 merged gap ranges per state and 65,536
+projected ranges localize skipped, omitted or ambiguous activity without raw
+text or IDs. Coarsening widens the affected interval conservatively. A gap
+outside an admitted interval does not poison it, even within the same reset.
+Unknown/unlocalized scope cannot assert completeness; legacy per-reset/global
+guards remain the fallback when interval witnesses are unavailable.
+
+For already-oversized records, `codexRootTimestampWitness.ts` validates JSON
+structure and a unique (including escaped-key aliases) root timestamp during
+that same stream pass. It retains no body text: depth is capped at 64, key size
+at 128 characters, key count at 4096, and timestamp text at 64 characters.
+A valid witness supplies only a dated exclusion point; malformed, duplicate,
+over-limit or mid-record-resumed input keeps conservative unknown-gap handling.
+
+`codexWindowEstimate.ts` consumes these checkpoints when present, retaining the
+legacy `series-prefix-v1` method label with explicit `windowEvidence`. It pairs
+within a source/segment and prices actual model components from the normalized
+ratebook. Concurrent sources may contribute local USD, but overlapping
+percentage intervals use their union, never a sum of duplicated account-wide
+counters. A shared reset timestamp R is a window reference, never account
+identity; a cross-source counter contradiction is not inferred to be a switch.
+Pairs whose time intervals overlap form a component; touching intervals stay
+separate. If a component overlaps an incomplete-range witness, has incomplete
+or unknown-priced USD, missing baseline evidence, or contradictory counters,
+the WHOLE overlapping component is rejected: both its USD numerator and Δp
+denominator leave the fit. A missing source's dollars cannot be removed while
+its percentage remains. A quota-only component has no usable local numerator.
+A separate clean component may still calibrate the window.
+
+Compatible admitted components form a coherent calibration cohort. A small
+counter correction starts another cohort, not another quota cycle. The
+strongest cohort by covered Δp wins, with recency breaking ties; its own amount,
+percentage and as-of observation remain paired. Unobserved gaps and incompatible
+cohorts are never bridged into an enlarged denominator. If no eligible cohort
+remains, or covered Δp is insufficient, total/unused capacity is `null`, not zero.
+`complete` describes the admitted cohort, not completeness of all local history
+or account usage. Primary local usage totals are unchanged.
+
+For an eligible paired window, F = ΔUSD / (Δp / 100) and
+R = F × (1 − p / 100), using the same as-of observation. At least five
+percentage points of covered Δp are required for cycle monetary display,
+including official-delta candidates. This is a local quality policy, not
+official measurement precision, a percentage error bound or a confidence
+interval; fractional observations are retained. Local paired-window and
+official account-delta amounts remain conditional proxies, not proof of full
+account ownership or complete cross-device usage. Model mix or actual rate
+changes can change the estimate; no clamp preserves an older large value.
+Price semantics follow normalized rate content and parser/period versions,
+not a price fetch timestamp.
+
+Legacy daily-prefix and `paired-delta` records remain readable at their frozen
+amounts. Legacy error-bound ranges are not invented for the new paired-window
+method. When new precise inputs cover the same reset/reference bucket, the
+coordinator withdraws old unassigned daily-prefix capacity from the display,
+even while the new evidence is pending; it does not rewrite archive bytes.
+Partial pricing/history or excluded USD cannot support a displayed Codex cycle
+capacity. No method here supplies the independent
+`WeeklyEquivalentUsage.accountSeriesKey` and `inputs.accountUsageCoverage`
+proof needed for `owned-window`. Claude conversion behavior is preserved;
+`showWeeklyQuotaPace` remains a separate elapsed-time forecast.
+
+The Codex cycle quota comparison uses one summary row and one bar or pending
+placeholder per historical cycle. Official P2 (seven-day) observations are
+isolated by source, account and period; five-hour observations are not joined
+into that history. `codexQuotaEpoch.ts` derives reset epochs independently of
+monetary calibration, so a cycle can remain pending without an amount. Durable
+account ordinals survive that pending state. Matching reset times alone never
+bind local history to an official account.
+
+`codexQuotaCycles.ts` combines official checkpoints and saved epochs into
+display-only `quotaCycle` bounds: `startAt`/`startLowerAt`,
+`endAt`/`endLowerAt`, `closed` and `scheduledResetAt`. Early resets truncate
+the previous cycle; uncertain boundaries remain explicit. Account visits, daily
+usage, calibration segments, price changes and resampling do not create new
+reset cycles. Unknown windows may use labelled, non-overlapping seven-day
+reference buckets (`fallbackDays: 7`), not claimed subscription boundaries.
+Legacy references are assigned by original observation time to UTC Monday
+buckets; a paired window keeps its first-observed reference bucket, so redraws
+or crossing Monday do not split that retained window. A detected drop retains
+its observed boundary bracket. Accounts remain separate and unassigned groups
+do not acquire account labels.
+
+For verified official zero-use history, `codexQuotaCycles.ts` may alias a
+moving planned reset into one provisional display cycle while still before
+the previous deadline and first positive use. The same account fingerprint,
+official source and `providerWindowFingerprint` must agree. First positive use
+fixes the provisional deadline. A generic legacy account-ambiguous flag alone
+does not negate that verified evidence; all raw flags are preserved. Explicit
+unverified attribution, fingerprint/source mismatches, clock anomalies or
+contradictory counters reject the alias. This is display-only: P2 observations,
+archive amounts and raw calibration `quotaEpoch` metadata remain unchanged;
+it supplies no local-usage ownership or monetary calibration.
+
+`selectCodexCycleEstimates` selects by monetary eligibility and covered Δp
+before recency, then method preference on a tie. There is no largest-value
+preference or old-value clamp. Each selected amount keeps its own percentage
+and as-of time; a later quota observation does not silently replace those
+fields. Invalid monetary evidence leaves a pending cycle visible. Old archived
+amounts remain frozen even when their display eligibility changes, and
+overlapping estimates or accounts are never summed.
+
+When capacity F is available, both bar segments use that snapshot: estimated used = F − R, estimated
+unused = R, total height = F. A closed cycle need not be exhausted.
+The table has one summary row per cycle with expandable calibration interval,
+Δp, amount and pricing evidence. Official and local observations retain their
+separate as-of/reset details; source conflicts are visible rather than resolved
+by silently choosing a source. Up to 48 cycle summaries are selected before the
+display cap and scroll horizontally. Short dates use at most two axis lines,
+with a seven-day reference marker where applicable. Current requires fresh
+matching official account/epoch evidence when official reads are enabled;
+unassigned, stale or closed cycles cannot acquire that marker.
+
+These helpers feed `weeklyEstimateChart.ts` and the shared renderer/CSS; Claude keeps
+its established behavior. Primary local usage stays in its existing views,
+without an extra seven-day local-usage graph. Cycle projection adds no file,
+raw-log scan, network request, telemetry or contribution flow. Estimate headers
+identify estimates and monetary cells omit repeated ≈.
+
+`quotaObservationStore.ts` accepts `codex-official-api` through
+`codexQuotaCaptureFromOfficialSample`, using `official-account-scope-v1|` for the
+validated account HMAC. The existing schema-2 P2 envelope adds optional
+`schemaRevision: 1` and only verified official Codex observations may carry schema-1
+`officialFacts`: `requestedAt`, optional `ordinaryUsageAllowed`, at most two numeric
+primary/secondary `windows`, and optional `rateLimitResetCredits`. Its independent
+nonnegative `availableCount` is retained even if runtime details are invalid;
+details are capped at 128 credits with 64-hex HMAC `creditKey`, allowlisted
+status/reset type, grant time and optional expiry. Missing, null, zero and fetched-empty
+lists remain distinct; unavailable details/expiry never imply zero. No raw account
+or credit IDs, names, paths, free text, plan or credentials are retained.
+Strict persisted validation, deep copies, dedup and bounded first/latest/change
+compaction apply. Facts share the observation's 180-day / 512-per-series limits
+and account/provider/all clearing; no file or storage engine is added. Current code
+rejects unknown revisions and refuses appends with unresolved quarantine/recovery
+files, preserving recoverable history. Older readers may reject or quarantine new fields;
+this does not guarantee that all older versions preserve the canonical file on later writes.
+Local-log captures remain unattributed and separate.
+
+`weeklyEstimateArchive.ts` retains fixed-field DTOs in the existing schema-1
+`weekly-estimates-v1.json`: original times, amounts, pricing coverage/version,
+method/flags, optional calibration range, `unlinkedEquivalentUsd` and
+`linkedSourceCount`, optional validated `quotaEpoch` numeric/enum metadata, and
+optional `calibrationEvidence` for new admitted `account-delta-v1` estimates.
+Paired local windows add fixed-field `windowEvidence` through
+`codexWindowEvidence.ts`: schema/method versions, `from`, `through`,
+`calibratedThrough`, start/end percentages, covered Δp, ΔUSD, priced/all Tokens,
+interval/source counts, excluded USD, completeness, the exact normalized
+ratebook and numeric/enum cycle metadata. Optional numeric `skippedIntervals`
+and `skippedUsd` retain proof of whole rejected or unselected components,
+outside the admitted USD/Δp fit. Missing fields in older method-one receipts
+mean zero; they do not license a partial numerator. Validation checks consistency with
+the retained amount and pricing evidence; it does not establish ownership.
+`codexCalibrationEvidence.ts` copies only fixed fields: the latest admitted interval's
+before/after observation and request times, start/end percentages, incremental USD,
+priced/all Tokens, linked-source count, `excludedSources` count and continuity-gap
+boolean; cumulative interval
+count, ΣdeltaUSD, ΣdeltaP and priced/all Tokens; and the exact public model input,
+cached-input and output rates plus parser/period versions used for that estimate.
+Each archived percentage-change point retains that evidence. Older records without
+it remain valid and receive no invented evidence or identity. Frozen historical
+amounts are read back without repricing or restoring runtime calibration. Evidence
+capture reuses materialized aggregates: no new data file, log scan, network request
+or credential access.
+New matched receipts keep `CodexCalibrationEvidence.schemaVersion: 1`, set
+`methodVersion: 2` and `collectionMode: 'forward-matched-cut-v1'`, and require
+`matchedCut: { from, through, percentFrom, percentThrough }`. The existing
+`interval` retains REAL official requested/observed times and official percentages;
+its USD/Tokens and accumulated USD/Δp use the matched local cuts. Method two
+requires complete pricing, zero excluded sources and no continuity gap. Current
+as-of utilization and unused equivalent use the official percentage;
+`usedEquivalentUsd` remains calibration-sample USD, not cycle-used USD.
+Method-one evidence semantics remain unchanged; old records receive no inferred
+matched cuts. Existing details show distinct local monetary and official context
+ranges, without a new chart or navigation. Neither version persists raw logs,
+credentials, thread titles or paths.
+Epoch-aware keys distinguish same-reset pre/post-drop records while the absent-field
+legacy key branch stays unchanged. The existing internal `accountScopeKey` is now used;
+source-local `accountNumber` is assigned and persisted under the shared lease.
+Source/window keys and account scope use machine-salted HMAC. Internal `localWindowKey` is also stripped at the public projection boundary;
+only a local window number is exposed. Only the account ordinal
+number reaches the public projection; HMACs, source keys, paths, raw IDs, email
+and conversation content never reach HTML/export. Old records retain their
+method, pricing version and unassigned status rather than being relabelled.
+
+Archive revisions preserve past snapshots with no expiry or eviction. New Codex
+captures coalesce repeated same-percentage/method/price/segment facts, preserving
+the first stored as-of point rather than every live update. At 4096
+entries or 1 MiB new writes stop; reads remain available. Mutations reread under
+a cross-process lease and use symlink checks and atomic 0600 replacement.
+Older preview readers can reject new methods/fields.
+The archive document remains schema 1; forward estimates retain method `account-delta-v1`.
+Current readers accept both forward receipt versions without rewriting method-one meaning.
+Source audit and compatibility tests establish that the audited pre-method-two
+readers reject `methodVersion: 2` and refuse record writes against such an archive.
+This is not a universal rollback-write guarantee. Preserve derived archives before
+rollback; provider-owned logs are not modified.
+
+`weeklyEstimateCoordinator.ts` keeps bounded memoized projections and queued
+archive work; projection reads no raw logs and creates no network requests.
+Cycle representatives are selected before the 48-row display cap. Host calibration
+queues the existing writer directly rather than relying on dashboard rendering.
+Selected-account clearing uses internal fingerprint and durable cutoff fences,
+preserving other accounts and unassigned records. Provider/all-history clears
+also cover the archive. The fence checks paired `windowEvidence.from` and, for `account-delta-v1`,
+`calibrationStart`, as well as `observedAt`. For method two this is the earliest
+monetary calibration cut, not the older official context anchor: another instance's old accumulated evidence cannot re-enter
+with a later observation timestamp. At its next sample the host retires that account's
+affected runtime sums and establishes a fresh baseline; queued stale observations
+cannot restore cleared data.
+Unchanged projections do not repeat archive I/O merely as time passes.
+Numeric checkpoint version 5 is an additive part of the existing index and
+period replay. The default-on `showWeeklyEquivalentValue` display setting and
+package version are unchanged; no new dependency is required.
 
 ## Sharing workspace and exports
 
@@ -720,12 +1235,9 @@ Source-level guards check source contracts, not executed UI transitions, native
 Webview behavior or installed-package acceptance.
 
 - A reset that never appears in an official response or local structured event
-  cannot be reconstructed. Day-only Codex evidence lowers boundary confidence.
-- Local Codex histories may include several sign-ins. Current-cycle total/unused
-  estimates retain the low-confidence local-history approximation described above.
-  Multiple distinct quota series mapped to one completed window remain used-only;
-  the extension never invents an account split. Accurate per-account separation
-  remains deferred to multi-account support.
+  cannot be reconstructed. A daily slice crossing a reset cannot prove exact-window usage.
+- Rough archived estimates do not prove same-account ownership or complete account
+  history. Actual last-observed quota percentages retain their timestamps and original resets.
 - API-equivalent values use currently known public API prices and pricing
   coverage. They are estimates, not provider bills or subscription prices.
 - Retention of source logs is controlled by Claude Code and Codex, not this

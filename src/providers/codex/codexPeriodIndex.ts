@@ -77,6 +77,7 @@ export interface CodexTodayMigrationState extends CodexJsonlCursor {
 }
 
 export interface CodexPeriodMigrationState extends CodexJsonlCursor {
+  quotaCheckpoints?: import('./codexQuotaCheckpoints').CodexQuotaCheckpointState;
   timeZone: string;
   /** Missing on pre-fix drafts; those drafts must restart from byte zero. */
   prefixEvents?: number;

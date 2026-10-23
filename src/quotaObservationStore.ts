@@ -13,7 +13,12 @@ import type { UsageProvider } from './providers/providerTypes';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import type { ClaudeApiUsageResponse } from './types';
 import { normalizeQuotaWindows } from './quotaWindows';
+import { classifyCodexOfficialTransition } from './codexOfficialTransition';
 import type { WeeklyQuotaObservation } from './weeklyValue';
+import {
+  copyCodexOfficialQuotaFacts, parseCodexOfficialQuotaFacts, codexOfficialQuotaFactsEvidenceKey,
+  type CodexOfficialQuotaFacts,
+} from './codexOfficialQuotaFacts';
 
 export const QUOTA_OBSERVATION_SCHEMA_VERSION = 2 as const;
 export const QUOTA_OBSERVATION_FILE = 'quota-observations-v2.json';
@@ -35,6 +40,7 @@ export type QuotaAccountAttribution =
   | 'unattributed';
 export type QuotaObservationSource =
   | 'claude-official-api'
+  | 'codex-official-api'
   | 'codex-local-structured-event';
 export type QuotaEvidenceConfidence = 'high' | 'medium' | 'low';
 export type QuotaCaptureReason =
@@ -74,6 +80,7 @@ export interface QuotaCapture {
   confidence: QuotaEvidenceConfidence;
   captureReason: QuotaCaptureReason;
   flags?: QuotaObservationFlag[];
+  officialFacts?: CodexOfficialQuotaFacts;
 }
 
 export interface QuotaObservationV2 {
@@ -92,6 +99,7 @@ export interface QuotaObservationV2 {
   confidence: QuotaEvidenceConfidence;
   captureReason: QuotaCaptureReason;
   flags: QuotaObservationFlag[];
+  officialFacts?: CodexOfficialQuotaFacts;
 }
 
 export interface QuotaObservationClearScope {
@@ -117,6 +125,8 @@ export interface QuotaResetEventV2 {
 
 export interface QuotaObservationStoreV2 {
   schemaVersion: 2;
+  /** Additive facts revision. Older strict readers fail closed. */
+  schemaRevision?: 1;
   fingerprintAlgorithm: 'hmac-sha256-v1';
   observations: QuotaObservationV2[];
 }
@@ -156,6 +166,7 @@ const ATTRIBUTIONS = new Set<QuotaAccountAttribution>([
 ]);
 const SOURCES = new Set<QuotaObservationSource>([
   'claude-official-api',
+  'codex-official-api',
   'codex-local-structured-event',
 ]);
 const CONFIDENCES = new Set<QuotaEvidenceConfidence>(['high', 'medium', 'low']);
@@ -216,7 +227,21 @@ function observationIdentity(item: QuotaObservationV2): string {
     item.usedFraction,
     item.resetAt ?? '',
     item.source,
+    item.officialFacts === undefined ? '' : JSON.stringify(item.officialFacts),
   ].join('|');
+}
+
+function officialFactsForObservation(item: Pick<QuotaCapture, 'provider' | 'source' | 'accountAttribution' | 'officialFacts'>):
+    CodexOfficialQuotaFacts | undefined {
+  if (item.provider !== 'codex' || item.source !== 'codex-official-api' ||
+    item.accountAttribution !== 'verified-local-signal') return;
+  return parseCodexOfficialQuotaFacts(item.officialFacts) ?? undefined;
+}
+
+function cloneObservation(item: QuotaObservationV2): QuotaObservationV2 {
+  const { officialFacts: _facts, ...base } = item;
+  const officialFacts = officialFactsForObservation(item);
+  return { ...base, flags: [...item.flags], ...(officialFacts ? { officialFacts } : {}) };
 }
 
 function orderedUniqueFlags(flags: readonly QuotaObservationFlag[] = []): QuotaObservationFlag[] {
@@ -269,6 +294,8 @@ function latestBefore(
     .filter((item) =>
       item.provider === capture.provider &&
       item.periodType === capture.periodType &&
+      item.source === capture.source &&
+      item.accountAttribution === capture.accountAttribution &&
       item.observedAt <= capture.observedAt &&
       item.accountFingerprint === stableFingerprint,
     )
@@ -279,7 +306,7 @@ function latestBefore(
   return eligible[eligible.length - 1];
 }
 
-function latestProviderPeriodBefore(
+function latestAnonymousChannelBefore(
   observations: readonly QuotaObservationV2[],
   capture: QuotaCapture,
 ): QuotaObservationV2 | undefined {
@@ -287,6 +314,8 @@ function latestProviderPeriodBefore(
     .filter((item) =>
       item.provider === capture.provider &&
       item.periodType === capture.periodType &&
+      item.source === capture.source &&
+      item.accountAttribution === 'unattributed' &&
       item.observedAt <= capture.observedAt,
     )
     .sort((left, right) =>
@@ -310,6 +339,11 @@ function boundaryEvidence(
   ) {
     return 'window-id-change';
   }
+  // New complete official snapshots distinguish planned zero-use anchoring and
+  // rounding corrections from a granted reset. Legacy window identities remain
+  // unchanged on disk; this affects only newly captured official evidence.
+  if (capture.source === 'codex-official-api' && previous.source === 'codex-official-api' &&
+      capture.officialFacts !== undefined) return classifyCodexOfficialTransition(previous, capture).boundary;
   if (
     previous.resetAt !== null &&
     capture.resetAt !== null &&
@@ -317,7 +351,12 @@ function boundaryEvidence(
   ) {
     return 'reset-at-change';
   }
+  // An official identified counter decrease is a discontinuity, not necessarily
+  // proof that a reset credit was consumed. Do not blend even a small decrease
+  // into an old epoch. Preserve the historical threshold for other sources.
   if (
+    (capture.source === 'codex-official-api' && previous.source === 'codex-official-api' &&
+      previous.usedFraction > capture.usedFraction) ||
     previous.usedFraction - capture.usedFraction >= usageDropThreshold
   ) {
     return 'usage-drop';
@@ -357,7 +396,8 @@ function normalizedObservation(
   const keepPreviousWindow = previous !== undefined && boundary === null;
   const hasStructuredWindowIdentity =
     currentProviderWindowFingerprint !== null || capture.resetAt !== null;
-  const epochSeed = boundary === 'usage-drop' || !hasStructuredWindowIdentity
+  const epochSeed = boundary === 'usage-drop' || !hasStructuredWindowIdentity ||
+    (capture.source === 'codex-official-api' && boundary !== null)
     ? [
         capture.provider,
         capture.periodType,
@@ -380,6 +420,7 @@ function normalizedObservation(
         `window|${accountFingerprint}|${epochSeed}`,
         'win',
       );
+  const officialFacts = officialFactsForObservation(capture);
   return {
     schemaVersion: QUOTA_OBSERVATION_SCHEMA_VERSION,
     provider: capture.provider,
@@ -396,6 +437,7 @@ function normalizedObservation(
     confidence: capture.confidence,
     captureReason: boundary ?? capture.captureReason,
     flags: orderedUniqueFlags(capture.flags),
+    ...(officialFacts ? { officialFacts } : {}),
   };
 }
 
@@ -421,6 +463,8 @@ function compactBySeries(
       continue;
     }
     const mandatory = new Map<string, QuotaObservationV2>();
+    const factChanges: Array<[QuotaObservationV2, QuotaObservationV2]> = [];
+    const previousFactsByChannel = new Map<string, QuotaObservationV2>();
     const windows = new Map<string, QuotaObservationV2[]>();
     for (const item of ordered) {
       const window = windows.get(item.windowId) ?? [];
@@ -429,6 +473,13 @@ function compactBySeries(
       if (item.captureReason !== 'refresh' || item.flags.length > 0) {
         mandatory.set(observationIdentity(item), item);
       }
+      const channel = boundarySeriesKey(item);
+      const previous = previousFactsByChannel.get(channel);
+      if (previous && codexOfficialQuotaFactsEvidenceKey(previous.officialFacts, { omitWindowUsage: true }) !==
+        codexOfficialQuotaFactsEvidenceKey(item.officialFacts, { omitWindowUsage: true })) {
+        factChanges.push([previous, item]);
+      }
+      previousFactsByChannel.set(channel, item);
     }
     for (const window of windows.values()) {
       mandatory.set(observationIdentity(window[0]), window[0]);
@@ -450,9 +501,26 @@ function compactBySeries(
     // confidence calculations depend on an already-compacted middle slice.
     if (limit === 1) {
       retain(ordered[ordered.length - 1]);
+    } else if (ordered.every(item => item.source === 'codex-official-api')) {
+      // Official epoch identity is projected from each retained window's first
+      // observation. Routine ambiguity flags must not evict that anchor in favor
+      // of hundreds of newer flagged refreshes. Prioritize recent window bounds;
+      // the current window's first and latest facts survive even a tiny budget.
+      const byRecency = [...windows.values()].sort((left, right) =>
+        right[right.length - 1].observedAt - left[left.length - 1].observedAt);
+      for (const window of byRecency) {
+        retain(window[0]);
+        retain(window[window.length - 1]);
+      }
     } else {
       retain(ordered[0]);
       retain(ordered[ordered.length - 1]);
+    }
+    // Keep both sides of meaningful optional-evidence changes before filling
+    // spare slots with routine polls. Request timestamps alone are not changes.
+    for (const [before, after] of factChanges.reverse()) {
+      retain(after);
+      retain(before);
     }
     for (const item of [...mandatory.values()].sort(
       (left, right) => right.observedAt - left.observedAt,
@@ -490,10 +558,19 @@ function persistedBoundaryEvidence(
     current.resetAt !== null &&
     Math.abs(previous.resetAt - current.resetAt) > RESET_CLUSTER_MS
   ) return 'reset-at-change';
-  if (previous.usedFraction - current.usedFraction >= usageDropThreshold) {
+  if ((current.source === 'codex-official-api' && previous.usedFraction > current.usedFraction) ||
+    previous.usedFraction - current.usedFraction >= usageDropThreshold) {
     return 'usage-drop';
   }
   return null;
+}
+
+/** Anonymous local reset epochs share only a local evidence channel. All
+ * identified evidence compares within the same account, attribution and source. */
+function boundarySeriesKey(item: QuotaObservationV2): string {
+  const account = item.source === 'codex-local-structured-event' && item.accountAttribution === 'unattributed'
+    ? 'anonymous-local-channel' : item.accountFingerprint;
+  return [item.provider, item.periodType, item.source, item.accountAttribution, account].join('|');
 }
 
 function annotateBoundaries(
@@ -506,19 +583,19 @@ function annotateBoundaries(
     left.periodType.localeCompare(right.periodType) ||
     left.windowId.localeCompare(right.windowId),
   );
-  const previousByProviderPeriod = new Map<string, QuotaObservationV2>();
+  const previousBySeries = new Map<string, QuotaObservationV2>();
+  const previousByChannel = new Map<string, QuotaObservationV2>();
   return ordered.map((item) => {
-    const providerPeriodKey = `${item.provider}|${item.periodType}`;
-    const previousForProvider = previousByProviderPeriod.get(providerPeriodKey);
-    // A reset can be observed across anonymous Codex epochs, so retain its
-    // boundary evidence for deterministic replay. Account changes are handled
-    // independently below and always remain explicitly ambiguous.
-    const inferred = previousForProvider
-      ? persistedBoundaryEvidence(previousForProvider, item, usageDropThreshold)
+    const seriesKey = boundarySeriesKey(item);
+    const previous = previousBySeries.get(seriesKey);
+    const channelKey = [item.provider, item.periodType, item.source, item.accountAttribution].join('|');
+    const previousInChannel = previousByChannel.get(channelKey);
+    const inferred = previous
+      ? persistedBoundaryEvidence(previous, item, usageDropThreshold)
       : null;
     const crossesAccountEpoch = Boolean(
-      previousForProvider &&
-      previousForProvider.accountFingerprint !== item.accountFingerprint,
+      item.accountAttribution !== 'verified-local-signal' && previousInChannel &&
+      previousInChannel.accountFingerprint !== item.accountFingerprint,
     );
     const normalized = {
       ...item,
@@ -528,7 +605,8 @@ function annotateBoundaries(
         ...(crossesAccountEpoch ? ['account-ambiguous' as const] : []),
       ]),
     };
-    previousByProviderPeriod.set(providerPeriodKey, normalized);
+    previousBySeries.set(seriesKey, normalized);
+    previousByChannel.set(channelKey, normalized);
     return normalized;
   });
 }
@@ -554,7 +632,7 @@ export function mergeQuotaCaptures(
   const cutoff = now - retentionDays * DAY_MS;
   const observations = store.observations
     .filter((item) => item.observedAt >= cutoff && item.observedAt <= now + FUTURE_SKEW_MS)
-    .map((item) => ({ ...item, flags: [...item.flags] }));
+    .map(cloneObservation);
   const observationIds = new Set(observations.map(observationIdentity));
   const orderedCaptures = [...captures]
     .filter((item) => validCapture(item, now))
@@ -576,14 +654,14 @@ export function mergeQuotaCaptures(
           capture.stableIdentitySignal as string,
         );
     const previous = latestBefore(observations, capture, stableFingerprint);
-    // Codex does not expose a safe stable account identity. Its reset windows
+    // Local Codex logs do not expose a safe stable account identity. Their reset windows
     // intentionally use separate unattributed epochs, but a resetAt/window
     // transition still remains useful low-confidence reset evidence. Consult
-    // the preceding provider-period observation only for boundary detection;
+    // the preceding anonymous local-channel observation only for boundary detection;
     // never reuse its fingerprint or combine account-level estimates.
     const boundaryPrevious = previous ?? (
-      capture.accountAttribution === 'unattributed'
-        ? latestProviderPeriodBefore(observations, capture)
+      capture.source === 'codex-local-structured-event' && capture.accountAttribution === 'unattributed'
+        ? latestAnonymousChannelBefore(observations, capture)
         : undefined
     );
     const currentProviderWindowFingerprint = providerWindowFingerprint(
@@ -621,6 +699,7 @@ export function mergeQuotaCaptures(
   }
   return {
     schemaVersion: QUOTA_OBSERVATION_SCHEMA_VERSION,
+    ...(store.schemaRevision === 1 || observations.some(item => item.officialFacts) ? { schemaRevision: 1 as const } : {}),
     fingerprintAlgorithm: 'hmac-sha256-v1',
     observations: compactBySeries(
       annotateBoundaries(observations, usageDropThreshold),
@@ -642,7 +721,7 @@ export function deriveQuotaResetEvents(
   const previousBySeries = new Map<string, QuotaObservationV2>();
   for (let index = 0; index < ordered.length; index += 1) {
     const current = ordered[index];
-    const seriesKey = `${current.provider}|${current.periodType}`;
+    const seriesKey = boundarySeriesKey(current);
     const previous = previousBySeries.get(seriesKey);
     previousBySeries.set(seriesKey, current);
     if (!previous || previous.windowId === current.windowId) continue;
@@ -726,7 +805,7 @@ function parseObservation(value: unknown, now: number): QuotaObservationV2 | nul
     'schemaVersion', 'provider', 'accountFingerprint', 'accountAttribution',
     'observedAt', 'periodType', 'usedFraction', 'remainingFraction', 'resetAt',
     'source', 'windowId', 'providerWindowFingerprint', 'confidence',
-    'captureReason', 'flags',
+    'captureReason', 'flags', 'officialFacts',
   ])) return null;
   const flags = parseFlags(item.flags);
   if (
@@ -755,6 +834,10 @@ function parseObservation(value: unknown, now: number): QuotaObservationV2 | nul
     !CAPTURE_REASONS.has(item.captureReason as QuotaCaptureReason) ||
     flags === null
   ) return null;
+  const hasOfficialFacts = Object.prototype.hasOwnProperty.call(item, 'officialFacts');
+  const officialFacts = hasOfficialFacts ? parseCodexOfficialQuotaFacts(item.officialFacts) : undefined;
+  if (hasOfficialFacts && (!officialFacts || item.provider !== 'codex' || item.source !== 'codex-official-api' ||
+    item.accountAttribution !== 'verified-local-signal')) return null;
   return {
     schemaVersion: 2,
     provider: item.provider,
@@ -771,16 +854,18 @@ function parseObservation(value: unknown, now: number): QuotaObservationV2 | nul
     confidence: item.confidence as QuotaEvidenceConfidence,
     captureReason: item.captureReason as QuotaCaptureReason,
     flags,
+    ...(officialFacts ? { officialFacts } : {}),
   };
 }
 
 function parseStore(value: unknown, now: number): QuotaObservationStoreV2 | null {
   const item = record(value);
   if (!item || !exactKeys(item, [
-    'schemaVersion', 'fingerprintAlgorithm', 'observations',
+    'schemaVersion', 'schemaRevision', 'fingerprintAlgorithm', 'observations',
   ])) return null;
   if (
     item.schemaVersion !== 2 ||
+    (Object.prototype.hasOwnProperty.call(item, 'schemaRevision') && item.schemaRevision !== 1) ||
     item.fingerprintAlgorithm !== 'hmac-sha256-v1' ||
     !Array.isArray(item.observations)
   ) return null;
@@ -793,6 +878,7 @@ function parseStore(value: unknown, now: number): QuotaObservationStoreV2 | null
   );
   return {
     schemaVersion: 2,
+    ...(item.schemaRevision === 1 ? { schemaRevision: 1 as const } : {}),
     fingerprintAlgorithm: 'hmac-sha256-v1',
     observations: [...observationMap.values()].sort((left, right) =>
       left.observedAt - right.observedAt || left.windowId.localeCompare(right.windowId),
@@ -888,11 +974,9 @@ export async function saveQuotaObservationStoreAtomic(
 function cloneStore(store: QuotaObservationStoreV2): QuotaObservationStoreV2 {
   return {
     schemaVersion: 2,
+    ...(store.schemaRevision === 1 ? { schemaRevision: 1 as const } : {}),
     fingerprintAlgorithm: 'hmac-sha256-v1',
-    observations: store.observations.map((item) => ({
-      ...item,
-      flags: [...item.flags],
-    })),
+    observations: store.observations.map(cloneObservation),
   };
 }
 
@@ -955,9 +1039,13 @@ export class QuotaObservationRepository {
       try {
         // Always re-read under the process-shared lease. A second VS Code
         // Extension Host may have committed observations since our last call.
-        const current = (await loadQuotaObservationStore(this.filePath, {
+        const loaded = await loadQuotaObservationStore(this.filePath, {
           now: this.now(),
-        })).store;
+        });
+        if (loaded.disposition === 'quarantined' || (await quotaObservationAuxiliaryNames(this.filePath)).length > 0) {
+          throw new Error('quota-observation-append:unresolved-quarantine');
+        }
+        const current = loaded.store;
         const next = mergeQuotaCaptures(current, captures, {
           salt: this.salt,
           now: this.now(),
@@ -1001,6 +1089,7 @@ export class QuotaObservationRepository {
         });
         const next: QuotaObservationStoreV2 = {
           schemaVersion: 2,
+          ...(observations.some(item => item.officialFacts) ? { schemaRevision: 1 as const } : {}),
           fingerprintAlgorithm: 'hmac-sha256-v1',
           observations,
         };
@@ -1093,6 +1182,50 @@ export function claudeQuotaCapturesFromUsage(
       flags: Number.isFinite(resetAt) && resetAt > 0 ? [] : ['approximate-boundary'],
     };
   });
+}
+
+/** Copy only the daemon sample's numeric checkpoint and already-pseudonymous
+ * account scope. This does not attribute local usage to the official account. */
+export function codexQuotaCaptureFromOfficialSample(sample: {
+  accountScopeKey: string;
+  observedAt: number;
+  resetAt: number;
+  usedPercent: number;
+  requestedAt?: unknown;
+  ordinaryUsageAllowed?: unknown;
+  windows?: unknown;
+  rateLimitResetCredits?: unknown;
+}): QuotaCapture | null {
+  if (!sample || typeof sample !== 'object' || Array.isArray(sample)) return null;
+  try {
+    const { accountScopeKey, observedAt, resetAt, usedPercent } = sample;
+    if (
+      typeof accountScopeKey !== 'string' || accountScopeKey.length !== 64 ||
+      !/^[a-f0-9]{64}$/.test(accountScopeKey) ||
+      !Number.isSafeInteger(observedAt) || observedAt <= 0 ||
+      !Number.isSafeInteger(resetAt) || resetAt <= observedAt ||
+      observedAt < resetAt - 7 * DAY_MS ||
+      !Number.isFinite(usedPercent) || usedPercent < 0 || usedPercent > 100
+    ) return null;
+    const officialFacts = copyCodexOfficialQuotaFacts(sample);
+    return {
+      provider: 'codex',
+      stableIdentitySignal: 'official-account-scope-v1|' + accountScopeKey,
+      accountAttribution: 'verified-local-signal',
+      observedAt,
+      periodType: 'seven-day',
+      usedFraction: usedPercent / 100,
+      resetAt,
+      source: 'codex-official-api',
+      sourceWindowId: 'codex|weekly',
+      confidence: 'high',
+      captureReason: 'refresh',
+      flags: [],
+      ...(officialFacts ? { officialFacts } : {}),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function codexQuotaCapturesFromWeeklyObservations(

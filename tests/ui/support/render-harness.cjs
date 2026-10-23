@@ -546,6 +546,51 @@ function completedHistorySnapshot(snapshot) {
   return snapshot;
 }
 
+function weeklyRoughPartialSnapshot(snapshot, earlierPeriod = false) {
+  const day = 86_400_000, hour = 3_600_000;
+  const observedAt = CODEX_WEBVIEW_NOW - 2 * hour;
+  const resetAt = CODEX_WEBVIEW_NOW + day;
+  const start = resetAt - 7 * day;
+  const usage = (intervalStart, intervalEnd, equivalentUsd) => ({
+    timestamp: intervalEnd, intervalStart, intervalEnd, equivalentUsd,
+    pricedTokens: 92, totalTokens: 100,
+  });
+  // Inputs only: the production timeline keeps the $80/$40 rows unique;
+  // production rough conversion computes each half-overlap at observation.
+  // Different observed resets in the same UTC week remain sample evidence;
+  // the display selects only its latest valid reference estimate.
+  const observations = [
+    { provider: 'codex', seriesKey: 'synthetic-unattributed',
+      observedAt: observedAt - hour, resetAt: resetAt + 2 * hour, usedPercent: 25 },
+    { provider: 'codex', seriesKey: 'synthetic-unattributed', observedAt, resetAt, usedPercent: 25 },
+  ];
+  const rows = [usage(start - day, start + day, 80), usage(observedAt - hour, observedAt + hour, 40)];
+  if (earlierPeriod) {
+    // Reproduce the earlier $146.67/$110 sample in the previous UTC week.
+    // Shift both its observation and supporting intervals, preserving amounts.
+    observations.push({ ...observations[0], observedAt: observations[0].observedAt - 7 * day,
+      resetAt: observations[0].resetAt - 7 * day });
+    rows.push(...rows.map(row => ({ ...row, timestamp: row.timestamp - 7 * day,
+      intervalStart: row.intervalStart - 7 * day, intervalEnd: row.intervalEnd - 7 * day })));
+  }
+  return {
+    ...snapshot,
+    coverage: {
+      ...snapshot.coverage,
+      complete: false,
+      period: {
+        ...snapshot.coverage.period,
+        allTime: { ...snapshot.coverage.period.allTime, complete: false },
+      },
+    },
+    weeklyValueInputs: {
+      localHistoryComplete: false,
+      observations,
+      usage: rows,
+    },
+  };
+}
+
 function effortStatisticsFixture(empty = false) {
   const t = (inputTotal, outputTotal) => ({ inputTotal, outputTotal, cachedInput: 0, cacheWriteInput: 0 });
   const file = (key, models, efforts, parentSessionKey, role = 'root') => {
@@ -599,13 +644,14 @@ exports.renderHarness = async function renderHarness({
   commandAfterReset = false,
   quotaPace = false,
   quotaPaceState = 'fresh',
+  weeklyAccountSession = '00000000000000000000000000000000',
   nativeResources = false,
 } = {}) {
   vscodeHost.window.createWebviewPanel = () => createHarnessPanel(nativeResources);
   I18n.setLanguage(locale);
   I18n.setTimezone(timeZone);
   I18n.setDecimalPlaces(2);
-  const localCurrencyFixture = fixture === 'local-currency';
+  const localCurrencyFixture = fixture === 'local-currency' || fixture === 'weekly-paired-currency';
   const displayCurrency = localCurrencyFixture ? 'EUR' : 'USD';
   I18n.setCurrencyDisplay(displayCurrency);
   vscodeHost.window.activeColorTheme.kind = theme === 'highContrast' ? 3 : theme === 'dark' ? 2 : 1;
@@ -624,7 +670,20 @@ exports.renderHarness = async function renderHarness({
         : fixture === 'unknown-models'
           ? unknownModelCodexWebviewFixture()
           : codexWebviewFixture();
-    const snapshot = fixture === 'weekly-usage-only'
+    const accountFixture = fixture === 'weekly-accounts'
+      ? await require('./weekly-account-fixture.cjs').weeklyAccountFixture(weeklyRoughPartialSnapshot(baseSnapshot), CODEX_WEBVIEW_NOW)
+      : fixture === 'weekly-cycles'
+      ? require('./weekly-cycle-fixture.cjs').weeklyCycleFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
+      : fixture === 'weekly-witness' || fixture === 'weekly-witness-updated'
+      ? require('./weekly-witness-fixture.cjs').weeklyWitnessFixture(baseSnapshot, CODEX_WEBVIEW_NOW, fixture === 'weekly-witness-updated')
+      : fixture === 'weekly-reference-cycles'
+      ? require('./weekly-cycle-fixture.cjs').weeklyReferenceFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
+      : fixture === 'weekly-paired-cycles' || fixture === 'weekly-paired-currency'
+      ? require('./weekly-cycle-fixture.cjs').weeklyPairedFixture(baseSnapshot, CODEX_WEBVIEW_NOW)
+      : undefined;
+    const snapshot = accountFixture ? accountFixture.snapshot : fixture === 'weekly-rough-partial' || fixture === 'weekly-rough-cross-week'
+      ? weeklyRoughPartialSnapshot(baseSnapshot, fixture === 'weekly-rough-cross-week')
+      : fixture === 'weekly-usage-only'
       ? {
           ...baseSnapshot,
           weeklyValueInputs: {
@@ -676,6 +735,10 @@ exports.renderHarness = async function renderHarness({
       achievementNotices,
       quotaPace,
     });
+    if (accountFixture) {
+      provider.settings = require('./weekly-account-fixture.cjs').weeklyAccountSettings(weeklyAccountSession, provider.settings);
+      provider.setWeeklyEstimateProjector(accountFixture.projector(provider.settings.get('codex.officialQuota.enabled')));
+    }
     if (!codexOnly && fixture !== 'achievement-calendar-subset') addClaudeData(provider, { fixture, enableContent: adviceContentFixture });
     if (fixture === 'achievement-token-stages') {
       // Synthetic materialized Token history for presentation, not a calendar

@@ -3,6 +3,34 @@ import { ProviderSourceOutcome } from './providers/providerTypes';
 import { CodexIndexRecoveryReason } from './providers/codex/codexIndex';
 import { CodexIndexErrorCode, safeCodexIndexErrorCode } from './providers/codex/codexWorkerProtocol';
 import type { CodexProviderFailureCode } from './providers/codex/codexProvider';
+import { CODEX_CALIBRATION_DIAGNOSTIC_REASONS } from './codexForwardAccountEstimate';
+
+const CALIBRATION_STATES = new Set<string>([
+  'baseline', 'percentage-step', 'first-step-discarded', 'accumulating', 'calibrated', 'source-unavailable',
+  'source-changed', 'append-incomplete', 'endpoint-mismatch', 'unpriced-usage', 'quota-blocked', 'continuity-gap',
+]);
+const CALIBRATION_REASONS = new Set<string>(CODEX_CALIBRATION_DIAGNOSTIC_REASONS);
+function calibrationDataField(input: unknown, key: string): unknown {
+  if (!input || typeof input !== 'object') return undefined;
+  try { return Array.isArray(input) ? undefined : Object.getOwnPropertyDescriptor(input, key)?.value; } catch { return undefined; }
+}
+/** Local fixed-field diagnostic only. Never coerce unknown values, invoke field
+ * accessors, enumerate input, or interpolate labels/errors/identifiers. */
+export function formatCodexCalibrationDiagnostic(input: unknown): string {
+  const enumField = (key: string, allowed: ReadonlySet<string>): string => {
+    const value = calibrationDataField(input, key);
+    return typeof value === 'string' && allowed.has(value) ? value : 'unknown';
+  };
+  const numberField = (key: string, max: number, integral: boolean): string => {
+    const value = calibrationDataField(input, key);
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= max &&
+      (!integral || Number.isSafeInteger(value)) ? String(value) : 'unknown';
+  };
+  return `codex-calibration state=${enumField('state', CALIBRATION_STATES)} reason=${enumField('reason', CALIBRATION_REASONS)} ` +
+    `deltaPercent=${numberField('deltaPercent', 100, false)} intervals=${numberField('intervals', 100, true)} ` +
+    `proofAgeMs=${numberField('proofAgeMs', Number.MAX_SAFE_INTEGER, true)} ` +
+    `bracketGapMs=${numberField('bracketGapMs', Number.MAX_SAFE_INTEGER, true)}`;
+}
 
 export interface LoadUsageDiagnostics {
   filesDiscovered: number;

@@ -3,6 +3,9 @@ import { createReadStream } from 'node:fs';
 import { CodexRuntimeManifestEntry } from './codexManifest';
 import { readCodexZstdRange } from './codexZstd';
 import { parseJsonObject } from './codexSchema';
+import { CodexRootTimestampWitness } from './codexRootTimestampWitness';
+
+export interface CodexSkippedLineWitness { phase: 'start' | 'end'; observedAt?: number }
 
 // Cold rebuilds are dominated by JSON parsing and index bookkeeping rather
 // than raw disk latency. A 1 MiB stream chunk keeps cancellation responsive
@@ -78,6 +81,7 @@ export async function scanCodexJsonlLines(
   onChunk?: (progress: CodexJsonlChunkProgress) => Promise<void>,
   maxLineBytes: number = CODEX_MAX_JSONL_LINE_BYTES,
   acceptFinalLine?: (line: string) => boolean,
+  onSkippedLine?: (witness: CodexSkippedLineWitness) => void,
 ): Promise<CodexJsonlScanResult> {
   const start = Math.max(0, cursor.offset);
   const end = Math.max(start, endExclusive);
@@ -90,6 +94,9 @@ export async function scanCodexJsonlLines(
   let replayedBytes = 0;
   let oversizedLines = 0;
   let finalLineAccepted = false;
+  let timestampWitness: CodexRootTimestampWitness | undefined;
+  // A resumed middle fragment has no full-root proof; keep the conservative gap.
+  if (discarding) onSkippedLine?.({ phase: 'start' });
 
   for await (const rawChunk of reader.read(entry, start, end, {
     onReplayProgress: async bytes => {
@@ -119,8 +126,15 @@ export async function scanCodexJsonlLines(
       const absoluteSegmentEnd = chunkStart + segmentEnd;
 
       if (discarding) {
+        timestampWitness?.feed(segment);
         safeOffset = absoluteSegmentEnd;
       } else if (pendingBytes + segment.length > maxLineBytes) {
+        onSkippedLine?.({ phase: 'start' });
+        if (onSkippedLine) {
+          timestampWitness = new CodexRootTimestampWitness();
+          for (const part of pendingParts) timestampWitness.feed(part);
+          timestampWitness.feed(segment);
+        }
         pendingParts = [];
         pendingBytes = 0;
         discarding = true;
@@ -136,6 +150,8 @@ export async function scanCodexJsonlLines(
 
       const endOffset = chunkStart + newline + 1;
       if (discarding) {
+        onSkippedLine?.({ phase: 'end', observedAt: timestampWitness?.finish() });
+        timestampWitness = undefined;
         oversizedLines += 1;
         discarding = false;
       } else {
@@ -180,8 +196,12 @@ export async function scanCodexJsonlLines(
   // Adjudicate its last record once; an invalid/oversized fragment cannot wait
   // for an append that will never arrive and force whole-frame replay forever.
   const finalLineDiscarded = compressedEof && !discarding && pendingBytes > 0 && !finalLineAccepted;
+  if (finalLineDiscarded) { onSkippedLine?.({ phase: 'start' }); onSkippedLine?.({ phase: 'end' }); }
   if (compressedEof) {
-    if (discarding) oversizedLines += 1;
+    if (discarding) {
+      oversizedLines += 1;
+      onSkippedLine?.({ phase: 'end', observedAt: timestampWitness?.finish() });
+    }
     safeOffset = end;
     discarding = false;
   }

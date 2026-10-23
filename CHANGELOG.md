@@ -6,7 +6,166 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
+### Added
+- **Retained Codex request amounts** — `request-witness-v1` keeps priced observed
+  local U separate from conditional capacity F = deltaUsd / (deltaPercent / 100).
+  Unknown ownership and unpriced-model coverage remain explicit. Frozen numeric
+  receipts preserve actual as-of endpoints and reset episodes in the existing
+  bounded archive; clearing includes the earliest witness. Witness mode replaces
+  the legacy rough-bar fallback without historical replay, a parser bump or extra
+  source I/O/network requests. Strict forward calibration remains separate;
+  these amounts establish neither complete account spending nor a guaranteed lower bound.
+  中文：`request-witness-v1` 将已观测本地已定价金额 U 与条件容量
+  F = deltaUsd / (deltaPercent / 100) 分开，保留未知归属与未定价模型覆盖信息。
+  数值收据在既有有界归档中冻结实际截至时点与重置周期，清除检查最早见证。
+  见证模式取代旧粗估柱回退，不新增历史重放、解析器版本升级或来源 I/O／网络请求。
+  严格向前校准仍独立保留；这些金额不证明完整账号支出或保证下界。
+- **Matched local calibration** — implemented and routed a method that verifies
+  every source's primary delta, offsets and current physical snapshot before
+  matching local USD and percentage endpoints. Flat-percentage amounts survive
+  polling in bounded runtime sums; official observations remain separate current
+  context. Method-two numeric receipts retain both ranges in the existing archive
+  and details, with existing clearing and unchanged method-one semantics. Missing
+  declared forward proof never falls back to historical estimates. This method
+  has not yet passed actual monetary-usage acceptance; it does not establish
+  actual cycle spending or completion of the monetary-estimate goal.
+  中文：已实现并接入本地端点校准方法，先核验全部来源的主用量差额、偏移及当前物理快照，
+  再匹配本地金额与百分点端点；百分比不变时的金额以有界运行期累计跨轮询保留，官方观测
+  独立作为当前上下文。method-two 数值收据在既有归档及详情保留两个范围，沿用清除规则，
+  method-one 语义不变。已声明向前采集却缺少证明时不回退历史估算。尚未通过实际金额
+  用量验收，不证明周期实际支出，也不宣称金额估算目标已完成。
+- **Optional official Codex quota** — default-off reads use an already-running
+  local daemon. Rough account-numbered as-of estimates remain local proxies,
+  distinct from source-linked historical estimates and primary usage totals.
+  The daemon may contact OpenAI and refresh authentication; the extension never
+  starts it or reads Codex credentials.
+  Forward calibration uses a bounded runtime primary census and exact append
+  evidence without waiting for all-time/sidecar migration. Full-capacity estimates
+  remain conditional USD/Δp ratios; calibration samples are not actual-used totals.
+  Fresh continuity starts discard the first observed percentage-step span before
+  calibration; this does not guarantee unbiased estimates or an error bound.
+  Sanitized ordinary-usage/window/reset-credit facts share existing P2 retention
+  and clearing; no raw IDs/free text, extra source I/O, runtime dependency or anonymous
+  contribution is added. New readers block unknown P2 revisions; old readers may
+  reject/quarantine additions, without a universal rollback-write guarantee.
+  中文：向前校准使用有界运行期主来源清单及精确追加证据，不等待全部时段／侧车迁移。
+  满额估算仍是有条件的 USD／Δp 比值，校准样本不等于实际已用总额。
+  每次新连续性起点丢弃截至首次观测到至少1个百分点增加的区间再校准，不保证无偏或提供误差界。
+  清洗后普通用量许可／窗口／重置次数事实沿用 P2 保留与清除，不保存原始 ID／自由文本，
+  不新增来源 I/O、运行期依赖或匿名贡献。新读取器阻止未知 P2 修订；旧读取器可能拒绝／隔离新增字段，
+  但不能保证所有旧版本后续写入均安全。
+
 ### Fixed
+- **Archived Codex cycle estimates** — closed anonymous estimates remain visible
+  as archived rough estimates with their original amounts, timestamps and pricing
+  coverage. This display path does not qualify them as calibrated account capacity
+  or reuse them for a current account cycle.
+  中文：已结束的未归属周期估值恢复为“存档历史粗估”，保留原金额、时点和定价覆盖率；
+  该展示路径不将其认定为已校准账号容量，也不转用于当前账号周期。
+- **Calibration across window focus changes** — preserve accepted in-memory
+  quota calibration when switching windows; resumed samples still require the
+  same account/cycle, fresh observations and complete usage evidence. Cancelled
+  late network replies remain rejected. Opted-in collection follows existing
+  foreground refreshes while editing documents, without requiring an open dashboard.
+  中文：切换窗口时保留已接受的内存额度校准；恢复采样仍核对同账号／周期、新鲜度和完整
+  用量证据，已取消请求的迟到响应仍被拒绝。主动启用后，采集随现有前台刷新执行，编辑文档时
+  也可采集，不再要求打开用量面板。
+- **Forward calibration diagnostics** — distinguish the first rejected source,
+  append, numeric-detail, pricing or time guard without changing which monetary
+  samples are accepted. Output remains local fixed enums, without identifiers.
+  中文：向前校准诊断区分首个被拒绝的来源、追加、数值明细、定价或时间条件，不改变金额
+  样本的准入规则；输出仍仅为本地固定枚举，不包含标识。
+- **Codex volume identity** — reuse an unchanged source cache across device
+  renumbering only with proven same-volume/inode identity. An optional salted
+  volume HMAC shares the index's lifecycle; legacy entries and unsupported or
+  failed volume inspection retain strict device checks. Primary totals are
+  unaffected; runtime calibration may still retire on a device change.
+  中文：只有已证明同卷／同 inode 且来源未变时，才跨设备号重编号复用缓存。可选的加盐卷
+  HMAC 随索引保留和清除；旧记录、不支持或卷检查失败时仍严格核对设备号。主总量不受
+  影响，运行期校准仍可能因设备号变化而退役。
+- **Forward usage-record compatibility** — recognize one strictly paired observed
+  metadata/response/count layout without duplicate tokens, primary schema changes,
+  historical replay or persisted pair state. Split, unsafe and replayed pairs stay
+  ineligible. Local diagnostics identify append and official-bracket edge failures.
+  中文：严格核验一种已观测的元数据／响应／计数配对，不重复计量、不改主解析版本、不重放历史、
+  不保存配对状态；跨扫描分割、不安全及重放配对仍拒绝，诊断区分追加与官方配对边界失败。
+- **Official sampling continuity** — local proof and rates are frozen before the
+  quota request; concurrent refreshes cannot replace its calibration bracket.
+  Exact unchanged metadata rereads preserve alignment without recounting USD.
+  Fixed-field local diagnostics distinguish genuine gaps from stale, reused or
+  future proofs; quota fact capture remains independent of logging and fitting.
+  中文：官方请求前固定本地证明和费率，避免并发刷新替换本次配对范围；完全不变的额度重复
+  读取保留对齐且不重复计入金额。本地固定字段诊断区分真实缺口与过期、复用或请求后的证明，
+  额度事实采集不受日志或金额拟合失败影响。
+- **Forward calibration recovery** — historical parse warnings no longer permanently
+  block a later clean append; new unsafe records still reject the whole interval.
+  Pending cycle charts distinguish unavailable evidence, source changes, unmatched
+  quota endpoints and missing prices from ordinary calibration progress.
+  Proven new root sessions can join an interval without restarting alignment;
+  unknown births or removed sources still reject the whole interval.
+  中文：历史解析警告不再永久阻断后续干净追加；新的不安全记录仍使整段不准入。
+  待校准周期区分证据不可用、来源变化、额度端点未匹配、价格缺失与正常采样进度。
+  证据完整的新根会话可加入区间而不必重新对齐；未知创建过程或旧来源删除仍使整段不准入。
+- **Codex cycle quota reconciliation** — one bar and one expandable summary row
+  per cycle, including pending cycles. Evidence quality precedes recency; selected
+  amounts keep their own percentage and as-of time. Missing prices, incomplete USD
+  or conflicting counters reject whole overlapping USD/Δp components; a separate
+  coherent cohort can still calibrate. Without an eligible cohort, capacity stays
+  unknown rather than zero. New precise inputs withdraw covered daily-prefix estimates without
+  rewriting archived amounts. Model mix can change estimates; old large values
+  do not clamp new results. Claude retains its established display behavior.
+  中文：每周期一柱、一条可展开汇总行，待校准周期仍保留。先比较证据质量再比较新旧，
+  所选金额保留自身百分比与观测时刻。价格缺失、USD 不完整或计数矛盾时，整组拒绝重叠
+  USD／Δp 组件；独立连贯校准组仍可校准，无合格组时显示未知而非零。
+  新精确输入撤下其覆盖的旧日级前缀估值，不改写归档金额；模型组合可改变
+  估值，不以旧大金额钳制新结果。Claude 保持原有展示行为。
+- **Paired local quota estimates** — the existing index pass retains bounded version-5
+  numeric quota/Token checkpoints and incomplete-range witnesses. A gap affects overlapping
+  components rather than every interval sharing a reset; unknown scope fails closed.
+  Reset jitter uses a fixed first-reset anchor within ±5 minutes, without chaining
+  or pairing past that reset. `observedResetAt` retains raw resets; v1–4 sidecars
+  rebuild through bounded replay without retrojoining old baselines. Quota-only
+  replay defaults off, with an explicit internal historical path; independently
+  required primary/period migrations are unchanged. Primary quota observations stay raw.
+  Calibration validates raw last-request cost components independently of cumulative
+  regressions and context size, without changing primary totals, warnings or dedup.
+  The strongest compatible cohort retains its own as-of sample.
+  Baseline requests are stored separately from their own
+  segment delta so concurrent intervals do not silently lose their USD. Overlapping
+  percentage intervals are counted once. The five-percentage-point cycle display
+  gate is a local quality policy, not official measurement precision or an error
+  bound. Local-window and official-delta amounts remain conditional proxies; equal
+  reset times do not prove account identity or complete account usage.
+  中文：既有索引流程保留有界的 version-5 额度／Token 数值检查点及不完整区间见证。
+  重置抖动以固定首锚点的±5分钟为界，不链式延展，不越过该重置配对；`observedResetAt`
+  保留原始重置值。v1–4 侧车状态重建时有界重放，不回接旧基线；仅额度引起的重放默认关闭，
+  保留显式内部历史路径，主索引／period 独立需要的迁移不变；主要额度观测保留原始值。
+  校准独立校验原始末次请求成本组件，不因累计回退或上下文大小混淆而失效，主总计、警告及去重不变。
+  缺口只影响重叠组件，不因 reset 相同污染所有区间；未知作用域安全拒绝。最强兼容校准组
+  保留自身观测时点。基线请求与自身分段增量分开保存，
+  避免并发区间静默漏算其 USD；重叠百分点区间只计一次。周期金额展示的5个百分点门槛
+  是本地质量策略，不是官方测量精度或误差界。本地窗口与官方增量金额仍为有条件的代理
+  估算；重置时间相同不证明账号身份或完整账号用量。
+- **Frozen cycle evidence and clearing** — fixed-field receipts retain rate content,
+  intervals, Δp, amounts, Tokens and cycle bounds in the existing archive. Optional
+  numeric `skippedIntervals` / `skippedUsd` record whole rejected or unselected
+  attempts outside the admitted fit. Official
+  account/period history and pending account ordinals remain separate from local
+  windows; unknown boundaries may use labelled seven-day references. Display-only
+  aliases group verified same-account/source zero-use
+  planned-reset drift before the deadline and first positive use. Raw flags,
+  P2 observations, archived amounts and calibration epochs stay unchanged.
+  Clear fences also check the paired evidence start. The archive still stops at 4096 entries /
+  1 MiB without eviction. No extra raw-log scanner, usage graph, telemetry or
+  contribution flow is added. See [本地数据与隐私](LOCAL-DATA.zh-CN.md) /
+  [local data and privacy](LOCAL-DATA.md).
+  中文：既有归档以固定字段保存费率内容、区间、Δp、金额、Token 与周期边界；可选数值
+  `skippedIntervals`／`skippedUsd` 记录整组拒绝或未选的尝试，不进入获准拟合。官方
+  账号／周期历史及待校准账号序号与本地窗口分开。未知边界可用明确标注的七天参考桶。
+  同账号／来源且已验证的零用量计划重置漂移，可在截止时间及首次正用量前只归并显示别名；
+  原始标记、P2 观测、归档金额与校准分段不变。
+  清除屏障也检查配对证据起点；归档仍在4096条／1 MiB后停止新写入，不淘汰历史。
+  不增加原始日志扫描器、用量图、遥测或贡献流程。
 - **Rewriting a transcript re-read the whole history (#99)** — a mid-file edit
   or truncation (`/rewind`, session repair, an external touch) tripped the
   source-mutation guard and every file was rebuilt from its body. The rewrite

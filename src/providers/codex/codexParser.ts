@@ -13,6 +13,7 @@ import {
 } from './codexSchema';
 import { safeProjectIdentity } from './codexIdentity';
 import { sanitizeCodexMetadataLabel } from './codexMetadataLabel';
+import { codexUsageRecordPairMarker, CodexUsageRecordPairMarker } from './codexUsageRecordPair';
 
 export interface CodexRawTokenCounts {
   inputTokens: number;
@@ -51,12 +52,35 @@ export interface CodexStructuralEvent {
 }
 
 export interface CodexLineOutput {
+  /** Numeric/hash-only, scan-local metadata evidence; never parser state or disk DTO. */
+  usageRecordPair?: CodexUsageRecordPairMarker;
+  /** Runtime-only current-line failure, independent of sticky quality flags.
+   * This does not change primary token attribution or persisted parser semantics. */
+  forwardCalibrationIncomplete?: boolean;
+  /** Numeric envelope time only; no raw line or message is retained. */
+  observedAt?: number;
+  /** Current-line attribution cannot prove a paired post-baseline increment. */
+  quotaPairingIncomplete?: boolean;
+  /** Fixed enum only; present even when that source has no usable quota window. */
+  quotaSource?: 'codex' | 'unspecified' | 'other';
   state: CodexParserState;
   events: NormalizedUsageEvent[];
   limit?: ProviderLimitSnapshot;
   structural?: CodexStructuralEvent;
   lineageBoundary?: boolean;
   lineageTokenKey?: string;
+}
+
+// Only old, localized parsing/accounting gaps may precede a fresh forward
+// baseline. Identity/ownership/stale-state flags and unknown future flags remain
+// blocking. Current occurrences still invalidate the entire append witness.
+const FORWARD_HISTORICAL_QUALITY_FLAGS = new Set([
+  'unknown-event', 'invalid-json', 'oversized-jsonl-line', 'invalid-event-payload',
+  'missing-token-info', 'invalid-token-count', 'invalid-event-timestamp',
+  'invalid-turn-context', 'counter-regression', 'component-delta-clamped',
+]);
+export function isCodexForwardHistoricalQualityFlag(flag: string): boolean {
+  return FORWARD_HISTORICAL_QUALITY_FLAGS.has(flag);
 }
 
 export function createCodexParserState(
@@ -107,6 +131,25 @@ function rawTokenCounts(value: unknown): CodexRawTokenCounts | null {
     reasoningOutputTokens: validTokenField('reasoning_output_tokens') ?? 0,
     totalTokens: validTokenField('total_tokens') ?? inputTokens + outputTokens,
   };
+}
+
+/** Calibration validates the original cost components before primary's
+ * compatibility defaults/clamps. This never changes primary attribution. */
+function calibrationLastUsageIsValid(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  const count = (raw: unknown): raw is number => typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0;
+  const input = value.input_tokens, output = value.output_tokens;
+  if (!count(input) || !count(output) || !Number.isSafeInteger(input + output)) return false;
+  for (const key of ['cached_input_tokens', 'cache_read_input_tokens', 'reasoning_output_tokens']) {
+    if (Object.prototype.hasOwnProperty.call(value, key) && !count(value[key])) return false;
+  }
+  const cached = value.cached_input_tokens ?? value.cache_read_input_tokens ?? 0;
+  const reasoning = value.reasoning_output_tokens ?? 0;
+  if (Object.prototype.hasOwnProperty.call(value, 'cached_input_tokens') &&
+    Object.prototype.hasOwnProperty.call(value, 'cache_read_input_tokens') &&
+    value.cached_input_tokens !== value.cache_read_input_tokens) return false;
+  // last.total_tokens is context size, not a cost component or request sum.
+  return count(cached) && cached <= input && count(reasoning) && reasoning <= output;
 }
 
 function rawSignature(value: CodexRawTokenCounts | null): string {
@@ -340,7 +383,7 @@ function parseTurnContext(
   state: CodexParserState,
 ): CodexLineOutput {
   if (!isObject(entry.payload)) {
-    return { state: withFlag(state, 'invalid-turn-context'), events: [] };
+    return { state: withFlag(state, 'invalid-turn-context'), events: [], forwardCalibrationIncomplete: true };
   }
   const model = Object.prototype.hasOwnProperty.call(entry.payload, 'model')
     ? sanitizeCodexMetadataLabel(entry.payload.model)
@@ -354,6 +397,8 @@ function parseTurnContext(
       effort,
     },
     events: [],
+    ...(Object.prototype.hasOwnProperty.call(entry.payload, 'model') && model === undefined
+      ? { forwardCalibrationIncomplete: true } : {}),
   };
 }
 
@@ -456,7 +501,7 @@ function parseSessionMetadata(
   pseudonymize?: (raw: string) => string,
 ): CodexLineOutput {
   if (!isObject(entry.payload)) {
-    return { state: withFlag(state, 'invalid-session-meta'), events: [] };
+    return { state: withFlag(state, 'invalid-session-meta'), events: [], forwardCalibrationIncomplete: true };
   }
   const payload = entry.payload;
   const subagent = nestedObject(payload, 'source', 'subagent');
@@ -507,7 +552,7 @@ function parseSessionMetadata(
     sessionKey &&
     sessionKey !== state.sessionKey
   ) {
-    return { state: nextState, events: [] };
+    return { state: nextState, events: [], forwardCalibrationIncomplete: true };
   }
   const locksIdentity = !state.identityLocked && sessionKey !== undefined;
   nextState = {
@@ -530,7 +575,10 @@ function parseSessionMetadata(
     agentNickname: agentNickname ?? state.agentNickname,
     role,
   };
-  return { state: nextState, events: [] };
+  return { state: nextState, events: [],
+    ...((!pseudonymize && (rawSession || rawTree || rawParent || projectIdentity.keySource)) ||
+      (Object.prototype.hasOwnProperty.call(payload, 'id') && !rawSession)
+      ? { forwardCalibrationIncomplete: true } : {}) };
 }
 
 function structuralFromEventMessage(
@@ -574,26 +622,32 @@ function parseTokenCount(
   state: CodexParserState,
   pseudonymize?: (raw: string) => string,
 ): CodexLineOutput {
-  if (!isObject(payload.info)) {
-    return { state: withFlag(state, 'missing-token-info'), events: [] };
-  }
-  const info = payload.info;
-  const current = rawTokenCounts(info.total_token_usage);
-  const last = rawTokenCounts(info.last_token_usage);
-  if (!current && !last) {
-    return { state: withFlag(state, 'invalid-token-count'), events: [] };
-  }
-
   const observedAt = timestampOf(entry);
+  const info = isObject(payload.info) ? payload.info : {};
   const limit = parsePrimaryLimit(payload, info, observedAt);
   const rateLimits = isObject(payload.rate_limits)
     ? payload.rate_limits
-    : isObject(info.rate_limits)
-      ? info.rate_limits
-      : undefined;
-  const rawSource = rateLimits
-    ? stringField(rateLimits, 'limit_id')
+    : isObject(info.rate_limits) ? info.rate_limits : undefined;
+  const rawSource = rateLimits ? stringField(rateLimits, 'limit_id') : undefined;
+  const normalizedSource = rawSource?.trim().toLowerCase();
+  const sourceName = rateLimits ? stringField(rateLimits, 'limit_name')?.trim().toLowerCase() : undefined;
+  const quotaSource: CodexLineOutput['quotaSource'] = rateLimits
+    ? normalizedSource ? normalizedSource === 'codex' ? 'codex' : 'other'
+      : sourceName && sourceName !== 'codex' ? 'other' : 'unspecified'
     : undefined;
+  if (!isObject(payload.info)) {
+    return { state: limit ? state : withFlag(state, 'missing-token-info'), events: [], limit, quotaSource,
+      forwardCalibrationIncomplete: true,
+      ...(!limit ? { quotaPairingIncomplete: true } : {}) };
+  }
+  const current = rawTokenCounts(info.total_token_usage);
+  const last = rawTokenCounts(info.last_token_usage);
+  if (!current && !last) {
+    return { state: limit ? state : withFlag(state, 'invalid-token-count'), events: [], limit, quotaSource,
+      forwardCalibrationIncomplete: true,
+      ...((!limit || info.last_token_usage != null || info.total_token_usage != null)
+        ? { quotaPairingIncomplete: true } : {}) };
+  }
   const source = rawSource
     ? pseudonymize?.(`rate-limit:${rawSource}`) ?? 'unknown-source'
     : 'default';
@@ -643,8 +697,15 @@ function parseTokenCount(
     };
   }
   const lineageTokenKey = signature;
+  const hasExplicitLast = info.last_token_usage !== undefined && info.last_token_usage !== null;
+  const quotaPairingIncomplete =
+    (hasExplicitLast && !calibrationLastUsageIsValid(info.last_token_usage)) ||
+    (!last && (regressed || componentClamped || !state.highWater));
+  const forwardCalibrationIncomplete = !last || regressed || componentClamped || quotaPairingIncomplete;
   if (!hasUsage(tokens)) {
-    return { state: nextState, events: [], limit, lineageTokenKey };
+    return { state: nextState, events: [], limit, lineageTokenKey, quotaSource,
+      ...(forwardCalibrationIncomplete ? { forwardCalibrationIncomplete: true } : {}),
+      ...(quotaPairingIncomplete ? { quotaPairingIncomplete: true } : {}) };
   }
 
   const event: NormalizedUsageEvent = {
@@ -662,18 +723,29 @@ function parseTokenCount(
     confidence: nextState.qualityFlags.length > 0 ? 'partial' : 'exact',
     qualityFlags: [...nextState.qualityFlags],
   };
-  return { state: nextState, events: [event], limit, lineageTokenKey };
+  return { state: nextState, events: [event], limit, lineageTokenKey, quotaSource,
+    ...(forwardCalibrationIncomplete ? { forwardCalibrationIncomplete: true } : {}),
+    ...(quotaPairingIncomplete ? { quotaPairingIncomplete: true } : {}) };
 }
 
 export function parseCodexLine(
   line: string,
   state: CodexParserState,
   pseudonymize?: (raw: string) => string,
+  scanOrdinal?: number,
 ): CodexLineOutput {
   const entry = parseJsonObject(line);
   if (!entry) {
-    return { state: withFlag(state, 'invalid-json'), events: [] };
+    return { state: withFlag(state, 'invalid-json'), events: [], quotaPairingIncomplete: true, forwardCalibrationIncomplete: true };
   }
+  const parsed = { ...parseCodexEntry(entry, state, pseudonymize), observedAt: timestampOf(entry) };
+  const usageRecordPair = codexUsageRecordPairMarker(entry, parsed, scanOrdinal, pseudonymize);
+  return { ...parsed, ...(usageRecordPair ? { usageRecordPair } : {}) };
+}
+
+function parseCodexEntry(
+  entry: JsonObject, state: CodexParserState, pseudonymize?: (raw: string) => string,
+): CodexLineOutput {
   const type = stringField(entry, 'type');
   if (type === 'turn_context') {
     return parseTurnContext(entry, state);
@@ -683,7 +755,7 @@ export function parseCodexLine(
   }
   if (type === 'event_msg') {
     if (!isObject(entry.payload)) {
-      return { state: withFlag(state, 'invalid-event-payload'), events: [] };
+      return { state: withFlag(state, 'invalid-event-payload'), events: [], forwardCalibrationIncomplete: true };
     }
     const effortEvidence = explicitReasoningEffort(entry.payload);
     const eventState = effortEvidence.present
@@ -702,7 +774,8 @@ export function parseCodexLine(
     };
   }
   if (type === 'response_item') {
-    return { state, events: [], structural: structuralFromResponseItem(entry) };
+    return { state, events: [], structural: structuralFromResponseItem(entry),
+      ...(!isObject(entry.payload) ? { forwardCalibrationIncomplete: true } : {}) };
   }
   if (
     type === 'world_state' ||
@@ -711,5 +784,5 @@ export function parseCodexLine(
   ) {
     return { state, events: [] };
   }
-  return { state: withFlag(state, 'unknown-event'), events: [] };
+  return { state: withFlag(state, 'unknown-event'), events: [], forwardCalibrationIncomplete: true };
 }

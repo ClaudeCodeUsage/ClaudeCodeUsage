@@ -55,3 +55,14 @@ test('limit views represent unlimited credit separately from rate windows', () =
 
   assert.deepEqual(views.map((view) => view.state), ['unlimited']);
 });
+
+test('invalid and future-dated quota samples never manufacture remaining capacity', () => {
+  for (const usedPercent of [-1, 101, NaN, Infinity]) {
+    const views = buildCodexLimitViews([snapshot({
+      windows: [{ usedPercent, windowMinutes: 10080, resetsAt: NOW + 60_000 }],
+    })], NOW);
+    assert.equal(views[0].state, 'missing');
+    assert.equal(views[0].remainingPercent, undefined);
+  }
+  assert.equal(buildCodexLimitViews([snapshot({ observedAt: NOW + 1 })], NOW)[0].state, 'missing');
+});

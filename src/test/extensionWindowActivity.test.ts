@@ -23,6 +23,7 @@ import { snapshotFixture } from './codexFixtures';
 import { CODEX_PERIOD_LINEAGE_VERSION } from '../providers/codex/codexPeriodIndex';
 import {
   createEmptyQuotaObservationStore,
+  codexQuotaCapturesFromWeeklyObservations,
   mergeQuotaCaptures,
 } from '../quotaObservationStore';
 import { I18n } from '../i18n';
@@ -514,8 +515,11 @@ test('real paused host routes worker tail proof through the facade into shared u
       JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-6.1-astra', effort: 'max' } }) + '\n';
     const log = path.join(sessions, 'live.jsonl');
     fs.writeFileSync(log, header('synthetic-live') + token(500_000_000, 100_000_000, Date.now() - 3_600_000) + '\n');
+    // These are overlapping conflicting copies, not disjoint continuations.
+    // Separate wall-clock reads could differ under load and prove disjointness.
+    const conflictAt = Date.now() - 3_600_000;
     for (const [n, input] of [[1, 10], [2, 20]]) fs.writeFileSync(path.join(sessions, 'conflict-' + n + '.jsonl'),
-      header('synthetic-conflict') + token(input, 2, Date.now() - 3_600_000) + '\n');
+      header('synthetic-conflict') + token(input, 2, conflictAt) + '\n');
     config.codexDataDirectory = home; config.timezone = 'UTC'; config.enableAchievements = true;
     const file = path.join(root, 'achievements-v1.json');
     const owner = new UsageWebviewProvider({ globalState: { get: () => undefined, update: async () => undefined } }) as any;
@@ -2896,6 +2900,16 @@ test('quota cold retry timer is owned and cleared on blur', async () => {
 
 test('extension disposal releases worker and backfill only after provider termination', async () => {
   const extension = bareExtension();
+  const archiveStops: string[] = [];
+  let historyPending = true;
+  extension.weeklyEstimateCoordinator = {
+    flush: async () => {
+      assert.equal(historyPending, true, 'accepted historical snapshots drain before coordinator retirement');
+      archiveStops.push('flush');
+      historyPending = false;
+    },
+    dispose: () => { archiveStops.push('dispose'); historyPending = false; },
+  };
   let finishProviderDispose!: () => void;
   const providerDisposed = new Promise<void>((resolve) => {
     finishProviderDispose = resolve;
@@ -2945,6 +2959,7 @@ test('extension disposal releases worker and backfill only after provider termin
   await disposal;
   assert.equal(extension.resourceOwnership.snapshotForTests().activeCount, 0);
   assert.equal(hostDisposals, 2);
+  assert.deepEqual(archiveStops, ['flush', 'dispose']);
 });
 
 test('extension disposal keeps worker ownership active when termination fails', async () => {
@@ -4559,6 +4574,7 @@ test('credentials change clears quota failure backoff before refreshing', async 
     return Promise.resolve();
   };
   extension.webviewProvider = {
+    updateQuota: () => undefined,
     updateWeeklyQuotaHistory: () => undefined,
   };
 
@@ -4570,6 +4586,67 @@ test('credentials change clears quota failure backoff before refreshing', async 
   assert.equal(extension.cache.usageLimitsBackoffUntil.getTime(), 0);
   assert.deepEqual(calls, ['refresh:credentials']);
   assert.deepEqual(quotaUpdates, [[null,null]], 'credential retirement also withdraws the published forecast');
+});
+
+test('credential changes immediately withdraw cached quota and webview eligibility even if refresh fails', async () => {
+  const extension = bareExtension();
+  const statuses: unknown[][] = [];
+  const quotas: unknown[] = [];
+  const paces: unknown[][] = [];
+  extension.claudeProfileGeneration = 0;
+  extension.isActive = () => false;
+  extension.apiClient = { fetchUsageLimits: async () => null };
+  extension.statusBar = { updateQuota: (...args: unknown[]) => statuses.push(args) };
+  extension.webviewProvider = {
+    updateQuota: (quota: unknown) => quotas.push(quota),
+    updateQuotaPace: (...args: unknown[]) => paces.push(args),
+    updateWeeklyQuotaHistory: () => undefined,
+  };
+  extension.refreshData = async () => undefined;
+  for (let rotation = 0; rotation < 3; rotation++) {
+    extension.cache = { usageLimits: { seven_day: { utilization: 80, resets_at: null } },
+      usageLimitsLastUpdate: new Date(), usageLimitsFailStreak: 6,
+      usageLimitsBackoffUntil: new Date(Date.now() + 3600_000) };
+    extension.activeClaudeQuotaFingerprint = 'previous-account';
+    extension.claudeWeeklyQuotaHistory = [{ usedPercent: 80 }];
+    extension.handleCredentialsChange();
+    assert.equal(extension.cache.usageLimits, null, 'retire synchronously, before refresh');
+    assert.equal(extension.activeClaudeQuotaFingerprint, undefined);
+    assert.deepEqual(extension.claudeWeeklyQuotaHistory, []);
+    assert.equal(await extension.maybeFetchUsageLimits({ usageLimitTracking: true }), null);
+  }
+  assert.equal(extension.claudeProfileGeneration, 3);
+  assert.deepEqual(statuses, [[null, null], [null, null], [null, null]]);
+  assert.deepEqual(quotas, [null, null, null]);
+  assert.deepEqual(paces, [[null, null], [null, null], [null, null]]);
+});
+
+test('Codex weekly display uses active snapshot observations before and after global persistence', async () => {
+  const { extension, config, snapshot } = coordinatorHarness(true);
+  config.enableAchievements = false;
+  const observedAt = Date.now();
+  const observation = (seriesKey: string, usedPercent: number) => ({
+    provider: 'codex' as const, seriesKey, observedAt,
+    resetAt: observedAt + 7 * 24 * 3600_000, usedPercent,
+  });
+  const foreign = observation('synthetic-home-a', 90);
+  const active = observation('synthetic-home-b', 25);
+  extension.quotaObservationStore = mergeQuotaCaptures(extension.quotaObservationStore,
+    codexQuotaCapturesFromWeeklyObservations([foreign]),
+    { salt: extension.quotaFingerprintSalt, now: observedAt });
+  assert.equal(extension.quotaObservationStore.observations.length, 1);
+  snapshot.weeklyValueInputs = { ...snapshot.weeklyValueInputs!, observations: [active] };
+  extension.applyCodexSnapshot(snapshot);
+  assert.deepEqual(extension.codexView.weeklyValueInputs.observations, [active]);
+  await new Promise(resolve => setImmediate(resolve));
+  extension.refreshQuotaObservationViews();
+  assert.deepEqual(extension.codexView.weeklyValueInputs.observations, [active]);
+  assert.equal(extension.quotaObservationStore.observations.length, 2, 'history still persists globally');
+  const empty = structuredClone(snapshot);
+  empty.weeklyValueInputs!.observations = [];
+  extension.applyCodexSnapshot(empty);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(extension.codexView.weeklyValueInputs.observations, [], 'another home cannot refill an empty active snapshot');
 });
 
 test('changing Claude profiles replaces the quota client and clears account state', () => {

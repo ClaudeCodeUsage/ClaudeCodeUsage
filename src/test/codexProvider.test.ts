@@ -200,6 +200,26 @@ function workerResult(index = partialIndex()): CodexWorkerResult {
   };
 }
 
+test('complete current census exposes ambiguous calibration exclusions without changing usage totals or identity quality', async t => {
+  const index = duplicateIndex(true), own = contribution('independent-key', 'sessions');
+  own.aggregate.session.sessionKey = 'independent-session'; own.parserState.sessionKey = 'independent-session';
+  index.files[own.fileKey] = own;
+  index.coverage.period.allTime.complete = true;
+  const client = new FakeClient([{ ...workerResult(index), failedFiles: 0 }]);
+  const provider = new CodexProvider({ enabled: true, codexHome: '/synthetic-not-read',
+    indexPath: '/synthetic-not-written/index.json', salt: 'synthetic', timeZone: 'UTC' }, () => client);
+  t.mock.method(provider, 'isAvailable', async () => true);
+  t.mock.method((provider as any).sessionTitleCache, 'load', async () => new Map());
+  try {
+    const result = await provider.refresh(), scope = result.snapshot.weeklyValueInputs?.calibrationSourceScope;
+    assert.equal(scope?.verified, true);
+    assert.deepEqual(scope?.excludedSourceKeys, ['active-key', 'archive-key']);
+    assert.equal(result.snapshot.coverage.identity.complete, false);
+    assert.equal(result.snapshot.total.inputTotal, 240);
+    assert.equal(result.outcome, 'partial');
+  } finally { provider.dispose(); }
+});
+
 function calendarWitnessIndex(prefixEvents = 0): CodexIndexV1 {
   const index = partialIndex();
   const file = Object.values(index.files)[0];
@@ -798,6 +818,23 @@ test('provider snapshots promote exact period slices for scoped consumers', asyn
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('per-file retained quota history preserves runtime source joins without inventing account ownership', async () => {
+  const root=await mkdtemp(path.join(os.tmpdir(),'ccu-provider-quota-source-'));
+  try{
+    await mkdir(path.join(root,'sessions'),{recursive:true});
+    const index=duplicateIndex(false),file=index.files['active-key'];
+    const resetAt=Date.parse('2026-08-31T03:00Z');
+    file.quotaHistory=[{provider:'codex',seriesKey:'codex',observedAt:resetAt-3_600_000,resetAt,usedPercent:25},
+      {provider:'codex',seriesKey:'codex',observedAt:resetAt-1_800_000,resetAt:resetAt+3_600_000,usedPercent:40}];
+    const provider=new CodexProvider({enabled:true,codexHome:root,indexPath:'index',salt:'salt',timeZone:'UTC'},
+      ()=>new FakeClient([{...workerResult(index),failedFiles:0}]));
+    const rows=(await provider.refresh()).snapshot.weeklyValueInputs!.observations;
+    const retained=rows.filter(row=>row.usedPercent===25||row.usedPercent===40);
+    assert.equal(retained.length,2);assert.ok(retained.every(row=>row.sourceKey==='active-key'));
+    assert.ok(retained.every(row=>row.accountAttribution!=='verified-local-signal'));
+  }finally{await rm(root,{recursive:true,force:true});}
 });
 
 test('a delayed post-reset current poll does not hide cached pre-reset evidence', async () => {

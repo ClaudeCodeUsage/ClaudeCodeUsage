@@ -24,6 +24,7 @@ import {
   CodexStructuralEvent,
   createCodexParserState,
   parseCodexLine,
+  isCodexForwardHistoricalQualityFlag,
 } from './codexParser';
 import {
   CODEX_PERIOD_LINEAGE_VERSION,
@@ -43,6 +44,10 @@ import {
   codexPeriodFitsAggregate,
 } from './codexPeriodIndex';
 import { parseJsonObject, stringField } from './codexSchema';
+import { CodexUsageRecordPairGuard } from './codexUsageRecordPair';
+import { isCodexForwardFileQualityFlag } from './codexForwardQuality';
+import { CodexForwardUsageSlice, copyCodexForwardSlices,
+  CODEX_FORWARD_SLICES_MAX_SLICES, CODEX_FORWARD_SLICES_MAX_BYTES } from './codexForwardSlices';
 import { CodexZstdError, type CodexZstdErrorCode } from './codexZstd';
 import {
   CodexManifest,
@@ -68,6 +73,9 @@ import {
   pseudonymousIdentityKey,
 } from './codexIdentity';
 import { sanitizeCodexMetadataLabel } from './codexMetadataLabel';
+import { CodexQuotaCheckpointState, CODEX_QUOTA_CHECKPOINT_VERSION, createCodexQuotaCheckpointState,
+  retainCodexQuotaCheckpoints, sanitizeCodexQuotaCheckpointState as validateCodexQuotaCheckpointState,
+  boundCodexQuotaCheckpointStates, codexQuotaSkippedLineHandler, markCodexQuotaCheckpointGap } from './codexQuotaCheckpoints';
 import { CodexAchievementUsageWindow, CodexAchievementUsageDelta, copyCodexUsageWindow,
   emptyCodexUsageDelta, addCodexOriginEvent, copyCodexUsageDelta,
   codexOriginBaselineReady, finalizeCodexUsageDelta } from './codexAchievementOrigin';
@@ -130,6 +138,19 @@ export interface CodexFileAggregate {
 }
 
 export interface CodexFileContribution {
+  /** Salted stable-volume provenance; absent on legacy or unsupported hosts. */
+  volumeKey?: string;
+  /** Runtime-only timing of one verified scan, possibly initial offset zero;
+   * initial authority requires the producer's separate branded birth predicate. */
+  calibrationAppend?: {
+    beforeOffset: number;
+    throughOffset: number;
+    minUsageAt: number | null;
+    maxUsageAt: number | null;
+    complete: boolean;
+    slices?: readonly CodexForwardUsageSlice[];
+  };
+  quotaCheckpoints?: CodexQuotaCheckpointState;
   fileKey: string;
   sourceArea?: CodexSourceArea;
   /** size/offset remain decoded-byte coordinates; these describe on-disk bytes. */
@@ -185,6 +206,7 @@ export function isCodexUsageContributionCurrent(
 }
 
 export interface CodexLineageReconciliationState extends CodexJsonlCursor {
+  quotaCheckpoints?: CodexQuotaCheckpointState;
   prefixEvents: number;
   tokenEventsSeen: number;
   parserState: CodexParserState;
@@ -410,6 +432,10 @@ export interface CodexFilePassTask {
   asOfDay: string;
   endExclusive: number;
   achievementUsageWindow?: CodexAchievementUsageWindow;
+  /** Numeric refresh context for the main pass across the worker boundary. */
+  refreshInstant?: number;
+  allowHistoricalBackfill?: boolean;
+  allowQuotaCheckpointBackfill?: boolean;
 }
 
 export type CodexFilePassOutcome =
@@ -470,6 +496,9 @@ export interface CodexIndexUpdateOptions {
   /** False skips unchanged historical lineage/period/hour/identity passes while
    * still allowing the main changed-file and append-tail stage to run. */
   allowHistoricalBackfill?: boolean;
+  /** Explicit opt-in for historical reads needed only to upgrade quota checkpoints.
+   * Defaults false; required primary/calendar migrations are independent. */
+  allowQuotaCheckpointBackfill?: boolean;
   /** False avoids separate history reads for achievements; existing usage cursors stay intact. */
   allowAchievementHourProof?: boolean;
   /** Internal resolved civil day shared with local file-pass workers. */
@@ -477,6 +506,9 @@ export interface CodexIndexUpdateOptions {
 }
 
 export interface CodexIndexUpdateResult {
+  /** Runtime-only full-manifest physical-version/EOF verification. Never P1.
+   * Optional only for compatibility with older worker/result producers. */
+  forwardSourcesCurrent?: boolean;
   achievementUsageDelta?: CodexAchievementUsageDelta;
   index: CodexIndexV3;
   indexChanged: boolean;
@@ -784,6 +816,11 @@ function uniqueFlags(...groups: string[][]): string[] {
   return [...new Set(groups.flat())].sort();
 }
 
+export function isCodexQuotaCheckpointCurrent(file: CodexFileContribution): boolean {
+  return file.quotaCheckpoints?.version === CODEX_QUOTA_CHECKPOINT_VERSION && file.quotaCheckpoints.indexedThrough === file.offset &&
+    file.quotaCheckpoints.prefixEvents === (file.lineage?.desiredPrefixEvents ?? 0);
+}
+
 /** A valid checkpoint may still be skipping inherited events. Resuming that
  * scan is not permission to publish its dates; promotion still requires the
  * entire prefix and source cursor below. */
@@ -794,7 +831,9 @@ function resumablePeriodMigration(
   const migration = contribution.periodMigration;
   const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
   const seen = migration?.tokenEventsSeen;
-  if (!migration || migration.timeZone !== timeZone || migration.prefixEvents !== prefixEvents ||
+  if (!migration || migration.quotaCheckpoints?.version !== CODEX_QUOTA_CHECKPOINT_VERSION ||
+      migration.quotaCheckpoints.indexedThrough !== migration.offset ||
+      migration.timeZone !== timeZone || migration.prefixEvents !== prefixEvents ||
       typeof seen !== 'number' || !Number.isSafeInteger(seen) || seen < 0 ||
       !Number.isSafeInteger(migration.offset) || migration.offset < 0 || migration.offset > contribution.offset ||
       (seen < prefixEvents && Object.keys(migration.days).length > 0)) return undefined;
@@ -809,6 +848,8 @@ function promoteCaughtUpPeriod(
   const prefixEvents = contribution.lineage?.desiredPrefixEvents ?? 0;
   if (
     migration?.timeZone !== timeZone ||
+    migration.quotaCheckpoints?.version !== CODEX_QUOTA_CHECKPOINT_VERSION ||
+    migration.quotaCheckpoints.indexedThrough !== migration.offset ||
     migration.prefixEvents !== prefixEvents ||
     !Number.isFinite(migration.tokenEventsSeen) ||
     (migration.tokenEventsSeen ?? 0) < prefixEvents ||
@@ -824,6 +865,7 @@ function promoteCaughtUpPeriod(
     lineageVersion: CODEX_PERIOD_LINEAGE_VERSION,
     lineagePrefixEvents: prefixEvents,
   };
+  contribution.quotaCheckpoints = migration.quotaCheckpoints;
   contribution.qualityFlags = uniqueFlags(
     contribution.qualityFlags,
     migration.qualityFlags,
@@ -949,6 +991,7 @@ function previousManifest(index: CodexIndexV3): CodexPersistedManifest {
               mtimeMs: file.mtimeMs,
               dev: file.dev,
               ino: file.ino,
+              ...(file.volumeKey ? { volumeKey: file.volumeKey } : {}),
               ...(file.compression === 'zstd' ? { compression: file.compression,
                 storageSize: file.storageSize, storageCtimeMs: file.storageCtimeMs } : {}),
             },
@@ -971,11 +1014,13 @@ function contributionFor(
     mtimeMs: 0,
     dev: entry.dev,
     ino: entry.ino,
+    ...(entry.volumeKey ? { volumeKey: entry.volumeKey } : {}),
     ...compressedSourceMetadata(entry),
     offset: 0,
     discardingOversizedLine: false,
     parserState,
     lineage: createLineageTrace(),
+    quotaCheckpoints: createCodexQuotaCheckpointState(0),
     hourProof: {
       version: CODEX_UTC_HOUR_PROOF_VERSION,
       indexedThrough: 0,
@@ -1066,6 +1111,34 @@ type ContributionChunkHandler = (
   bytesRead: number,
 ) => Promise<void>;
 
+/** Start at an already verified primary cursor, never replay its unknown quota
+ * prefix. Whole-history coverage stays false while later segments can recover. */
+function forwardQuotaCheckpoints(
+  contribution: CodexFileContribution,
+  options: CodexIndexUpdateOptions,
+  prefixEvents: number,
+): CodexQuotaCheckpointState | undefined {
+  if (contribution.offset <= 0 || contribution.compression || contribution.discardingOversizedLine ||
+      contribution.lineageReconciliation || !isCodexUsageContributionCurrent(contribution) ||
+      (contribution.lineage?.appliedPrefixEvents ?? 0) !== prefixEvents ||
+      (options.allowHistoricalBackfill !== false && options.allowQuotaCheckpointBackfill === true)) return undefined;
+  const state = createCodexQuotaCheckpointState(prefixEvents);
+  state.indexedThrough = contribution.offset;
+  const times = [(options.now ?? Date.now)(), contribution.aggregate.session.endedAt, contribution.limit?.observedAt]
+    .filter((time): time is number => typeof time === 'number' && Number.isSafeInteger(time) && time > 0);
+  const through = times.length ? Math.max(...times) : Number.MAX_SAFE_INTEGER;
+  state.ranges = [{ from: 0, through }];
+  state.activityThrough = through;
+  // These are verified primary counts, not quota-paired coverage. In particular,
+  // do not put the historical tokens in excludedTokens or baselineByModel.
+  const total = contribution.aggregate.total;
+  state.observedTokens = { inputTotal: total.inputTotal, cachedInput: total.cachedInput ?? 0,
+    outputTotal: total.outputTotal, reasoningOutput: total.reasoningOutput ?? 0,
+    sourceTotal: total.inputTotal + total.outputTotal };
+  markCodexQuotaCheckpointGap(state);
+  return validateCodexQuotaCheckpointState(state);
+}
+
 async function updateContribution(
   contribution: CodexFileContribution,
   entry: CodexRuntimeManifestEntry,
@@ -1094,6 +1167,32 @@ async function updateContribution(
   );
   const rollingDays = rollingHourlyDaySet(asOfDay);
   const desiredPrefixEvents = lineage.desiredPrefixEvents ?? 0;
+  const beforeOffset = contribution.offset;
+  delete contribution.calibrationAppend;
+  const initialRootScan = beforeOffset === 0 && contribution.size === 0 &&
+    !parserState.identityLocked && lineage.tokenEvents === 0 && desiredPrefixEvents === 0 &&
+    lineage.appliedPrefixEvents === 0 && contribution.qualityFlags.length === 0 && parserState.qualityFlags.length === 0;
+  let initialIdentityLockSeen = false;
+  let initialTaskBoundarySeen = false;
+  const usageRecordPair = new CodexUsageRecordPairGuard();
+  // Scan-local numeric evidence only. Overflow/invalidity discards the entire
+  // capture, independently of existing primary totals and append admission.
+  let forwardSlices: CodexForwardUsageSlice[] | undefined = [];
+  let forwardSliceBytes = 2;
+  let forwardScanOrdinal = 0;
+  let minUsageAt: number | null = null, maxUsageAt: number | null = null, lastUsageAt: number | null = null;
+  let appendComplete = (beforeOffset > 0 || initialRootScan) && beforeOffset === contribution.size && !entry.compression &&
+    !contribution.discardingOversizedLine && !contribution.lineageReconciliation &&
+    lineage.appliedPrefixEvents === desiredPrefixEvents && isCodexUsageContributionCurrent(contribution) &&
+    contribution.qualityFlags.every(flag => isCodexForwardFileQualityFlag(flag, true)) &&
+    parserState.qualityFlags.every(isCodexForwardHistoricalQualityFlag) &&
+    Number.isSafeInteger(contribution.dev) && contribution.dev! > 0 &&
+    Number.isSafeInteger(contribution.ino) && contribution.ino! > 0 &&
+    contribution.dev === entry.dev && contribution.ino === entry.ino;
+  const quotaCheckpoints = contribution.quotaCheckpoints?.version === CODEX_QUOTA_CHECKPOINT_VERSION &&
+    contribution.quotaCheckpoints.indexedThrough === contribution.offset &&
+    contribution.quotaCheckpoints.prefixEvents === desiredPrefixEvents
+    ? contribution.quotaCheckpoints : forwardQuotaCheckpoints(contribution, options, desiredPrefixEvents);
   const advancePeriod =
     aggregate.period?.timeZone === timeZone &&
     aggregate.period.indexedThrough === contribution.offset &&
@@ -1122,13 +1221,14 @@ async function updateContribution(
   let invalidEventTimestamp = false;
   let activeHourProofOverflow = false;
 
-  const snapshot = (cursor: CodexJsonlCursor): CodexFileContribution => {
+  const snapshot = (cursor: CodexJsonlCursor, finalized = false): CodexFileContribution => {
     syncSession(aggregate, parserState);
     if (activeToday) {
       activeToday.indexedThrough = cursor.offset;
       syncTodayProjection(activeToday);
     }
     if (activeHourProof) activeHourProof.indexedThrough = cursor.offset;
+    if (quotaCheckpoints) quotaCheckpoints.indexedThrough = cursor.offset;
     return {
       ...contribution,
       fileKey: entry.fileKey,
@@ -1137,12 +1237,22 @@ async function updateContribution(
       mtimeMs: entry.mtimeMs,
       dev: entry.dev,
       ino: entry.ino,
+      ...(entry.volumeKey ? { volumeKey: entry.volumeKey } : {}),
       ...compressedSourceMetadata(entry),
       ...(entry.compression === 'zstd' ? { compressionVerified: undefined } : {}),
       offset: cursor.offset,
       discardingOversizedLine: cursor.discardingOversizedLine,
       parserState,
       lineage,
+      quotaCheckpoints,
+      ...(beforeOffset > 0 || initialRootScan ? { calibrationAppend: Object.freeze({
+        beforeOffset, throughOffset: cursor.offset, minUsageAt, maxUsageAt,
+        ...(forwardSlices ? { slices: Object.freeze([...forwardSlices]) } : {}),
+        complete: finalized && appendComplete && usageRecordPair.complete && cursor.offset === entry.size && !cursor.discardingOversizedLine &&
+          (!initialRootScan || initialIdentityLockSeen && parserState.identityLocked === true &&
+            parserState.role === 'root' && !parserState.parentSessionKey &&
+            lineage.desiredPrefixEvents === 0 && lineage.appliedPrefixEvents === 0),
+      }) } : {}),
       aggregate,
       ...(activeHourProof && !activeHourProofOverflow ? {
         hourProof: { ...activeHourProof, hours: [...activeHourProof.hours] },
@@ -1172,6 +1282,8 @@ async function updateContribution(
     };
   };
 
+  const quotaSkippedLine = quotaCheckpoints
+    ? codexQuotaSkippedLineHandler(quotaCheckpoints, () => lineage.tokenEvents >= desiredPrefixEvents) : undefined;
   const scan = await scanCodexJsonlLines(
     entry,
     io,
@@ -1181,13 +1293,90 @@ async function updateContribution(
     },
     endExclusive,
     (line) => {
+      const ordinal = ++forwardScanOrdinal;
       if (line.trim() !== '') {
-        const parsed = parseCodexLine(line, parserState, pseudonymize);
+        const identityBefore = [parserState.sessionKey, parserState.parentSessionKey, parserState.treeKey, parserState.role];
+        const lockedBefore = parserState.identityLocked === true;
+        const flagsBefore = parserState.qualityFlags;
+        const parsed = parseCodexLine(line, parserState, pseudonymize, ordinal);
+        const pair = usageRecordPair.observe(ordinal, parsed.usageRecordPair);
+        if (pair.unsafe) appendComplete = false;
+        if (pair.bounds) {
+          if (lastUsageAt !== null && pair.bounds.from < lastUsageAt) appendComplete = false;
+          minUsageAt = minUsageAt === null ? pair.bounds.from : Math.min(minUsageAt, pair.bounds.from);
+        }
         parserState = parsed.state;
+        // Primary role normalization is deliberately broad. A declared child
+        // with no resolvable parent must not acquire root-birth authority.
+        let explicitRootMetadata = true;
+        if (parserState.role === 'root' && parsed.events.length === 0 && !parsed.structural && !parsed.usageRecordPair) {
+          const metadata = parseJsonObject(line);
+          if (metadata?.type === 'session_meta' && isRecord(metadata.payload)) {
+            const payload = metadata.payload;
+            explicitRootMetadata = !(isRecord(payload.source) && Object.prototype.hasOwnProperty.call(payload.source, 'subagent')) &&
+              (payload.agent_role === undefined || payload.agent_role === null || payload.agent_role === 'root') &&
+              ['parent_thread_id', 'forked_from_id'].every(key => payload[key] === undefined || payload[key] === null);
+          }
+        }
+        const initialLock = initialRootScan && !initialIdentityLockSeen && !lockedBefore &&
+          parserState.identityLocked === true && parserState.role === 'root' && !parserState.parentSessionKey &&
+          lineage.tokenEvents === 0 && parsed.events.length === 0 && explicitRootMetadata;
+        if (initialLock) initialIdentityLockSeen = true;
+        const initialTaskBoundary = parsed.lineageBoundary && initialRootScan && initialIdentityLockSeen &&
+          !initialTaskBoundarySeen && lineage.tokenEvents === 0 && parserState.identityLocked === true &&
+          parserState.role === 'root' && !parserState.parentSessionKey && desiredPrefixEvents === 0;
+        if (initialTaskBoundary) initialTaskBoundarySeen = true;
+        if ((parsed.forwardCalibrationIncomplete && !pair.waiveRecordFailure) || parsed.quotaPairingIncomplete || !explicitRootMetadata ||
+            (parsed.lineageBoundary && !initialTaskBoundary) || parsed.quotaSource === 'other' ||
+            (!initialLock && [parserState.sessionKey, parserState.parentSessionKey, parserState.treeKey, parserState.role]
+              .some((value, i) => value !== identityBefore[i])) ||
+            parserState.qualityFlags.some(flag => !flagsBefore.includes(flag) &&
+              !(pair.waiveRecordFailure && flag === 'unknown-event'))) appendComplete = false;
         if (parsed.lineageTokenKey) {
           addLineageToken(lineage, parsed.lineageTokenKey);
         }
+        if (quotaCheckpoints) retainCodexQuotaCheckpoints(quotaCheckpoints, parsed,
+          desiredPrefixEvents === 0 || lineage.tokenEvents > desiredPrefixEvents);
+        // Metadata/duplicate/zero rows emit no primary usage and add no slice.
+        // Multiple events on one line cannot establish an unambiguous row cut.
+        if (parsed.events.length > 1) forwardSlices = undefined;
         for (const event of parsed.events) {
+          // The parser's retained t:...|l:... signature exposes whether this is
+          // a last-request event. A cumulative-only delta has no request bound.
+          if (!parsed.lineageTokenKey || parsed.lineageTokenKey.endsWith('|l:-')) appendComplete = false;
+          const at = event.timestamp;
+          if (!Number.isSafeInteger(at) || at <= 0) appendComplete = false;
+          else {
+            if (lastUsageAt !== null && at < lastUsageAt) appendComplete = false;
+            minUsageAt = minUsageAt === null ? at : Math.min(minUsageAt, at);
+            maxUsageAt = maxUsageAt === null ? at : Math.max(maxUsageAt, at);
+            lastUsageAt = at;
+          }
+          if (lineage.appliedPrefixEvents !== desiredPrefixEvents ||
+              lineage.tokenEvents <= desiredPrefixEvents) appendComplete = false;
+          if (forwardSlices && event.tokens.inputTotal + event.tokens.outputTotal > 0) {
+            const base = { from: pair.bounds?.from ?? at, through: at, model: event.model, tokens: event.tokens };
+            let copied = copyCodexForwardSlices([base])?.[0];
+            if (copied && parsed.quotaSource === 'codex' && parsed.limit) {
+              const observations = codexQuotaObservationsFromLimit(parsed.limit);
+              if (observations.length === 1 && observations[0].observedAt === at) {
+                // A malformed optional quota must not invalidate sound primary
+                // numeric usage; it simply cannot be attached as a cut witness.
+                copied = copyCodexForwardSlices([{ ...base, quota: observations[0] }])?.[0] ?? copied;
+              }
+            }
+            const bytes = copied ? Buffer.byteLength(JSON.stringify(copied), 'utf8') : 0;
+            if (!copied || !parsed.lineageTokenKey || parsed.lineageTokenKey.endsWith('|l:-') ||
+              lineage.appliedPrefixEvents !== desiredPrefixEvents || lineage.tokenEvents <= desiredPrefixEvents ||
+              (forwardSlices.length > 0 && copied.from < forwardSlices[forwardSlices.length - 1].through) ||
+              forwardSlices.length >= CODEX_FORWARD_SLICES_MAX_SLICES ||
+              forwardSliceBytes + bytes + (forwardSlices.length > 0 ? 1 : 0) > CODEX_FORWARD_SLICES_MAX_BYTES) {
+              forwardSlices = undefined;
+            } else {
+              forwardSliceBytes += bytes + (forwardSlices.length > 0 ? 1 : 0);
+              forwardSlices.push(copied);
+            }
+          }
           if (usageDelta && !addCodexOriginEvent(usageDelta, event)) usageDelta = undefined;
           reduceUsage(aggregate, event);
           if (activeHourProof) {
@@ -1216,6 +1405,7 @@ async function updateContribution(
             !Number.isFinite(parsed.structural.timestamp) ||
             parsed.structural.timestamp <= 0
           ) {
+            appendComplete = false;
             invalidEventTimestamp = true;
           } else if (advancePeriod && aggregate.period) {
             reduceCodexStructuralSlice(
@@ -1244,11 +1434,12 @@ async function updateContribution(
             limits[limitKey] = parsed.limit;
           }
         }
-      }
+      } else if (usageRecordPair.observe(ordinal).unsafe) appendComplete = false;
     },
     async (progress) => {
       await onChunk(snapshot(progress.cursor), progress.bytesRead);
     },
+    undefined, undefined, witness => { appendComplete = false; usageRecordPair.invalidate(); quotaSkippedLine?.(witness); },
   );
 
   if (!scan.reachedEnd) {
@@ -1268,7 +1459,8 @@ async function updateContribution(
   ) {
     packPendingLineageFingerprints(lineage);
   }
-  const updated = snapshot(scan.cursor);
+  if (scan.oversizedLines > 0 || scan.finalLineDiscarded) appendComplete = false;
+  const updated = snapshot(scan.cursor, true);
   if (entry.compression === 'zstd' && scan.cursor.offset === entry.size && !scan.cursor.discardingOversizedLine) {
     updated.compressionVerified = true;
   }
@@ -1288,6 +1480,7 @@ function promoteCaughtUpLineage(
   const lineage = contribution.lineage;
   if (
     !reconciliation ||
+    reconciliation.quotaCheckpoints?.version !== CODEX_QUOTA_CHECKPOINT_VERSION ||
     !lineage ||
     reconciliation.prefixEvents !== lineage.desiredPrefixEvents ||
     reconciliation.offset < contribution.offset ||
@@ -1296,6 +1489,7 @@ function promoteCaughtUpLineage(
     return;
   }
   contribution.aggregate = reconciliation.aggregate;
+  contribution.quotaCheckpoints = reconciliation.quotaCheckpoints;
   lineage.appliedPrefixEvents = reconciliation.prefixEvents;
   if (reconciliation.hourProofHours && !reconciliation.hourProofOverflow) {
     contribution.hourProof = {
@@ -1363,6 +1557,9 @@ async function reconcileContributionLineage(
   const rollingDays = rollingHourlyDaySet(asOfDay);
   const initial = contribution.lineageReconciliation?.prefixEvents ===
       prefixEvents &&
+      contribution.lineageReconciliation.quotaCheckpoints?.version === CODEX_QUOTA_CHECKPOINT_VERSION &&
+      contribution.lineageReconciliation.quotaCheckpoints?.indexedThrough ===
+        contribution.lineageReconciliation.offset &&
       isRollingTodayIndex(
         contribution.lineageReconciliation.aggregate.today,
         timeZone,
@@ -1382,10 +1579,12 @@ async function reconcileContributionLineage(
         },
         qualityFlags: [],
         hourProofHours: [],
+        quotaCheckpoints: createCodexQuotaCheckpointState(prefixEvents),
       };
   let parserState = initial.parserState;
   let tokenEventsSeen = initial.tokenEventsSeen;
   const aggregate = initial.aggregate;
+  const quotaCheckpoints = initial.quotaCheckpoints!;
   let invalidEventTimestamp = false;
   let hourProofHours = initial.hourProofHours ? [...initial.hourProofHours] : undefined;
   let hourProofOverflow = initial.hourProofOverflow === true;
@@ -1397,6 +1596,7 @@ async function reconcileContributionLineage(
   );
 
   const snapshot = (cursor: CodexJsonlCursor): CodexFileContribution => {
+    quotaCheckpoints.indexedThrough = cursor.offset;
     syncSession(aggregate, parserState);
     if (aggregate.period) {
       aggregate.period.indexedThrough = cursor.offset;
@@ -1411,6 +1611,7 @@ async function reconcileContributionLineage(
       ...contribution,
       ...(quotaHistory.length > 0 ? { quotaHistory } : {}),
       lineageReconciliation: {
+        quotaCheckpoints,
         prefixEvents,
         tokenEventsSeen,
         offset: cursor.offset,
@@ -1453,6 +1654,7 @@ async function reconcileContributionLineage(
         tokenEventsSeen += 1;
       }
       const includeUsage = tokenEventsSeen > prefixEvents;
+      retainCodexQuotaCheckpoints(quotaCheckpoints, parsed, prefixEvents === 0 || includeUsage);
       if (includeUsage) {
         for (const event of parsed.events) {
           reduceUsage(aggregate, event);
@@ -1496,6 +1698,7 @@ async function reconcileContributionLineage(
     async (progress) => {
       await onChunk(snapshot(progress.cursor), progress.bytesRead);
     },
+    undefined, undefined, codexQuotaSkippedLineHandler(quotaCheckpoints, () => tokenEventsSeen >= prefixEvents),
   );
   if (!scan.reachedEnd) {
     throw new Error('Codex log changed during lineage reconciliation');
@@ -1533,9 +1736,11 @@ async function migrateContributionPeriod(
         parserState: createCodexParserState(entry.fileKey),
         days: {},
         qualityFlags: [],
+        quotaCheckpoints: createCodexQuotaCheckpointState(prefixEvents),
       };
   let parserState = initial.parserState;
   const days = initial.days;
+  const quotaCheckpoints = initial.quotaCheckpoints!;
   let tokenEventsSeen = initial.tokenEventsSeen ?? 0;
   let invalidEventTimestamp = false;
   const pseudonymize = pseudonymizer(options.salt);
@@ -1557,6 +1762,7 @@ async function migrateContributionPeriod(
         ? contribution.aggregate.period : undefined,
     },
     periodMigration: {
+      quotaCheckpoints: { ...quotaCheckpoints, indexedThrough: cursor.offset },
       timeZone,
       prefixEvents,
       tokenEventsSeen,
@@ -1596,6 +1802,7 @@ async function migrateContributionPeriod(
       if (parsed.lineageTokenKey) {
         tokenEventsSeen += 1;
       }
+      retainCodexQuotaCheckpoints(quotaCheckpoints, parsed, prefixEvents === 0 || tokenEventsSeen > prefixEvents);
       if (tokenEventsSeen > prefixEvents) {
         for (const event of parsed.events) {
           if (!Number.isFinite(event.timestamp) || event.timestamp <= 0) {
@@ -1619,6 +1826,7 @@ async function migrateContributionPeriod(
     async (progress) => {
       await onChunk(snapshot(progress.cursor), progress.bytesRead);
     },
+    undefined, undefined, codexQuotaSkippedLineHandler(quotaCheckpoints, () => tokenEventsSeen >= prefixEvents),
   );
   if (!scan.reachedEnd) {
     throw new Error('Codex log changed during period migration');
@@ -1899,6 +2107,9 @@ export async function runCodexFilePass(
     salt: task.salt,
     timeZone: task.timeZone,
     asOfDay: task.asOfDay,
+    ...(task.refreshInstant !== undefined ? { now: () => task.refreshInstant! } : {}),
+    allowHistoricalBackfill: task.allowHistoricalBackfill,
+    allowQuotaCheckpointBackfill: task.allowQuotaCheckpointBackfill,
     ...(task.kind === 'main' ? { achievementUsageWindow: copyCodexUsageWindow(task.achievementUsageWindow) } : {}),
   };
   const noChunk: ContributionChunkHandler = async () => undefined;
@@ -2543,6 +2754,9 @@ function recomputeDerivedIndex(
   reconcileLineage = true,
   requireCalendarProof = false,
 ): void {
+  boundCodexQuotaCheckpointStates(Object.values(index.files).flatMap(file =>
+    [file.quotaCheckpoints, file.lineageReconciliation?.quotaCheckpoints,
+      file.periodMigration?.quotaCheckpoints].filter((state): state is CodexQuotaCheckpointState => !!state)));
   const initialDeduplication = classifyCodexSessionDuplicates(index.files);
   if (reconcileLineage) {
     reconcileLineageContributions(
@@ -2582,6 +2796,7 @@ function isWarmNoOp(
   asOfDay: string,
   allowHistoricalBackfill: boolean,
   allowAchievementHourProof: boolean,
+  allowQuotaCheckpointBackfill: boolean,
 ): boolean {
   // Older schema-3 indexes have a current `limit` projection but no neutral
   // reset history. Give the next refresh one chance to seed the bounded cache
@@ -2632,6 +2847,8 @@ function isWarmNoOp(
     const baseIsCurrent = Boolean(
       contribution &&
       contribution.offset === entry.size &&
+      (!allowHistoricalBackfill || !allowQuotaCheckpointBackfill || !canonical.has(entry.fileKey) ||
+        isCodexQuotaCheckpointCurrent(contribution)) &&
       !contribution.discardingOversizedLine &&
       contribution.identityChecked === true &&
       contribution.lineage?.appliedPrefixEvents ===
@@ -2664,6 +2881,25 @@ function isWarmNoOp(
   });
 }
 
+/** A scanned manifest is not proof that budget-deferred cached cursors still
+ * describe its physical sources. Check every source, including noncanonical
+ * copies, without requiring historical calendar/rolling sidecars. */
+function forwardSourcesCurrent(index: CodexIndexV3, manifest: CodexManifest, failedFiles: number): boolean {
+  if (failedFiles !== 0 || Object.keys(index.files).length !== manifest.files.length ||
+      Object.keys(manifest.persistable).length !== manifest.files.length ||
+      new Set(manifest.files.map(entry => entry.fileKey)).size !== manifest.files.length) return false;
+  return manifest.files.every(entry => {
+    const file = index.files[entry.fileKey], persisted = manifest.persistable[entry.fileKey];
+    if (!file || !persisted || file.fileKey !== entry.fileKey || persisted.fileKey !== entry.fileKey ||
+        !isCodexUsageContributionCurrent(file) || file.identityChecked !== true ||
+        file.qualityFlags.some(flag => flag === 'stale-file' || flag === 'stale-reset-required') ||
+        file.offset !== entry.size || file.discardingOversizedLine) return false;
+    return (['sourceArea', 'size', 'mtimeMs', 'dev', 'ino', 'volumeKey',
+      'compression', 'storageSize', 'storageCtimeMs'] as const).every(field =>
+      file[field] === entry[field] && persisted[field] === entry[field]);
+  });
+}
+
 export async function updateCodexIndex(
   previous: CodexIndexV3,
   manifest: CodexManifest,
@@ -2681,6 +2917,7 @@ export async function updateCodexIndex(
   const timeZone = resolveTimeZone(options.timeZone);
   const refreshInstant = (options.now ?? Date.now)();
   const requireCalendarProof = options.allowAchievementHourProof !== false;
+  const allowQuotaCheckpointBackfill = options.allowQuotaCheckpointBackfill === true;
   const requestedUsageWindow = copyCodexUsageWindow(options.achievementUsageWindow);
   const usageWindow = requestedUsageWindow && requestedUsageWindow.through <= refreshInstant &&
     previous.coverage.period.timeZone === timeZone && codexOriginBaselineReady(previous)
@@ -2718,6 +2955,17 @@ export async function updateCodexIndex(
     ),
   };
   const diff = diffCodexManifest(previousManifest(previous), manifest.persistable);
+  // A manifest comparison may prove unchanged identity across a device-number
+  // remap only with matching stable-volume evidence. Legacy rows learn that
+  // evidence only while device/inode already match, never after a mismatch.
+  const unchangedKeys = new Set(diff.unchanged);
+  const identityUpdates = manifest.files.filter(entry => {
+    const prior = previous.files[entry.fileKey];
+    return unchangedKeys.has(entry.fileKey) && prior && isCodexUsageContributionCurrent(prior) &&
+      typeof entry.volumeKey === 'string' && /^[a-f0-9]{64}$/.test(entry.volumeKey) &&
+      (prior.volumeKey === entry.volumeKey || prior.volumeKey === undefined && prior.dev === entry.dev && prior.ino === entry.ino) &&
+      (prior.volumeKey !== entry.volumeKey || prior.dev !== entry.dev);
+  });
   const terminalCount = manifest.files.filter(entry => hasCurrentCompressionFailure(previous.files[entry.fileKey], entry)).length;
   const originAppends = new Set(usageWindow ? diff.appended.filter(key => {
     const prior = previous.files[key], entry = manifest.persistable[key];
@@ -2725,9 +2973,10 @@ export async function updateCodexIndex(
       prior.dev === entry.dev && prior.ino === entry.ino;
   }) : []);
   const originCandidates = new Map<string, CodexAchievementUsageDelta>();
-  if (isWarmNoOp(previous, manifest, diff, timeZone, asOfDay,
-    options.allowHistoricalBackfill !== false, options.allowAchievementHourProof !== false)) {
+  if (identityUpdates.length === 0 && isWarmNoOp(previous, manifest, diff, timeZone, asOfDay,
+    options.allowHistoricalBackfill !== false, options.allowAchievementHourProof !== false, allowQuotaCheckpointBackfill)) {
     return {
+      forwardSourcesCurrent: forwardSourcesCurrent(previous, manifest, terminalCount),
       index: previous,
       indexChanged: false,
       bodyReads: 0,
@@ -2740,6 +2989,11 @@ export async function updateCodexIndex(
     };
   }
   const index = cloneIndex(previous);
+  for (const entry of identityUpdates) {
+    const contribution = index.files[entry.fileKey];
+    contribution.volumeKey = entry.volumeKey;
+    contribution.dev = entry.dev;
+  }
   // Seed the durable neutral history before moved/removed files disappear.
   // This also upgrades an older index without rereading unchanged JSONL.
   mergeCodexQuotaHistory(index);
@@ -2782,6 +3036,7 @@ export async function updateCodexIndex(
     contribution.mtimeMs = entry.mtimeMs;
     contribution.dev = entry.dev;
     contribution.ino = entry.ino;
+    contribution.volumeKey = entry.volumeKey;
     contribution.parserState.fileKey = move.toKey;
     if (contribution.lineageReconciliation) {
       contribution.lineageReconciliation.parserState.fileKey = move.toKey;
@@ -3120,6 +3375,9 @@ export async function updateCodexIndex(
         taskId,
         kind: 'main',
         ...(originAppends.has(entry.fileKey) ? { achievementUsageWindow: usageWindow } : {}),
+        refreshInstant,
+        allowHistoricalBackfill: options.allowHistoricalBackfill,
+        allowQuotaCheckpointBackfill,
         contribution: base,
         entry,
         salt: normalizedOptions.salt,
@@ -3352,6 +3610,7 @@ export async function updateCodexIndex(
         contribution.offset >= entry.size &&
         !contribution.discardingOversizedLine &&
         (
+          (allowQuotaCheckpointBackfill && !isCodexQuotaCheckpointCurrent(contribution)) ||
           (requireCalendarProof && !isCurrentCodexPeriodLineage(
             contribution.aggregate.period,
             contribution.lineage?.desiredPrefixEvents ?? 0,
@@ -3752,9 +4011,10 @@ export async function updateCodexIndex(
   const achievementUsageDelta = finalizeCodexUsageDelta(previous, index, originCandidates, usageWindow);
   const terminalSettled = manifest.files.some(entry => hasCurrentCompressionFailure(index.files[entry.fileKey], entry)) &&
     isWarmNoOp(index, manifest, diffCodexManifest(previousManifest(index), manifest.persistable),
-      timeZone, asOfDay, allowHistoricalBackfill, options.allowAchievementHourProof !== false);
+      timeZone, asOfDay, allowHistoricalBackfill, options.allowAchievementHourProof !== false, allowQuotaCheckpointBackfill);
   return {
     ...(achievementUsageDelta ? { achievementUsageDelta } : {}),
+    forwardSourcesCurrent: forwardSourcesCurrent(index, manifest, failedFiles),
     index,
     indexChanged: true,
     bodyReads,
@@ -3764,6 +4024,9 @@ export async function updateCodexIndex(
       bytesRead,
       pending:
         !terminalSettled && (!index.coverage.complete ||
+        (allowHistoricalBackfill && allowQuotaCheckpointBackfill &&
+          [...classifyCodexSessionDuplicates(index.files).canonicalFileKeys].some(key =>
+            !index.files[key].compressionFailure && !isCodexQuotaCheckpointCurrent(index.files[key]))) ||
         !index.coverage.period.allTime.complete ||
         !index.coverage.hourly?.complete ||
         (options.allowAchievementHourProof !== false && !historicalHourProof.complete &&
@@ -4242,6 +4505,7 @@ function sanitizePeriodMigration(
     return undefined;
   }
   return {
+    quotaCheckpoints: sanitizeCodexQuotaCheckpointState(value.quotaCheckpoints),
     timeZone: period.timeZone,
     ...(optionalNumber(value.prefixEvents) !== undefined
       ? { prefixEvents: Math.max(0, Math.floor(optionalNumber(value.prefixEvents)!)) }
@@ -4255,6 +4519,48 @@ function sanitizePeriodMigration(
     days: period.days,
     qualityFlags: sanitizeQualityFlags(value.qualityFlags),
   };
+}
+
+/** Reconstruct every retained field locally as required by the index DTO gate.
+ * Validation additionally checks bounds, model labels and numeric subsets. */
+function sanitizeCodexQuotaCheckpointDto(state: CodexQuotaCheckpointState): CodexQuotaCheckpointState {
+  return {
+    version: 5, indexedThrough: state.indexedThrough, prefixEvents: state.prefixEvents,
+    ranges: state.ranges.map(range => ({ from: range.from, through: range.through,
+      ...(range.resetAt !== undefined ? { resetAt: range.resetAt } : {}) })),
+    rangesUnlocalized: state.rangesUnlocalized, pendingGapUnknown: state.pendingGapUnknown,
+    ...(state.pendingGapFrom !== undefined ? { pendingGapFrom: state.pendingGapFrom } : {}),
+    activityFrom: state.activityFrom, activityThrough: state.activityThrough,
+    observedTokens: sanitizeCheckpointTokenVector(state.observedTokens),
+    excludedTokens: sanitizeCheckpointTokenVector(state.excludedTokens),
+    segment: state.segment, segmentResetAt: state.segmentResetAt, lastEventAt: state.lastEventAt, source: state.source, pendingBoundary: state.pendingBoundary,
+    complete: state.complete, segmentComplete: state.segmentComplete, overflow: state.overflow,
+    byModel: sanitizeCheckpointModels(state.byModel),
+    rows: state.rows.map(row => ({ segment: row.segment, from: row.from, through: row.through,
+      resetAt: row.resetAt, observedResetAt: row.observedResetAt, usedPercent: row.usedPercent, baseline: row.baseline,
+      complete: row.complete, byModel: sanitizeCheckpointModels(row.byModel),
+      ...(row.baseline && row.baselineByModel !== undefined
+        ? { baselineByModel: sanitizeCheckpointModels(row.baselineByModel) } : {}) })),
+  };
+}
+
+function sanitizeCheckpointModels(models: Readonly<Record<string, ProviderTokenCounts>>): Record<string, ProviderTokenCounts> {
+  if (!isRecord(models)) return {};
+  return Object.fromEntries(Object.entries(models).map(([model, tokens]) => [model, {
+    inputTotal: tokens.inputTotal, cachedInput: tokens.cachedInput,
+    outputTotal: tokens.outputTotal, reasoningOutput: tokens.reasoningOutput,
+    sourceTotal: tokens.sourceTotal,
+  }]));
+}
+
+function sanitizeCheckpointTokenVector(tokens: ProviderTokenCounts): ProviderTokenCounts {
+  return { inputTotal: tokens.inputTotal, cachedInput: tokens.cachedInput,
+    outputTotal: tokens.outputTotal, reasoningOutput: tokens.reasoningOutput, sourceTotal: tokens.sourceTotal };
+}
+
+function sanitizeCodexQuotaCheckpointState(value: unknown): CodexQuotaCheckpointState | undefined {
+  const validated = validateCodexQuotaCheckpointState(value);
+  return validated ? sanitizeCodexQuotaCheckpointDto(validated) : undefined;
 }
 
 // Keep the persisted DTO sanitizer local: repository policy audits every field
@@ -4482,6 +4788,7 @@ function sanitizeLineageReconciliation(
     hours: value.hourProofHours,
   });
   return {
+    quotaCheckpoints: sanitizeCodexQuotaCheckpointState(value.quotaCheckpoints),
     prefixEvents: Math.max(0, Math.floor(finiteNumber(value.prefixEvents))),
     tokenEventsSeen: Math.max(
       0,
@@ -4684,6 +4991,9 @@ function migrateIndexV1(index: LegacyCodexIndexV1): CodexIndexV3 {
     );
   }
   const quotaHistory = sanitizeCodexQuotaHistory(index.quotaHistory);
+  boundCodexQuotaCheckpointStates(Object.values(files).flatMap(file =>
+    [file.quotaCheckpoints, file.lineageReconciliation?.quotaCheckpoints,
+      file.periodMigration?.quotaCheckpoints].filter((state): state is CodexQuotaCheckpointState => !!state)));
   return {
     schemaVersion: 3,
     files,
@@ -4811,6 +5121,8 @@ function sanitizeFileContribution(
     ...(optionalNumber(contribution.ino) !== undefined
       ? { ino: optionalNumber(contribution.ino) }
       : {}),
+    ...(typeof contribution.volumeKey === 'string' && /^[a-f0-9]{64}$/.test(contribution.volumeKey)
+      ? { volumeKey: contribution.volumeKey } : {}),
     ...(contribution.compression === 'zstd' ? {
       compression: 'zstd' as const,
       storageSize: finiteNumber(contribution.storageSize),
@@ -4822,6 +5134,7 @@ function sanitizeFileContribution(
         contribution.storageCtimeMs > 0 ? { compressionVerified: true as const } : {}),
     } : {}),
     offset: safeOffset,
+    quotaCheckpoints: sanitizeCodexQuotaCheckpointState(contribution.quotaCheckpoints),
     discardingOversizedLine: discardingOverride ??
       contribution.discardingOversizedLine === true,
     parserState,
@@ -4874,6 +5187,9 @@ function sanitizeIndexV2(value: unknown): CodexIndexV3 {
     }
   }
   const quotaHistory = sanitizeCodexQuotaHistory(index.quotaHistory);
+  boundCodexQuotaCheckpointStates(Object.values(files).flatMap(file =>
+    [file.quotaCheckpoints, file.lineageReconciliation?.quotaCheckpoints,
+      file.periodMigration?.quotaCheckpoints].filter((state): state is CodexQuotaCheckpointState => !!state)));
   return {
     schemaVersion: 3,
     ...(typeof index.indexGeneration === 'number' &&

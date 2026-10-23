@@ -295,7 +295,8 @@ test('sharing workspace is on by default and can be hidden without removing Comp
   });
   await expect(page.locator('.combined-heatmap-panel')).toHaveCount(0);
   await expect(page.locator('.usage-summary')).toBeVisible();
-  await expect(page.locator('.weekly-value-details')).toHaveCount(2);
+  await expect(page.locator('.weekly-value-details')).toHaveCount(1);
+  await expect(page.locator('.weekly-estimate-details')).toHaveCount(2);
 });
 
 test('Compare keeps provider costs and allowance estimates separate instead of summing them', async ({ page }) => {
@@ -309,12 +310,12 @@ test('Compare keeps provider costs and allowance estimates separate instead of s
   expect(summaryText).not.toMatch(/quota|allowance/i);
 
   const allowancePanels = page.locator('#provider-panel > .daily-breakdown').filter({
-    has: page.locator('.weekly-value-details'),
+    has: page.locator('.weekly-estimate-details'),
   });
   await expect(allowancePanels).toHaveCount(2);
   await expect(allowancePanels.locator(':scope > .section-header > h3')).toHaveText([
     'Weekly subscription allowance · API-equivalent estimate · Claude',
-    'Weekly subscription allowance · API-equivalent estimate · Codex',
+    'Cycle allowance · API-equivalent estimate · Codex',
   ]);
 });
 

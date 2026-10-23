@@ -21,6 +21,17 @@ const server = createServer(async (request, response) => {
       response.end('ok');
       return;
     }
+    if (url.pathname === '/__weekly_accounts_setting__' && request.method === 'POST') {
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+        if (body.length > 512) throw new Error('Synthetic setting message too large');
+      }
+      const ok = await require('./weekly-account-fixture.cjs').updateWeeklyAccountSetting(JSON.parse(body));
+      response.writeHead(ok ? 200 : 400, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      response.end(JSON.stringify({ ok }));
+      return;
+    }
     if (url.pathname !== '/') {
       const image = achievementResources.get(url.pathname);
       if (image) {
@@ -50,6 +61,15 @@ const server = createServer(async (request, response) => {
       'root-over-limit',
       'persisted-details',
       'weekly-usage-only',
+      'weekly-rough-partial',
+      'weekly-rough-cross-week',
+      'weekly-accounts',
+      'weekly-cycles',
+      'weekly-witness',
+      'weekly-witness-updated',
+      'weekly-reference-cycles',
+      'weekly-paired-cycles',
+      'weekly-paired-currency',
       'weekly-claude-completed',
       'weekly-quota-pace',
       'unknown-models',
@@ -148,6 +168,7 @@ const server = createServer(async (request, response) => {
       commandAfterReset,
       quotaPace,
       quotaPaceState,
+      weeklyAccountSession: url.searchParams.get('weeklyAccountSession') ?? '00000000000000000000000000000000',
       nativeResources: url.searchParams.get('nativeResources') === 'true',
     });
     response.writeHead(200, {

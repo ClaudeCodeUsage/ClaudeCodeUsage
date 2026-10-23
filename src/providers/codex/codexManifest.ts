@@ -3,6 +3,12 @@ import { constants, Stats } from 'node:fs';
 import { lstat, open, readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { CODEX_ZSTD_LIMITS, CodexZstdError, inspectCodexZstdHeader } from './codexZstd';
+import {
+  CodexVolumeIdentity,
+  CodexVolumeIdentityResolver,
+  isCodexVolumeKey,
+  resolveCodexVolumeIdentity,
+} from './codexVolumeIdentity';
 
 export type CodexSourceArea = 'sessions' | 'archive';
 
@@ -13,6 +19,7 @@ export interface CodexPersistedManifestEntry {
   mtimeMs: number;
   dev?: number;
   ino?: number;
+  volumeKey?: string;
   compression?: 'zstd';
   storageSize?: number;
   storageCtimeMs?: number;
@@ -122,6 +129,7 @@ async function walkAllowlistedDirectory(
   sourceArea: CodexSourceArea,
   salt: string,
   output: CodexRuntimeManifestEntry[],
+  volumeIdentity?: CodexVolumeIdentity,
 ): Promise<void> {
   try {
     const directoryStat = await lstat(directory);
@@ -140,7 +148,7 @@ async function walkAllowlistedDirectory(
   for (const entry of entries) {
     const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      await walkAllowlistedDirectory(absolutePath, sourceArea, salt, output);
+      await walkAllowlistedDirectory(absolutePath, sourceArea, salt, output, volumeIdentity);
       continue;
     }
     const compressed = entry.name.endsWith('.jsonl.zst');
@@ -178,6 +186,8 @@ async function walkAllowlistedDirectory(
       mtimeMs: fileStat.mtimeMs,
       dev: fileStat.dev > 0 ? fileStat.dev : undefined,
       ino: fileStat.ino > 0 ? fileStat.ino : undefined,
+      ...(volumeIdentity?.dev === fileStat.dev && isCodexVolumeKey(volumeIdentity.key)
+        ? { volumeKey: volumeIdentity.key } : {}),
     });
   }
 }
@@ -185,19 +195,24 @@ async function walkAllowlistedDirectory(
 export async function scanCodexManifest(
   codexHome: string,
   salt: string,
+  inspectVolume: CodexVolumeIdentityResolver = resolveCodexVolumeIdentity,
 ): Promise<CodexManifest> {
   const files: CodexRuntimeManifestEntry[] = [];
+  const sessionsRoot = path.join(codexHome, 'sessions');
+  const archiveRoot = path.join(codexHome, 'archived_sessions');
   await walkAllowlistedDirectory(
-    path.join(codexHome, 'sessions'),
+    sessionsRoot,
     'sessions',
     salt,
     files,
+    await inspectVolume(sessionsRoot, salt),
   );
   await walkAllowlistedDirectory(
-    path.join(codexHome, 'archived_sessions'),
+    archiveRoot,
     'archive',
     salt,
     files,
+    await inspectVolume(archiveRoot, salt),
   );
   files.sort((left, right) => left.absolutePath.localeCompare(right.absolutePath));
 
@@ -210,6 +225,7 @@ export async function scanCodexManifest(
       mtimeMs: file.mtimeMs,
       dev: file.dev,
       ino: file.ino,
+      ...(file.volumeKey ? { volumeKey: file.volumeKey } : {}),
       ...(file.compression ? {
         compression: file.compression,
         storageSize: file.storageSize,
@@ -220,27 +236,32 @@ export async function scanCodexManifest(
   return { files, persistable };
 }
 
-function stableIdentityMatches(
+export function stableIdentityMatches(
   left: CodexPersistedManifestEntry,
   right: CodexPersistedManifestEntry,
 ): boolean {
-  return (
-    (left.dev ?? 0) > 0 &&
-    (left.ino ?? 0) > 0 &&
-    left.dev === right.dev &&
-    left.ino === right.ino
-  );
+  const leftKey = isCodexVolumeKey(left.volumeKey) ? left.volumeKey : undefined;
+  const rightKey = isCodexVolumeKey(right.volumeKey) ? right.volumeKey : undefined;
+  if (leftKey && rightKey && leftKey !== rightKey) return false;
+  return positiveIdentityNumber(left.ino) && left.ino === right.ino &&
+    ((positiveIdentityNumber(left.dev) && left.dev === right.dev) ||
+      (leftKey !== undefined && leftKey === rightKey));
 }
 
-function stableIdentityChanged(
+function positiveIdentityNumber(value: number | undefined): boolean {
+  return value !== undefined && Number.isSafeInteger(value) && value > 0;
+}
+
+export function stableIdentityChanged(
   left: CodexPersistedManifestEntry,
   right: CodexPersistedManifestEntry,
 ): boolean {
-  const comparable =
-    (left.dev ?? 0) > 0 &&
-    (left.ino ?? 0) > 0 &&
-    (right.dev ?? 0) > 0 &&
-    (right.ino ?? 0) > 0;
+  const leftKey = isCodexVolumeKey(left.volumeKey) ? left.volumeKey : undefined;
+  const rightKey = isCodexVolumeKey(right.volumeKey) ? right.volumeKey : undefined;
+  if (leftKey && rightKey && leftKey !== rightKey) return true;
+  const comparable = positiveIdentityNumber(left.ino) && positiveIdentityNumber(right.ino) &&
+    ((positiveIdentityNumber(left.dev) && positiveIdentityNumber(right.dev)) ||
+      (leftKey !== undefined && rightKey !== undefined));
   return comparable && !stableIdentityMatches(left, right);
 }
 
@@ -305,9 +326,11 @@ export function diffCodexManifest(
     if (movedFrom) {
       consumedPrevious.add(movedFrom);
       result.moved.push({ fromKey: movedFrom, toKey: currentKey });
-      // Preserve move identity, but force a rebuild when compressed evidence
-      // changed (including rename's ctime); moving does not prove byte equality.
-      if (representationChanged(previous[movedFrom], after)) {
+      // Preserve move identity, but validate any changed representation before
+      // the index stamps destination metadata onto the retained contribution.
+      // A move does not establish append-only or same-size byte equality.
+      if (representationChanged(previous[movedFrom], after) ||
+          previous[movedFrom].size !== after.size || previous[movedFrom].mtimeMs !== after.mtimeMs) {
         result.replaced.push(currentKey);
       }
     } else {

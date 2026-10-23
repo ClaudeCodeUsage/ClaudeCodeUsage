@@ -995,27 +995,204 @@ test('current data inventory supplements the historical baseline and dates only 
   }
 });
 
-test('weekly value documentation explains current-window estimates without promising account balances', () => {
-  const english = repoFile('ARCHITECTURE.md'), chinese = repoFile('ARCHITECTURE-zh-CN.md');
-  for (const document of [english, chinese]) {
-    assert.ok(document.includes('candidateFullEquivalent = pricedUsedEquivalentThroughObservedAt / usedFraction'));
+test('weekly value documentation separates paired-cycle estimates from primary usage and account facts', () => {
+  for (const file of ['ARCHITECTURE.md', 'ARCHITECTURE-zh-CN.md', 'LOCAL-DATA.md', 'LOCAL-DATA.zh-CN.md']) {
+    const document = repoFile(file), chinese = file.endsWith('zh-CN.md');
+    const heading = chinese ? '## 周估算预览与归档' : '## Weekly estimate preview and archive';
+    const start = document.indexOf(heading), end = document.indexOf('\n## ', start + heading.length);
+    assert.ok(start >= 0, file + ' must retain its weekly contract section');
+    const contract = document.slice(start, end < 0 ? undefined : end).replace(/\s+/g, ' ');
+    // Current paired-cycle fields, not retired daily-prefix columns or error-bound prose.
+    for (const field of ['codexQuotaCheckpoints.ts', 'CodexQuotaIncompleteRange', 'codexQuotaIncompleteRanges',
+      'baselineByModel', 'byModel', 'segmentResetAt', 'observedResetAt', 'codexWindowEstimate.ts', 'codexWindowEvidence.ts', 'windowEvidence',
+      'skippedIntervals', 'skippedUsd', 'weeklyEstimateArchive.ts', 'weeklyEstimateCoordinator.ts',
+      'weeklyEstimateChart.ts', 'weekly-estimates-v1.json', 'codex.officialQuota.enabled',
+      'codexAccountEstimate.ts', 'account-delta-v1', 'series-prefix-v1', 'codex-official-api',
+      'codexQuotaCaptureFromOfficialSample', 'accountScopeKey', 'accountNumber', 'localWindowKey',
+      'unlinkedEquivalentUsd', 'linkedSourceCount', 'codexQuotaEpoch.ts', 'quotaEpoch',
+      'codexCalibrationEvidence.ts', 'calibrationEvidence', 'codexQuotaCycles.ts', 'quotaCycle',
+      'calibrationStart', 'windowEvidence.from', 'codexCalibrationCensus.ts', 'inputs.codexCalibrationCensus',
+      'buildCodexCalibrationCensus', 'verifiedAt', 'revision', 'continuity', 'activityThrough',
+      'providerWindowFingerprint', 'usageThrough', 'usageRevision', 'state.lastEventAt',
+      'codexParser.ts', 'last_token_usage', 'last.total_tokens',
+      'initialize', 'initialized', 'account/rateLimits/read']) {
+      assert.ok(contract.includes(field), file + ' must document ' + field);
+    }
+    for (const pattern of [/version[- ]5/, /512/, /256 KiB/, /65,536/, /32 MiB/, /4096/, /1 MiB/, /0600/, /HMAC/,
+      /F\s*=\s*ΔUSD\s*\/\s*\(Δp\s*\/\s*100\)/,
+      /R\s*=\s*F\s*[*×]\s*\(1\s*[-−]\s*p\s*\/\s*100\)/]) {
+      assert.match(contract, pattern, file);
+    }
+    assert.ok(contract.includes('showWeeklyQuotaPace'), file);
+    assert.doesNotMatch(contract, /version-[234] (?:numeric checkpoints|数值检查点)|Numeric checkpoint version [234]|数值检查点 version [234]/);
+    const facts = chinese ? [
+      /usageThrough.{0,40}state.lastEventAt.{0,40}数值用量／额度边界/,
+      /usageRevision.{0,60}完整模型向量.{0,40}而非文件字节元数据/,
+      /前后来源均完整、可用、数值\s*证明不变/,
+      /用量不晚于基线、活动不晚于样本/,
+      /未知尾部、解析缺口、未来活动或新来源当作零.{0,40}当前用量增量缺少投影仍撤下/,
+      /仅额度校准.{0,90}原始数值.{0,40}last_token_usage.{0,40}成本组件/,
+      /有效请求组件不会因仅累计计数器回退而失效/,
+      /缓存／推理字段须为非负安全整数.{0,50}缓存输入别名须一致/,
+      /缓存输入不超过输入、推理不超过\s*输出，输入＋输出之和须安全/,
+      /last\.total_tokens.{0,30}独立上下文大小.{0,30}不是请求组件之和/,
+      /配对检查不改变主用量总计、高水位更新、警告或去重/,
+      /仅运行期的来源清单/,
+      /16,384个来源／8 MiB.{0,30}哈希处理上限 64 MiB/,
+      /WeakSet 身份标记.{0,50}不可变运行期对象.{0,50}复制的证明不获得权限/,
+      /旧索引对象.{0,40}原证明及原核验时刻/,
+      /不同且未消费的证明.{0,60}晚于基线、不晚于样本.{0,30}五分钟/,
+      /只有新鲜官方增量.{0,80}修订及谱系连续性须不变/,
+      /活动结束于基线 之前或基线时刻/,
+      /不授予账号归属、历史重新定价或历史完整性/,
+      /不持久化、导出或渲染.{0,30}不增加来源 I\/O/,
+      /零用量历史.{0,100}旧截止时间及首次正用量之前/,
+      /首次正用量固定临时截止时间/,
+      /account-ambiguous 标记不否定.{0,40}全部原始标记仍保留/,
+      /明确未验证.{0,60}不匹配、时钟异常或矛盾计数均拒绝归并/,
+      /只是显示别名，不改变 P2 观测.{0,40}原始校准.{0,30}quotaEpoch/,
+      /segmentResetAt.{0,40}分段首次重置锚点/,
+      /resetAt.{0,40}规范首个 R.{0,40}observedResetAt.{0,40}原始数值 R/,
+      /±5分钟.{0,40}固定首锚点.{0,30}不沿后续观测链式延展/,
+      /配对绝不越过规范重置时刻/,
+      /observedResetAt.{0,50}旧运行期.{0,40}可选.{0,40}严格 v5 存储必须/,
+      /version-1–4 侧车状态重建时须经过有界 period 重放.{0,50}不回接旧基线.{0,30}不直接改版本标签/,
+      /主要额度观测的原始重置值保持不变/,
+      /时间上重叠.{0,60}组件.{0,50}端点相接.{0,30}独立/,
+      /整个重叠组件.{0,40}USD 分子与 Δp 分母一起移出/,
+      /缺口在获准区间之外.{0,60}reset 相同也不污染/,
+      /作用域未知或.{0,80}不能宣称完整/,
+      /最强.{0,30}平手.{0,30}较新.{0,80}自身/,
+      /小幅计数修正.{0,50}不另开额度周期/,
+      /可选数值字段.{0,60}skippedIntervals.{0,50}skippedUsd.{0,80}不进入获准/,
+      /旧 method-one 收据.{0,40}按零读取/,
+      /complete.{0,30}仅描述获准校准组.{0,60}不代表全部/,
+      /主要本地用量总计保持不变/,
+      /至少5个百分点.{0,80}本地证据质量策略.{0,60}不是官方测量精度/,
+      /没有合格组.{0,80}null.{0,20}不是零/,
+      /一周期一条汇总行.{0,30}一柱/,
+      /先比较金额可用性.{0,50}再比较新旧/,
+      /已用估值\s*=\s*F\s*[-−]\s*R.{0,50}未用估值\s*=\s*R.{0,30}总高\s*=\s*F/,
+      /七天参考桶.{0,80}不宣称其为订阅边界/,
+      /不增加额外七天本地用量图/,
+      /旧归档金额冻结不变/,
+      /抓价时间戳/,
+      /65分钟/,
+      /默认关闭/,
+      /绝不启动.{0,30}登录.{0,30}读取凭据/,
+      /可能访问 OpenAI.{0,80}认证.{0,30}刷新凭据/,
+      /拒绝自定义 Codex home.{0,30}远程扩展宿主/,
+      /至少 60 秒.{0,30}至少 10 秒/,
+      /不新增周期定时器/,
+      /不另建扫描器.{0,80}不重读用量记录正文/,
+      /不保留原始文本或原始 ID/,
+      /localWindowKey.{0,40}公开投影边界剥离/,
+      /HMAC、来源键、路径、原始 ID、邮箱及对话内容 不进入 HTML／导出/,
+      /当前额度身份.{0,20}不证明.{0,20}用量归属/,
+      /重置时间 R.{0,30}不是账号身份/,
+      /按来源、账号与周期类型隔离/,
+      /不扣减后续.{0,20}用量/,
+      /清除.{0,80}保留其他.{0,30}未归属记录/,
+      /不淘汰.{0,160}停止新写入|停止新写入.{0,160}不淘汰/,
+      /跨进程租约.{0,80}0600.{0,20}原子替换/,
+      /旧读取器可能拒绝或隔离新字段.{0,80}不保证(?:每个|所有)旧版本.{0,50}保留 canonical 文件/,
+      /旧预览读取器.{0,30}拒绝.{0,30}方法／字段/,
+      /不新增.{0,40}原始日志扫描、网络请求、遥测或贡献流程/,
+      /当前官方样本不证明历史账号归属或跨账号切换的连续性/,
+    ] : [
+      /usageThrough.{0,90}numeric usage\/quota boundary.{0,40}state.lastEventAt/i,
+      /usageRevision.{0,90}complete model vectors.{0,70}not physical byte metadata/i,
+      /metadata-only append.{0,100}both source snapshots are complete and eligible.{0,50}numeric provenance is unchanged/i,
+      /usage is no later than baseline.{0,45}activity is no later than sample/i,
+      /exception cannot turn unknown tails, parse gaps, future activity or new sources into zero/i,
+      /missing projection of a current usage increment still withholds/i,
+      /for quota calibration only.{0,70}codexParser.ts.{0,70}raw numeric/i,
+      /valid request components survive a cumulative-only counter regression/i,
+      /present optional cached\/reasoning fields must be nonnegative safe integers/i,
+      /cached-input aliases must agree.{0,70}cached input cannot exceed input.{0,70}reasoning cannot exceed output.{0,80}input \+ output must be safe/i,
+      /last\.total_tokens.{0,60}independent context size.{0,50}not a request-component sum/i,
+      /pairing checks leave primary totals, high-water updates, warnings and dedup unchanged/i,
+      /runtime-only source census/i,
+      /16,384 sources \/ 8 MiB.{0,30}64 MiB hashing-processing cap/i,
+      /WeakSet brand.{0,60}immutable runtime objects.{0,60}copied proof confers no authority/i,
+      /old index object returns the original proof and verification time/i,
+      /distinct, unconsumed proof verified after its baseline.{0,80}at most five minutes of lag/i,
+      /only a fresh official increment may waive.{0,100}revision and lineage continuity are unchanged/i,
+      /known activity ends at\/before the baseline/i,
+      /no account ownership, historical repricing or historical completeness/i,
+      /never persisted, exported or rendered.{0,30}no source I\/O/i,
+      /zero-use history.{0,150}before the previous deadline and first positive use/i,
+      /first positive use fixes the provisional deadline/i,
+      /generic legacy account-ambiguous flag alone does not negate.{0,70}all raw flags are preserved/i,
+      /unverified attribution.{0,90}clock anomalies or contradictory counters reject the alias/i,
+      /display-only: P2 observations, archive amounts and raw calibration.{0,30}quotaEpoch/i,
+      /segmentResetAt.{0,100}first reset anchor/i,
+      /resetAt.{0,60}canonical first R.{0,70}observedResetAt.{0,90}original raw numeric R/i,
+      /±5 minutes.{0,90}fixed first anchor.{0,100}never chained/i,
+      /pairing never extends beyond the canonical reset/i,
+      /observedResetAt.{0,80}optional only for legacy runtime inputs.{0,40}strict v5 storage requires it/i,
+      /when version-1–4 sidecars are rebuilt.{0,50}require bounded period replay.{0,50}not relabelled.{0,50}old baselines are never retrojoined/i,
+      /primary quota observations keep their raw reset values unchanged/i,
+      /time intervals overlap.{0,60}component.{0,40}touching intervals stay separate/i,
+      /WHOLE overlapping component.{0,60}USD numerator and Δp denominator leave/i,
+      /gap outside an admitted interval.{0,60}even within the same reset/i,
+      /unknown\/unlocalized scope cannot assert completeness/i,
+      /strongest cohort by covered Δp.{0,50}recency.{0,80}own amount/i,
+      /small counter correction.{0,50}not another quota cycle/i,
+      /optional numeric.{0,60}skippedIntervals.{0,50}skippedUsd.{0,100}outside the admitted USD\/Δp/i,
+      /missing fields in older method-one receipts mean zero/i,
+      /complete.{0,50}admitted cohort.{0,80}not completeness of all local history/i,
+      /primary local usage totals are unchanged/i,
+      /five percentage points.{0,170}local quality policy.{0,60}not official measurement precision/i,
+      /no eligible cohort.{0,100}null.{0,20}not zero/i,
+      /one summary row.{0,40}one bar or pending placeholder/i,
+      /monetary eligibility.{0,50}before recency/i,
+      /estimated used\s*=\s*F\s*[-−]\s*R.{0,50}estimated unused\s*=\s*R.{0,30}total height\s*=\s*F/i,
+      /seven-day reference buckets.{0,60}not claimed subscription boundaries/i,
+      /without an extra seven-day local-usage graph/i,
+      /old archived amounts remain frozen/i,
+      /not a price fetch timestamp/i,
+      /65 minutes/i,
+      /defaults off/i,
+      /never.{0,30}starts.{0,40}login.{0,30}reads credentials/i,
+      /contact OpenAI.{0,100}authentication.{0,30}refresh credentials/i,
+      /rejects custom Codex homes.{0,30}remote extension hosts/i,
+      /at least 60 seconds apart.{0,50}at least 10 seconds apart/i,
+      /no extra recurring timer/i,
+      /(?:not a|no) second scanner.{0,100}warm refresh rereads no usage-record bodies/i,
+      /never raw text or raw IDs/i,
+      /localWindowKey.{0,60}stripped at the public projection boundary/i,
+      /HMACs, source keys, paths, raw IDs, email and conversation content never reach HTML\/export/i,
+      /current quota identity.{0,30}does not.{0,30}ownership of local usage/i,
+      /reset timestamp R.{0,50}never account identity/i,
+      /isolated by source, account and period/i,
+      /never subtract later local usage/i,
+      /selected-account clearing.{0,100}preserving other accounts and unassigned records/i,
+      /new writes stop.{0,300}no expiry or eviction|no expiry or eviction.{0,300}new writes stop/i,
+      /cross-process lease.{0,80}atomic 0600 replacement/i,
+      /older readers may reject or quarantine new fields.{0,100}does not guarantee.{0,100}preserve the canonical file/i,
+      /older preview readers?.{0,40}reject.{0,30}methods\/fields/i,
+      /adds no file, raw-log scan, network request, telemetry or contribution flow/i,
+      /current official sample does not prove historical account ownership or continuity across account switches/i,
+    ];
+    for (const pattern of facts) assert.match(contract, pattern, file);
   }
-  assert.match(english, /current window[\s\S]*low-confidence local estimate/i);
-  assert.match(english, /weighted median/i);
-  assert.match(chinese, /当前周期[\s\S]*低可信本地估算/);
-  assert.match(chinese, /加权中位数/);
-  assert.match(english, /multiple distinct mapped `seriesKey`/);
-  assert.match(english, /single unattributed[\s\S]*after completion/);
-  assert.match(chinese, /多个不同 `seriesKey`[\s\S]*已结束 Codex/);
-  assert.match(chinese, /单一未归属[\s\S]*结束后仍可保留/);
-  assert.match(english, /cumulative known used value exceeds the aggregate candidate/i);
-  assert.match(chinese, /累计已知已用等价值[\s\S]*汇总候选/);
-  assert.doesNotMatch(english, /Current\s+unused value is withheld/i);
-  assert.doesNotMatch(chinese, /当前周期不显示未用值/);
-  assert.match(repoFile('LOCAL-DATA.md'), /74[\s\S]*100[\s\S]*26/);
-  assert.match(repoFile('LOCAL-DATA.zh-CN.md'), /74[\s\S]*100[\s\S]*26/);
-  for (const file of ['LOCAL-DATA.md', 'LOCAL-DATA.zh-CN.md']) {
-    assert.ok(repoFile(file).includes('showWeeklyQuotaPace'));
+  // Each translation keeps one short feature in the existing minor-version list.
+  // Storage details and gates belong in the linked contract, not a nine-column README manual.
+  const title = /^- \*\*(?:Codex cycle quota comparison|Codex-Quotenvergleich nach Zyklus|Codex 周期额度对比|Codex 週期額度對比|Codex 周期クォータ比較|Codex 주기별 쿼터 비교|Comparação de cotas Codex por ciclo|Perbandingan kuota Codex per siklus)[^\n]*(?:\n {2}[^\n]*)*/gm;
+  for (const file of ['README.md', 'README-en.md', 'README-zh-CN.md', 'README-zh-TW.md',
+    'README-ja.md', 'README-ko.md', 'README-id.md', 'README-de-DE.md', 'README-pt-BR.md']) {
+    const document = repoFile(file), features = [...document.matchAll(title)];
+    assert.equal(features.length, 1, file + ' must have one quota feature');
+    const heading = document.match(/^## .*2\.5.*$/m);
+    assert.ok(heading, file + ' must retain its existing minor-version section');
+    const end = document.indexOf('\n## ', heading.index! + heading[0].length);
+    assert.ok(features[0].index! > heading.index! && (end < 0 || features[0].index! < end), file);
+    const feature = features[0][0];
+    assert.ok(feature.split('\n').length <= 4, file + ' must keep a short feature bullet');
+    assert.match(feature, /OpenAI/, file + ' must retain the optional official-read network boundary');
+    assert.match(feature, /LOCAL-DATA(?:\.zh-CN)?\.md/, file + ' must link the detailed privacy contract');
+    assert.doesNotMatch(feature, /last valid estimate|末次有效估值/, file + ' must not imply latest-first selection');
   }
 });
 

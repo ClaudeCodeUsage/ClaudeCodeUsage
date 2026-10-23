@@ -1,0 +1,602 @@
+import { buildLocalWeeklyEstimates, buildWitnessWeeklyEstimates, copyWeeklyEstimateWitness,
+  witnessQuotaCycle, LocalWeeklyEstimate } from './weeklyEstimate';
+import { WeeklyEstimateArchive, WeeklyEstimateArchiveResult, WeeklyEstimateClearScope,
+  WeeklyEstimateInput, WeeklyEstimateProvider, WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES,
+  weeklyEstimateAccountFingerprint, sameWeeklyEstimateQuotaPoint } from './weeklyEstimateArchive';
+import type { WeeklyValueInputs } from './weeklyValue';
+import { createHmac } from 'node:crypto';
+import { buildCodexWindowEstimates } from './codexWindowEstimate';
+import { copyCodexQuotaEpoch, codexQuotaEpochFitsObservation, codexQuotaEpochFromObservations } from './codexQuotaEpoch';
+import { copyCodexCalibrationEvidence, codexCalibrationEvidenceFitsEstimate } from './codexCalibrationEvidence';
+import type { QuotaObservationV2 } from './quotaObservationStore';
+import { codexFallbackQuotaCycle, withCodexQuotaCycles, selectCodexCycleEstimates,
+  compareCodexCycleEvidence, codexCycleAmountEligible } from './codexQuotaCycles';
+import { copyCodexWindowEvidence, codexWindowEvidenceFits } from './codexWindowEvidence';
+import type { CodexWitnessCoverage } from './codexWitnessCycles';
+
+export interface WeeklyEstimateDisplayEntry extends LocalWeeklyEstimate {
+  /** Public reference-price version retained with its historical numeric snapshot. */
+  pricingVersion?: string;
+}
+export interface WeeklyEstimateProjection {
+  entries: Omit<WeeklyEstimateDisplayEntry, 'accountScopeKey'>[];
+  status: 'loading' | 'ready' | 'full' | 'unavailable';
+  activeAccountNumber?: number;
+  activeQuotaEpochStartedAt?: number;
+  /** Anonymous references overlapping an identified cycle are not account facts. */
+  unassignedCyclesOmitted?: number;
+  /** Unlocated usage remains separate from cycle amounts and account facts. */
+  codexWitnessCoverage?: CodexWitnessCoverage;
+}
+export interface WeeklyEstimateProjectOptions {
+  sourceNamespace: string; pricingVersion: string; now: number;
+  accountEstimates?: readonly WeeklyEstimateDisplayEntry[];
+  activeAccountScopeKey?: string;
+  activeQuotaEpochStartedAt?: number;
+  quotaObservations?: readonly QuotaObservationV2[];
+}
+interface InternalEntry extends WeeklyEstimateDisplayEntry { accountScopeKey?: string }
+type Evidence = InternalEntry;
+type Memo = {
+  usage: WeeklyValueInputs['usage']; observations: WeeklyValueInputs['observations'];
+  localHistoryComplete: WeeklyValueInputs['localHistoryComplete'];
+  checkpoints?: WeeklyValueInputs['codexQuotaCheckpoints'];
+  checkpointsComplete?: boolean;
+  incompleteResets?: readonly number[];
+  incompleteRanges?: WeeklyValueInputs['codexQuotaIncompleteRanges'];
+  witnessCycles?: WeeklyValueInputs['codexWitnessCycles'];
+  witnessCoverage?: WeeklyValueInputs['codexWitnessCoverage'];
+  pricingVersion: string; minute: number; live: InternalEntry[];
+  accountEstimates?: readonly WeeklyEstimateDisplayEntry[]; activeAccountScopeKey?: string;
+  activeQuotaEpochStartedAt?: number;
+  quotaObservations?: readonly QuotaObservationV2[];
+  revision: number; projection: WeeklyEstimateProjection;
+};
+type State = {
+  provider: WeeklyEstimateProvider; source: string; archive?: WeeklyEstimateArchive;
+  saved: InternalEntry[]; status: WeeklyEstimateProjection['status'];
+  loaded: boolean; scheduled: boolean; revision: number; memo?: Memo;
+  pending: Map<string, WeeklyEstimateInput>;
+  acknowledged: Set<string>;
+  accountNumbers: Map<string, number>;
+  epoch: number;
+  queueFull?: boolean;
+  generation: number | null;
+  clearedThrough?: number;
+  accountClearedThrough: Record<string, number>;
+};
+const FLAGS = ['account-unattributed', 'boundary-uncertain', 'partial-pricing',
+  'stale-observation', 'counter-change', 'reconstructed', 'partial-history'] as const;
+const HEX = /^[a-f0-9]{64}$/;
+function bounded(value: unknown, max = 1e12): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= max;
+}
+function time(value: unknown): value is number { return bounded(value, 8_640_000_000_000_000) && Number.isSafeInteger(value); }
+
+/** Internal fixed-field copy. The account HMAC is stripped only at the public projection boundary. */
+function copy(value: WeeklyEstimateInput | Evidence, provider: WeeklyEstimateProvider): InternalEntry | undefined {
+  if (value.provider !== provider || !time(value.windowStart) || !time(value.resetAt) || value.windowStart >= value.resetAt ||
+    !time(value.observedAt) || !time(value.estimatedAt) || !bounded(value.usedEquivalentUsd) ||
+    !(value.fullEquivalentUsd === null || bounded(value.fullEquivalentUsd)) ||
+    !(value.unusedEquivalentUsd === null || bounded(value.unusedEquivalentUsd)) ||
+    !(value.utilizationPercent === null || bounded(value.utilizationPercent, 100)) || !bounded(value.pricingCoverage, 1) ||
+    !['legacy-prefix-ratio', 'rough-prefix-v2', 'paired-delta', 'owned-window', 'series-prefix-v1', 'account-delta-v1', 'request-witness-v1'].includes(value.method) ||
+    !Array.isArray(value.flags) || value.flags.length > 12 || !value.flags.every(flag => FLAGS.includes(flag))) return undefined;
+  if (value.accountScopeKey !== undefined && (typeof value.accountScopeKey !== 'string' || !HEX.test(value.accountScopeKey))) return undefined;
+  if (value.accountNumber !== undefined && (value.accountScopeKey === undefined || !bounded(value.accountNumber) ||
+    !Number.isSafeInteger(value.accountNumber) || value.accountNumber < 1)) return undefined;
+  if (value.unlinkedEquivalentUsd !== undefined && !bounded(value.unlinkedEquivalentUsd)) return undefined;
+  if (value.linkedSourceCount !== undefined && (!bounded(value.linkedSourceCount) || !Number.isSafeInteger(value.linkedSourceCount))) return undefined;
+  if (value.pricingVersion !== undefined && (typeof value.pricingVersion !== 'string' || value.pricingVersion.length > 32 ||
+    !/^(?:[a-z]{1,16}-){0,2}v\d{1,4}(?:\.\d{1,4}){0,3}$/.test(value.pricingVersion))) return undefined;
+  if (value.calibrationStart !== undefined && (!time(value.calibrationStart) || value.calibrationStart < value.windowStart ||
+    value.calibrationStart >= value.observedAt)) return undefined;
+  const quotaEpoch = copyCodexQuotaEpoch(value.quotaEpoch);
+  if (value.quotaEpoch !== undefined && (!quotaEpoch || provider !== 'codex' ||
+    value.accountScopeKey === undefined || value.method !== 'account-delta-v1' ||
+    !codexQuotaEpochFitsObservation(quotaEpoch, value.observedAt, value.resetAt, value.windowStart,
+      value.calibrationStart))) return undefined;
+  const range = value.fullRange;
+  const calibrationEvidence = copyCodexCalibrationEvidence(value.calibrationEvidence);
+  const windowEvidence = copyCodexWindowEvidence(value.windowEvidence);
+  const witnessCycle = copyWeeklyEstimateWitness(value);
+  if ((value.witnessCycle !== undefined || value.method === 'request-witness-v1') &&
+    (!witnessCycle || value.localWindowKey === undefined)) return undefined;
+  if (value.localWindowKey !== undefined && !HEX.test(value.localWindowKey)) return undefined;
+  if (value.windowEvidence !== undefined && (!windowEvidence || provider !== 'codex' ||
+    value.method !== 'series-prefix-v1' || value.localWindowKey === undefined || !codexWindowEvidenceFits(windowEvidence, value))) return undefined;
+  if (value.calibrationEvidence !== undefined && (!calibrationEvidence || provider !== 'codex' ||
+    value.method !== 'account-delta-v1' || !codexCalibrationEvidenceFitsEstimate(calibrationEvidence, value))) return undefined;
+  if (range !== undefined && (!range || !bounded(range.lower) || range.lower <= 0 || !bounded(range.upper) ||
+    value.fullEquivalentUsd === null || range.lower > value.fullEquivalentUsd || range.upper < value.fullEquivalentUsd)) return undefined;
+  return { provider, windowStart: value.windowStart, resetAt: value.resetAt, observedAt: value.observedAt,
+    estimatedAt: value.estimatedAt, usedEquivalentUsd: value.usedEquivalentUsd,
+    fullEquivalentUsd: value.fullEquivalentUsd, unusedEquivalentUsd: value.unusedEquivalentUsd,
+    utilizationPercent: value.utilizationPercent, pricingCoverage: value.pricingCoverage, method: value.method,
+    flags: [...value.flags],
+    ...(value.pricingVersion === undefined ? {} : { pricingVersion: value.pricingVersion }),
+    ...(value.calibrationStart === undefined ? {} : { calibrationStart: value.calibrationStart }),
+    ...(value.accountScopeKey === undefined ? {} : { accountScopeKey: value.accountScopeKey }),
+    ...(quotaEpoch === undefined ? {} : { quotaEpoch }),
+    ...(calibrationEvidence === undefined ? {} : { calibrationEvidence }),
+    ...(windowEvidence === undefined ? {} : { windowEvidence }),
+    ...(witnessCycle === undefined ? {} : { witnessCycle, quotaCycle: witnessQuotaCycle(witnessCycle) }),
+    ...(value.localWindowKey === undefined ? {} : { localWindowKey: value.localWindowKey }),
+    ...(value.accountNumber === undefined ? {} : { accountNumber: value.accountNumber }),
+    ...(value.unlinkedEquivalentUsd === undefined ? {} : { unlinkedEquivalentUsd: value.unlinkedEquivalentUsd }),
+    ...(value.linkedSourceCount === undefined ? {} : { linkedSourceCount: value.linkedSourceCount }),
+    ...(range === undefined ? {} : { fullRange: { lower: range.lower, upper: range.upper } }) };
+}
+function full(value: Pick<WeeklyEstimateInput, 'fullEquivalentUsd' | 'unusedEquivalentUsd' | 'method' | 'pricingCoverage' | 'flags'>): boolean {
+  return value.fullEquivalentUsd !== null && value.fullEquivalentUsd > 0 && value.unusedEquivalentUsd !== null &&
+    (['rough-prefix-v2', 'series-prefix-v1', 'account-delta-v1'].includes(value.method) || (value.pricingCoverage === 1 &&
+      !value.flags.some(flag => flag === 'boundary-uncertain' || flag === 'counter-change' ||
+        flag === 'partial-pricing' || flag === 'partial-history')));
+}
+function merge(saved: InternalEntry[], live: InternalEntry[]): InternalEntry[] {
+  const rows = new Map<string, InternalEntry>();
+  for (const value of [...saved, ...live]) {
+    if (value.witnessCycle) {
+      const key = JSON.stringify(['request-witness-v1', value.localWindowKey]);
+      const previous = rows.get(key);
+      rows.set(key, previous ? preferredWitness(previous, value) : value);
+      continue;
+    }
+    const key = JSON.stringify([value.provider, value.accountScopeKey ?? null, value.localWindowKey ?? null, value.quotaEpoch?.startedAt ?? null,
+      value.quotaEpoch === undefined ? value.resetAt : null, value.observedAt, value.method, value.pricingVersion ?? null]);
+    const previous = rows.get(key);
+    // A newly withheld full estimate cannot erase a saved, valid as-of snapshot.
+    if (previous?.fullEquivalentUsd !== null && previous !== undefined && value.fullEquivalentUsd === null) {
+      rows.set(key, { ...previous, flags: [...new Set([...previous.flags, ...value.flags, 'stale-observation' as const])] });
+      continue;
+    }
+    rows.set(key, value);
+  }
+  const representatives = new Map<string, InternalEntry>();
+  for (const value of [...rows.values()].reverse().sort((a, b) => b.observedAt - a.observedAt || b.estimatedAt - a.estimatedAt)) {
+    if (value.witnessCycle) {
+      representatives.set(JSON.stringify(['request-witness-v1', value.localWindowKey]), value);
+      continue;
+    }
+    const fallback = value.provider === 'codex' && value.accountScopeKey === undefined && value.quotaEpoch === undefined && !value.localWindowKey;
+    const key = fallback ? JSON.stringify(['codex', 'seven-day-reference', codexFallbackQuotaCycle(value).id,
+      value.fullEquivalentUsd === null ? 'withheld' : 'full']) : JSON.stringify([value.provider, value.accountScopeKey ?? null, value.quotaEpoch?.startedAt ?? null,
+      value.localWindowKey ?? null, value.quotaEpoch === undefined ? value.resetAt : null, value.method, value.pricingVersion ?? null,
+      value.fullEquivalentUsd === null ? 'withheld' : 'full']);
+    const previous = representatives.get(key);
+    if (!previous || value.provider === 'codex' && compareCodexCycleEvidence(value, previous) < 0) representatives.set(key, value);
+  }
+  return [...representatives.values()].sort((a, b) => b.resetAt - a.resetAt || b.observedAt - a.observedAt ||
+    b.estimatedAt - a.estimatedAt || a.method.localeCompare(b.method)).slice(0, WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES)
+    .map(value => ({...copy(value, value.provider)!,
+      ...(value.historicalRoughEstimate ? {historicalRoughEstimate:{...value.historicalRoughEstimate}} : {})}));
+}
+/** Compaction changes the retained left endpoint, not the episode. Preserve a
+ * stronger frozen observed subtotal at its own as-of time; never reprice it. */
+function preferredWitness(a: InternalEntry, b: InternalEntry): InternalEntry {
+  const first = a.witnessCycle!, second = b.witnessCycle!;
+  if (JSON.stringify(first.pricebook) === JSON.stringify(second.pricebook)) {
+    const stronger = (x: typeof first, y: typeof first) => x.from <= y.from &&
+      x.knownUsd >= y.knownUsd && x.knownTokens >= y.knownTokens &&
+      x.unpricedTokens >= y.unpricedTokens && (x.from < y.from ||
+        x.knownUsd > y.knownUsd || x.knownTokens > y.knownTokens || x.unpricedTokens > y.unpricedTokens);
+    if (stronger(first, second)) return a;
+    if (stronger(second, first)) return b;
+  }
+  return second.through > first.through || second.through === first.through && b.estimatedAt >= a.estimatedAt ? b : a;
+}
+function copyWitnessCoverage(value: CodexWitnessCoverage | undefined): CodexWitnessCoverage | undefined {
+  if (!value || !bounded(value.unlocatedPrimaryUsd) ||
+    ![value.unplacedSources, value.unlocatedUnpricedTokens, value.rejectedSources].every(n =>
+      Number.isSafeInteger(n) && n >= 0)) return undefined;
+  return { unplacedSources: value.unplacedSources, unlocatedPrimaryUsd: value.unlocatedPrimaryUsd,
+    unlocatedUnpricedTokens: value.unlocatedUnpricedTokens, rejectedSources: value.rejectedSources };
+}
+function signature(state: State): string {
+  return JSON.stringify([state.status, state.saved, state.clearedThrough, state.accountClearedThrough, [...state.accountNumbers]]);
+}
+function semanticKey(value: WeeklyEstimateInput | Evidence): string {
+  const { estimatedAt: _estimatedAt, accountNumber: _number, quotaCycle: _cycle, flags, ...fields } = copy(value, value.provider)!;
+  if (fields.witnessCycle) {
+    const { requestedThrough: _requested, ...receipt } = fields.witnessCycle;
+    return JSON.stringify({ ...fields, witnessCycle: receipt,
+      flags: FLAGS.filter(flag => flag !== 'stale-observation' && flags.includes(flag)) });
+  }
+  // Clock passage changes display staleness, not the retained measurement or pricing evidence.
+  return JSON.stringify({ ...fields, flags: FLAGS.filter(flag => flag !== 'stale-observation' && flags.includes(flag)) });
+}
+function cleared(state: State, entry: InternalEntry | WeeklyEstimateInput, salt: string): boolean {
+  const fingerprint = weeklyEstimateAccountFingerprint(salt, entry.provider, entry.accountScopeKey);
+  const beginning = entry.witnessCycle ? entry.witnessCycle.from : entry.windowEvidence ? entry.windowEvidence.from : entry.method === 'account-delta-v1'
+    ? Math.min(entry.observedAt, entry.calibrationStart ?? Infinity) : entry.observedAt;
+  return beginning <= Math.max(state.clearedThrough ?? -1,
+    fingerprint === undefined ? -1 : state.accountClearedThrough[fingerprint] ?? -1);
+}
+function visible(state: State, entries: InternalEntry[], salt: string): InternalEntry[] {
+  return entries.filter(entry => !cleared(state, entry, salt));
+}
+function unavailable(): WeeklyEstimateArchiveResult {
+  return { status: 'unavailable', entries: [], totalEntries: null, totalEntriesByProvider: null, generation: null, clearedThrough: {} };
+}
+function status(result: WeeklyEstimateArchiveResult): WeeklyEstimateProjection['status'] {
+  return result.status === 'ready' || result.status === 'full' ? result.status : 'unavailable';
+}
+
+/** Synchronous projections; a coalesced asynchronous queue owns all archive I/O. */
+export class WeeklyEstimateCoordinator {
+  private readonly states = new Map<WeeklyEstimateProvider, State>();
+  private tail: Promise<void> = Promise.resolve();
+  private clearing = 0;
+  private readonly epochs = new Map<WeeklyEstimateProvider, number>();
+  private readonly clearCounts = new Map<WeeklyEstimateProvider, number>();
+  private disposed = false;
+  constructor(private readonly filePath: string, private readonly salt: string,
+    private readonly onChanged?: () => void) {}
+
+  /** Already loaded durable fences only; never introduces render-time I/O. */
+  calibrationCutoff(provider: WeeklyEstimateProvider, sourceNamespace: string, accountScopeKey: string): number | undefined {
+    const state = this.states.get(provider);
+    if (!state || state.source !== sourceNamespace) return undefined;
+    const fingerprint = weeklyEstimateAccountFingerprint(this.salt, provider, accountScopeKey);
+    const through = Math.max(state.clearedThrough ?? -1,
+      fingerprint === undefined ? -1 : state.accountClearedThrough[fingerprint] ?? -1);
+    return through >= 0 ? through : undefined;
+  }
+
+  private retained(state: State): boolean { return !this.disposed && state.epoch === (this.epochs.get(state.provider) ?? 0); }
+  private active(state: State): boolean { return this.retained(state) && this.states.get(state.provider) === state; }
+  private blocked(state: State): boolean { return (this.clearCounts.get(state.provider) ?? 0) > 0; }
+  private notify(): void {
+    if (!this.disposed) { try { this.onChanged?.(); } catch { /* Rendering cannot break persistence. */ } }
+  }
+  private accountNumber(state: State, key: string | undefined): number | undefined {
+    if (key === undefined || !HEX.test(key)) return undefined;
+    const existing = state.accountNumbers.get(key);
+    if (existing !== undefined) return existing;
+    const next = Math.max(0, ...state.accountNumbers.values()) + 1;
+    if (state.accountNumbers.size >= WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES || next > 1e12) {
+      state.queueFull = true;
+      state.status = 'full';
+      return undefined;
+    }
+    state.accountNumbers.set(key, next);
+    return next;
+  }
+  private projection(state: State, live: InternalEntry[], activeKey?: string, activeEpoch?: number,
+    observations: readonly QuotaObservationV2[] = [], now = Date.now(), witnessMode = false,
+    witnessCoverage?: CodexWitnessCoverage): WeeklyEstimateProjection {
+    const visibleLive = visible(state, live, this.salt);
+    const reconstructed = visibleLive.filter(entry => entry.windowEvidence !== undefined);
+    // A full retained-source reconstruction is authoritative for that anonymous
+    // counter window. Old frozen snapshots stay on disk, but cannot resurrect a
+    // fit whose source/lineage evidence was withdrawn by the current index.
+    const saved = visible(state, state.saved, this.salt).filter(entry =>
+      (!witnessMode || entry.witnessCycle || entry.windowEvidence || entry.calibrationEvidence || entry.quotaEpoch) &&
+      (!entry.windowEvidence || !reconstructed.some(current => Math.abs(current.resetAt - entry.resetAt) <= 300_000)));
+    const historical = saved.map(entry => entry.provider === 'codex' && !entry.accountScopeKey &&
+      !witnessMode && !entry.witnessCycle && !entry.quotaEpoch && !entry.windowEvidence && !entry.calibrationEvidence && entry.resetAt <= now &&
+      entry.fullEquivalentUsd !== null && entry.fullEquivalentUsd > 0 && entry.unusedEquivalentUsd !== null &&
+      entry.pricingCoverage > 0 && entry.utilizationPercent !== null &&
+      Math.abs(entry.unusedEquivalentUsd - entry.fullEquivalentUsd * (1 - entry.utilizationPercent / 100)) <=
+        Math.max(.02, entry.fullEquivalentUsd * 1e-8)
+      ? {...entry, historicalRoughEstimate:{source:'weekly-estimates-v1' as const,pricingVersion:entry.pricingVersion??''}} : entry);
+    const merged = merge(historical, visibleLive.filter(entry => !witnessMode ||
+      entry.witnessCycle || entry.windowEvidence || entry.calibrationEvidence || entry.quotaEpoch));
+    const paired = merged.filter(entry => entry.windowEvidence !== undefined);
+    // Reconstructed precise evidence withdraws old daily-slice extrapolations
+    // for the same reference bucket. Frozen archive bytes stay untouched.
+    for (let i = 0; i < merged.length; i++) {
+      const entry = merged[i];
+      if (entry.provider === 'codex' && !entry.witnessCycle && !entry.accountScopeKey && !entry.windowEvidence && !entry.historicalRoughEstimate && paired.some(other =>
+        other.windowEvidence!.cycle.id === codexFallbackQuotaCycle(entry).id || Math.abs(other.resetAt - entry.resetAt) <= 300_000)) {
+        merged[i] = { ...entry, fullEquivalentUsd: null, unusedEquivalentUsd: null };
+      }
+    }
+    const cycleEntries = state.provider === 'codex' ? withCodexQuotaCycles(merged, observations,
+      key => weeklyEstimateAccountFingerprint(this.salt, 'codex', key), now).map(entry => {
+        if (!entry.witnessCycle) return entry;
+        const quotaCycle = witnessQuotaCycle(entry.witnessCycle, now);
+        // Amount receipts remain frozen. New evidence can still close the
+        // same anonymous episode in the display without repricing that receipt.
+        const closing = [...saved, ...visibleLive].filter(candidate => candidate.witnessCycle &&
+          candidate.localWindowKey === entry.localWindowKey && candidate.witnessCycle.closed &&
+          candidate.witnessCycle.cycleEndAt > entry.observedAt &&
+          candidate.witnessCycle.cycleEndAt < quotaCycle.endAt)
+          .sort((a, b) => a.witnessCycle!.cycleEndAt - b.witnessCycle!.cycleEndAt)[0]?.witnessCycle;
+        if (closing) Object.assign(quotaCycle, { endAt: closing.cycleEndAt,
+          endLowerAt: closing.cycleEndLowerAt, closed: true, boundaryUncertain: true });
+        return { ...entry, quotaCycle };
+      }) : merged;
+    const windowNumbers = new Map<string, number>();
+    for (const entry of cycleEntries.slice().sort((a, b) => a.observedAt - b.observedAt)) {
+      if (entry.localWindowKey && !windowNumbers.has(entry.localWindowKey)) windowNumbers.set(entry.localWindowKey, windowNumbers.size + 1);
+    }
+    const witnesses = cycleEntries.filter(entry => entry.witnessCycle && entry.observedAt <= now);
+    const coveredByWitness = (entry: InternalEntry) => witnesses.some(witness =>
+      Math.abs(witness.resetAt - entry.resetAt) <= 300_000 &&
+      (entry.fullEquivalentUsd === null && entry.usedEquivalentUsd === 0 ||
+      entry.observedAt >= (witness.quotaCycle?.startAt ?? witness.windowStart) &&
+      entry.observedAt < (witness.quotaCycle?.endAt ?? witness.resetAt)));
+    // Official facts still feed the header. A same-episode placeholder is not
+    // another monetary row, and filtering it never binds witness USD to it.
+    const selected = state.provider === 'codex' ? [...witnesses,
+      ...selectCodexCycleEstimates(cycleEntries.filter(entry => !entry.witnessCycle &&
+        (!witnessMode || !coveredByWitness(entry))), now)] : cycleEntries;
+    const identified = state.provider === 'codex' ? selected.filter(entry => entry.accountScopeKey !== undefined &&
+      entry.quotaEpoch !== undefined && entry.quotaCycle?.referenceOnly !== true) : [];
+    const start = (entry: InternalEntry) => entry.quotaCycle?.startAt ?? entry.quotaEpoch?.startedAt ?? entry.windowStart;
+    const end = (entry: InternalEntry) => entry.quotaCycle?.endAt ?? entry.resetAt;
+    let unassignedCyclesOmitted = 0;
+    const summaries = selected.filter(entry => {
+      if (!entry.witnessCycle && entry.accountScopeKey === undefined && identified.some(account => start(entry) < end(account) && start(account) < end(entry))) {
+        // Presentation-only omission, never a reset-time identity join or a
+        // transfer of anonymous USD. The frozen archive remains untouched.
+        unassignedCyclesOmitted++; return false;
+      }
+      return true;
+    }).sort((a, b) => (b.quotaCycle?.endAt ?? b.resetAt) - (a.quotaCycle?.endAt ?? a.resetAt) || b.observedAt - a.observedAt).slice(0, 48);
+    const entries = summaries.map(entry => {
+      const { accountScopeKey, accountNumber: _hint, localWindowKey, ...publicEntry } = entry;
+      const accountNumber = this.accountNumber(state, accountScopeKey);
+      return { ...publicEntry, ...(accountNumber === undefined ? {} : { accountNumber }),
+        ...(localWindowKey === undefined ? {} : { localWindowNumber: windowNumbers.get(localWindowKey) }) };
+    });
+    // Identity alone must not reserve a number that the archive cannot honor.
+    const activeAccountNumber = state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey)
+      ? state.accountNumbers.get(activeKey) : undefined;
+    return { entries, status: state.status, ...(unassignedCyclesOmitted ? { unassignedCyclesOmitted } : {}),
+      ...(witnessCoverage === undefined ? {} : { codexWitnessCoverage: witnessCoverage }),
+      ...(activeAccountNumber === undefined ? {} : { activeAccountNumber }),
+      ...(state.provider === 'codex' && activeKey !== undefined && HEX.test(activeKey) &&
+        activeEpoch !== undefined && time(activeEpoch) && activeEpoch > 0 ? { activeQuotaEpochStartedAt: activeEpoch } : {}) };
+  }
+  /** Identity/reset checkpoints exist independently of a successful monetary fit.
+   * Only an already known official scope can bind P2; reset-time equality cannot. */
+  private checkpoints(state: State, options: WeeklyEstimateProjectOptions): InternalEntry[] {
+    if (state.provider !== 'codex') return [];
+    const keys = new Set([...state.saved.map(entry => entry.accountScopeKey), options.activeAccountScopeKey,
+      ...(options.accountEstimates ?? []).map(entry => entry.accountScopeKey)].filter((key): key is string => key !== undefined && HEX.test(key)));
+    const out: InternalEntry[] = [], observations = options.quotaObservations ?? [];
+    for (const key of keys) {
+      const fp = weeklyEstimateAccountFingerprint(this.salt, 'codex', key)!;
+      const windows = new Map<string, QuotaObservationV2>();
+      for (const row of observations) if (row.provider === 'codex' && row.source === 'codex-official-api' &&
+        row.accountFingerprint === fp && row.accountAttribution === 'verified-local-signal' && row.periodType === 'seven-day' &&
+        row.observedAt <= options.now && row.resetAt !== null && row.resetAt > row.observedAt) {
+        const old = windows.get(row.windowId);
+        if (!old || row.observedAt > old.observedAt) windows.set(row.windowId, row);
+      }
+      for (const row of windows.values()) {
+        const quotaEpoch = codexQuotaEpochFromObservations(observations, fp, row.observedAt, row.resetAt!);
+        if (!quotaEpoch) continue;
+        out.push({ provider: 'codex', accountScopeKey: key, quotaEpoch,
+          windowStart: quotaEpoch.startLowerAt ?? quotaEpoch.startedAt, resetAt: row.resetAt!, observedAt: row.observedAt,
+          estimatedAt: row.observedAt, usedEquivalentUsd: 0, fullEquivalentUsd: null, unusedEquivalentUsd: null,
+          utilizationPercent: row.usedFraction * 100, pricingCoverage: 0, method: 'account-delta-v1',
+          pricingVersion: options.pricingVersion, flags: ['account-unattributed'] });
+      }
+    }
+    return out;
+  }
+  private acknowledge(state: State, entry: WeeklyEstimateInput): void {
+    const key = semanticKey(entry);
+    if (!state.acknowledged.has(key)) {
+      // This bounded runtime receipt set may discard old acknowledgements, never archive history.
+      if (state.acknowledged.size >= WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES) {
+        state.acknowledged.delete(state.acknowledged.values().next().value!);
+      }
+      state.acknowledged.add(key);
+    }
+    state.pending.delete(key);
+  }
+  private apply(state: State, result: WeeklyEstimateArchiveResult): void {
+    state.status = status(result);
+    if (state.status !== 'unavailable') {
+      if (state.generation !== result.generation) state.acknowledged.clear();
+      state.generation = result.generation;
+      state.clearedThrough = result.clearedThrough[state.provider];
+      state.accountClearedThrough = result.accountClearedThrough?.[state.provider] ?? {};
+      const numbers = new Map<string, number>();
+      for (const entry of result.entries) {
+        if (entry.accountScopeKey !== undefined && entry.accountNumber !== undefined) numbers.set(entry.accountScopeKey, entry.accountNumber);
+      }
+      // Durable ordinals win over temporary labels, including labels allocated before the first load.
+      const temporaryKeys = [...state.accountNumbers.keys()];
+      state.accountNumbers = numbers;
+      for (const entry of result.entries) this.accountNumber(state, entry.accountScopeKey);
+      for (const key of temporaryKeys) this.accountNumber(state, key);
+      state.saved = result.entries.map(entry => copy(entry, state.provider)).filter((entry): entry is InternalEntry => entry !== undefined);
+      for (const entry of result.entries) {
+        if (entry.provider === state.provider) this.acknowledge(state, entry);
+      }
+      for (const [key, entry] of state.pending) {
+        if (state.acknowledged.has(key) || cleared(state, entry, this.salt)) state.pending.delete(key);
+      }
+    }
+  }
+  private schedule(state: State): void {
+    if (state.scheduled || !this.retained(state) || this.blocked(state) || !state.archive ||
+      (state.loaded && !state.pending.size)) return;
+    state.scheduled = true;
+    const run = async () => {
+      const before = signature(state);
+      try {
+        if (!this.retained(state) || this.blocked(state)) return;
+        if (!state.loaded) {
+          const loaded = await state.archive!.load();
+          if (!this.retained(state) || this.blocked(state)) return;
+          this.apply(state, loaded);
+          if (state.status === 'unavailable') return;
+          state.loaded = true;
+        }
+        const pending = [...state.pending.values()];
+        state.pending.clear();
+        for (const entry of pending) {
+          if (!this.retained(state) || this.blocked(state)) return;
+          if (state.acknowledged.has(semanticKey(entry))) continue;
+          if (state.generation === null || cleared(state, entry, this.salt)) continue;
+          let result = await state.archive!.record(entry, { expectedGeneration: state.generation });
+          if (!this.retained(state) || this.blocked(state)) return;
+          this.apply(state, result);
+          // A clear of another provider must not lose this provider's genuinely unblocked sample.
+          // One retry is safe only against the newly read durable cutoff/generation, never an old receipt.
+          if (result.outcome === 'stale-generation' && state.generation !== null &&
+            !state.acknowledged.has(semanticKey(entry)) &&
+            !cleared(state, entry, this.salt)) {
+            result = await state.archive!.record(entry, { expectedGeneration: state.generation });
+            if (!this.retained(state) || this.blocked(state)) return;
+            this.apply(state, result);
+          }
+          if (result.outcome === 'recorded' || result.outcome === 'unchanged') this.acknowledge(state, entry);
+          if (state.status === 'unavailable' || state.status === 'full') break;
+        }
+      } catch { if (this.retained(state)) state.status = 'unavailable'; }
+      finally {
+        state.scheduled = false;
+        if (this.retained(state) && !this.blocked(state)) {
+          if (state.queueFull && state.status === 'ready') state.status = 'full';
+          if (signature(state) !== before) { state.revision++; if (this.active(state)) this.notify(); }
+          // Only a genuinely newer projection can schedule more work, never an unchanged callback render.
+          if (state.pending.size && state.status === 'ready') this.schedule(state);
+        }
+      }
+    };
+    this.tail = this.tail.then(run, run);
+  }
+
+  project(provider: WeeklyEstimateProvider, inputs: WeeklyValueInputs,
+    options: WeeklyEstimateProjectOptions): WeeklyEstimateProjection {
+    if (this.disposed) return { entries: [], status: 'unavailable' };
+    let state = this.states.get(provider);
+    if (!state || state.source !== options.sourceNamespace) {
+      state = { provider, source: options.sourceNamespace, saved: [], status: 'loading', loaded: false,
+        scheduled: false, revision: 0, pending: new Map(), acknowledged: new Set(), accountNumbers: new Map(),
+        epoch: this.epochs.get(provider) ?? 0, generation: null, accountClearedThrough: {} };
+      try { state.archive = new WeeklyEstimateArchive(this.filePath, this.salt, options.sourceNamespace); }
+      catch { state.status = 'unavailable'; }
+      this.states.set(provider, state);
+    }
+    const minute = Math.floor(options.now / 60_000);
+    const witnessMode = provider === 'codex' && (inputs.codexWitnessCycles !== undefined || inputs.codexWitnessCoverage !== undefined);
+    let memo = state.memo;
+    if (!memo || memo.usage !== inputs.usage || memo.observations !== inputs.observations ||
+      memo.checkpoints !== inputs.codexQuotaCheckpoints || memo.checkpointsComplete !== inputs.codexQuotaCheckpointsComplete ||
+      memo.incompleteResets !== inputs.codexQuotaIncompleteResets ||
+      memo.incompleteRanges !== inputs.codexQuotaIncompleteRanges ||
+      memo.witnessCycles !== inputs.codexWitnessCycles || memo.witnessCoverage !== inputs.codexWitnessCoverage ||
+      memo.localHistoryComplete !== inputs.localHistoryComplete || memo.pricingVersion !== options.pricingVersion || memo.minute !== minute ||
+      memo.accountEstimates !== options.accountEstimates || memo.activeAccountScopeKey !== options.activeAccountScopeKey ||
+      memo.activeQuotaEpochStartedAt !== options.activeQuotaEpochStartedAt || memo.quotaObservations !== options.quotaObservations) {
+      const produced = (witnessMode
+        ? buildWitnessWeeklyEstimates(inputs.codexWitnessCycles ?? [], { now: options.now, windowKey: (resetAt, startAt) =>
+          createHmac('sha256', this.salt).update(JSON.stringify(['request-witness-v1', options.sourceNamespace, resetAt, startAt])).digest('hex') })
+        : provider === 'codex' && inputs.codexQuotaCheckpoints !== undefined
+        ? buildCodexWindowEstimates(inputs, { now: options.now, minimumObservedAt: state.clearedThrough, windowKey: (resetAt, startedAt) =>
+          createHmac('sha256', this.salt).update(JSON.stringify(['paired-window-v1', options.sourceNamespace, resetAt, startedAt])).digest('hex') })
+        : buildLocalWeeklyEstimates(provider, inputs, { now: options.now, limit: 48 }))
+        .map(entry => ({ ...entry, pricingVersion: options.pricingVersion }));
+      // Account estimates freeze their USD and pricing evidence at capture. Only unstamped
+      // legacy callers inherit the current version; a present invalid version fails copy().
+      const accounts = provider === 'codex' ? (options.accountEstimates ?? []).map(entry => ({
+        ...entry, pricingVersion: entry.pricingVersion === undefined ? options.pricingVersion : entry.pricingVersion,
+      })) : [];
+      const live = [...produced, ...accounts, ...this.checkpoints(state, options)]
+        .map(entry => copy(entry, provider))
+        .filter((entry): entry is InternalEntry => entry !== undefined);
+      memo = { usage: inputs.usage, observations: inputs.observations, localHistoryComplete: inputs.localHistoryComplete,
+        checkpoints: inputs.codexQuotaCheckpoints, checkpointsComplete: inputs.codexQuotaCheckpointsComplete,
+        incompleteResets: inputs.codexQuotaIncompleteResets,
+        incompleteRanges: inputs.codexQuotaIncompleteRanges,
+        witnessCycles: inputs.codexWitnessCycles, witnessCoverage: inputs.codexWitnessCoverage,
+        pricingVersion: options.pricingVersion, accountEstimates: options.accountEstimates, activeAccountScopeKey: options.activeAccountScopeKey,
+        activeQuotaEpochStartedAt: options.activeQuotaEpochStartedAt,
+        quotaObservations: options.quotaObservations,
+        minute, live, revision: state.revision, projection: this.projection(state, live, options.activeAccountScopeKey,
+          options.activeQuotaEpochStartedAt, options.quotaObservations, options.now, witnessMode,
+          copyWitnessCoverage(inputs.codexWitnessCoverage)) };
+      state.memo = memo;
+      if (!this.blocked(state) && state.archive) {
+        for (const entry of live) {
+          const pendingCycle = provider === 'codex' && (entry.windowEvidence?.complete === true || entry.quotaEpoch !== undefined) && entry.fullEquivalentUsd === null;
+          if (!(provider === 'codex' ? entry.witnessCycle !== undefined || codexCycleAmountEligible(entry) || pendingCycle : full(entry)) || cleared(state, entry, this.salt)) continue;
+          const dto: WeeklyEstimateInput = { ...copy(entry, provider)!, pricingVersion: entry.pricingVersion ?? options.pricingVersion };
+          const key = semanticKey(dto);
+          if (state.acknowledged.has(key) || state.pending.has(key)) continue;
+          // Coalesce only the pending batch. A genuinely newer observation must
+          // still check the durable generation/cutoff after an external clear.
+          if ([...state.pending.values()].some(previous => sameWeeklyEstimateQuotaPoint(previous, dto))) continue;
+          if (state.pending.size < WEEKLY_ESTIMATE_ARCHIVE_MAX_ENTRIES) state.pending.set(key, dto);
+          else state.queueFull = true;
+        }
+        this.schedule(state);
+      }
+    } else if (memo.revision !== state.revision) {
+      memo.projection = this.projection(state, memo.live, options.activeAccountScopeKey, options.activeQuotaEpochStartedAt,
+        options.quotaObservations, options.now, witnessMode, copyWitnessCoverage(inputs.codexWitnessCoverage));
+      memo.revision = state.revision;
+    }
+    return memo.projection;
+  }
+
+  /** Drain already queued work, including work coalesced during an in-flight write. */
+  async flush(): Promise<void> {
+    let pending: Promise<void>;
+    do { pending = this.tail; await pending; } while (pending !== this.tail);
+  }
+  /** Clear the selected provider across ALL source homes; omit provider for the entire archive. */
+  async clear(scope: WeeklyEstimateClearScope = {}): Promise<WeeklyEstimateArchiveResult> {
+    if (this.disposed) return unavailable();
+    const providers: WeeklyEstimateProvider[] = scope.provider === undefined ? ['claude', 'codex'] : [scope.provider];
+    if (scope.accountFingerprint !== undefined) {
+      // Drain all existing writers before deleting this account. Unlike provider/all clear,
+      // unrelated account and unbound queues must retain their state and epoch.
+      this.clearing++;
+      const run = async (): Promise<WeeklyEstimateArchiveResult> => {
+        if (this.disposed) return unavailable();
+        try {
+          const result = await new WeeklyEstimateArchive(this.filePath, this.salt, 'clear').clear({ ...scope, allSources: true });
+          if (result.status === 'ready' || result.status === 'full') {
+            for (const provider of providers) {
+              const state = this.states.get(provider);
+              if (!state?.archive || !this.active(state) || this.blocked(state)) continue;
+              const loaded = await state.archive.load();
+              if (!this.active(state) || this.blocked(state)) continue;
+              this.apply(state, loaded);
+              state.loaded = loaded.status === 'ready' || loaded.status === 'full';
+              state.revision++;
+            }
+          }
+          return result;
+        } catch { return unavailable(); }
+      };
+      const pending = this.tail.then(run, run);
+      this.tail = pending.then(() => undefined, () => undefined);
+      try { return await pending; }
+      finally { this.clearing--; if (!this.clearing) this.notify(); }
+    }
+    this.clearing++;
+    for (const provider of providers) {
+      this.clearCounts.set(provider, (this.clearCounts.get(provider) ?? 0) + 1);
+      this.epochs.set(provider, (this.epochs.get(provider) ?? 0) + 1);
+      this.states.delete(provider);
+    }
+    const run = async (): Promise<WeeklyEstimateArchiveResult> => {
+      if (this.disposed) return unavailable();
+      try {
+        return await new WeeklyEstimateArchive(this.filePath, this.salt, 'clear').clear({ ...scope, allSources: true });
+      } catch { return unavailable(); }
+    };
+    const cleared = this.tail.then(run, run);
+    this.tail = cleared.then(() => undefined, () => undefined);
+    try { return await cleared; }
+    finally {
+      this.clearing--;
+      for (const provider of providers) {
+        this.clearCounts.set(provider, (this.clearCounts.get(provider) ?? 1) - 1);
+        this.states.delete(provider);
+      }
+      if (!this.clearing) this.notify();
+    }
+  }
+  dispose(): void { this.disposed = true; this.states.clear(); }
+}

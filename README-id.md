@@ -60,6 +60,11 @@ Lima gambar v2.3 ini menggunakan renderer produksi, data sintetis, dan variabel 
 
 ## Yang baru di v2.5
 
+- **Perbandingan kuota Codex per siklus** — satu batang dan baris ringkasan per siklus,
+  dengan bukti kompatibel, status kalibrasi dan konflik. Nilai tetap estimasi lokal bersyarat.
+  Pembacaan resmi nonaktif secara default dan dapat menghubungi OpenAI; menampilkan kredit reset bila tersedia.
+  Kalibrasi memakai kenaikan baru tanpa memutar ulang riwayat kuota. Lihat [data lokal dan privasi](LOCAL-DATA.md).
+
 - **Pencapaian lokal** — lihat lencana, progres, dan target berikutnya. Aktif secara default;
   nonaktifkan Local achievements di pengaturan (`enableAchievements`). Tanggal berasal dari
   log tersimpan, bukan seluruh riwayat akun; kalibrasi manual memperbarui tanggal yang didukung.
@@ -148,7 +153,7 @@ untuk batas cakupan tanggal, ekspor, penyimpanan, dan kuota.
 - **Diproses** = input + output, **Penggunaan tanpa cache** = Input tanpa cache + output, **cached input** tetap bagian dari input, dan reasoning bagian dari output. Ringkasan juga menampilkan tingkat hit cache input sebagai cached input / input. Biaya tagihan Codex tidak ditampilkan. Kartu ringkasan pertama menampilkan estimasi biaya ekuivalen API untuk cakupan terpilih dengan label yang jelas, sedangkan tampilan Sepanjang Waktu menunjukkan tren mingguan dengan dasar harga yang sama. Claude / Codex / Compare tetap memisahkan makna tiap penyedia.
 - **Hari Ini** pada Codex berarti hari kalender saat ini dalam zona waktu yang dikonfigurasi. Tampilan ini menambahkan biaya ekuivalen API per jam yang tepat di samping tampilan komposisi Token yang terpisah. Grafik utama harian dan bulanan juga memakai biaya ekuivalen API sebagai default, sementara komposisi Token tetap tersedia secara terpisah. Hanya harga model yang dikenal dan cocok tepat yang dihitung; model tak dikenal tetap tanpa harga dan cakupan harga selalu terlihat. Sidecar per jam yang bersifat tambahan dan kompatibel dengan schema 3 menyimpan bucket tanggal / jam yang jarang untuk 30 hari bergulir, mendukung checkpoint dan resume, membuang hari ke-31, dan membuka tanggal tanpa membaca JSONL. Grafik dan tabel bulanan Codex menampilkan bulan dari yang paling lama ke yang terbaru.
 - Atribusi Token per permintaan memprioritaskan component `last_token_usage` yang valid; `total_tokens` di dalamnya adalah ukuran konteks aktif, bukan penggunaan permintaan. Signature numerik lengkap total-plus-last hanya menghapus replay yang terbukti berasal dari sumber rate-limit pseudonim yang sama atau record yang tepat bersebelahan. Jika last snapshot tidak ada, parser kembali ke cumulative lineage high-water. Setelah upgrade, indeks dibangun ulang otomatis satu kali dan subtotal terindeks tetap terlihat selama prosesnya.
-- Tampilan Sepanjang Waktu / Perbandingan Claude dan Codex menghitung ekuivalen terpakai historis langsung dari log Token lokal. Pengamatan reset resmi terbaru yang valid menjadi jangkar bagi rangkaian periode mingguan yang unik dan tidak tumpang tindih, sehingga setiap peristiwa penggunaan hanya dihitung dalam satu periode. Jika tidak ada pengamatan yang dapat dipakai, riwayat khusus pemakaian kembali ke minggu kalender UTC Senin-ke-Senin. Pengamatan dari series yang sama tetap menjadi satu series dan dapat ditampilkan sebagai perkiraan berkeyakinan rendah tanpa membuat periode berjalan kedua. Pengamatan account-wide `codex` dapat menghias periode historis dan berjalan; pergeseran reset, ketidakpastian sumber file, atau batas irisan harian menurunkan keyakinan. Kunci file bukan identitas akun, sehingga file lokal yang memenuhi syarat dalam satu home dipakai bersama. Jika series kuota lokal tumpang tindih, periode berjalan memakai pengamatan nyata terbaru untuk estimasi gabungan berkeyakinan rendah. Periode selesai yang atribusinya ambigu atau periode tanpa pengamatan tetap hanya menampilkan ekuivalen terpakai tanpa mengarang pemisahan akun. Setiap periode teramati yang konsisten, termasuk periode berjalan, dapat menampilkan estimasi total dan sisa daya tahan; ketidakpastian atribusi atau batas menurunkan keyakinan alih-alih menyembunyikan nilainya. Aturan tampilan ini tidak mengubah schema indeks dan tidak memicu pembangunan ulang. Harga API resmi saat ini diterapkan konsisten pada riwayat. Ini proksi, bukan tagihan, saldo resmi, atau harga langganan resmi. Panel ini aktif secara default dan dapat disembunyikan di Settings dengan `showWeeklyEquivalentValue`. Claude mulai merekam pengamatan batas per profil sejak rilis ini.
+
 - Beralih ke Codex tetap memakai struktur Hari Ini / 30 Hari Terakhir / Sepanjang Waktu / Sesi / Proyek / Konten / Settings yang sudah ada, dengan label yang disesuaikan pada makna Codex. Kedua penyedia memakai render function, HTML class, grafik, tabel, jarak, dan aturan responsif yang sama; grafik deret waktunya tetap sejajar lebarnya, sedangkan konten padat hanya bergulir di areanya sendiri. Rekomendasi Codex memakai bukti struktural 30 hari yang telah diindeks.
 - Tugas utama memakai judul thread nyata terbaru setelah jalur disamarkan. Baris tugas anak memprioritaskan judul thread nyatanya sendiri; jika tidak ada, baris memakai nama panggilan yang dilaporkan sambil menampilkan judul induk / tugas utama. Jika informasi itu juga tidak ada, baris memakai nama pengganti netral yang dilokalkan. Nama proyek memakai nama repositori Git, atau nama folder di luar Git. Ekstensi tidak mengarang Branches atau Workflows yang tidak dapat dihitung secara andal.
 - Nilai 7 dan 30 hari memakai irisan tepat berdasarkan hari peristiwa di zona waktu yang dikonfigurasi. Saat migrasi atau pembangunan ulang belum selesai, setiap kartu, tabel, proyek, sesi, rekomendasi, dan nilai status Codex ditandai sebagai **subtotal terindeks**, sementara total lama yang belum diverifikasi dikecualikan. Setelah Codex home terdeteksi, tab penyedianya langsung ditampilkan; selama indeks pertama dibuat, jumlah file terindeks yang tepat, persentase, dan progres kapasitas tampil langsung di halaman, sedangkan Perbandingan menunggu hingga kedua penyedia memiliki data nyata. Setelah checkpoint atomik pertama dibuat, seluruh dasbor subtotal tetap dapat digunakan saat pengindeksan berlanjut; indikator progres tidak menggantikan kartu atau tabel. Codex home yang dipilih tidak membedakan akun, jadi log dari beberapa login di home yang sama digabung. Log lokal tidak memiliki identitas akun yang andal; kartu batas tetap **terakhir diamati** dan tidak dijumlahkan.
@@ -189,17 +194,18 @@ retensi, migrasi, penghapusan, dan batas interaksi jarak jauh.
 | Data | Retensi lokal | Perilaku jarak jauh |
 |---|---|---|
 | Log sumber | Milik penyedia, hanya-baca, tidak disalin utuh | Tidak ada secara default |
-| Indeks Codex | Agregat pseudonim terbatas, terpisah menurut direktori log, salt profil dan zona waktu; bangun ulang hanya indeks aktif, Hapus Semua mencakup semua keluarga berkas indeks yang cocok persis | Tidak ada |
-| Riwayat kuota | Pengamatan jendela anonim terbatas, tanpa ID akun mentah | Hanya kuota Claude saat aktif; Codex tetap lokal |
+| Indeks Codex | Agregat pseudonim terbatas, terpisah menurut direktori log, salt profil dan zona waktu; HMAC volume opsional dengan salt khusus mesin, tanpa UUID mentah, jalur atau nama volume, dihapus bersama indeks; bangun ulang hanya indeks aktif, Hapus Semua mencakup semua keluarga berkas indeks yang cocok persis | Tidak ada |
+| Riwayat kuota | Pengamatan jendela anonim terbatas, tanpa ID akun mentah | Kueri Claude saat aktif atau pembacaan daemon Codex opsional; yang terakhir dapat menghubungi OpenAI |
+| Estimasi mingguan | Bukti numerik memisahkan rentang nilai lokal dan konteks resmi; tanpa log mentah, judul, jalur atau kredensial; mengikuti penghapusan arsip per akun/penyedia/semua | Tanpa panggilan tambahan |
 | UI/berbagi | Filter serta judul/rentang/tujuan GitHub opsional | Publikasi hanya setelah konfirmasi tepat |
 | Saran/kunci | Bukti agregat terbatas; kunci hanya di SecretStorage | Hanya permintaan yang dipratinjau persis setelah tindakan Kirim terpisah |
 
 Perubahan zona waktu dapat memakai checkpoint lengkap yang terbukti berasal dari sumber yang sama secara hanya-baca.
 Hanya bucket tanggal/jam yang dimigrasikan, tanpa membangun ulang riwayat utama dari nol.
 
-Reset tanpa bukti terstruktur tidak dapat direkonstruksi. Riwayat beberapa login
-yang ambigu memakai pengamatan nyata terbaru untuk estimasi gabungan periode berjalan
-berkeyakinan rendah; periode selesai tetap hanya menampilkan nilai terpakai. Nilai ekuivalen API bukan
+Reset tanpa bukti terstruktur tidak dapat direkonstruksi. Estimasi kasar yang diarsipkan
+tidak membuktikan atribusi akun atau kelengkapan riwayat, termasuk beberapa login. Pengamatan kuota
+nyata tetap menyimpan waktu pengamatan dan reset asli. Nilai ekuivalen API bukan
 tagihan. Retensi log sumber dikelola Claude Code/Codex; kontrol hapus eksplisit
 adalah cara andal menghapus state turunan ekstensi.
 

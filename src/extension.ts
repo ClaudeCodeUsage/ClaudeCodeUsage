@@ -30,7 +30,16 @@ import {
   probePublicGitHubPublishTarget,
   publishPublicGitHubFile,
 } from './githubHeatmapPublish';
-import { fetchLatestPricing, setPricingBackend } from './pricing';
+import { fetchLatestPricing, getPricingBackend, getPricingLastFetched, setPricingBackend } from './pricing';
+import { WeeklyEstimateCoordinator } from './weeklyEstimateCoordinator';
+import { codexCalibrationPricingVersion } from './codexWindowEvidence';
+import { copyCodexCalibrationPricebook } from './codexCalibrationEvidence';
+import type { LocalWeeklyEstimate } from './weeklyEstimate';
+import { CodexAccountEstimator, OfficialQuotaSample } from './codexAccountEstimate';
+import type { CodexCalibrationStatus } from './codexForwardAccountEstimate';
+import { codexQuotaEpochFromObservations } from './codexQuotaEpoch';
+import { readCodexOfficialQuota } from './providers/codex/codexOfficialQuota';
+import { WEEKLY_ESTIMATE_ARCHIVE_FILE, WeeklyEstimateArchive } from './weeklyEstimateArchive';
 import { ClaudeApiClient } from './claudeApiClient';
 import {
   buildOptimizerSystemPrompt,
@@ -54,10 +63,10 @@ import {
 import {
   claudeQuotaCapturesFromUsage,
   codexQuotaCapturesFromWeeklyObservations,
+  codexQuotaCaptureFromOfficialSample,
   createEmptyQuotaObservationStore,
   fingerprintForStableIdentity,
   loadQuotaObservationStore,
-  mergeQuotaCaptures,
   QUOTA_OBSERVATION_FILE,
   QuotaCapture,
   QuotaObservationRepository,
@@ -91,6 +100,7 @@ import {
   ClaudeRefreshStage,
   claudeRefreshFailureReason,
   formatCodexIndexDiagnostic,
+  formatCodexCalibrationDiagnostic,
   formatRefreshDiagnostic,
   RefreshDiagnostic,
 } from './refreshDiagnostics';
@@ -549,6 +559,19 @@ export class ClaudeCodeUsageExtension {
   private quotaObservationStore: QuotaObservationStoreV2;
   private readonly quotaFingerprintSalt: string;
   private activeClaudeQuotaFingerprint: string | undefined;
+  private weeklyEstimateCoordinator?: WeeklyEstimateCoordinator;
+  private readonly weeklyEstimateClearedAt = new Map<'claude' | 'codex', number>();
+  private officialAccountEstimator = new CodexAccountEstimator();
+  private officialQuotaReader = readCodexOfficialQuota;
+  private officialQuotaGeneration = 0;
+  private officialQuotaPending?: Promise<void>;
+  private officialQuotaLastAttempt = 0;
+  private officialQuotaBinary?: string;
+  private officialQuotaSample?: OfficialQuotaSample;
+  private officialQuotaSource?: string;
+  private officialQuotaIndexGeneration?: number|null;
+  private officialQuotaEstimates: Array<LocalWeeklyEstimate & {pricingVersion?:string}> = [];
+  private officialQuotaStatus: 'disabled'|'loading'|'ready'|'unavailable'|'source-mismatch' = 'disabled';
   private readonly claudeQuotaPaceSource = new ClaudeQuotaPaceSource();
   private activePricingBackend: ExtensionConfig['pricingBackend'] = 'anthropic';
   private codexProvider: CodexProvider;
@@ -697,6 +720,43 @@ export class ClaudeCodeUsageExtension {
       );
     }
     this.codexProvider = this.createCodexProvider(this.getConfiguration());
+    if (typeof context.globalStorageUri?.fsPath === 'string') {
+      this.weeklyEstimateCoordinator = new WeeklyEstimateCoordinator(
+        path.join(context.globalStorageUri.fsPath, WEEKLY_ESTIMATE_ARCHIVE_FILE),
+        this.quotaFingerprintSalt,
+        () => {
+          if (!this.disposed && !this.clearingAllLocalData && !this.localDataClearedRequiresReload) {
+            this.webviewProvider.refreshWeeklyEstimates?.();
+          }
+        },
+      );
+      this.webviewProvider.setWeeklyEstimateProjector?.((provider, inputs, now) => {
+        if (this.disposed || this.localDataClearedRequiresReload || this.weeklyEstimateClearedAt.has(provider)) {
+          return { entries: [], status: 'ready' };
+        }
+        const source = provider === 'codex' ? this.codexHome(this.getConfiguration()) :
+          this.apiClient.getCredentialsPath();
+        const fetchedAt = getPricingLastFetched()?.time;
+        const version = fetchedAt === undefined ? 'v1' : 'v' + String(fetchedAt)
+          .padStart(16, '0').match(/.{4}/g)!.join('.');
+        const officialQuota=provider==='codex'?this.officialQuotaPublicState():undefined;
+        const identityCurrent=officialQuota?.status==='ready'&&officialQuota.stale!==true;
+        const projection = this.weeklyEstimateCoordinator!.project(provider, inputs, {
+          sourceNamespace: provider + '|' + (source ?? 'unavailable'),
+          pricingVersion: provider === 'codex' ? codexCalibrationPricingVersion(inputs.calibrationPricebook) :
+            (getPricingBackend() === 'anthropic' ? 'anthropic-' : 'openai-') + version,
+          now,
+          ...(provider === 'codex' ? { accountEstimates: this.officialQuotaEstimates,
+            quotaObservations: this.quotaObservationStore.observations,
+            activeAccountScopeKey: identityCurrent ? this.officialQuotaSample?.accountScopeKey : undefined,
+            activeQuotaEpochStartedAt: identityCurrent ? this.officialQuotaSample?.quotaEpoch?.startedAt : undefined } : {}),
+        });
+        return provider === 'codex' ? { ...projection, officialQuota: {
+          ...officialQuota!, accountNumber: projection.activeAccountNumber,
+        } } : projection;
+      });
+      this.webviewProvider.onWeeklyQuotaVisible = () => { void this.refreshOfficialCodexQuota('manual'); };
+    }
     // Migrate any pre-2.1 settings.json values for the keys that have moved out
     // of the VS Code Settings UI into the dashboard-managed store. Runs once.
     this.queueInitializationWrite(() => this.settings.migrateOnce());
@@ -1102,7 +1162,7 @@ export class ClaudeCodeUsageExtension {
 
   private async derivedFileFamilyNames(
     filePath: string,
-    family: 'codex-index' | 'quota-observations' | 'achievement-records',
+    family: 'codex-index' | 'quota-observations' | 'achievement-records' | 'weekly-estimates',
   ): Promise<string[]> {
     const directory = path.dirname(filePath);
     const canonical = path.basename(filePath);
@@ -1122,6 +1182,9 @@ export class ClaudeCodeUsageExtension {
       if (family === 'codex-index') {
         return codexIndexCanonicalName(name) === canonical;
       }
+      if (family === 'weekly-estimates') {
+        return /^\.weekly-estimates-v1\.json\.\d+\.[a-f0-9]{12}\.tmp$/.test(name);
+      }
       return /^quota-observations-v2\.json\.quarantine-\d+-[a-f0-9]{8}$/.test(name) ||
         /^\.quota-observations-v2\.json\.\d+\.[a-f0-9]{12}\.tmp$/.test(name);
     });
@@ -1129,7 +1192,7 @@ export class ClaudeCodeUsageExtension {
 
   private async localFileFamilyInventory(
     filePath: string,
-    family: 'codex-index' | 'quota-observations' | 'achievement-records',
+    family: 'codex-index' | 'quota-observations' | 'achievement-records' | 'weekly-estimates',
   ): Promise<{
     approximateBytes: number | null;
     itemCount: number;
@@ -1313,7 +1376,7 @@ export class ClaudeCodeUsageExtension {
     const indexPath = path.join(this.context.globalStorageUri.fsPath, 'codex-index-v1.json');
     const quotaPath = path.join(this.context.globalStorageUri.fsPath, QUOTA_OBSERVATION_FILE);
     const achievementPath = path.join(this.context.globalStorageUri.fsPath, ACHIEVEMENT_RECORD_FILE);
-    const [indexFile, quotaFile, achievementFile, achievementRecords] = await Promise.all([
+    const [indexFile, quotaFile, achievementFile, achievementRecords, estimateFile] = await Promise.all([
       this.localFileFamilyInventory(indexPath, 'codex-index'),
       this.localFileFamilyInventory(quotaPath, 'quota-observations'),
       this.localFileFamilyInventory(achievementPath, 'achievement-records'),
@@ -1325,6 +1388,8 @@ export class ClaudeCodeUsageExtension {
           this.context.globalStorageUri.fsPath, ACHIEVEMENT_LEGACY_RECORD_FILE));
         return legacy && legacy.schemaVersion !== 1 ? null : legacy;
       }).catch(() => null),
+      this.localFileFamilyInventory(path.join(this.context.globalStorageUri.fsPath,
+        WEEKLY_ESTIMATE_ARCHIVE_FILE), 'weekly-estimates'),
     ]);
     const achievementCopy = ACHIEVEMENT_RECORD_INVENTORY_COPY[artifactLocale(I18n.getLocale())];
     const stateKeys = this.extensionGlobalStateKeys();
@@ -1411,6 +1476,16 @@ export class ClaudeCodeUsageExtension {
         ...quotaRange,
         networkInteraction: local('Claude official quota request; Codex local structured events', 'Claude 官方额度请求；Codex 本地结构化事件'),
         clearability: local('Clear by provider, anonymous account epoch, or all', '按供应商、匿名账号 epoch 或全部清除'),
+      },
+      {
+        id: 'P2a',
+        category: local('P2a · As-of weekly estimate archive', 'P2a · 截至观测的周期估算档案'),
+        locationClass: local('Extension global storage / weekly estimates', '插件全局存储 / 周期估算'),
+        schema: 'schema 1 · 4096 records / 1 MiB',
+        ...estimateFile,
+        networkInteraction: local('None; numeric local aggregates only', '无；仅本地数值聚合'),
+        clearability: local('Clear quota history by provider or all; unattributed estimates cannot be cleared by account epoch',
+          '清除供应商或全部额度历史；未归属估算不按账号 epoch 清除'),
       },
       {
         id: 'P3-P4',
@@ -1865,6 +1940,24 @@ export class ClaudeCodeUsageExtension {
         this.stopQuotaColdRetry('settings-change');
         await this.cancelQuotaNetworks('cancelled');
         this.assertScopedQuotaMigrationIsResolved(quotaScope ?? {});
+        if (this.weeklyEstimateCoordinator && (!quotaScope?.accountFingerprint ||
+          /^acct_[a-f0-9]{32}$/.test(quotaScope.accountFingerprint))) {
+          const clearedAt = Date.now();
+          if (!quotaScope?.accountFingerprint) {
+            for (const provider of ['claude', 'codex'] as const) {
+              if (!quotaScope?.provider || quotaScope.provider === provider) this.weeklyEstimateClearedAt.set(provider, clearedAt);
+            }
+          }
+          const cleared = await this.weeklyEstimateCoordinator.clear({ provider: quotaScope?.provider,
+            accountFingerprint: quotaScope?.accountFingerprint });
+          if (cleared.status !== 'ready') throw new Error('weekly-estimate-clear-failed');
+        }
+        if (!quotaScope?.provider || quotaScope.provider === 'codex') {
+          this.officialQuotaEstimates = (this.officialQuotaEstimates ?? []).filter(entry =>
+            quotaScope?.accountFingerprint && (!entry.accountScopeKey ||
+              fingerprintForStableIdentity(this.quotaFingerprintSalt,'codex',
+                'official-account-scope-v1|'+entry.accountScopeKey)!==quotaScope.accountFingerprint));
+        }
         this.quotaObservationStore = await this.quotaObservationRepository.clear(quotaScope ?? {});
         await this.clearLegacyQuotaMigrationInputs(quotaScope ?? {});
         this.refreshQuotaObservationViews();
@@ -1902,6 +1995,10 @@ export class ClaudeCodeUsageExtension {
 
   private async clearCodexDerivedIndex(rebuild: boolean): Promise<void> {
     const generation = ++this.configurationGeneration;
+    this.officialQuotaGeneration = (this.officialQuotaGeneration ?? 0) + 1;
+    this.officialAccountEstimator?.reset();
+    this.officialQuotaSample = undefined;
+    this.officialQuotaStatus = 'unavailable';
     this.codexRefreshSuspensionDepth += 1;
     try {
       this.stopCodexWatching('settings-change');
@@ -1973,6 +2070,10 @@ export class ClaudeCodeUsageExtension {
         await this.removeDerivedFileFamilyWithLease(indexPath, 'codex-index');
       }
       this.quotaObservationStore = await this.quotaObservationRepository.clear({});
+      if (this.weeklyEstimateCoordinator) {
+        const cleared = await this.weeklyEstimateCoordinator.clear({ allSources: true });
+        if (cleared.status !== 'ready') throw new Error('weekly-estimate-clear-all-failed');
+      }
       await this.webviewProvider.clearAdviceLocalData();
       this.webviewProvider.clearSharingRuntimeState();
       const keys = this.extensionGlobalStateKeys().filter((key) =>
@@ -2036,6 +2137,13 @@ export class ClaudeCodeUsageExtension {
       throw new Error('local-data-clear:quota-postcondition-failed');
     }
     const achievementPath = path.join(this.context.globalStorageUri.fsPath, ACHIEVEMENT_RECORD_FILE);
+    if (this.weeklyEstimateCoordinator) {
+      const estimates = await new WeeklyEstimateArchive(path.join(this.context.globalStorageUri.fsPath,
+        WEEKLY_ESTIMATE_ARCHIVE_FILE), this.quotaFingerprintSalt, 'clear').load();
+      if (estimates.status !== 'ready' || estimates.totalEntries !== 0) {
+        throw new Error('local-data-clear:weekly-estimate-postcondition-failed');
+      }
+    }
     const legacyPath = path.join(this.context.globalStorageUri.fsPath, ACHIEVEMENT_LEGACY_RECORD_FILE);
     // Read both fences under the same lease used by old and current writers.
     const lease = await acquireCodexIndexLease(legacyPath, { timeoutMs: 5_000 });
@@ -2448,6 +2556,7 @@ export class ClaudeCodeUsageExtension {
       codexFileWatchSeconds:
         Number(s.get<string>('codex.fileWatchSeconds') ?? '30') || 0,
       codexOptimizationEnabled: s.get<boolean>('codex.optimization.enabled'),
+      codexOfficialQuotaEnabled: s.get<boolean>('codex.officialQuota.enabled') === true,
       statusBarProvider: s.get<'auto' | 'claude' | 'codex'>('statusBarProvider'),
       codexStatusMetric: s.get<'fresh' | 'processed' | 'output'>(
         'codex.statusMetric',
@@ -2518,6 +2627,12 @@ export class ClaudeCodeUsageExtension {
     const changed = this.codexSnapshotHome !== undefined;
     this.codexSnapshotHome = home;
     if (!changed) return;
+    this.officialQuotaGeneration = (this.officialQuotaGeneration ?? 0) + 1;
+    this.officialAccountEstimator?.reset();
+    this.officialQuotaSource = undefined;
+    this.officialQuotaSample = undefined;
+    this.officialQuotaEstimates = [];
+    this.officialQuotaStatus = 'unavailable';
     // A shared index checkpoint is not proof that a newly selected home owns
     // it. Wait for this provider's verified refresh before adopting it.
     this.codexSkipPersistedHydration = true;
@@ -2980,6 +3095,15 @@ export class ClaudeCodeUsageExtension {
       | 'profile-change'
     >,
   ): Promise<void> {
+    this.officialQuotaGeneration = (this.officialQuotaGeneration ?? 0) + 1;
+    // Focus is a resource boundary, not evidence that account/usage continuity
+    // changed. Keep the last accepted runtime proof; observe() still validates
+    // freshness, account/epoch, pricebook and the complete physical append.
+    // Generation cancellation below continues to reject any late RPC result.
+    if (condition !== 'window-blur') this.officialAccountEstimator?.reset();
+    if (condition !== 'window-blur') this.officialQuotaSample = undefined;
+    this.officialQuotaLastAttempt = 0;
+    this.officialQuotaStatus = condition === 'window-blur' && this.officialQuotaSample ? 'ready' : 'unavailable';
     const active = [...this.activeQuotaNetworks.entries()];
     await Promise.all(active.map(async ([controller, operation]) => {
       const { lease, settled } = operation;
@@ -3228,6 +3352,9 @@ export class ClaudeCodeUsageExtension {
       this.syncProviderUiSafely(trigger);
     } finally {
       this.activeCodexRefreshes.delete(operation);
+      if (!calibration && trigger !== 'watch' && trigger !== 'pricing') {
+        void this.refreshOfficialCodexQuota(trigger);
+      }
     }
   }
 
@@ -3667,34 +3794,24 @@ export class ClaudeCodeUsageExtension {
     }
   }
 
+  private acceptOfficialQuotaIndexGeneration(value:number|null):void {
+    if(this.officialQuotaIndexGeneration!==undefined&&this.officialQuotaIndexGeneration!==value){
+      this.officialQuotaGeneration=(this.officialQuotaGeneration??0)+1;
+      this.officialAccountEstimator?.reset();this.officialQuotaSample=undefined;
+      this.officialQuotaStatus='unavailable';
+    }
+    this.officialQuotaIndexGeneration=value;
+  }
+
   private applyCodexSnapshot(snapshot: CodexProviderSnapshot, acceptedForAchievements = true): void {
     const config = this.getConfiguration();
     this.selectCodexSnapshotHome(this.codexHome(config));
+    this.acceptOfficialQuotaIndexGeneration(this.codexIndexGeneration(snapshot));
     if (!this.codexView) this.codexAchievementRevision = undefined;
     const nextView = buildCodexUsageView(snapshot);
     const capturedObservations = snapshot.weeklyValueInputs?.observations ?? [];
-    const capturedQuotaFacts = codexQuotaCapturesFromWeeklyObservations(
-      capturedObservations,
-    );
-    const previewStore = capturedQuotaFacts.length > 0
-      ? mergeQuotaCaptures(this.quotaObservationStore, capturedQuotaFacts, {
-          salt: this.quotaFingerprintSalt,
-          now: capturedQuotaFacts.reduce(
-            (latest, item) => Math.max(latest, item.observedAt),
-            Date.now(),
-          ),
-        })
-      : this.quotaObservationStore;
-    const storedCodexObservations = quotaStoreWeeklyObservations(
-      previewStore,
-      'codex',
-    );
-    if (storedCodexObservations.length > 0 && nextView.weeklyValueInputs) {
-      nextView.weeklyValueInputs = {
-        ...nextView.weeklyValueInputs,
-        observations: storedCodexObservations,
-      };
-    }
+    // The active index owns home provenance; global quota history spans homes.
+    // Keep its observations intact for weekly display while persisting below.
     // Compare the complete render contract, not merely token totals or body
     // read counts: titles, pricing, coverage, quotas and periods also matter.
     if (!isDeepStrictEqual(this.codexView, nextView)) {
@@ -4569,13 +4686,15 @@ export class ClaudeCodeUsageExtension {
   private handleCredentialsChange(): void {
     // The cached quota and any failure backoff belong to the previous
     // token/account. Clear both so a successful re-login retries immediately.
+    this.cache.usageLimits = null;
     this.cache.usageLimitsLastUpdate = new Date(0);
     this.cache.usageLimitsFailStreak = 0;
     this.cache.usageLimitsBackoffUntil = new Date(0);
     this.claudeProfileGeneration += 1;
     this.activeClaudeQuotaFingerprint = undefined;
-    this.statusBar.updateQuota(this.cache.usageLimits ?? null, null);
-    this.webviewProvider.updateQuotaPace?.(null);
+    this.statusBar.updateQuota(null, null);
+    this.webviewProvider.updateQuota(null);
+    this.webviewProvider.updateQuotaPace?.(null, null);
     this.claudeWeeklyQuotaHistory = [];
     this.webviewProvider.updateWeeklyQuotaHistory([]);
     void this.refreshData(false, 'credentials');
@@ -4810,21 +4929,14 @@ export class ClaudeCodeUsageExtension {
         )
       : [];
     this.webviewProvider.updateWeeklyQuotaHistory(this.claudeWeeklyQuotaHistory);
-    if (this.codexView?.weeklyValueInputs) {
-      this.codexView.weeklyValueInputs = {
-        ...this.codexView.weeklyValueInputs,
-        observations: quotaStoreWeeklyObservations(
-          this.quotaObservationStore,
-          'codex',
-        ),
-      };
-    }
+    // Codex display history stays scoped to the currently applied index snapshot.
   }
 
   private async recordClaudeQuotaObservation(
     usage: ClaudeApiUsageResponse,
     observedAt: number,
   ): Promise<void> {
+    if (observedAt > (this.weeklyEstimateClearedAt?.get('claude') ?? Infinity)) this.weeklyEstimateClearedAt.delete('claude');
     const verifiedSignal = this.apiClient.getLastQuotaIdentitySignal();
     const identitySignal = verifiedSignal ?? this.claudeProfileContinuitySignal();
     const accountAttribution = verifiedSignal
@@ -4851,6 +4963,9 @@ export class ClaudeCodeUsageExtension {
   private async recordCodexQuotaObservations(
     observations: readonly WeeklyQuotaObservation[],
   ): Promise<void> {
+    if (observations.some(row => row.observedAt > (this.weeklyEstimateClearedAt?.get('codex') ?? Infinity))) {
+      this.weeklyEstimateClearedAt.delete('codex');
+    }
     const additions = codexQuotaCapturesFromWeeklyObservations(observations);
     if (additions.length === 0) {
       this.refreshQuotaObservationViews();
@@ -4875,6 +4990,156 @@ export class ClaudeCodeUsageExtension {
     return this.claudeQuotaPaceSource.project({enabled: true, usage: this.cache.usageLimits,
       observedAt, verifiedAccountFingerprint: signal
         ? fingerprintForStableIdentity(this.quotaFingerprintSalt, 'claude', signal) ?? null : null});
+  }
+
+  /** UI metadata only; no account/source HMAC or daemon output crosses this boundary. */
+  private officialQuotaPublicState(): {
+    status:'disabled'|'loading'|'ready'|'unavailable'|'source-mismatch';
+    usedPercent?:number;resetAt?:number;observedAt?:number;quotaEpochStartedAt?:number;stale?:boolean;
+    resetCreditCount?:number|null;resetCreditNextExpiryAt?:number|null;ordinaryUsageAllowed?:boolean|null;
+    calibration?:CodexCalibrationStatus;
+  } {
+    const sample=this.officialQuotaSample;
+    const now=Date.now(),unexpired=sample&&sample.observedAt<=now&&sample.resetAt>now;
+    const credits=sample?.rateLimitResetCredits;
+    const expiries=credits?.credits?.filter(credit=>credit.status==='available'&&
+      typeof credit.expiresAt==='number'&&Number.isSafeInteger(credit.expiresAt)&&credit.expiresAt>now)
+      .map(credit=>credit.expiresAt as number)??[];
+    return {status:sample&&!unexpired?'unavailable':this.officialQuotaStatus,
+      ...(this.officialQuotaStatus==='ready'&&unexpired?{usedPercent:sample.usedPercent,
+        resetAt:sample.resetAt,observedAt:sample.observedAt,
+        resetCreditCount:credits?.availableCount??null,
+        resetCreditNextExpiryAt:expiries.length?Math.min(...expiries):null,
+        ordinaryUsageAllowed:sample.ordinaryUsageAllowed??null,
+        calibration:this.officialAccountEstimator?.calibrationStatus?.(),
+        stale:now-sample.observedAt>=300_000||this.windowActivity?.focused===false,
+        ...(sample.quotaEpoch ? {quotaEpochStartedAt:sample.quotaEpoch.startedAt}:{} )}:{})};
+  }
+
+  private weeklyEstimatePricingVersion():string {
+    return codexCalibrationPricingVersion(this.codexView?.weeklyValueInputs?.calibrationPricebook);
+  }
+
+  /** Explicit opt-in reads the ALREADY RUNNING default local daemon only.
+   * No service start, credential file, auth RPC, separate timer or corpus scan.
+   */
+  private async refreshOfficialCodexQuota(trigger:RefreshTrigger):Promise<void> {
+    // A visible dashboard can arrive before the local refresh publishes its
+    // verified view. Do not spend the sampling slot on that transient empty
+    // snapshot. Recheck every authority below after the existing drain settles.
+    const localDrain=this.codexRefreshDrain;
+    if(localDrain)await localDrain.catch(()=>undefined);
+    const config=this.getConfiguration();
+    if(this.disposed||this.localDataClearedRequiresReload||!config.codexEnabled||
+      !config.codexOfficialQuotaEnabled||!config.usageLimitTracking){
+      this.officialAccountEstimator?.reset();this.officialQuotaSample=undefined;
+      this.officialQuotaStatus='disabled';return;
+    }
+    if(this.windowActivity?.focused===false)return;
+    const home=this.codexHome(config),defaultHome=path.join(os.homedir(),'.codex');
+    if(path.resolve(home)!==path.resolve(defaultHome)||
+      (typeof vscode.env?.remoteName==='string'&&vscode.env.remoteName.length>0)){
+      this.officialAccountEstimator?.reset();this.officialQuotaSample=undefined;
+      this.officialQuotaStatus='source-mismatch';return;
+    }
+    if(this.officialQuotaPending)return this.officialQuotaPending;
+    const now=Date.now(),floor=trigger==='manual'?10_000:60_000;
+    if(now-(this.officialQuotaLastAttempt??0)<floor)return;
+    this.officialQuotaLastAttempt=now;
+    if(this.officialQuotaSource!==home){
+      this.officialAccountEstimator??=new CodexAccountEstimator();this.officialAccountEstimator.reset();
+      this.officialQuotaSource=home;this.officialQuotaEstimates=[];this.officialQuotaSample=undefined;
+    }
+    const generation=this.officialQuotaGeneration??0,configuration=this.configurationGeneration;
+    const controller=new AbortController();
+    const current=()=>!this.disposed&&!this.localDataClearedRequiresReload&&!controller.signal.aborted&&
+      generation===(this.officialQuotaGeneration??0)&&configuration===this.configurationGeneration&&
+      home===this.codexHome(this.getConfiguration())&&this.getConfiguration().codexOfficialQuotaEnabled===true;
+    const lease=this.resourceOwnership.register({kind:'network',capability:'quota',scope:'codex',creator:'codex-quota-client',
+      stopConditions:['settled','cancelled','window-blur','feature-disabled','extension-dispose','settings-change','profile-change'],boundedException:'none'});
+    let settled!:()=>void;const stopped=new Promise<void>(resolve=>{settled=resolve;});
+    this.activeQuotaNetworks.set(controller,{lease,settled:stopped});
+    this.officialQuotaStatus='loading';
+    // Freeze the already-verified local bracket BEFORE starting the official
+    // request. A watcher may publish another view while the RPC or P2 append
+    // is pending; its proof can be newer than requestedAt and is not this
+    // observation's numerator. Keep its separate next-sample authority intact.
+    const calibrationView=this.codexView;
+    const calibrationInputs=calibrationView?.weeklyValueInputs ? {
+      ...calibrationView.weeklyValueInputs,
+      calibrationPricebook:copyCodexCalibrationPricebook(calibrationView.weeklyValueInputs.calibrationPricebook),
+      localHistoryComplete:calibrationView.currentManifestVerified===true&&calibrationView.coverage.complete&&
+        (calibrationView.coverage.identity.complete||calibrationView.weeklyValueInputs.calibrationSourceScope?.verified===true)&&
+        calibrationView.periodCoverage.allTime.complete,
+    }:undefined;
+    const calibrationPricingVersion=codexCalibrationPricingVersion(calibrationInputs?.calibrationPricebook);
+    const run=async()=>{
+      try{
+        let binary=this.officialQuotaBinary;
+        if(!binary){
+          const bundled='/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex';
+          binary=process.platform==='darwin'&&fs.existsSync(bundled)?bundled:'codex';
+        }
+        const sample=await this.officialQuotaReader({binary,source:home,machineSalt:this.quotaFingerprintSalt,signal:controller.signal});
+        if(!current())return;
+        if(!sample){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;
+          this.officialQuotaStatus='unavailable';return;}
+        const capture=codexQuotaCaptureFromOfficialSample(sample);
+        if(!capture){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;
+          this.officialQuotaStatus='unavailable';return;}
+        // Persist the quota checkpoint even when no monetary calibration is
+        // possible. P2's account/window history is the continuity authority;
+        // a restart, focus change or empty estimate must not erase a reset.
+        const store=await this.quotaObservationRepository.append([capture]);
+        if(!current())return;
+        this.quotaObservationStore=store;
+        const fingerprint=fingerprintForStableIdentity(this.quotaFingerprintSalt,'codex',
+          'official-account-scope-v1|'+sample.accountScopeKey);
+        const quotaEpoch=codexQuotaEpochFromObservations(store.observations,fingerprint,
+          sample.observedAt,sample.resetAt);
+        const scopedSample:OfficialQuotaSample={...sample,...(quotaEpoch?{quotaEpoch}:{})};
+        this.officialQuotaSample=scopedSample;this.officialQuotaStatus='ready';
+        if(calibrationInputs?.calibrationPricebook&&quotaEpoch){
+          const cutoff=this.weeklyEstimateCoordinator?.calibrationCutoff?.('codex','codex|'+home,sample.accountScopeKey);
+          if(cutoff!==undefined)this.officialAccountEstimator.invalidateThrough(sample.accountScopeKey,cutoff);
+          const estimate=this.officialAccountEstimator.observe(scopedSample,calibrationInputs,calibrationPricingVersion);
+          if(estimate){
+            const pricingVersion=calibrationPricingVersion;
+            this.officialQuotaEstimates=[...this.officialQuotaEstimates.filter(row=>
+                row.accountScopeKey!==estimate.accountScopeKey||
+                row.quotaEpoch?.startedAt!==estimate.quotaEpoch?.startedAt||
+                Math.abs(row.resetAt-estimate.resetAt)>300_000),
+              {...estimate,pricingVersion}]
+              .sort((a,b)=>b.observedAt-a.observedAt).slice(0,64);
+            // Persistence must not depend on an auto-refreshing renderer. The
+            // coordinator owns its existing coalesced writer and clear fences.
+            this.weeklyEstimateCoordinator?.project('codex',calibrationInputs,{
+              sourceNamespace:'codex|'+home,pricingVersion,now:sample.observedAt,
+              accountEstimates:this.officialQuotaEstimates,
+              quotaObservations:this.quotaObservationStore.observations,
+              activeAccountScopeKey:sample.accountScopeKey,
+              activeQuotaEpochStartedAt:quotaEpoch.startedAt,
+            });
+          }
+        }else this.officialAccountEstimator.reset();
+        // One bounded, identity-free record per already-cadenced observation.
+        // Diagnostics never start reads or make successful quota facts fail.
+        try{
+          const diagnostic=this.officialAccountEstimator.calibrationDiagnostics?.();
+          if(diagnostic)this.outputChannel?.appendLine(formatCodexCalibrationDiagnostic(diagnostic));
+        }catch{/* Optional diagnostics cannot invalidate quota capture. */}
+        if(sample.observedAt>(this.weeklyEstimateClearedAt.get('codex')??Infinity))this.weeklyEstimateClearedAt.delete('codex');
+      }catch{
+        if(current()){this.officialAccountEstimator.reset();this.officialQuotaSample=undefined;
+          this.officialQuotaStatus='unavailable';}
+      }finally{
+        this.activeQuotaNetworks.delete(controller);settled();
+        if(lease.active)await lease.stop(controller.signal.aborted?'cancelled':'settled',()=>undefined);
+        if(current())this.tryProviderUiUpdate(()=>this.webviewProvider.refreshWeeklyEstimates?.(trigger==='manual'));
+      }
+    };
+    const pending=run();this.officialQuotaPending=pending;
+    try{await pending;}finally{if(this.officialQuotaPending===pending)this.officialQuotaPending=undefined;}
   }
 
   private async maybeFetchUsageLimits(config: ExtensionConfig): Promise<ClaudeApiUsageResponse | null> {
@@ -5502,6 +5767,10 @@ export class ClaudeCodeUsageExtension {
         throw error;
       }));
       await capture(this.drainResourceStops());
+      if (this.weeklyEstimateCoordinator) {
+        await capture(this.weeklyEstimateCoordinator.flush());
+        this.weeklyEstimateCoordinator.dispose();
+      }
       this.statusBar.dispose();
       this.webviewProvider.dispose();
       if (failures.length > 0) {
