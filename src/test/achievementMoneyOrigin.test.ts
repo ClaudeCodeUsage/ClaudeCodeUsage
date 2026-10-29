@@ -185,7 +185,7 @@ test('cumulative crossings require exact same-book sufficient and necessary addi
   const evidence = (units: bigint) => ({ ...codexMoneyEvidenceFromModels({ 'gpt-6-sol': { inputTotal: 50_000_001, outputTotal: 0 } }, 'openai'),
     microUsd: Number(units / SCALE), exactMicroUsdUnits: String(units) });
   const scopes = (units: bigint) => ({ provider: 'codex', backend: 'openai', pricebookVersion: getAchievementMoneyPricebook('openai').version,
-    cumulative: evidence(units), coverage: { cumulative: { status: 'complete' }, completedMondayWeekPeak: { status: 'scopepending' }, maxSessionTask: { status: 'invalid' } } } as any);
+    cumulative: evidence(units), coverage: { cumulative: { status: 'complete' }, completedRollingSevenDayPeak: { status: 'scopepending' }, maxSessionTask: { status: 'invalid' } } } as any);
   const target = 100_000_000n * SCALE;
   const proof = { provider: 'codex', backend: 'openai', pricebookVersion: getAchievementMoneyPricebook('openai').version,
     microUsd: 0, exactMicroUsdUnits: String(SCALE / 2n), eligibleProcessed: 1 } as const;

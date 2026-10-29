@@ -6,7 +6,9 @@ import * as path from 'node:path';
 const { freezeClock } = require(path.resolve(__dirname, '../../tests/ui/support/frozen-clock.cjs'));
 let receive: (message: Record<string, unknown>) => Promise<void>;
 let save: () => Promise<unknown>;
+let readSaved: () => Promise<Uint8Array>;
 const messages: any[] = [], writes: string[] = [];
+const writtenUris: unknown[] = [], readUris: unknown[] = [];
 let dialogs = 0;
 const vscode = {
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 }, ViewColumn: { One: 1 },
@@ -23,7 +25,8 @@ const vscode = {
     showErrorMessage: async () => undefined },
   workspace: { workspaceFolders: [],
     getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback, update: async () => undefined }),
-    fs: { writeFile: async (_uri: unknown, bytes: Uint8Array) => { writes.push(Buffer.from(bytes).toString('utf8')); } } },
+    fs: { writeFile: async (uri: unknown, bytes: Uint8Array) => { writtenUris.push(uri); writes.push(Buffer.from(bytes).toString('utf8')); },
+      readFile: async (uri: unknown) => { readUris.push(uri); return readSaved(); } } },
 };
 const loader = (Module as any)._load;
 (Module as any)._load = function(name: string, parent: unknown, main: boolean) {
@@ -37,7 +40,9 @@ async function owner(run: (host: any) => Promise<void>) {
   const restoreClock = freezeClock(Date.parse('2026-10-05T12:00:00Z'));
   const language = I18n.getLocale(), zone = I18n.getTimezone(), currency = I18n.getCurrencyDisplay().code;
   messages.length = 0; writes.length = 0; dialogs = 0;
+  writtenUris.length = 0; readUris.length = 0;
   save = async () => ({ fsPath: '/synthetic/api-heatmap.svg' });
+  readSaved = async () => Buffer.from(writes[writes.length - 1] ?? '', 'utf8');
   try {
     I18n.setLanguage('en'); I18n.setTimezone('UTC'); I18n.setCurrencyDisplay('USD');
     const host = new UsageWebviewProvider({ globalState: { get: () => undefined, update: async () => undefined } });
@@ -95,6 +100,7 @@ test('API heatmap export requires the exact accepted preview and writes identica
     host.buildCombinedHeatmapArtifact = () => assert.fail('export must not rebuild accepted SVG');
     await receive({command:'exportCombinedHeatmap',...config,previewId:accepted.previewId,documentId:host.dashboardDocumentId});
     assert.equal(dialogs,1); assert.deepEqual(writes,[accepted.svg]);
+    assert.equal(readUris.length,1); assert.strictEqual(readUris[0],writtenUris[0]);
   });
 });
 
@@ -136,3 +142,34 @@ test('a new monetary preview waits for accepted repriced daily data while Token 
     assert.equal(tokens.config.metric,'tokens'); assert.doesNotMatch(tokens.svg,/\$17|\$27/);
   });
 });
+
+test('compact host preview and export retain exact accepted bytes and reject changed layouts', async () => {
+  await owner(async host => {
+    const options = {...config, presentation:'compact'};
+    const accepted = await preview(host,1,options);
+    assert.match(accepted.svg,/data-heatmap-promotion/);
+    assert.doesNotMatch(accepted.svg,/stroke-dasharray/);
+    await receive({command:'exportCombinedHeatmap',...config,presentation:'standard',previewId:accepted.previewId,documentId:host.dashboardDocumentId});
+    assert.equal(dialogs,0);
+    host.buildCombinedHeatmapArtifact = () => assert.fail('export must not redraw');
+    await receive({command:'exportCombinedHeatmap',...options,previewId:accepted.previewId,documentId:host.dashboardDocumentId});
+    assert.deepEqual(writes,[accepted.svg]);
+    assert.equal(messages.filter(row=>row.command==='combinedHeatmapExportResult').pop().ok,true);
+  });
+});
+
+for (const outcome of ['mismatch','read-error','retired-during-read']) {
+  test('API heatmap export does not report success after saved-byte verification '+outcome, async () => {
+    await owner(async host => {
+      const accepted = await preview(host);
+      readSaved = async () => {
+        if(outcome==='read-error')throw new Error('synthetic read failure');
+        if(outcome==='retired-during-read')host.invalidateShareCardPreview();
+        return Buffer.from(outcome==='mismatch'?'different bytes':accepted.svg,'utf8');
+      };
+      await receive({command:'exportCombinedHeatmap',...config,previewId:accepted.previewId,documentId:host.dashboardDocumentId});
+      assert.equal(writes.length,1);
+      assert.equal(messages.filter(row=>row.command==='combinedHeatmapExportResult').pop().ok,false);
+    });
+  });
+}

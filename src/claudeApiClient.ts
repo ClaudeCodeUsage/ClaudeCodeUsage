@@ -7,6 +7,9 @@ import * as vscode from 'vscode';
 import { HttpResponse, requestViaCurl, requestViaFetch } from './httpClient';
 import { ClaudeApiUsageResponse, ClaudeCredentials } from './types';
 
+// Public native-client identifier, not a credential or client secret.
+const CLAUDE_CODE_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+
 export interface ResolvedClaudeProfile {
   configDirectory: string;
   credentialsPath: string;
@@ -192,8 +195,11 @@ export class ClaudeApiClient {
     }
   }
 
-  private async saveCredentials(credentials: ClaudeCredentials): Promise<void> {
-    if (this.credentialsSource === 'keychain' && process.platform === 'darwin') {
+  private async saveCredentials(
+    credentials: ClaudeCredentials,
+    source: 'file' | 'keychain' | null = this.credentialsSource,
+  ): Promise<void> {
+    if (source === 'keychain' && process.platform === 'darwin') {
       try {
         execFileSync('/usr/bin/security', [
           'add-generic-password',
@@ -206,10 +212,13 @@ export class ClaudeApiClient {
           '-U'
         ], { stdio: ['ignore', 'ignore', 'pipe'] });
         this.credentials = credentials;
+        this.credentialsSource = 'keychain';
         this.log('credentials: refreshed in macOS Keychain');
         return;
-      } catch (e) {
-        this.log(`credentials: keychain write failed: ${(e as Error).message}`);
+      } catch {
+        // exec errors can contain the command arguments, including credentials.
+        // A failed Keychain write must not spill its payload into a profile file.
+        throw new Error('Credential refresh could not be saved to macOS Keychain');
       }
     }
     await fs.promises.writeFile(this.credentialsPath, JSON.stringify(credentials), 'utf-8');
@@ -226,12 +235,14 @@ export class ClaudeApiClient {
     signal?: AbortSignal,
   ): Promise<ClaudeCredentials> {
     if (signal?.aborted) throw new Error('Request cancelled');
-    const r = await this.request('https://console.anthropic.com/v1/oauth/token', {
+    const source = this.credentialsSource;
+    const r = await this.request('https://platform.claude.com/v1/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         refresh_token: credentials.claudeAiOauth.refreshToken,
-        grant_type: 'refresh_token'
+        grant_type: 'refresh_token',
+        client_id: CLAUDE_CODE_OAUTH_CLIENT_ID,
       }),
       signal,
     });
@@ -239,16 +250,43 @@ export class ClaudeApiClient {
     if (r.status !== 200) {
       throw new Error(`Token refresh failed: ${r.status}`);
     }
-    const data = JSON.parse(r.body) as { access_token: string; expires_in: number };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(r.body);
+    } catch {
+      // JSON parser messages may echo response text containing credentials.
+      throw new Error('Invalid token refresh response');
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Invalid token refresh response');
+    }
+    const data = parsed as Record<string, unknown>;
+    if (
+      typeof data.access_token !== 'string' || !data.access_token.trim() ||
+      typeof data.expires_in !== 'number' || !Number.isFinite(data.expires_in) || data.expires_in <= 0 ||
+      (data.refresh_token !== undefined && (typeof data.refresh_token !== 'string' || !data.refresh_token.trim())) ||
+      (data.scope !== undefined && typeof data.scope !== 'string')
+    ) {
+      throw new Error('Invalid token refresh response');
+    }
+    const expiresAt = Date.now() + data.expires_in * 1000;
+    if (!Number.isFinite(expiresAt) || expiresAt > 8.64e15) {
+      throw new Error('Invalid token refresh response');
+    }
     const updated: ClaudeCredentials = {
       ...credentials,
       claudeAiOauth: {
         ...credentials.claudeAiOauth,
         accessToken: data.access_token,
-        expiresAt: Date.now() + data.expires_in * 1000
+        refreshToken: typeof data.refresh_token === 'string'
+          ? data.refresh_token : credentials.claudeAiOauth.refreshToken,
+        ...(typeof data.scope === 'string'
+          ? { scopes: data.scope.trim().split(/\s+/).filter(Boolean) } : {}),
+        expiresAt,
       }
     };
-    await this.saveCredentials(updated);
+    if (signal?.aborted) throw new Error('Request cancelled');
+    await this.saveCredentials(updated, source);
     return updated;
   }
 

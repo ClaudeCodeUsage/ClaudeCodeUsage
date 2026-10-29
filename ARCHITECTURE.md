@@ -73,6 +73,7 @@ only the separate publish action can perform that network operation.
 | `achievementModels.ts` | Non-monetary model-label recognition for collaboration/rainbow and Claude families, independent of fixed-price aliases; recognition does not establish a remote model's identity or pricing. |
 | `achievementReferenceBooks.ts` | Three explicitly published v1 reference-book labels for reading saved money records, separate from current-book selection and new-write authorization. |
 | `achievementTitles.ts` | Shared public title helper removing a matching localized rank or its legacy alias only after a catalog middle-dot separator; IDs and pins are unchanged. |
+| `achievementUnit.ts` | Pure localized unit selection shared by the gallery and canonical SVG; numeric targets stay in the existing catalog and eligibility does not change. |
 | `achievementDetailPresentation.ts`, `achievementHistoryDates.ts`, `achievementCalibration.ts` | Exact shared-condition display, runtime-only per-level log-date reduction and guarded local incremental recalibration; no new persistent store or source parser. |
 | `achievementEffortStatistics.ts`, `achievementCollaboration.ts` | Complete-current-census Codex root × effort statistics and existing joint tier criteria; optional `CodexAchievementSignals.effortStatistics` is cached by proof revision and rendered only inside the existing effort-breadth disclosure. |
 | `apiHeatmapDaily.ts`, `pricing.ts#getCurrentEstimatePricing` | Read-only ≤366-date projection with per-projection memoized, in-memory selected-model/component rate admission; preserves current cost scalars, excludes generic unknown-model fallback coverage and adds no network/corpus reads. |
@@ -295,7 +296,7 @@ exact revision; the host then removes the live intent without rewinding the
 revision history, so an acknowledged command cannot replay on a normal render,
 sharing reset, or dispose/reopen of the same provider. Reset Sharing
 Preferences uses the existing confirmed local-data action: the host sends a
-request-id client action, the Webview verifies deletion of the twelve allowlisted
+request-id client action, the Webview verifies deletion of the thirteen allowlisted
 localStorage keys, and the host reports failure (with its recovery tombstone)
 unless the matching ACK is true.
 
@@ -490,21 +491,24 @@ completed-week and single-session/task themes. `achievementMoney.ts` freezes
 `api-reference-2026-10-{backend}-v1`, dated 2026-10-09; exact decimal components
 sum before flooring to microUSD. Exact models and complete rates, including known
 Claude cache-write TTL, qualify; unknown models remain unpriced. Verified priced
-subsets prove only lower bounds. Week scopes use completed Monday-start weeks in
-the current data zone; single scopes require one Claude session or an independently
+subsets prove only lower bounds. The released baseline used completed Monday-start
+weeks; the unreleased peak-rule migration below uses closed rolling seven-day
+windows in the current data zone. Single scopes require one Claude session or an independently
 verified Codex task tree. Historical recognition is quiet. Cumulative monetary
-crossings now use verified live append receipts; completed-week and single-session/
-task monetary scopes still reconcile quietly with unknown dates. Dashboard pricing/
+crossings now use verified live append receipts; peak and single-session/task
+monetary scopes still reconcile quietly. New rolling-window dates require the
+verified closed-window evidence described below, not a rewritten first-record date. Dashboard pricing/
 display currency does not alter these rules.
 
 Both `claude-api-week` and `codex-api-week` now contain five ranks: Bronze $100,
 Silver $500, Gold $2,500, Platinum $10,000 and Legendary $25,000. Only the four
 Platinum/Legendary IDs are added; the existing three IDs/targets, series ownership,
-artwork, completed-week boundary and frozen-price provenance remain unchanged.
+artwork and frozen-price provenance remain unchanged. The later rolling-window
+migration below supersedes that earlier completed-week boundary.
 Their four explicit history registrations bring the manifest to 138 entries; a
 supported log-derived annotation is still separate from a saved first-record date.
 Legacy envelopes reject the new IDs, and the pre-expansion reader fails closed
-without rewriting or clearing either envelope. Schema/catalog versions and the
+without rewriting or clearing either envelope. For that earlier rank extension, schema/catalog versions and the
 65,536-byte cap stay unchanged; the reported maximum-envelope fixture is 37,374
 bytes. These synthetic checks do not establish native/F5 acceptance.
 
@@ -779,8 +783,10 @@ runtime proof and never display an optimistic date. `recordUsage` saves origin
 written after the accepted baseline sequence can be repaired with a new sequence;
 different-book or established history keeps its original basis/date. Token and money
 writes from one accepted update coalesce into one existing five-minute notice batch.
-No timer is added; hidden-panel/unread-summary behavior is unchanged. Completed-week,
-single-session/task and other unsupported live usage scopes stay quiet with unknown dates.
+No timer is added; hidden-panel/unread-summary behavior is unchanged. Peak,
+single-session/task and other unsupported live usage scopes stay quiet without
+inventing first-record dates; rolling-window runtime dates follow the independent
+evidence rules below.
 
 `CodexAchievementSignals.effortStatistics` is optional evidence from a complete,
 current canonical index census. `extension.ts` computes it only when the proof
@@ -1222,8 +1228,10 @@ request sequence and document checks reject old responses. Source, pricing,
 timezone, locale/currency/display changes invalidate acceptance. Monetary previews
 are unavailable during pending repricing. Export requires the current visible,
 ready document and rechecks acceptance before and after the single-flight save
-dialog, then writes the accepted SVG bytes without
-rebuilding. Markdown copying also requires the accepted artifact. No second corpus,
+dialog, then writes the accepted SVG bytes without rebuilding. It reads the same
+URI back, compares exact bytes and rechecks the accepted receipt before reporting
+success. A read error, mismatch or retirement fails verification. Markdown copying
+also requires the accepted artifact. No second corpus,
 export history, authentication or network path is introduced.
 
 `showWeeklyQuotaPace` is a default-false STATE setting shared by Claude and Codex.
@@ -1671,3 +1679,80 @@ use an explicit opt-in account mapping rather than attaching prices by guess.
   Drafter draft creates the tag; the publish workflow stamps that tag version.
 - Contributor PR attribution is preserved by merging the contributor's original
   PR or, with authorization, adjusting that PR branch before merge.
+
+## Unreleased visualization integration
+
+This section describes the current integration, not a released version or native
+acceptance. It changes the existing provider panels and sharing workflow; it does
+not add a new application shell, source scanner, authentication path, background
+collector or publication action. Existing separately enabled quota collection
+and explicit sharing/network consent boundaries remain unchanged.
+
+`achievementAdornment.ts` supplies one bounded square-frame geometry for the
+existing achievement artwork. `achievementIcons.ts` and `achievementShare.ts`
+reuse it in the gallery, showcase, next targets, history/selection thumbnails and
+actual SVG output. Rank, earned/target/locked state and neutral milestones remain
+separate. Geometry changes do not grant awards or alter saved dates or pins.
+
+`projectChartProjection.ts` consumes the existing `ProjectUsageMatrixSnapshot`.
+The Projects panel exposes the existing 30/90-day ranges with day, Monday-week
+and month buckets, project selection, heatmap/trend views and bounded details.
+It renders at most 40 heatmap rows and six trend series, including an Other tail;
+clipped first/last periods are explicit. Unknown cells are nullable and distinct
+from verified zero; incomplete periods retain subtotal coverage. The source
+project-day DTO contains Tokens only, so this integration does not invent
+project-level prices, cached-input or reasoning components. Host filtering uses
+provider/document-scoped opaque handles; the bounded selector presents at most
+200 projects per provider. A WeakMap keyed by the accepted snapshot retains at
+most 12 projections per snapshot, without a persisted chart cache or log reads
+on chart interaction.
+
+`apiHeatmap.ts` continues to own the canonical sharing artifact and calls the
+same `heatmapSvg.ts` renderer. `presentation=standard|compact` defaults to
+standard and is effective only for explicitly included API-equivalent amounts.
+Compact uses whole display-currency units after full-precision USD summation,
+a visible provider/range, a peak-relative scale, and the existing product link.
+Unknown totals remain — and true zero remains zero. Clean cards do not restore
+coverage footers, plus signs or quality outlines; descriptions and daily tooltips
+retain pricing/source evidence. Provider amounts stay separate. Compact SVGs
+with links expose labelled groups so those links remain accessible; standard
+image semantics are unchanged. Render version 6 covers the updated appearance
+and accessible structure. Layout participates in client config identity, host
+normalization, accepted receipts, restoration and reset; export reuses the
+accepted bytes and verifies the same saved URI by readback before success.
+
+`usageDiagnostics.ts` defines numeric-only output-per-elapsed-hour and observed
+usage-change projections. The shared STATE settings `showUsageThroughput` and
+`showUsageChange` default to false. Claude uses materialized daily aggregates;
+Codex supplies a lazy host-only view of at most 30 days with current-manifest,
+timezone, lineage and total checks. Off bypasses projection. Results are cached
+only in memory by provider, source and relevant configuration.
+
+Hourly output uses the closed civil day's actual elapsed hours, including idle
+time and DST; it is not generation TPS. Change views compare the two preceding
+complete, equal-duration days. Model and role partitions are overlapping marginal
+views, not additive causes. Missing coverage stays unavailable. A complete closed
+seven-day peak is textual context. No quota-decline adapter, account calibration
+or additional official quota collector is part of this integration.
+
+The unreleased rolling-seven-day migration uses `rollingSevenDay.ts` and
+`achievementRollingPeak.ts` over existing civil-day aggregates. The three
+`weekly-volume` IDs and ten Claude/Codex weekly amount IDs use rule version 3;
+money scope is `completedRollingSevenDayPeak`, separate from active-week rules
+and actual quota reset cycles. Only windows ending before today qualify as
+closed. Complete retained-date evidence may supply internal idle-day zeros;
+missing coverage stays unknown or a qualified subtotal. Earliest verified dates
+require a complete closed window, with `windowStartDay`/`windowEndDay` retained
+in runtime date evidence; the date is the following civil day, when that window
+has closed. A verified positive subtotal can still satisfy a threshold, but
+incomplete windows do not invent an earliest date. Active-week and four-week-mean
+rules retain their existing semantics. Decorations do not change these evidence rules.
+
+The canonical achievement file/schema remains v2. Readers accept catalog versions
+2 and 3; new writes use catalog version 3. Existing calendar-week rule-version-1
+records keep their original dates/provenance and pins and are marked as retained
+legacy awards in details, selection and SVG sharing. They are not rewritten as
+proof that the new rule was met. New awards use version 3. Existing record clearing
+and source ownership remain unchanged; there is no new achievement data store or
+source scan. This is an implementation contract, not completed native or release
+acceptance of the migration.

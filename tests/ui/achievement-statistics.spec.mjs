@@ -1,10 +1,12 @@
 import { test, expect, openCodex, openClaude } from './support/app.mjs';
 
+// Each provider/theme journey gets the same bounded test deadline. Keeping four
+// independent page/reload journeys in one case exhausted it on CJK-font CI runs.
 for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id']) {
-  test(`${locale} current-statistics return stays readable and keeps local state in both providers and themes`, async ({ page }, testInfo) => {
-    for (const theme of ['light', 'dark']) for (const [open, provider, key, section] of [
-      [openClaude, 'claude', 'claude-output', 'tokens'], [openCodex, 'codex', 'sol-regular', 'models'],
-    ]) {
+  for (const theme of ['light', 'dark']) for (const [open, provider, key, section] of [
+    [openClaude, 'claude', 'claude-output', 'tokens'], [openCodex, 'codex', 'sol-regular', 'models'],
+  ]) {
+    test(`${locale} ${theme} ${provider}: current-statistics return stays readable and keeps local state`, async ({ page }, testInfo) => {
       await open(page, { fixture: 'complete-index', width: 320, locale, theme });
       await page.evaluate(() => localStorage.removeItem('__ccu-vscode-state')); await page.reload();
       await page.locator('#tab-achievements').click();
@@ -33,8 +35,8 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       await page.reload(); await expect(card.locator('details')).toHaveAttribute('open');
       await button.click(); await page.locator('#tab-today').click(); await page.locator('#tab-all').click();
       await expect(page.locator('#achievement-statistics-back')).toBeHidden();
-    }
-  });
+    });
+  }
 }
 
 test('tampered, cross-provider and unavailable statistics intents cannot navigate or refresh', async ({ page }) => {

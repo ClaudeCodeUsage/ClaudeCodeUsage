@@ -15,7 +15,17 @@ This is not a billing tool: Claude costs and Codex API-equivalent values are est
 
 > Screenshots include English and Simplified Chinese. See the [main README](README.md) for the full feature reference.
 
-- Codex can show input, output and cache usage together with optional `codex.statusBarUsageFormat`; empty keeps the current metric. See [format details](CHANGELOG.md#unreleased).
+## Visualization and quota updates
+
+- Claude and Codex achievement pages share a clearer layout. Artwork keeps its full size with rank ornaments around its edges; sharing cards put artwork first with centered badge rows, preserving award eligibility.
+- Projects groups the selected 30/90-day range, indexed Token subtotal and coverage above aligned legends and charts. Recent dates appear first and your scroll position is remembered. Day/week/month views, project filters and unknown/zero/partial distinctions remain available.
+- Amount sharing offers an optional compact layout; standard remains the default. Claude and Codex amounts stay separate. Changed settings require a new accepted preview, and saved SVG bytes are read back and checked against that preview.
+- Seven-day volume and provider amount achievements use completed rolling seven-civil-day windows. Existing awards keep their original records and are labelled as legacy rules; missing evidence does not invent dates. Actual quota reset cycles remain unchanged.
+- Claude and Codex analysis leads with same-range key numbers, then observations, evidence and advice. Optional output-per-elapsed-hour and observed-usage-change diagnostics remain off by default; partial coverage stays visible. Hourly output is not generation TPS, and changes do not establish causes.
+- Codex can show input, output and cache usage together with optional `codex.statusBarUsageFormat`; empty keeps the current metric. See [format details](CHANGELOG.md).
+- Claude quota token refresh uses the current OAuth endpoint and saves rotated credentials. See [local data](LOCAL-DATA.md).
+
+These updates preserve local usage processing. Claude quota lookup uses its existing OAuth refresh flow. See [local data and clearing](LOCAL-DATA.md).
 
 ## Screenshots
 

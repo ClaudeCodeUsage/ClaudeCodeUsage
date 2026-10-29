@@ -142,8 +142,13 @@ test('integer-only progress and folded evidence stay keyboard-accessible without
   expect(progress.length).toBe(await verified.count());
   expect(await pending.count()).toBeGreaterThan(0);
   await expect(pending.locator('progress,.achievement-progress-label')).toHaveCount(0);
-  for (const summary of await pending.locator('summary').all()) {
-    await expect(summary).toHaveAttribute('aria-label', /Evidence pending/);
+  const rollingPendingKeys = new Set(['weekly-volume', 'claude-api-week', 'codex-api-week']);
+  for (const card of await pending.all()) {
+    const rolling = rollingPendingKeys.has(await card.getAttribute('data-achievement-key'));
+    const proofLabel = rolling ? 'No verified closed seven-day window yet.' : 'Evidence pending';
+    await expect(card.locator('.achievement-disclosure > summary')).toHaveAttribute('aria-label',
+      rolling ? /No verified closed seven-day window yet\./ : /Evidence pending/);
+    await expect(card.locator('.achievement-next-target')).toHaveText(proofLabel);
   }
   for (const text of progress) expect(text).not.toMatch(/\d+[.,]\d+[kMBT]/);
   await expect(page.locator('.achievement-state')).toHaveCount(0);
@@ -376,17 +381,18 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       // Close the previous case's restored disclosure before testing its face.
       if (await card.locator('details').evaluate(details => details.open)) await card.locator('summary').click();
       await expect(card.locator('details')).not.toHaveAttribute('open');
-      await expect(card.locator('.achievement-current-progress')).toHaveText('295M / 1B');
-      await expect(card.locator('.achievement-stage-target')).toContainText('500M');
+      await expect(card.locator('.achievement-current-progress')).toHaveText('295M');
+      await expect(card.locator('.achievement-stage-target')).toContainText('1B');
       const fit = await card.locator('summary').evaluate(element => element.scrollWidth <= element.clientWidth + 1);
       expect(fit).toBe(true);
       await card.locator('summary').focus();
       await card.locator('summary').press('Enter');
       await expect(card.locator('[data-achievement-level]')).toHaveCount(5);
       await expect(card.locator('.achievement-level-rules')).not.toContainText('500M');
+      await expect(card.locator('.achievement-intermediate-stage')).toContainText(new Intl.NumberFormat(locale).format(500_000_000));
       await page.reload();
       await expect(card.locator('details')).toHaveAttribute('open');
-      await expect(card.locator('.achievement-stage-target')).toContainText('500M');
+      await expect(card.locator('.achievement-stage-target')).toContainText('1B');
       expect((await page.evaluate(() => window.__ccuPostedMessages)).some(message =>
         ['refresh', 'updateSetting', 'previewAchievementShare'].includes(message.command))).toBe(false);
       if (locale === 'zh-CN') await card.screenshot({ path: testInfo.outputPath(`stage-${width}-${theme}.png`) });

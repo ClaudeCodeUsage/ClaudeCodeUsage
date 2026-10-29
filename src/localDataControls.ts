@@ -171,7 +171,7 @@ export const LOCAL_DATA_ACTION_TARGETS: Record<LocalDataAction, readonly string[
     'active ccu.setting.enableShareCard and retired compatibility ccu.setting.showHeatmap',
     'ccu.sharing.template presentation selection',
     'ccu.sharing.achievementBadges selected earned-badge IDs',
-    'ccu.combinedHeatmap.title, .range, .privacyPreview, .intensityMode, .palette, and .customAccent Webview keys',
+    'ccu.combinedHeatmap.title, .range, .privacyPreview, .intensityMode, .palette, .customAccent, .provider, .metric, .showAmounts, and .presentation Webview keys',
     'ccu.heatmapDestination.v1 plus legacy ccu.heatmapRepo and ccu.heatmapPath destination strings',
     'in-memory share-card SVG/configuration preview',
   ],

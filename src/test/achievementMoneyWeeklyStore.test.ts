@@ -44,6 +44,7 @@ test('new weekly IDs cannot be parsed or appended as old-envelope proof, with or
 test('fresh legacy Memento seeds never confer new monetary ranks; v2 keeps existing money and pins intact',async()=>{
   await fixture(async(_legacy,current)=>{
     const host=new AchievementRecordRepository(current),initial=await host.initialize(['local-share-export',...newIds]);
+    assert.equal(initial.catalogVersion,3,'a fresh envelope uses the current catalog');
     assert.deepEqual(initial.records.map(r=>r.id),['local-share-export']);
     const oldIds:AchievementId[]=['claude-api-week-bronze','claude-api-week-silver','claude-api-week-gold',
       'codex-api-week-bronze','codex-api-week-silver','codex-api-week-gold'];
@@ -54,7 +55,8 @@ test('fresh legacy Memento seeds never confer new monetary ranks; v2 keeps exist
     assert.deepEqual(added.pins,pinned.pins);
     assert.equal(added.sequence,pinned.sequence+4);
     assert.equal(added.schemaVersion,2);
-    assert.equal(added.catalogVersion,2);
+    assert.equal(added.catalogVersion,3);
+    assert.ok(added.records.filter(row=>row.id.includes('-api-week-')).every(row=>row.ruleVersion===3));
     assert.deepEqual(await new AchievementRecordRepository(current).initialize([]),added);
   });
 });

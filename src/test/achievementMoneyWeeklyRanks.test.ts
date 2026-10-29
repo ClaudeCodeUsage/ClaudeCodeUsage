@@ -20,19 +20,19 @@ const models=(n:number)=>({'claude-opus-5-5':{inputTokens:n,outputTokens:0,cache
   referenceUsage:{inputTokens:n,outputTokens:0,cacheReadTokens:0,cacheCreation5mTokens:0,cacheCreation1hTokens:0}}});
 const amount=(provider:'claude'|'codex',microUsd:number)=>({provider,backend:provider==='claude'?'anthropic':'openai',
   pricebookVersion:getAchievementMoneyPricebook(provider==='claude'?'anthropic':'openai').version,
-  completedMondayWeekPeak:microUsd,coverage:{completedMondayWeekPeak:{status:'complete'}}});
+  completedRollingSevenDayPeak:microUsd,coverage:{completedRollingSevenDayPeak:{status:'complete'}}});
 
 test('weekly money adds exactly two ordered ranks per provider, preserving old thresholds and series artwork',()=>{
   for(const provider of providers){
     const key=provider+'-api-week';
     const ids=ranks.map(rank=>key+'-'+rank);
-    assert.deepEqual(API_ACHIEVEMENT_DEFINITIONS.filter(r=>r.group===provider&&r.scope==='completedMondayWeekPeak').map(r=>[r.id,r.target]),
+    assert.deepEqual(API_ACHIEVEMENT_DEFINITIONS.filter(r=>r.group===provider&&r.scope==='completedRollingSevenDayPeak').map(r=>[r.id,r.target]),
       ids.map((id,i)=>[id,targets[i]]));
     assert.deepEqual(ACHIEVEMENT_SERIES[key],ids);
     for(const id of ids){
       assert.equal(ACHIEVEMENT_IMAGE_FILES[id as AchievementId],key+'-v242-v2.png');
       assert.equal(historyRegistrationAllows(id,key),true);
-      assert.equal(achievementRuleVersion(id),1);
+      assert.equal(achievementRuleVersion(id),3);
       assert.equal(isLegacyAchievementId(id),false);
     }
   }
@@ -68,11 +68,11 @@ test('new weekly ranks use exact microUSD and highest-earned sharing within each
 
 test('new weekly ranks reject unsafe amounts, foreign providers, unknown books and missing weekly proof',()=>{
   for(const provider of providers) for(const patch of [
-    {completedMondayWeekPeak:NaN},{completedMondayWeekPeak:Number.MAX_SAFE_INTEGER+1},
-    {completedMondayWeekPeak:25_000_000_000.5},{completedMondayWeekPeak:-1},
+    {completedRollingSevenDayPeak:NaN},{completedRollingSevenDayPeak:Number.MAX_SAFE_INTEGER+1},
+    {completedRollingSevenDayPeak:25_000_000_000.5},{completedRollingSevenDayPeak:-1},
     {pricebookVersion:'future-book'}, {provider:provider==='claude'?'codex':'claude'},
-    {coverage:{completedMondayWeekPeak:{status:'scopepending'}}},
-    {completedMondayWeekPeak:undefined,cumulative:{microUsd:25_000_000_000}},
+    {coverage:{completedRollingSevenDayPeak:{status:'scopepending'}}},
+    {completedRollingSevenDayPeak:undefined,cumulative:{microUsd:25_000_000_000}},
   ]){
     const results=evaluateAchievements({...base,money:{[provider]:{...amount(provider,25_000_000_000),...patch}}});
     for(const rank of ['platinum','legendary'])assert.equal(results.find(r=>r.id===provider+'-api-week-'+rank)?.unlocked,false);
@@ -114,7 +114,7 @@ test('new weekly evaluation excludes current-week money, while keeping frozen re
   const old=models(2_500_000_000),current=models(6_250_000_000);
   const scope=claudeAchievementMoneyScopes({backend:'anthropic',asOfDay:'2026-10-12',allTimeModels:current,
     days:{complete:true,rows:[{date:'2026-10-05',models:old},{date:'2026-10-12',models:current}]}});
-  assert.equal(scope.completedMondayWeekPeak,10_000_000_000);
+  assert.equal(scope.completedRollingSevenDayPeak,10_000_000_000);
   const results=evaluateAchievements({...base,money:{claude:scope}});
   assert.equal(results.find(r=>r.id==='claude-api-week-platinum')?.unlocked,true);
   assert.equal(results.find(r=>r.id==='claude-api-week-legendary')?.unlocked,false);

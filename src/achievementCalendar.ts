@@ -1,3 +1,4 @@
+import {achievementRollingPeak,type AchievementRollingWindow} from './achievementRollingPeak';
 import { claudeAchievementFamily, codexModelFamily, normalizeCodexAchievementModel } from './achievementModels';
 import type { CodexFileAggregate } from './providers/codex/codexIndex';
 import { CODEX_PERIOD_LINEAGE_VERSION } from './providers/codex/codexPeriodIndex';
@@ -29,6 +30,10 @@ export interface AchievementCalendarSignals {
   threeFamilyDay: boolean;
   dualProviderDay: boolean;
   peakFourWeekAverage: number;
+  /** Closed arbitrary seven-civil-day window, separate from active calendar weeks. */
+  rollingSevenDayPeak?: number;
+  rollingSevenDayWindow?: AchievementRollingWindow;
+  rollingSevenDayLowerBound?: boolean;
   /** True only after both normalized day proofs pass validation, not a UI flag. */
   peakEvidenceComplete?: boolean;
   claudeEvidenceComplete?: boolean;
@@ -181,6 +186,17 @@ export function achievementCalendarSignals(input: {
     }
   }
   result.dualProviderDay = result.dualProviderDays > 0;
+  const rollingDays = new Map<string,bigint>();
+  for(const rows of [claude,codex])for(const [date,row]of rows){
+    rollingDays.set(date,(rollingDays.get(date)??0n)+BigInt(row.processed));
+  }
+  const rollingComplete=result.claudeEvidenceComplete===true&&result.codexEvidenceComplete===true;
+  const rolling=achievementRollingPeak({asOfDay:input.asOfDay,complete:rollingComplete,
+    days:[...rollingDays].map(([day,units])=>({day,units,coverage:rollingComplete?'complete':'partial'}))});
+  if(rolling.units!==undefined&&rolling.units<=BigInt(Number.MAX_SAFE_INTEGER)){
+    result.rollingSevenDayPeak=Number(rolling.units);result.rollingSevenDayWindow=rolling.window;
+    result.rollingSevenDayLowerBound=rolling.lowerBound;
+  }
   const weekTotals = new Map<number, number>();
   const weekOutputDays = new Map<number, Set<string>>();
   let first = Infinity;

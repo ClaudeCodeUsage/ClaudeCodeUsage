@@ -66,15 +66,15 @@ test('immutable census evaluates revision and calendar once, including MoneyScop
   const first = project(files);
   const value = money(files, first.evidence);
   assert.equal(first.evidence.complete, true);
-  assert.ok(value.completedMondayWeekPeak! > 0);
+  assert.ok(value.completedRollingSevenDayPeak! > 0);
   assert.equal(project(files), first);
   assert.equal(revision.codexAchievementProofRevision(files, fence), digest);
   assert.equal(hashes, 1, 'calendar and money must reuse the host revision');
   assert.throws(() => { first.evidence.days[0].processed++; }, TypeError);
   assert.throws(() => { first.completeDateFiles.pop(); }, TypeError);
   const forged = structuredClone(first.evidence); forged.days[0].processed++;
-  assert.equal(money(files, forged).completedMondayWeekPeak, undefined);
-  assert.equal(money(files).completedMondayWeekPeak, value.completedMondayWeekPeak);
+  assert.equal(money(files, forged).completedRollingSevenDayPeak, undefined);
+  assert.equal(money(files).completedRollingSevenDayPeak, value.completedRollingSevenDayPeak);
 });
 
 test('independent coverage and timezone fences cannot hit a cached complete proof', () => {
@@ -93,7 +93,7 @@ test('mutable and merely shallow-frozen censuses are never cached by reference',
     files[0].period!.indexedThrough--;
     assert.notEqual(revision.codexAchievementProofRevision(files, fence), digest);
     assert.notDeepEqual(project(files), first);
-    assert.equal(money(files, first.evidence).completedMondayWeekPeak, undefined);
+    assert.equal(money(files, first.evidence).completedRollingSevenDayPeak, undefined);
   }
 });
 
@@ -118,6 +118,6 @@ test('every proof-only mutation retires producer reuse even with equal display t
     const next = capture(changed, files);
     assert.notEqual(next, files);
     assert.notEqual(revision.codexAchievementProofRevision(next, fence), before.sourceRevision);
-    assert.equal(money(next, before).completedMondayWeekPeak, undefined);
+    assert.equal(money(next, before).completedRollingSevenDayPeak, undefined);
   }
 });

@@ -6,6 +6,8 @@ upstream release: 1.0.8). Format follows [Keep a Changelog](https://keepachangel
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-10-29
+
 ### Added
 - **Custom Codex status-bar usage (#132)** — optional `codex.statusBarUsageFormat`
   shows today’s input, output and cache usage together; empty (default) keeps
@@ -35,14 +37,43 @@ there is no forced rescan, new file, timer, or change to numeric token accountin
 中文：新状态栏仅沿既有逐文件解析检查点保留一个可选缓存字段可用性布尔值；缺失字段及
 旧检查点保持未知，由普通解析更新，不强制重扫、不增加文件／定时器，也不改变数值统计。
 
+- **Clearer achievements and sharing** — full artwork with rank ornaments, a
+  continuous gallery with expandable facts, centered SVG badge layouts and public
+  targets. Compact amount heatmaps remain optional and keep provider values separate.
+- **Readable project charts** — grouped range, indexed subtotal and coverage;
+  day/week/month views, filters, aligned legends and retained scroll positions.
+- **Analysis results first** — same-range key numbers precede expandable evidence
+  and advice. Output per elapsed hour and observed usage-change diagnostics are
+  optional and off by default; they do not measure generation TPS or causation.
+- **Closed rolling seven-day achievements** — volume and provider amount peaks
+  use completed seven-civil-day windows. Earlier calendar-week awards retain
+  their records, dates and pins, labelled as legacy rules. Actual quota reset
+  cycles remain separate.
+
+中文：成就保留完整原图及外缘等级饰件，连续图鉴与 SVG 分享明确目标和依据；项目图
+集中范围、小计及覆盖，保留筛选和滚动位置；分析先呈现结果，按需展开依据。小时输出
+及用量变化默认关闭。连续七天峰值奖项保留旧自然周奖项记录；实际额度周期独立。
+
 
 ### Fixed
+- **Claude quota token refresh (#145)** — update the OAuth token endpoint and
+  include Claude Code's public client ID so expired credentials can refresh before
+  requesting five-hour and weekly quota. Validate replacement credentials and
+  preserve returned refresh-token rotation and scopes in the selected credential
+  source; absent optional fields retain their prior values. Failed or cancelled
+  refresh responses are not saved.
+  中文：更新 Claude OAuth 刷新地址并携带公开 client ID，使过期凭据可以刷新后查询
+  五小时／每周额度；校验响应，将轮换 refresh token 与 scopes 写回所选凭据来源，
+  未返回的可选字段保留旧值。失败或取消的刷新响应不会保存。
 - **Quota sharing history and clearing** — adopting a shared quota now selects
   the matching account's weekly history. Pending refreshes cannot restore cleared
   history or scope names, and read-only sharing lookups cannot quarantine a valid
   store that replaced an invalid snapshot.
   中文：采用共享额度时同步选中匹配账号的每周历史；待完成刷新不能恢复已清除的历史或
   范围名称，只读共享查询也不会误隔离替换无效快照的新有效存储。
+- **Readable achievement targets on hover** — target units and completion labels
+  retain sufficient text contrast in the light-theme gallery hover state.
+  中文：浅色主题图鉴悬浮时，目标单位及完成标签保持清晰的文字对比度。
 - **Rewriting a transcript re-read the whole history (#99)** — a mid-file edit
   or truncation (`/rewind`, session repair, an external touch) tripped the
   source-mutation guard and every file was rebuilt from its body. The rewrite

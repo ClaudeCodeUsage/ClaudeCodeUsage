@@ -206,17 +206,19 @@ for (const locale of locales) for (const theme of ['light', 'dark', 'highContras
       // CSS layout stress only, not native browser zoom acceptance.
       await page.setViewportSize({ width: width * scale, height: 900 });
       await page.evaluate(scale => { document.documentElement.style.zoom = String(scale); }, scale);
-      for (const [size, emblem] of [['small', 56], ['medium', 80], ['large', 112]]) {
+      // Artwork stays at its original size; medium/large frames add 8px per edge.
+      for (const [size, artwork, emblem] of [['small', 56, 56], ['medium', 80, 96], ['large', 112, 128]]) {
         await page.locator('#achievementSize').selectOption(size);
         await expect(card(page)).toHaveClass(/achievement-statistics-expanded/);
         const geometry = await card(page).evaluate((el, scale) => ({
           fullWidth: getComputedStyle(el).gridColumnStart === '1' && getComputedStyle(el).gridColumnEnd === '-1',
           emblem: el.querySelector('.achievement-emblem').getBoundingClientRect().width / scale,
+          artwork: el.querySelector('summary > .achievement-emblem > [data-icon-context="gallery"] > img').getBoundingClientRect().width / scale,
           pageFits: document.documentElement.scrollWidth <= innerWidth + 1,
           overflowing: [...el.querySelectorAll('.achievement-effort-statistics,.achievement-effort-rows article,.achievement-effort-metric,strong,progress')]
             .filter(node => node.scrollWidth > node.clientWidth + 1).map(node => node.tagName),
         }), scale);
-        expect(geometry).toEqual({ fullWidth: true, emblem, pageFits: true, overflowing: [] });
+        expect(geometry).toEqual({ fullWidth: true, artwork, emblem, pageFits: true, overflowing: [] });
       }
       await stats(page).scrollIntoViewIfNeeded();
       const result = await new AxeBuilder({ page }).include('.achievement-effort-statistics')

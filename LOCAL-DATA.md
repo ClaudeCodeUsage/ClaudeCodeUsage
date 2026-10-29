@@ -11,7 +11,7 @@ historical v2.3.1 field-level baseline is in
 [`docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md`](docs/superpowers/specs/2026-09-02-v2.3.1-local-data-contract.md).
 The later compression, sharing, quota-pace and achievement sections here govern their added
 runtime/persistent fields and exact clearing rules, including the canonical v2
-envelope and twelve sharing keys. They do not relax unchanged baseline source-log,
+envelope and thirteen sharing keys. They do not relax unchanged baseline source-log,
 credential, account-separation or explicit-network-consent restrictions.
 
 ## What the extension reads and retains
@@ -87,8 +87,9 @@ The two weekly API-equivalent series each have five levels: Bronze $100, Silver
 $500, Gold $2,500, Platinum $10,000 and Legendary $25,000. Only the last two ranks
 per provider are new; old IDs, thresholds and saved provenance are unchanged.
 The catalog now has 24 monetary conditions within 178 rules and 50 themes. Weekly
-evidence still requires a completed Monday-start week in the configured timezone
-and the existing frozen reference-price basis. No live weekly receipt, extra
+evidence in the released baseline used a completed Monday-start week; the unreleased
+rule-version-3 migration below uses closed rolling seven-day windows in the configured
+timezone with the same frozen reference-price basis. No live weekly receipt, extra
 usage history or storage schema is introduced. The four new IDs are rejected by
 legacy-envelope parsing; a pre-expansion reader fails closed without rewriting
 or clearing either envelope. The reported maximum-envelope fixture is 37,374 bytes
@@ -118,8 +119,11 @@ lineage markers after bounded body revalidation, not another store or scanner.
 When Claude quota tracking is enabled, the extension uses the selected Claude
 profile's existing access token to query `api.anthropic.com/api/oauth/usage`.
 If it is expired, the existing refresh token is sent to
-`console.anthropic.com/v1/oauth/token`; the replacement access token is written
-back to that profile's credential file or macOS Keychain item. This is separate
+`platform.claude.com/v1/oauth/token` with Claude Code's public OAuth client ID.
+A valid replacement access token and expiry, plus a rotated refresh token and
+scopes when returned, are written back to that profile's credential file or macOS
+Keychain item. Absent optional fields retain their previous values; rejected or
+cancelled refresh responses are not saved. This is separate
 from optional BYOK AI advice, which never uses Claude subscription credentials.
 
 Different anonymous account fingerprints are not merged into an account-level
@@ -223,13 +227,14 @@ Document/request checks reject superseded replies; source references, controls,
 pricing/timezone/locale/currency/display revisions bind acceptance. A changed
 source or pending repricing cannot export a previous amount preview. Export checks
 before and after the save dialog, including the current visible/ready document,
-then writes the immutable accepted SVG bytes;
-Markdown copying also requires current acceptance.
+then writes the immutable accepted SVG bytes. It reads the same destination URI back,
+compares exact bytes and rechecks acceptance; a read failure, mismatch or retired
+receipt is not reported as a successful export. Markdown copying also requires current acceptance.
 
-Reset Sharing Preferences clears exactly twelve browser keys: `ccu.sharing.template`,
-`ccu.sharing.achievementBadges`, `ccu.sharing.shareCardDraft`, and the nine
+Reset Sharing Preferences clears exactly thirteen browser keys: `ccu.sharing.template`,
+`ccu.sharing.achievementBadges`, `ccu.sharing.shareCardDraft`, and the ten
 `ccu.combinedHeatmap.` suffixes `title`, `range`, `intensityMode`, `privacyPreview`,
-`palette`, `customAccent`, `provider`, `metric`, `showAmounts`. These are bounded
+`palette`, `customAccent`, `provider`, `metric`, `showAmounts`, `presentation`. These are bounded
 presentation choices, not provider logs, quota observations or credentials. It
 uses the existing request-ID/ACK path and applies defaults only after deletion succeeds.
 
@@ -582,15 +587,16 @@ Numeric evaluation reuses materialized indexes. Six API-equivalent achievement
 themes use fixed versioned USD reference prices
 (`api-reference-2026-10-{backend}-v1`, dated 2026-10-09), exact known models and
 complete component rates (including known Claude
-cache-write TTL). They cover cumulative priced subtotals, completed Monday-start
-weeks in the current data zone and one Claude session/verified Codex task tree.
+cache-write TTL). They cover cumulative priced subtotals, closed rolling-seven-day
+peaks under the unreleased migration below, and one Claude session/verified Codex task tree.
 Priced subsets prove a lower bound, not a bill. Monetary history stays quiet;
 only the four cumulative money tiers per provider can save unread first-record
 day/zone from accepted native Claude/Codex tail-window increments. Before/after
 cumulative evidence and the increment must use the same frozen public pricebook;
 the increment must suffice from the prior total and be necessary to the new total
 crossing the tier. Price changes, imports and rebuilds do not establish live origin.
-Completed-week and single-session/task money awards stay quiet with unknown dates.
+Peak and single-session/task money awards stay quiet. A verified rolling-window
+date does not establish live origin or rewrite the saved first-record date.
 
 Monetary-origin proof is runtime-only: public provider/backend/book version,
 bounded exact units, microUSD and eligible processed Tokens. The new numeric money,
@@ -742,12 +748,73 @@ Webview behavior or installed-package acceptance.
 - Retention of source logs is controlled by Claude Code and Codex, not this
   extension.
 
+## Unreleased visualization data boundaries
+
+Project controls extend the existing provider-scoped `projectUsageMatrix` Webview
+state with `scale`, up to 200 opaque `filters`, a `filterScope` and a bounded
+selection key, alongside range/view/expanded. Selection is encoded as
+`range:scale:h:handle:period` for heatmap cells or `range:scale:t:period` for trend
+periods. It does not persist rendered project labels or detail text. Details are
+rebuilt from matching current DOM data; old free text is not restored as a detail.
+Handles are stable local pseudonyms: SHA-256 over `vscode.env.machineId`, a fixed
+project-filter namespace, provider and the host-only project key, truncated to
+32 hexadecimal characters. This is not encryption or a claim of global anonymity.
+Filtering messages must match the current document/provider/scope and available
+handles. Unavailable restored handles are not sent; their saved filter and
+selection are cleared. Stable handles retain valid choices across same-source reloads.
+
+Before rendering a provider, the host replaces that provider's handle map with
+at most 200 selectable projects, so the two-provider map has at most 400 entries.
+The projection cache is runtime-only, weakly keyed by the materialized snapshot
+and capped at 12 results per snapshot. `clearProjectChartRuntime` drops the host
+selection, handle map/scope and cache on panel disposal or UI/all-client reset;
+it also runs when Claude source data is cleared, its directory/error/timezone
+changes, or Codex has no view, is disabled, loses current evidence or changes
+timezone. Reset UI State additionally clears the Webview state. These operations
+do not delete provider logs; rebuilding controls uses current aggregates only.
+No source-log scan, disk chart cache, upload or network path is added.
+
+These changes reuse existing data owners and add no source scanner, credential
+lookup, background collection or publication path. The two shared STATE flags
+`showUsageThroughput` and `showUsageChange` default to false and persist as
+`ccu.setting.showUsageThroughput` and `ccu.setting.showUsageChange`. They follow
+the existing settings reset/clear catalog; Reset UI State clears disclosure and
+selection state, not these feature preferences.
+
 The optional `codex.statusBarUsageFormat` adds one bounded STATE preference,
 `ccu.setting.codex.statusBarUsageFormat`: a validated string of at most 120
 characters, defaulting to empty. It follows the existing settings reset and exact
 Clear All catalog; Reset UI State does not reset this setting. Rendering uses
 existing local usage aggregates only. No new usage data, scanner, network request
 or dependency is added, and no rendered status-bar history is persisted.
+
+Numeric diagnostic DTOs and rendered results remain runtime-only. Off bypasses
+projection; source/configuration invalidation, clear/reload and disposal retire
+cached results. Daily diagnostics use materialized processed/output totals and
+available model/role partitions. Codex supplies at most 30 days through a lazy
+host-only adapter. No quota adapter, diagnostic history file or quota observation
+field is added. A complete closed-seven-day statistic is bounded textual context.
+
+Compact amount layout is one additional bounded browser preference,
+`ccu.combinedHeatmap.presentation`, cleared with the other sharing keys listed
+above. It defaults to standard; Token/hidden-amount output canonicalizes to
+standard even when a compact amount preference is remembered. One accepted SVG
+remains in memory, with layout included in its identity. Integer rounding does
+not turn a partial subtotal into a guaranteed rounded lower bound. Quality stays
+in descriptions/tooltips rather than visible coverage footers or plus signs.
+Saving reads back only the exact destination URI just written and compares it
+with the accepted bytes; this verification adds no source-log or credential read.
+
+The rolling-seven-day achievement change writes no new history file. It keeps
+the canonical v2 envelope and existing clearing/generation rules, reads catalog
+versions 2/3, and writes catalog version 3. Thirteen affected achievement IDs use
+rule version 3 for new awards. Retained rule-version-1 calendar-week records,
+their original dates/provenance and pins are preserved and labelled as legacy;
+they are not silently recertified. The new window start/end dates are runtime
+derived evidence, not added per-window persistent usage receipts. An older reader
+may reject unknown catalog/rule versions; this is not a universal downgrade-write
+guarantee. This supplement supersedes the earlier Monday-week wording only for
+those peak-award rules; active-week measures and real quota cycles remain separate.
 
 Cache-field availability for the optional Codex status template is one optional
 boolean in the existing per-file parser checkpoint, projected into runtime scopes.

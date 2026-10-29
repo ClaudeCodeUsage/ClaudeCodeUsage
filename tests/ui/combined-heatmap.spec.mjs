@@ -369,7 +369,7 @@ test('combined share preferences stay local and every export action is explicit'
   });
   const draft = { title: 'My local activity', range: '30d', intensityMode: 'logarithmic',
     palette: 'custom', customAccent: '#0f766e', privacyPreview: false,
-    provider: 'both', metric: 'tokens', showAmounts: false };
+    provider: 'both', metric: 'tokens', showAmounts: false, presentation: 'standard' };
   expect(state.messages).toEqual([
     { command: 'retireCombinedHeatmapPreview', requestId: accepted.request.requestId - 1,
       documentId: accepted.request.documentId },

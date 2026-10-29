@@ -58,6 +58,18 @@ test('pricing changes also invalidate sharing projections before a dashboard ref
   );
 });
 
+
+test('real host routes each diagnostic switch to UI only, never source refresh',()=>{
+ const Module=require('node:module'),load=Module._load;
+ Module._load=function(name:string,...args:unknown[]){return name==='vscode'?{env:{}}:load.call(this,name,...args);};
+ let Extension:any;try{Extension=require('../extension').ClaudeCodeUsageExtension;}finally{Module._load=load;}
+ const owner:any=Object.create(Extension.prototype);let ui=0;
+ owner.disposed=false;owner.syncProviderUi=()=>ui++;
+ for(const method of ['refreshData','onConfigurationChanged','createCodexProvider','startWatcher'])owner[method]=()=>{throw Error('Forbidden source work '+method);};
+ for(const key of ['showUsageThroughput','showUsageChange'])owner.onSettingsChangedFromPanel(key);
+ assert.equal(ui,2);
+});
+
 test('Codex usage format edits only reformat existing status and materialized UI',()=>{
  const Module=require('node:module'),load=Module._load;
  Module._load=function(name:string,...args:unknown[]){return name==='vscode'?{env:{}}:load.call(this,name,...args);};

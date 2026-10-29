@@ -30,12 +30,12 @@ test('reliable Claude calendar remains a visible lower bound when Codex dates ar
       periodCoverage:{timeZone:'UTC',allTime:{complete:false}},allTime:{total:{processed:0}},
       last30DaysHourlyByDay:{},hourlyCoverage:{complete:false},allTimeDaily:[]};
     const results = new Map<string,any>(host.achievementResults().map((row:any)=>[row.id,row]));
-    assert.equal(results.get('weekly-volume-bronze').progress,600_000_000,'weeks begin Monday, not the first fixture day');
+    assert.equal(results.get('weekly-volume-bronze').progress,700_000_000,'a full closed seven-day window may cross Monday');
     assert.equal(results.get('active-day-streak').unlocked,true);
     const html = host.renderAchievementData();
     const card = (key:string) => html.match(new RegExp(`<article[^>]*data-achievement-key="${key}"[\\s\\S]*?<\\/article>`))![0];
     assert.match(card('weekly-volume'),/data-achievement-proof="ready"/);
-    assert.match(card('weekly-volume'),/≥600M/);
+    assert.match(card('weekly-volume'),/≥700M/);
     assert.match(card('active-day-streak'),/data-achievement-proof="ready"/);
     assert.match(card('active-days'),/≥7/);
     assert.match(card('weekly-average'),/data-achievement-proof="pending"/);
@@ -46,7 +46,7 @@ test('reliable Claude calendar remains a visible lower bound when Codex dates ar
     const historicalHtml = host.renderAchievementData();
     const historicalCard = historicalHtml.match(/<article[^>]*data-achievement-key="weekly-volume"[\s\S]*?<\/article>/)![0];
     assert.match(historicalCard,/data-achievement-earned="true"/,'retain the historical earned rank');
-    assert.match(historicalCard,/achievement-current-value[^>]*>Current value: ≥600M/,'a saved target is not current lower-bound evidence');
+    assert.match(historicalCard,/achievement-current-value[^>]*>Current value: ≥700M/,'a saved target is not current lower-bound evidence');
     assert.doesNotMatch(historicalCard,/≥10B/);
     host.achievementGrants.delete('weekly-volume-gold');
     const days=Array.from({length:750},(_,i)=>({date:new Date(Date.UTC(2024,0,1+i)).toISOString().slice(0,10),data}));
@@ -69,10 +69,10 @@ test('reliable Claude calendar remains a visible lower bound when Codex dates ar
     host.codexView.coverage.identity.complete=false;
     host.codexView.periodCoverage.allTime.complete=false;
     host.revokedAchievementEvidence.add('codex');
-    assert.match(host.renderAchievementData(),/≥600M/,'a stale independent provider cannot retire verified Claude dates');
+    assert.match(host.renderAchievementData(),/≥700M/,'a stale independent provider cannot retire verified Claude dates');
     host.revokedAchievementEvidence.delete('codex');
     I18n.setTimezone('Asia/Shanghai');
-    assert.doesNotMatch(host.renderAchievementData(),/≥600M/,'old-zone rows cannot prove the lower bound');
+    assert.doesNotMatch(host.renderAchievementData(),/≥700M/,'old-zone rows cannot prove the lower bound');
     await Promise.all([host.achievementWrite,host.achievementHourWrite,host.achievementCalendarWrite]);
   } finally { I18n.setTimezone(zone); I18n.setLanguage(language as any); (Module as any)._load = load; }
 });

@@ -823,6 +823,49 @@ exports.renderHarness = async function renderHarness({
       // patch can preserve a deliberate choice independently of showcase pins.
       provider.sharingTemplate = 'achievements';
     }
+    if (fixture === 'visual-correction-approved') {
+      // Display-only comparison facts matching the approved design's states.
+      // This fixture exercises the real renderer/catalog/record validator, not
+      // eligibility qualification, date proof, source ingestion or persistence.
+      const {ACHIEVEMENT_DEFINITIONS,ACHIEVEMENT_SERIES}=require('../../../out/achievements.js');
+      const {parseAchievementRecordStore}=require('../../../out/achievementRecordStore.js');
+      const {achievementRuleVersion}=require('../../../out/achievementRuleVersions.js');
+      const {getAchievementMoneyPricebook}=require('../../../out/achievementMoney.js');
+      const {ACHIEVEMENT_EVIDENCE_DOMAINS}=require('../../../out/achievementEvidence.js');
+      const progress={ 'cumulative-volume':15_000_000_000,'codex-api-total':120_000_000_000,
+        'codex-api-week':30_000_000_000,'claude-api-total':20_000_000_000,'claude-api-session':200_000_000,
+        'codex-api-task':1_200_000_000,'active-days':800,'settings-explorer':5,'output-hours':3 };
+      const values=new Map();
+      for(const [series,value]of Object.entries(progress))for(const id of ACHIEVEMENT_SERIES[series])values.set(id,value);
+      values.set('local-share-export',1);
+      provider.providerAvailability={claude:true,codex:true,codexData:true};
+      provider.codexAchievementVolume=()=>({processed:15_000_000_000,lowerBound:false});
+      provider.achievementCalendarLowerBounds=new Set();provider.achievementCalendarCache=undefined;
+      provider.achievementEvidenceStates=Object.fromEntries(ACHIEVEMENT_EVIDENCE_DOMAINS.map(domain=>[domain,'ready']));
+      provider.achievementResults=()=>ACHIEVEMENT_DEFINITIONS.map(row=>({...row,progress:values.get(row.id)??0,
+        unlocked:values.has(row.id)&&values.get(row.id)>=row.target}));
+      const scopes=(providerName,total,week,session)=>{
+        const backend=providerName==='claude'?'anthropic':'openai',pricebookVersion=getAchievementMoneyPricebook(backend).version;
+        const complete={status:'complete',pricingCoverage:1,totalTokens:1,pricedTokens:1,unpricedTokens:0,amountPositive:true};
+        return {provider:providerName,backend,pricebookVersion,
+          cumulative:{provider:providerName,backend,pricebookVersion,microUsd:total,exactMicroUsdUnits:String(total),
+            totalTokens:1,pricedTokens:1,unpricedTokens:0,pricingCoverage:1,status:'complete'},
+          completedRollingSevenDayPeak:week,maxSessionTask:session,
+          coverage:{cumulative:complete,completedRollingSevenDayPeak:week===undefined?{status:'scopepending'}:complete,
+            maxSessionTask:complete,verifiedFiles:1,excludedFiles:0}};
+      };
+      provider.achievementMoneyFacts={claude:scopes('claude',20_000_000_000,undefined,200_000_000),
+        codex:scopes('codex',120_000_000_000,30_000_000_000,1_200_000_000)};
+      const ids=['ten-billion-token-club','codex-api-total-platinum','codex-api-week-legendary','claude-api-total-gold',
+        'claude-api-session-silver','codex-api-task-gold','active-days-platinum','settings-explorer-bronze','local-share-export'];
+      provider.achievementRecordState=parseAchievementRecordStore({schemaVersion:2,catalogVersion:3,generation:1,
+        sequence:ids.length,lastNoticeAt:0,pinRevision:0,showcaseMode:'manual',legacyBoundary:null,legacyRecords:[],
+        pins:['cumulative-volume','codex-api-week'],records:ids.map((id,index)=>({id,seq:index+1,
+          ruleVersion:id==='codex-api-week-legendary'?1:achievementRuleVersion(id),origin:'history',unread:false,
+          recordedDay:null,timeZone:null,...(id.includes('-api-')?{referencePricebook:getAchievementMoneyPricebook(id.startsWith('codex-')?'openai':'anthropic').version}:{})})),
+        auxiliary:{activity:{schemaVersion:2,settingKeys:[],features:[]},hours:{schemaVersion:3,maxStreak:0},calendarPeak:null}});
+      provider.achievementGrants=new Set(ids);
+    }
     if (fixture.startsWith('achievement-long-term-')) {
       const {ACHIEVEMENT_DEFINITIONS,ACHIEVEMENT_SERIES}=require('../../../out/achievements.js');
       const {parseAchievementRecordStore}=require('../../../out/achievementRecordStore.js');
@@ -912,6 +955,26 @@ exports.renderHarness = async function renderHarness({
       provider.achievementRecordLoading = fixture === 'achievement-review-loading';
       provider.achievementRecordLoadFailed = fixture === 'achievement-review-failure';
     }
+    if (fixture === 'achievement-rolling-seven') {
+      const {parseAchievementRecordStore}=require('../../../out/achievementRecordStore.js');
+      const {claudeAchievementMoneyScopes}=require('../../../out/achievementMoneyScopes.js');
+      const usage=n=>({...claudeUsage(),totalInputTokens:n,totalOutputTokens:0,totalCacheCreationTokens:0,totalCacheReadTokens:0,
+        modelBreakdown:{'claude-sonnet-4-5':{inputTokens:n,outputTokens:0,cacheCreationTokens:0,cacheReadTokens:0,cost:0,count:1,
+          referenceUsage:{inputTokens:n,outputTokens:0,cacheReadTokens:0,cacheCreation5mTokens:0,cacheCreation1hTokens:0}}}});
+      provider.providerAvailability={claude:true,codex:false,codexData:false};
+      provider.allTimeData=usage(9_600_000_000);
+      provider.dailyDataForEveryDay=[{date:'2026-07-09',data:usage(300_000_000)},
+        {date:'2026-07-13',data:usage(300_000_000)},{date:'2026-07-20',data:usage(9_000_000_000)}];
+      provider.sessionBreakdown=[];provider.achievementCalendarTimeZone=timeZone;
+      provider.claudeAchievementMoney=claudeAchievementMoneyScopes({backend:'anthropic',asOfDay:'2026-07-20',
+        allTimeModels:provider.allTimeData.modelBreakdown,days:{complete:true,
+          rows:provider.dailyDataForEveryDay.map(row=>({date:row.date,models:row.data.modelBreakdown}))}});
+      provider.achievementRecordState=parseAchievementRecordStore({schemaVersion:2,catalogVersion:2,generation:1,
+        sequence:1,lastNoticeAt:0,pinRevision:1,showcaseMode:'manual',legacyBoundary:null,legacyRecords:[],pins:['weekly-volume'],
+        records:[{id:'weekly-volume-bronze',seq:1,ruleVersion:1,origin:'usage',unread:false,recordedDay:'2026-06-10',timeZone}],
+        auxiliary:{activity:{schemaVersion:2,settingKeys:[],features:[]},hours:{schemaVersion:3,maxStreak:0},calendarPeak:null}});
+      provider.achievementGrants=new Set(['weekly-volume-bronze']);
+    }
     if (fixture === 'achievement-management-history' || fixture === 'achievement-management-full' || fixture === 'achievement-management-history-recorded') {
       const {parseAchievementRecordStore}=require('../../../out/achievementRecordStore.js');
       const full=fixture==='achievement-management-full';
@@ -956,6 +1019,11 @@ exports.renderHarness = async function renderHarness({
           hours: { schemaVersion: 3, maxStreak: 0 }, calendarPeak: null },
       });
       provider.achievementGrants = new Set(['hundred-million-club']);
+    }
+
+    if (fixture.startsWith('usage-diagnostics-')) {
+      require('./usage-diagnostics-fixture.cjs').applyUsageDiagnosticsFixture(provider,baseSnapshot,
+        {fixture,timeZone,now:CODEX_WEBVIEW_NOW,locale});
     }
 
     if (/^\d{4}-\d{2}$/.test(codexMonth)) {

@@ -97,7 +97,7 @@ test('Full, index, materialization and frozen money agree across split-only cold
       assert.equal(money.cumulative?.totalTokens, processed);
       assert.equal(money.cumulative?.pricedTokens, processed);
       assert.equal(money.cumulative?.microUsd, microUsd);
-      assert.equal(money.completedMondayWeekPeak, microUsd);
+      assert.equal(money.completedRollingSevenDayPeak, microUsd);
       assert.equal(money.maxSessionTask, microUsd);
       return snapshot;
     };

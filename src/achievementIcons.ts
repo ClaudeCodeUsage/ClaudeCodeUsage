@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
-import type { AchievementId } from './achievements';
+import { ACHIEVEMENT_SERIES, type AchievementId } from './achievements';
+import { ACHIEVEMENT_EXPORT_RANK_COLORS, achievementIconLayout, renderAchievementAdornment, type AchievementEmblemState, type AchievementRank } from './achievementAdornment';
 import { API_ACHIEVEMENT_DEFINITIONS, type AchievementMoneyId } from './achievementMoneyCatalog';
 import { LONG_TERM_ACHIEVEMENT_DEFINITIONS, type LongTermAchievementId } from './achievementLongTerm';
 const apiImageFiles = Object.fromEntries(API_ACHIEVEMENT_DEFINITIONS.map(row=>
@@ -156,13 +157,49 @@ export function achievementImageDataUrl(id: AchievementId): string {
   return url;
 }
 
-/** Self-contained exported SVG uses only local, allowlisted PNG bytes. */
+const ranks: readonly AchievementRank[] = ['bronze', 'silver', 'gold', 'platinum', 'legendary'];
+const rankById = new Map<AchievementId, AchievementRank>(Object.values(ACHIEVEMENT_SERIES)
+  .flatMap(ids => ids.map((id, index) => [id, ranks[index]] as const)));
+
+/** Catalog order is authoritative; suffixes cannot identify legacy IDs or milestones. */
+export function achievementIconRank(id: AchievementId): AchievementRank {
+  return rankById.get(id) ?? 'milestone';
+}
+
+function escapeAttribute(value: string): string {
+  return value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]!);
+}
+
+export type AchievementIconContext = 'gallery' | 'overview' | 'record' | 'detail' | 'selection';
+const WEBVIEW_ICON_SIZES: Readonly<Record<AchievementIconContext, readonly number[]>> = {
+  gallery: [56, 80, 112], overview: [56, 72, 96], record: [40, 56], detail: [40], selection: [48],
+};
+
+/** One resource image and one SVG. CSS selects a bounded pixel-sized group for
+ * the existing size control; SVG user units stay CSS pixels, never scale away
+ * the fixed eight-pixel ornament allowance. */
+export function renderAchievementWebviewIcon(id: AchievementId, imageSrc: string,
+  state: AchievementEmblemState = 'earned', imageClass?: 'achievement-share-choice-icon',
+  context: AchievementIconContext = 'gallery'): string {
+  const rank = achievementIconRank(id), frame = state === 'locked' ? 'locked' : rank;
+  return '<span class="achievement-framed-icon" data-achievement-frame="' + frame + '" data-emblem-state="' + state +
+    '" data-icon-context="' + context + '" aria-hidden="true">' +
+    '<img' + (imageClass ? ' class="' + imageClass + '"' : '') + ' data-achievement-icon="' + id +
+    '" data-achievement-artwork="' + ACHIEVEMENT_IMAGE_FILES[id] + '" src="' + escapeAttribute(imageSrc) + '" alt="" loading="lazy">' +
+    '<svg class="achievement-adornment" aria-hidden="true" focusable="false">' +
+    WEBVIEW_ICON_SIZES[context].map(size => '<g data-art-size="' + size + '">' + renderAchievementAdornment(rank, state, size) + '</g>').join('') +
+    '</svg></span>';
+}
+
+/** Self-contained exported SVG uses only local, allowlisted PNG bytes. The
+ * requested size describes the artwork; coordinates locate its decorated box. */
 export function renderAchievementIcon(
   id: AchievementId,
   _color: 'currentColor' | '#db8b5b' | '#82a9ed' | '#ad99e2',
   position?: { x: number; y: number; size?: number },
 ): string {
   const coordinates = position ? ` x="${position.x}" y="${position.y}"` : '';
-  const size = position?.size ?? 48;
-  return `<svg data-achievement-icon="${id}"${coordinates} width="${size}" height="${size}" viewBox="0 0 48 48" aria-hidden="true"><image href="${achievementImageDataUrl(id)}" width="48" height="48" /></svg>`;
+  const { artSize, edge, totalSize } = achievementIconLayout(position?.size ?? 48);
+  const rank = achievementIconRank(id);
+  return `<svg data-achievement-icon="${id}" data-achievement-frame="${rank}" data-emblem-state="earned"${coordinates} width="${totalSize}" height="${totalSize}" viewBox="0 0 ${totalSize} ${totalSize}" color="${ACHIEVEMENT_EXPORT_RANK_COLORS[rank]}" aria-hidden="true"><image href="${achievementImageDataUrl(id)}" x="${edge}" y="${edge}" width="${artSize}" height="${artSize}" />${renderAchievementAdornment(rank, 'earned', artSize)}</svg>`;
 }

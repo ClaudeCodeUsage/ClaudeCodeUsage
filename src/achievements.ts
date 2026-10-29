@@ -66,6 +66,7 @@ export interface AchievementFacts {
   claudeFamilyTokens?: Partial<Record<ClaudeModelFamily, number>>;
   claudeFamilyOutputTokens?: Partial<Record<ClaudeModelFamily, number>>;
   fable?: FableAchievementSignals;
+  /** Highest verified subtotal in a closed arbitrary seven-civil-day window (rule v3). */
   weeklyPeakProcessed?: number;
   codexOutputTokens?: number;
   codexCachedInputTokens?: number;
@@ -189,7 +190,7 @@ export function fableAchievementSignals(input: {
   };
 }
 
-/** Day keys are already civil dates in the configured timezone. Weeks start Monday. */
+/** Legacy compatibility helper only; rule-v3 awards use achievementCalendarSignals rolling evidence. */
 export function peakCalendarWeekProcessed(
   rows: Iterable<{ day: string; processed: number }>,
   coverageComplete: boolean,

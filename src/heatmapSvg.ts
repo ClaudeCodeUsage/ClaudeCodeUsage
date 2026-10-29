@@ -20,6 +20,8 @@ import { SupportedLanguage } from './types';
 /** Claude-orange 5-step intensity ramp (bucket 0..4). 0 = empty cell. */
 export const CLAUDE_ORANGE_SCALE = ['#ebedf0', '#fadcc9', '#f0aa82', '#e07d4f', '#c85a2b'];
 
+export const HEATMAP_MARKETPLACE_URL = 'https://marketplace.visualstudio.com/items?itemName=growthjack.claude-code-usage';
+
 export interface HeatmapSvgOptions {
   metric?: HeatMetric; // default 'tokens'
   weeks?: number; // trailing weeks to show (default 53, GitHub-like)
@@ -30,7 +32,9 @@ export interface HeatmapSvgOptions {
   footerNote?: string; // optional semantic disclaimer above the watermark row
   watermark?: string; // bottom-left source note (default "Made with Claude Code Usage")
   scale?: string[]; // 2..8 colours, empty→max (default CLAUDE_ORANGE_SCALE)
-  intensityMode?: 'linear' | 'quantile' | 'logarithmic'; // default linear; alternatives keep outliers from flattening the history
+  intensityMode?: 'linear' | 'quantile' | 'logarithmic' | 'peakRelative'; // default linear; alternatives keep outliers from flattening the history
+  /** Optional compact footer link, always to the fixed extension Marketplace URL. */
+  promotionText?: string;
   background?: string;
   primaryText?: string;
   secondaryText?: string;
@@ -62,7 +66,7 @@ function assignRenderBuckets(
   cells: HeatGridCell[],
   activeBands: number,
   max: number,
-  mode: 'linear' | 'quantile' | 'logarithmic',
+  mode: 'linear' | 'quantile' | 'logarithmic' | 'peakRelative',
 ): void {
   // buildContributionGrid already applies the original four-band linear rule.
   // Preserve that exact output for the long-standing Claude ramp.
@@ -76,6 +80,11 @@ function assignRenderBuckets(
   for (const cell of cells) {
     if (cell.value <= 0 || max <= 0) {
       cell.bucket = 0;
+      continue;
+    }
+    if (mode === 'peakRelative' && bands === 5) {
+      const ratio = cell.value / max;
+      cell.bucket = ratio <= .05 ? 1 : ratio <= .15 ? 2 : ratio <= .35 ? 3 : ratio <= .65 ? 4 : 5;
       continue;
     }
     // Rank by the first occurrence, so a large tie of ordinary days stays in
@@ -281,13 +290,13 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
     ? safeSvgColor(opts.accentColor, '')
     : undefined;
   parts.push(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" role="img" aria-label="${escapeSvgAttribute(opts.ariaLabel ?? summary)}">`
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" role="${opts.promotionText ? 'group' : 'img'}" aria-label="${escapeSvgAttribute(opts.ariaLabel ?? summary)}">`
   );
   parts.push(`<rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="12" fill="${background}" stroke="${borderColor}"/>`);
   if (accentColor) {
     parts.push(`<rect x="0" y="0" width="${width}" height="4" rx="2" fill="${accentColor}"/>`);
   }
-  parts.push(`<text x="${padL}" y="16" font-size="15" font-weight="600" fill="${primaryText}">${esc(renderedSummary)}</text>`);
+  parts.push(`<text${opts.promotionText ? ' data-heatmap-title="true"' : ''} x="${padL}" y="16" font-size="15" font-weight="600" fill="${primaryText}">${esc(renderedSummary)}</text>`);
   if (opts.subtitle) {
     parts.push(`<text x="${padL}" y="34" font-size="11" fill="${secondaryText}">${esc(opts.subtitle)}</text>`);
   }
@@ -349,19 +358,31 @@ export function renderHeatmapSvg(daily: Record<string, DayUsage>, opts: HeatmapS
     parts.push(`<text x="${padL}" y="${padT + gridH + 15}" font-size="10" fill="${secondaryText}">${esc(opts.footerNote)}</text>`);
   }
 
+  const lessWidth = approximateSvgTextWidth(copy.less, 11);
+  const moreWidth = approximateSvgTextWidth(copy.more, 11);
+  const legendWidth = lessWidth + 8 + scale.length * step + 4 + moreWidth;
+  const legendStart = Math.max(padL, width - legendWidth - 10);
+  const footerText = opts.promotionText ? fitSvgText(watermark, 190, 11) : watermark;
+
   // Watermark, bottom-left (an orange dot + source, to point back at the tool).
-  const watermarkColor = scale[Math.min(3, scale.length - 1)];
-  parts.push(`<rect x="${padL}" y="${footY - 8}" width="9" height="9" rx="2" ry="2" fill="${watermarkColor}"/>`);
-  parts.push(`<text x="${padL + 13}" y="${footY}" font-size="11" fill="${secondaryText}">${esc(watermark)}</text>`);
+  const showWatermark = !(opts.promotionText && watermark === '');
+  if (showWatermark) {
+    const watermarkColor = scale[Math.min(3, scale.length - 1)];
+    parts.push(`<rect x="${padL}" y="${footY - 8}" width="9" height="9" rx="2" ry="2" fill="${watermarkColor}"/>`);
+    parts.push(`<text${opts.promotionText ? ' data-heatmap-footer="true"' : ''} x="${padL + 13}" y="${footY}" font-size="11" fill="${secondaryText}">${esc(footerText)}</text>`);
+  }
+
+  if (opts.promotionText) {
+    const x = showWatermark ? padL + 13 + approximateSvgTextWidth(footerText, 11) + 20 : padL;
+    const label = fitSvgText(opts.promotionText, Math.max(0, legendStart - x - 16), 10);
+    parts.push(`<a data-heatmap-promotion="true" href="${HEATMAP_MARKETPLACE_URL}" aria-label="${escapeSvgAttribute(opts.promotionText)}"><text x="${x}" y="${footY}" font-size="10" fill="${secondaryText}">${esc(label)}</text></a>`);
+  }
 
   // Legend, bottom-right: Less [][][][][] More.
   // Anchor to the rendered card rather than the raw grid. Short 30/90-day
   // ranges use minWidth, so a grid-relative position can fall outside the
   // viewBox as the legend gains additional bands.
-  const lessWidth = approximateSvgTextWidth(copy.less, 11);
-  const moreWidth = approximateSvgTextWidth(copy.more, 11);
-  const legendWidth = lessWidth + 8 + scale.length * step + 4 + moreWidth;
-  let lx = Math.max(padL, width - legendWidth - 10);
+  let lx = legendStart;
   parts.push(`<text x="${lx}" y="${footY}" font-size="11" fill="${secondaryText}">${esc(copy.less)}</text>`);
   lx += lessWidth + 8;
   for (let b = 0; b < scale.length; b++) {

@@ -41,7 +41,7 @@ const evidence = {
   'model-relay-roots': ['达标多模型任务数', 'qualified multi-model tasks', '', ''],
   'same-root-models': ['达标多模型任务数', 'qualified multi-model tasks', '', ''],
   'effort-breadth': ['达标的 effort 档位', 'qualified effort tiers', '', ''],
-  'weekly-volume': ['单个自然周的已处理 Token', 'processed tokens in one calendar week', '当前配置时区、周一开始；仅用完整、已验证的日期数值证据，不代表账户额度或个人工作量。', 'Current configured timezone, Monday start; complete validated numeric day evidence only, not account quota or personal work.'],
+  'weekly-volume': ['连续七个已结束自然日的已处理 Token 峰值', 'peak processed tokens across seven consecutive closed civil days', '当前配置时区；任意连续七天窗口，今日不进入闭窗。完整日期证据可确认间隔零；不完整材料仅为已核验下界，不代表账户完整峰值、额度或个人工作量。', 'Current configured timezone; any consecutive seven-day window, excluding today. Complete date proof may establish zero gaps; partial material is a verified lower bound, not a complete account peak, quota or personal work.'],
   'active-weeks': ['至少四个达标日的完整自然周', 'completed calendar weeks with 4+ qualified days', '当前配置时区、周一开始；每周至少四个已结束自然日 Claude 或 Codex 有输出且已处理 Token ≥1M，跨供应商按日期去重；完整核验日期数值证据，不要求周连续。', 'Current configured timezone, Monday start; at least four closed days per completed week on which Claude or Codex has output and 1M+ processed tokens, deduplicated across providers. Complete validated numeric day evidence required; weeks need not be consecutive.'],
   'weekly-average': ['四个已结束自然周的周均值峰值', 'best mean processed tokens/week over four completed weeks', '当前配置时区、周一开始；取连续四个完整已结束周的总量除以四后的峰值，排除首个不完整周及本周。仅经完整数值证据核验的零用量周留在分母；日历覆盖不完整不能证明实际用量为零。成功持久保存后，本地仅留存一个已核验的数值最大值；复用须计量版本、时区、供应商存在状态一致，且所有预期供应商的当前规范化证据完整有效。清空成就删除该值。', 'Current configured timezone, Monday start; best total divided by four across four complete consecutive closed weeks, excluding the first partial week and current week. Only verified zero-usage weeks stay in the denominator; incomplete calendar coverage cannot prove zero actual usage. After a successful durable save, one verified numeric maximum is retained locally; reuse requires matching measurement versions, timezone and provider presence, plus complete valid current normalized proofs from every expected provider. Clearing achievements removes it.'],
   'output-hours': ['连续 UTC 小时', 'consecutive UTC hours', '每小时都有输出，可跨日／模型／供应商；不是连续工作。24／48 小时静默。', 'Output each hour across dates/models/providers; not human work. 24/48 hours stay quiet.'],
@@ -76,7 +76,7 @@ function achievementCatalog(locale = 'zh-CN') {
     const ids = ACHIEVEMENT_SERIES[key] ?? [definition.id];
     const monetary = API_ACHIEVEMENT_DEFINITIONS.find((row) => row.id === ids[0]);
     const scope = monetary && (monetary.scope === 'cumulative' ? 'total' :
-      monetary.scope === 'completedMondayWeekPeak' ? 'week' : monetary.group === 'claude' ? 'session' : 'task');
+      monetary.scope === 'completedRollingSevenDayPeak' ? 'week' : monetary.group === 'claude' ? 'session' : 'task');
     const detail = monetary ? [moneyCopy.unit, moneyCopy.unit,
       moneyCopy[scope] + ' ' + moneyCopy.note + ' 冻结参考价目表，不采用实时账单价格；未知价格用量不计入金额，可靠的已定价部分以 ≥ 下界表示。内部目标为整数 microUSD，显示美元向下取整。',
       moneyCopy[scope] + ' ' + moneyCopy.note + ' Frozen reference pricebook, not live billing prices; unknown-price usage is excluded from money and a reliable priced partial is shown as a ≥ lower bound. Internal targets are integer microUSD; displayed USD is floored.'] : evidence[key];
@@ -99,10 +99,10 @@ function achievementCatalog(locale = 'zh-CN') {
     // Qualification text is production-owned; the formal target supplies the
     // repetition/breadth requirement rather than a second threshold table.
     const qualifications = levels.filter((level) => level.condition).map((level) =>
-      `${level.label}: ≥${compact(level.target)} ${detail[zh ? 0 : 1]}; ${level.condition}`).join(' ');
+      `${level.label}: ≥${monetary ? displayTarget(level, locale) : compact(level.target)} ${detail[zh ? 0 : 1]}; ${level.condition}`).join(' ');
     cards.push({
       key, displayKey: achievementGalleryKey(key), group: definition.group, title,
-      metric: detail[zh ? 0 : 1], note: qualifications || detail[zh ? 2 : 3], levels,
+      metric: detail[zh ? 0 : 1], note: monetary || key === 'weekly-volume' ? [qualifications, detail[zh ? 2 : 3]].filter(Boolean).join(' ') : qualifications || detail[zh ? 2 : 3], levels,
     });
   }
   return cards;

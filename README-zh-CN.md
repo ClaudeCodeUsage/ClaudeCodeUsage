@@ -18,7 +18,17 @@ Claude 成本与 Codex API 等效价格均为估算，不是账单。
 
 ---
 
-- Codex 可通过可选的 `codex.statusBarUsageFormat` 同时显示输入、输出与缓存用量；留空沿用当前指标。详见[格式说明](CHANGELOG.md#unreleased)。
+## 可视化与额度更新
+
+- Claude 与 Codex 成就页采用一致的新布局。成就保留原图尺寸，等级饰件沿外缘展开；分享卡突出图案、徽章居中排列，保留原授奖资格。
+- 项目图表集中显示 30／90 天范围、已索引 Token 小计与覆盖状态，图例数值对齐便于比较。初始显示近期日期，并保留用户滚动位置；日／周／月尺度、项目筛选及未知／零／部分小计的区别均保留。
+- 金额分享可选择紧凑版式，默认仍为标准。Claude 与 Codex 金额分开；修改设置后须重新接受预览，保存后的 SVG 原字节会读回核验。
+- 七天用量及分供应商金额成就按已结束的连续七自然日核验；旧奖项保留原记录并注明旧规则，缺少证据时不补造日期。真实额度重置周期不变。
+- Claude 与 Codex 分析先呈现同范围关键数值，再看观察、依据与建议。单位实际经过小时的输出及已观察用量变化默认关闭，保留部分覆盖说明；小时输出不是生成 TPS，变化不证明因果。
+- Codex 可通过可选的 `codex.statusBarUsageFormat` 同时显示输入、输出与缓存用量；留空沿用当前指标。详见[格式说明](CHANGELOG.md)。
+- Claude 额度查询更新 OAuth 刷新地址，并保存轮换后的凭据。详见[本地数据](LOCAL-DATA.zh-CN.md)。
+
+上述更新保留本地用量处理；Claude 额度查询沿用现有 OAuth 刷新流程。详见[本地数据与清除](LOCAL-DATA.zh-CN.md)。
 
 ## 截图
 
@@ -315,7 +325,7 @@ ext install GrowthJack.claude-code-usage
 切换时区可只读沿用能证明同一来源的完整检查点，只迁移日期／小时，不从零重建主历史。
 
 - Token / 成本 / session 分析都在**本地**进行：Claude 读取 `~/.claude/projects/**/*.jsonl`，Codex 只读取其 home 下 `sessions`／`archived_sessions` 内的 `.jsonl`／`.jsonl.zst` 普通用量日志。
-- 配额指示器用 Claude Code 现有的 OAuth token 调用 **`api.anthropic.com/api/oauth/usage`**。如 token 已过期，插件会将现有 refresh token 发送至 **`console.anthropic.com/v1/oauth/token`**，并把刷新后的凭证写回选中的 Claude 凭证文件或 macOS 钥匙串。详见[本地数据与隐私](LOCAL-DATA.zh-CN.md)。
+- 配额指示器用 Claude Code 现有的 OAuth token 调用 **`api.anthropic.com/api/oauth/usage`**。如 token 已过期，插件会将现有 refresh token 发送至 **`platform.claude.com/v1/oauth/token`**，并把刷新后的凭证写回选中的 Claude 凭证文件或 macOS 钥匙串。详见[本地数据与隐私](LOCAL-DATA.zh-CN.md)。
 - **AI 建议**和**用量优化器**是仅有的会调用模型的功能，而且只在你查看完整请求后再次主动点击「发送」时调用。AI 建议默认只发送聚合证据；提示样本与用户上下文需要独立同意，并完整出现在预览中。优化器只包含你粘贴的文字。两者仅使用 `advice.apiUrl` 与自备 `advice.apiKey`；密钥只进入请求头，插件不使用订阅凭据，也没有后台请求。
 
 ### 已知限制

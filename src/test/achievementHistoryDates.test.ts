@@ -75,7 +75,7 @@ test('overflow and invalid optional cache values cannot date counters from a cap
  assert.equal(achievementHistoryDates(proof)['cache-wizard'],undefined);
  assert.equal(achievementHistoryDates(input([row('2026-10-01',Number.MAX_SAFE_INTEGER),row('2026-10-02',1)]))['sonnet-main'],undefined);
 });
-test('fixed-reference money dates sum exact units and wait for completed Monday weeks',()=>{
+test('fixed-reference money dates sum exact units and wait for seven complete closed days',()=>{
  const priced=(day:string,n:number)=>{
   const money=claudeMoneyEvidenceFromModels({'claude-sonnet-4-5':{inputTokens:n,outputTokens:0,
    cacheReadTokens:0,cacheCreationTokens:0,referenceUsage:{inputTokens:n,outputTokens:0,cacheReadTokens:0,
@@ -87,7 +87,8 @@ test('fixed-reference money dates sum exact units and wait for completed Monday 
  assert.equal(achievementHistoryDates(proof)['claude-api-total-bronze']?.day,'2026-10-01');
  assert.equal(achievementHistoryDates(proof)['claude-api-total-silver']?.day,'2026-10-02');
  assert.equal(achievementHistoryDates({...proof,asOfDay:'2026-10-04'})['claude-api-week-bronze'],undefined);
- assert.equal(achievementHistoryDates({...proof,asOfDay:'2026-10-05'})['claude-api-week-silver']?.day,'2026-10-05');
+ assert.equal(achievementHistoryDates({...proof,asOfDay:'2026-10-05'})['claude-api-week-silver'],undefined);
+ assert.equal(achievementHistoryDates({...proof,asOfDay:'2026-10-08'})['claude-api-week-silver']?.day,'2026-10-08');
  assert.equal(achievementHistoryDates(proof)['claude-api-session-bronze'],undefined);
  assert.match(achievementHistoryDates(proof)['claude-api-total-bronze']!.pricebookVersion!,/anthropic/);
  const forged=structuredClone(proof);forged.claude.days[0].money={...forged.claude.days[0].money!,pricebookVersion:'future-book'};

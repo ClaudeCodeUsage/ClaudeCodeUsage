@@ -432,6 +432,16 @@ export const SETTINGS: SettingDef[] = [
     help: 'Off by default. Adds a panel on the Content tab that ranks your single most expensive turns and, on expand, shows the prompt that triggered each (plus a cost split so you can tell a cache miss from a long answer). It reads and displays your own prompt text, so it stays opt-in.',
   },
   {
+    key: 'showUsageThroughput', type: 'boolean', default: false, storage: 'state', group: 'features',
+    providers: ['claude', 'codex'], label: 'Output per elapsed hour',
+    help: 'Off by default. Uses existing numeric aggregates only; no extra scans, collection or requests.',
+  },
+  {
+    key: 'showUsageChange', type: 'boolean', default: false, storage: 'state', group: 'features',
+    providers: ['claude', 'codex'], label: 'Usage change breakdown',
+    help: 'Off by default. Uses existing numeric aggregates only; no extra scans, collection or requests.',
+  },
+  {
     key: 'showInsights',
     type: 'boolean',
     default: false,

@@ -110,7 +110,7 @@ import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
 import { weeklyQuotaObservationsFromCodexHistory } from './providers/codex/codexQuotaHistory';
 import { resolveCodexHome, scanCodexManifest } from './providers/codex/codexManifest';
 import { codexIndexStoragePath, codexIndexCanonicalName, readOwnedLegacyCodexIndex } from './providers/codex/codexIndexStorage';
-import { buildCodexUsageView, CodexUsageView } from './providers/codex/codexUsage';
+import { adoptCodexDiagnosticSource, buildCodexUsageView, CodexUsageView } from './providers/codex/codexUsage';
 import { codexModelSignals, CodexAchievementSignals } from './achievements';
 import {codexAchievementMoneyScopes} from './achievementMoneyScopes';
 import { codexAchievementCalendarProjection, codexAchievementTokenEvidence } from './achievementCalendar';
@@ -3720,6 +3720,7 @@ export class ClaudeCodeUsageExtension {
       this.codexView = nextView;
       this.codexInsights = buildScopedCodexInsights(nextView);
     }
+    adoptCodexDiagnosticSource(this.codexView!, nextView);
     // Display equality does not imply proof equality: period lineage markers
     // and optional effort counters can change without changing any chart.
     if (config.enableAchievements === false) {
@@ -3831,6 +3832,7 @@ export class ClaudeCodeUsageExtension {
     'dashboardAutoRefresh',
     'showWeeklyEquivalentValue',
     'showProjectUsageMatrix',
+    'showUsageThroughput', 'showUsageChange',
     'enableAchievements',
     'showAchievementNotices',
   ]);

@@ -136,7 +136,8 @@ test('joint qualifications use production per-level copy alongside formal repeti
         assert.equal(level.condition, condition);
         if (!condition) continue;
         reviewedIds.push(level.id);
-        assert.ok(card.note.includes(`${level.label}: ≥${formatAchievementCompact(level.target)} ${card.metric}; ${condition}`), level.id);
+        const target=isAchievementMoneyId(level.id)?'$'+formatAchievementInteger(Math.floor(level.target/1_000_000),locale):formatAchievementCompact(level.target);
+        assert.ok(card.note.includes(`${level.label}: ≥${target} ${card.metric}; ${condition}`), level.id);
         assert.ok(renderCatalogMarkdown([card], locale).includes(condition), level.id);
       }
     }

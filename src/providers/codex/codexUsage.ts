@@ -1,4 +1,5 @@
 import { CodexProviderSnapshot } from './codexProvider';
+import {isImmutableCodexAchievementFiles} from '../../codexAchievementRevision';
 import {
   CodexFileAggregate,
   CodexHourlyCoverage,
@@ -182,6 +183,8 @@ export interface CodexBehaviorScopesView {
 }
 
 export interface CodexUsageView {
+  /** Host-only lazy bounded diagnostic projection. Never serialize this source. */
+  diagnosticDays?: () => readonly import('../../usageDiagnostics').DiagnosticDay[];
   /** Cached display data cannot prove new awards before source verification. */
   currentManifestVerified?: boolean;
   /** Calendar day in the configured provider timezone. */
@@ -607,6 +610,49 @@ function sortedBucketKeys(
         leftKey.localeCompare(rightKey),
     )
     .map(([key]) => key || 'unknown');
+}
+
+/** Bounded host-only projection. Never use periodSlicesForFile's legacy UTC
+ * display fallback as configured-timezone diagnostic evidence. */
+export function projectCodexDiagnosticDays(
+  files: readonly CodexFileAggregate[], timeZone: string, asOfDay: string, complete: boolean,
+): import('../../usageDiagnostics').DiagnosticDay[] {
+  const keys = rollingDayKeysFromDayKey(asOfDay, 30);
+  const selected = new Set(keys);
+  const days = new Map<string, import('../../usageDiagnostics').DiagnosticDay>();
+  let allValid = complete;
+  for (const file of files) {
+    const period = file.period;
+    if (!period || period.timeZone !== timeZone || period.lineageVersion !== CODEX_PERIOD_LINEAGE_VERSION ||
+        !codexPeriodFitsAggregate(period, file.total)) { allValid = false; continue; }
+    for (const [day, slice] of Object.entries(period.days)) {
+      if (!selected.has(day)) continue;
+      const output = slice.total.outputTotal;
+      const processed = slice.total.inputTotal + output;
+      if (!Number.isSafeInteger(output) || output < 0 || !Number.isSafeInteger(processed) || processed < 0) {
+        allValid = false; continue;
+      }
+      const row = days.get(day) ?? {day, output:0, processed:0, coverage:'complete' as const, models:Object.create(null), roles:Object.create(null)};
+      row.output += output;
+      row.processed += processed;
+      for (const [model, tokens] of Object.entries(slice.byModel)) {
+        row.models![model] = (row.models![model] ?? 0) + tokens.outputTotal;
+      }
+      const attributed = Object.values(slice.byModel).reduce((sum,tokens)=>sum+tokens.outputTotal,0);
+      if (output > attributed) row.models!.unknown = (row.models!.unknown ?? 0) + output - attributed;
+      const role = file.session.role;
+      row.roles![role] = (row.roles![role] ?? 0) + output;
+      days.set(day, row);
+    }
+  }
+  // Missing rows are confirmed local zeros only under a complete current census.
+  if (allValid) for (const day of keys) {
+    if (!days.has(day)) days.set(day, {day, output:0, processed:0, coverage:'complete', models:{}, roles:{}});
+  }
+  return [...days.values()].sort((a,b)=>a.day.localeCompare(b.day)).map(row=>({
+    ...row, models:Object.fromEntries(Object.entries(row.models ?? {})), roles:Object.fromEntries(Object.entries(row.roles ?? {})),
+    coverage:allValid ? 'complete' : 'partial',
+  }));
 }
 
 function dailyRows(
@@ -1046,6 +1092,30 @@ function currentLimit(
   return windows.length > 0 ? { ...limit, windows } : null;
 }
 
+type CodexDiagnosticReader = NonNullable<CodexUsageView['diagnosticDays']>;
+// Current-source authority is captured separately from immutable numeric data.
+// Weak keys neither retain a second corpus nor make a shallow freeze trusted.
+const diagnosticReaders = new WeakMap<readonly CodexFileAggregate[], {key:string;reader:CodexDiagnosticReader}>();
+function codexDiagnosticReader(snapshot:CodexProviderSnapshot, coverage:CodexPeriodCoverage):CodexDiagnosticReader {
+  const files=snapshot.files;
+  const verified=snapshot.currentManifestVerified===true;
+  const complete=snapshot.coverage.complete&&snapshot.coverage.identity.complete&&coverage.last30Days.complete;
+  const timeZone=coverage.timeZone,asOfDay=coverage.asOfDay;
+  const key=JSON.stringify([timeZone,asOfDay,verified,complete]);
+  const immutable=isImmutableCodexAchievementFiles(files);
+  const previous=immutable?diagnosticReaders.get(files):undefined;
+  if(previous?.key===key)return previous.reader;
+  const reader:CodexDiagnosticReader=()=>verified?projectCodexDiagnosticDays(files,timeZone,asOfDay,complete):[];
+  if(immutable)diagnosticReaders.set(files,{key,reader});
+  return reader;
+}
+/** Preserve the established comparable display DTO. A retained equal view must
+ * still receive new source evidence, including changes invisible to its charts. */
+export function adoptCodexDiagnosticSource(target:CodexUsageView,source:CodexUsageView):void {
+  if(target===source||target.diagnosticDays===source.diagnosticDays)return;
+  Object.defineProperty(target,'diagnosticDays',{value:source.diagnosticDays,enumerable:false,configurable:true});
+}
+
 export function buildCodexUsageView(
   snapshot: CodexProviderSnapshot,
   now: number = Date.now(),
@@ -1201,7 +1271,7 @@ export function buildCodexUsageView(
     delete qualityFlags['ambiguous-session-identity'];
   }
 
-  return {
+  const view:CodexUsageView = {
     today: todayScope,
     currentManifestVerified: snapshot.currentManifestVerified === true,
     todayHourly: hourlyRows(
@@ -1283,4 +1353,6 @@ export function buildCodexUsageView(
     limit: currentLimit(snapshot.limit, now),
     weeklyValueInputs: snapshot.weeklyValueInputs,
   };
+  Object.defineProperty(view,'diagnosticDays',{value:codexDiagnosticReader(snapshot,periodCoverage),enumerable:false,configurable:true});
+  return view;
 }

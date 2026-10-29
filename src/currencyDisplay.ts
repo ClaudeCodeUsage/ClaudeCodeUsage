@@ -132,3 +132,17 @@ export function formatUsdForDisplay(
   if (!preference.converted) return `$${amount}`;
   return `≈${preference.label} ${amount}`;
 }
+
+/** Compact artifacts only: convert full-precision USD once, then localize whole
+ * display units. A positive amount below one unit never becomes a false zero.
+ * Existing decimal/card formatters and all pricing calculations are unchanged.
+ */
+export function formatUsdWholeForDisplay(amountUsd: number, currency: unknown, locale: string): string {
+  const preference = resolveCurrencyDisplay(currency);
+  const converted = amountUsd * preference.unitsPerUsd;
+  if (!Number.isFinite(converted) || converted < 0 || converted > Number.MAX_SAFE_INTEGER) return '—';
+  const small = converted > 0 && converted < 1;
+  const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(small ? 1 : converted);
+  const amount = preference.converted ? `≈${preference.label} ${number}` : `$${number}`;
+  return small ? `<${amount}` : amount;
+}

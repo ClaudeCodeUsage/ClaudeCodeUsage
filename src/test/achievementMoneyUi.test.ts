@@ -156,7 +156,7 @@ test('money UI: partial priced proof displays ≥ USD and coverage, with dollar 
     const rule = html.match(/<li data-achievement-level="claude-api-total-bronze">[\s\S]*?<\/li>/)?.[0];
     assert.ok(rule); assert.match(visibleText(rule), /(?:US\$|\$)\s*100\b/);
     assert.doesNotMatch(visibleText(rule), /tokens|100M|100,000,000/i);
-    const stage=html.match(/class="achievement-stage-target" title="([^"]+)"/);
+    const stage=html.match(/class="table-hint achievement-intermediate-stage" title="([^"]+)"/);
     assert.ok(stage);assert.match(stage[1],/\$200 USD/);
     assert.doesNotMatch(stage[1],/200,000,000/,'display dollars, not microUSD, in the stage tooltip');
     assert.ok(!text.includes(money.pricebookVersion!), 'card uses the shared reference disclosure');
@@ -219,7 +219,7 @@ test('money UI: full cumulative pricing with missing date proof leaves only the 
   await owner(async (host, file) => {
     const models = model(25_000_000), money = scopes(models);
     assert.equal(money.cumulative?.status, 'complete');
-    assert.equal(money.coverage.completedMondayWeekPeak.status, 'scopepending');
+    assert.equal(money.coverage.completedRollingSevenDayPeak.status, 'scopepending');
     deliver(host, models, money); await settle(host);
     const records = await moneyRecords(file);
     assert.ok(records.some(row => row.id === 'claude-api-total-bronze'));
@@ -230,19 +230,22 @@ test('money UI: full cumulative pricing with missing date proof leaves only the 
   });
 });
 
-test('money UI: independent complete Monday-week proof awards only after Sunday has ended', async () => {
+test('money UI: independent complete seven-day proof waits for all seven days to end', async () => {
   await owner(async (host, file, messages) => {
     const models = model(25_000_000), days = { complete: true, rows: [{ date: '2026-10-04', models }] };
     deliver(host, models, scopes(models, 'anthropic', days, '2026-10-04'),
       [{ date: '2026-10-04', data: usage(models) }]);
     await settle(host);
     assert.ok(!(await moneyRecords(file)).some(row => row.id.startsWith('claude-api-week-')));
-    const completed = scopes(models, 'anthropic', days, '2026-10-05');
-    assert.equal(completed.completedMondayWeekPeak, 100_000_000);
+    assert.equal(scopes(models, 'anthropic', days, '2026-10-05').completedRollingSevenDayPeak,undefined,'the first Monday does not close a seven-day window');
+    const completed = scopes(models, 'anthropic', days, '2026-10-11');
+    assert.equal(completed.completedRollingSevenDayPeak, 100_000_000);
     deliver(host, models, completed, [{ date: '2026-10-04', data: usage(models) }]);
     await settle(host);
     const weekly = (await moneyRecords(file)).find(row => row.id === 'claude-api-week-bronze');
     assert.ok(weekly); assert.equal(weekly.origin, 'history'); assert.equal(weekly.recordedDay, null);
+    assert.equal(weekly.ruleVersion,3);
+    assert.match(visibleText(card(host,'claude-api-week')),/2026-10-04 – 2026-10-10/);
     assert.equal(weekly.unread, false);
     assert.ok(!messages.some(row => row.command === 'achievementUnlockNotice'));
   });
@@ -349,4 +352,22 @@ test('money UI: exported SVG contains only explicitly selected money ranks and p
       'actual amount/current prices cannot alter the same selected public badge artifact');
     assert.match(text, /(?:US\$|\$)\s*100\b/);
   });
+});
+
+test('rolling host preserves an old Token award and explicitly labels its gallery and actual export qualification',async()=>{
+ await owner(async(host,file)=>{
+  assert.equal(host.achievementGrants.has('weekly-volume-gold'),true,'constructor migration must preserve the old calendar grant');
+  host.achievementResults();await settle(host);
+  const before=(await loadAchievementRecords(file))!.records.find(r=>r.id==='weekly-volume-gold')!;
+  assert.equal(before.ruleVersion,1);
+  deliver(host,model(0),scopes(model(0)));await settle(host);
+  assert.deepEqual((await loadAchievementRecords(file))!.records.find(r=>r.id==='weekly-volume-gold'),before);
+  const text=visibleText(card(host,'weekly-volume'));
+  assert.match(text,/previous calendar-week rule/i);
+  assert.match(text,/No verified closed seven-day window yet/);
+  const svg=host.achievementShareSvg(['weekly-volume-gold']);
+  assert.match(visibleText(svg),/previous calendar-week rule/i);
+  assert.match(svg,/data-achievement-share-badge="weekly-volume-gold"/);
+  assert.equal((svg.match(/data-achievement-share-badge=/g)||[]).length,1);
+ },['weekly-volume-gold']);
 });

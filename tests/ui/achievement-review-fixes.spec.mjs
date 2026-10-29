@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { createRequire } from 'node:module';
 import { test, expect, openClaude } from './support/app.mjs';
 
@@ -82,16 +83,62 @@ for (const locale of locales) for (const theme of ['light', 'dark']) for (const 
       await expect(next).toBeVisible();
       await expect(next).toHaveAttribute('data-overview-rank', 'silver');
       await expect(next.locator('.achievement-overview-name')).toHaveText(copy.titles['billion-token-club']);
+      await expect(next.locator('.achievement-overview-name')).toBeVisible();
       await expect(next.locator('.achievement-overview-rank')).toHaveText(`${copy.nextTarget} · ${copy.levels[1]}`);
+      await expect(next.locator('.achievement-overview-rank')).toBeVisible();
+      await expect(next.locator('.achievement-overview-progress')).toHaveText('6M / 1B');
+      await expect(next.locator('.achievement-overview-progress')).toBeVisible();
       await expect(next).toHaveAccessibleName(new RegExp(copy.titles['billion-token-club'].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
       await expect(card).toHaveAttribute('data-achievement-earned', 'true');
       await expect(card).toHaveAttribute('data-achievement-tier', 'bronze');
-      await expect(card.locator('h4')).toHaveText(copy.titles['hundred-million-club']);
-      await expect(card.locator('.achievement-rank')).toHaveText(copy.levels[0]);
+      await expect(card.locator('summary h4')).toHaveText(copy.titles['hundred-million-club']);
+      await expect(card.locator('summary h4')).toBeVisible();
+      await expect(card.locator('summary .achievement-rank')).toHaveText(copy.levels[0]);
+      await expect(card.locator('summary .achievement-rank')).toBeVisible();
       await expect(badge).toHaveAttribute('data-overview-rank', 'bronze');
+      await expect(badge.locator('.achievement-overview-name')).toHaveText(copy.titles['hundred-million-club']);
+      await expect(badge.locator('.achievement-overview-name')).toBeVisible();
       await expect(badge.locator('.achievement-overview-rank')).toHaveText(copy.levels[0]);
-      await expect(card.locator('.achievement-current-progress')).toHaveText('6M / 1B');
+      await expect(badge.locator('.achievement-overview-rank')).toBeVisible();
+      // The current subtotal and the public next-rank target share one face
+      // line. Neither the target nor its unit may disappear into a tooltip.
+      const face = card.locator('summary .achievement-next-target');
+      await expect(face).toBeVisible();
+      await expect(face).toHaveText('6M / 1B Token');
+      await expect(face.locator('.achievement-current-progress')).toHaveText('6M');
+      await expect(face.locator('.achievement-current-progress')).toBeVisible();
+      const target = face.locator('.achievement-current-progress + .achievement-stage-target');
+      await expect(target).toHaveText(' / 1B Token');
+      await expect(target).toBeVisible();
       await expectFits(page);
+    };
+    const assertDetails = async () => {
+      const detail = card.locator('.achievement-card-detail');
+      await expect(detail).toBeVisible();
+      await expect(detail.locator('.achievement-progress-label')).toHaveText(`${copy.nextTarget}: 6M / 1B ${copy.units.tokens}`);
+      await expect(detail.locator('.achievement-progress-label')).toBeVisible();
+      const progress = detail.locator('progress');
+      await expect(progress).toHaveAttribute('value', '6000001');
+      await expect(progress).toHaveAttribute('max', '1000000000');
+      const integer = new Intl.NumberFormat(locale);
+      await expect(progress).toHaveAttribute('aria-valuetext', `${integer.format(6_000_001)} / ${integer.format(1_000_000_000)} ${copy.units.tokens}`);
+      await expect(detail.locator('.achievement-common-conditions')).toContainText(copy.units.tokens);
+      // A smaller retained subtotal cannot revoke the historical bronze award
+      // or make the intermediate display stage the public silver threshold.
+      const bronze = detail.locator('[data-achievement-level="hundred-million-club"]');
+      await expect(bronze.locator('.achievement-level-name')).toHaveText(copy.levels[0]);
+      await expect(bronze.locator('.achievement-level-value')).toHaveText('100M');
+      await expect(bronze.locator('.achievement-level-value')).toBeVisible();
+      await expect(bronze.locator('[data-level-status="earned"]')).toHaveText(copy.earned);
+      await expect(bronze.locator('[data-level-status="earned"]')).toBeVisible();
+      await expect(bronze.locator('[data-date-source="unknown"]')).toBeVisible();
+      await expect(bronze.locator('time')).toHaveCount(0);
+      const silver = detail.locator('[data-achievement-level="billion-token-club"]');
+      await expect(silver.locator('.achievement-level-name')).toHaveText(copy.levels[1]);
+      await expect(silver.locator('.achievement-level-value')).toHaveText('1B');
+      await expect(silver.locator('.achievement-level-value')).toBeVisible();
+      await expect(silver.locator('[data-level-status="next"]')).toHaveText(copy.locked);
+      await expect(silver.locator('[data-level-status="next"]')).toBeVisible();
     };
     await assertRanks();
     if (locale === 'zh-CN' && theme === 'dark') {
@@ -104,10 +151,21 @@ for (const locale of locales) for (const theme of ['light', 'dark']) for (const 
     await next.press('Enter');
     await expect(card.locator('details')).toHaveAttribute('open');
     await expect(card.locator('summary')).toBeFocused();
+    await assertDetails();
     await page.reload();
     await expect(page.locator('#tab-achievements')).toHaveAttribute('aria-selected', 'true');
     await expect(card.locator('details')).toHaveAttribute('open');
     await assertRanks();
+    await assertDetails();
     await expectNoImplicitActions(page);
   });
 }
+
+
+test('light achievement hover keeps target text contrast', async ({ page }) => {
+  await openReview(page, { locale: 'en', theme: 'light', width: 960, fixture: 'achievement-review-next-rank' });
+  const card = page.locator('.achievement-card[data-achievement-key="cumulative-volume"]');
+  await card.locator(':scope > .achievement-disclosure > summary').hover();
+  const result = await new AxeBuilder({ page }).include('.achievement-collection').withRules(['color-contrast']).analyze();
+  expect(result.violations).toEqual([]);
+});

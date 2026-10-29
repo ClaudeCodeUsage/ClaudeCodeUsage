@@ -9,7 +9,7 @@ import {
   normalizeCombinedHeatmapIntensityMode, normalizeCombinedHeatmapPalette, renderCombinedHeatmapSvg,
 } from './combinedHeatmapSvg';
 import {
-  CURRENCY_REFERENCE_DATE, DisplayCurrencyCode, formatUsdForDisplay,
+  CURRENCY_REFERENCE_DATE, DisplayCurrencyCode, formatUsdForDisplay, formatUsdWholeForDisplay,
   normalizeDisplayCurrencyCode, resolveCurrencyDisplay,
 } from './currencyDisplay';
 import { DayUsage } from './heatmap';
@@ -22,6 +22,7 @@ import { SupportedLanguage } from './types';
 
 export type ApiHeatmapProvider = 'claude' | 'codex' | 'both';
 export type ApiHeatmapMetric = 'tokens' | 'apiEquivalent';
+export type ApiHeatmapPresentation = 'standard' | 'compact';
 export type ApiHeatmapPricingStatus = 'empty' | 'unpriced' | 'partial' | 'complete';
 
 /** Current floating daily estimates, never achievement reference-price money.
@@ -52,6 +53,8 @@ export interface ApiHeatmapOptions {
   metric?: ApiHeatmapMetric;
   showAmounts?: boolean;
   hideAmounts?: boolean;
+  /** Explicit amount-layout preference; defaults to the established standard artifact. */
+  presentation?: ApiHeatmapPresentation;
   range?: CombinedHeatmapRange;
   timezone?: string;
   locale?: string;
@@ -72,6 +75,7 @@ export interface ApiHeatmapConfig {
   provider: ApiHeatmapProvider;
   metric: ApiHeatmapMetric;
   showAmounts: boolean;
+  presentation: ApiHeatmapPresentation;
   range: CombinedHeatmapRange;
   timezone: string;
   locale: SupportedLanguage;
@@ -80,7 +84,7 @@ export interface ApiHeatmapConfig {
   title: string;
   palette: CombinedHeatmapPalette;
   customAccent: string;
-  intensityMode: CombinedHeatmapIntensityMode;
+  intensityMode: CombinedHeatmapIntensityMode | 'peakRelative';
   claudeBackend: 'anthropic' | 'aws-bedrock-in-region';
   dataRevision: number;
   pricingRevision: number;
@@ -97,7 +101,7 @@ export interface ApiHeatmapArtifact {
   dataQualitySignature: string;
 }
 
-export const API_HEATMAP_RENDER_VERSION = 3;
+export const API_HEATMAP_RENDER_VERSION = 6;
 
 function counter(value: unknown): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
@@ -134,6 +138,7 @@ export function normalizeApiHeatmapConfig(options: ApiHeatmapOptions): ApiHeatma
     provider: options.provider === 'claude' || options.provider === 'codex' ? options.provider : 'both',
     metric: showAmounts ? 'apiEquivalent' : 'tokens',
     showAmounts,
+    presentation: showAmounts && options.presentation === 'compact' ? 'compact' : 'standard',
     range,
     timezone: timezoneLabel(options.timezone),
     locale: artifactLocale(options.locale),
@@ -141,7 +146,8 @@ export function normalizeApiHeatmapConfig(options: ApiHeatmapOptions): ApiHeatma
     title: sanitizeCombinedHeatmapTitle(options.title, ''),
     palette: normalizeCombinedHeatmapPalette(options.palette),
     customAccent: normalizeCombinedHeatmapAccent(options.customAccent),
-    intensityMode: normalizeCombinedHeatmapIntensityMode(options.intensityMode),
+    intensityMode: showAmounts && options.presentation === 'compact' ? 'peakRelative'
+      : normalizeCombinedHeatmapIntensityMode(options.intensityMode),
     claudeBackend: options.claudeBackend === 'aws-bedrock-in-region' ? 'aws-bedrock-in-region' : 'anthropic',
     dataRevision: counter(options.dataRevision),
     pricingRevision: counter(options.pricingRevision),
@@ -227,6 +233,7 @@ function compact(value: number, config: ApiHeatmapConfig): string {
 }
 
 function money(value: number, config: ApiHeatmapConfig): string {
+  if (config.presentation === 'compact') return formatUsdWholeForDisplay(value, config.currency, config.locale);
   const rate = resolveCurrencyDisplay(config.currency).unitsPerUsd;
   const converted = checkedNumber(value * rate);
   // Avoid falsely displaying a small positive amount as true zero.
@@ -243,8 +250,7 @@ function coverage(priced: number, unpriced: number, config: ApiHeatmapConfig): s
   return `${API_HEATMAP_COPY[config.locale].coverage} ${priced}/${total} (${percentage})`;
 }
 
-function pricingSummary(days: readonly SelectedDay[], config: ApiHeatmapConfig): string {
-  const copy = API_HEATMAP_COPY[config.locale];
+function pricingTotals(days: readonly SelectedDay[]) {
   let subtotal = 0;
   let priced = 0;
   let unpriced = 0;
@@ -262,10 +268,20 @@ function pricingSummary(days: readonly SelectedDay[], config: ApiHeatmapConfig):
       subtotal = addTotal(subtotal, quality.amountUSD);
     }
   }
+  return { subtotal, priced, unpriced, hasPriced, hasData, sourceComplete };
+}
+
+function pricingSummary(days: readonly SelectedDay[], config: ApiHeatmapConfig): string {
+  const copy = API_HEATMAP_COPY[config.locale];
+  const { subtotal, priced, unpriced, hasPriced, hasData, sourceComplete } = pricingTotals(days);
   if (!hasData) return copy.noData;
   const note=sourceComplete ? '' : ` · ${copy.sourceIncomplete}`;
   if (!hasPriced) return `${copy.unpriced} · ${coverage(priced,unpriced,config)}${note}`;
-  return `${unpriced>0 || !sourceComplete ? `${copy.subtotal} ≥` : ''}${money(subtotal,config)} · ${coverage(priced,unpriced,config)}${note}`;
+  const partial = unpriced > 0 || !sourceComplete;
+  const amount = config.presentation === 'compact'
+    ? `${partial ? copy.subtotal + ' ' : ''}${money(subtotal, config)}`
+    : `${partial ? `${copy.subtotal} ≥` : ''}${money(subtotal,config)}`;
+  return `${amount} · ${coverage(priced,unpriced,config)}${note}`;
 }
 
 function activityScale(config: ApiHeatmapConfig): string[] {
@@ -284,17 +300,26 @@ function renderAmountBlock(days: readonly SelectedDay[], provider: Provider, con
   for (const day of days) usage[day.dateISO] = { tokens: day.tokens, cost: day.pricing!.amountUSD ?? 0, sessions: 0 };
   const currency = resolveCurrencyDisplay(config.currency);
   const subtitle = `${config.startDateISO} – ${config.endDateISO} · ${config.timezone} · ${config.currency}`;
-  const title = config.title || summary;
+  const compact = config.presentation === 'compact';
+  const totals = pricingTotals(days);
+  const amountLabel = !totals.hasData || !totals.hasPriced ? '—' : money(totals.subtotal, config);
+  const title = compact
+    ? `${amountLabel} ${copy.apiEquivalent} · ${name} · ${copy.compactRange[config.range]}${config.title ? ' · ' + config.title : ''}`
+    : config.title || summary;
   const backend = provider === 'claude' ? config.claudeBackend : 'openai';
   const footer = `${copy.currentPricing}: ${backend} · ${copy.notBill}`;
   const options: HeatmapSvgOptions = {
     metric: 'cost', startDateISO: config.startDateISO, endDateISO: config.endDateISO,
     locale: config.locale, scale: activityScale(config),
-    intensityMode: config.intensityMode, minWidth: 900, title,
-    subtitle: config.title ? `${summary} · ${subtitle}` : subtitle,
-    footerNote: footer, watermark: copy.missingLegend,
-    ariaLabel: `${title}. ${summary}. ${subtitle}. ${footer}. ${copy.missingLegend}`,
+    intensityMode: config.intensityMode, minWidth: compact ? 843 : 900, title,
+    subtitle: compact ? undefined : config.title ? `${summary} · ${subtitle}` : subtitle,
+    footerNote: compact ? undefined : footer, watermark: compact ? '' : copy.missingLegend,
+    promotionText: compact ? copy.promotion : undefined,
+    ariaLabel: `${title}. ${summary}. ${subtitle}. ${footer}${compact ? '' : '. ' + copy.missingLegend}`,
     cellStyle: date => {
+      // Compact cards keep quality in accessible descriptions and tooltips.
+      // No monetary fallback value is promoted to a known zero in the DTO.
+      if (compact) return undefined;
       const status = byDate.get(date)!.pricing!.status;
       if (status === 'empty') return { fill: '#f6f8fa', stroke: '#d0d7de' };
       if (status === 'unpriced') return { fill: '#d1d5db', stroke: '#6b7280' };
@@ -307,17 +332,19 @@ function renderAmountBlock(days: readonly SelectedDay[], provider: Provider, con
       const note=quality.sourceComplete ? '' : ` · ${copy.sourceIncomplete}`;
       if (quality.status === 'empty') return `${prefix} · ${copy.noData}`;
       if (quality.status === 'unpriced') return `${prefix} · ${copy.unpriced} · ${coverage(quality.pricedCount, quality.unpricedCount, config)}${note}`;
-      return `${prefix} · ${label} · ${quality.status==='partial' || !quality.sourceComplete ? `${copy.subtotal} ≥` : ''}` +
-        `${money(quality.amountUSD!,config)} · ${coverage(quality.pricedCount,quality.unpricedCount,config)}${note}`;
+      const partial = quality.status === 'partial' || !quality.sourceComplete;
+      const amount = compact ? `${partial ? copy.subtotal + ' ' : ''}${money(quality.amountUSD!,config)}`
+        : `${partial ? `${copy.subtotal} ≥` : ''}${money(quality.amountUSD!,config)}`;
+      return `${prefix} · ${label} · ${amount} · ${coverage(quality.pricedCount,quality.unpricedCount,config)}${note}`;
     },
   };
   const fx = currency.converted ? ` · FX ${currency.referenceDate}` : '';
   const svg = renderHeatmapSvg(usage, options).replace(/^(<svg[^>]*>)/, opening =>
-    `${opening}\n<desc>${escapeSvgText(`${title}. ${summary}. ${subtitle}. ${footer}${fx}. ${copy.missingLegend}`)}</desc>`);
+    `${opening}\n<desc>${escapeSvgText(`${title}. ${summary}. ${subtitle}. ${footer}${fx}${compact ? '' : '. ' + copy.missingLegend}`)}</desc>`);
   return { svg, summary };
 }
 
-function composeAmountBlocks(blocks: readonly { svg: string; summary: string }[], title: string): string {
+function composeAmountBlocks(blocks: readonly { svg: string; summary: string }[], title: string, interactive = false): string {
   const widths = blocks.map(block => Number(/width="([\d.]+)"/.exec(block.svg)![1]));
   const heights = blocks.map(block => Number(/height="([\d.]+)"/.exec(block.svg)![1]));
   const width = Math.max(...widths);
@@ -326,7 +353,7 @@ function composeAmountBlocks(blocks: readonly { svg: string; summary: string }[]
   const summary = blocks.map(block => block.summary).join('; ');
   const heading = title ? `${title}. ${summary}` : summary;
   const parts = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeSvgAttribute(heading)}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="${interactive ? 'group' : 'img'}" aria-label="${escapeSvgAttribute(heading)}">`,
     `<title>${escapeSvgText(heading)}</title>`,
   ];
   let offset = 0;
@@ -352,7 +379,7 @@ export function buildApiHeatmapArtifact(daily: ApiHeatmapDaily, options: ApiHeat
   if (config.metric === 'apiEquivalent') {
     const blocks = selections.map(({ provider, days }) => renderAmountBlock(days, provider, config));
     summary = blocks.map(block => block.summary).join('; ');
-    svg = blocks.length === 2 ? composeAmountBlocks(blocks, config.title)
+    svg = blocks.length === 2 ? composeAmountBlocks(blocks, config.title, config.presentation === 'compact')
       : blocks[0].svg.replace(/^<svg /, `<svg data-provider="${providers[0]}" `);
   } else {
     summary = selections.map(({ provider, days }) =>

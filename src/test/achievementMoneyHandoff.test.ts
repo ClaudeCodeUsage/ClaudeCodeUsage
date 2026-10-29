@@ -54,7 +54,7 @@ test('money handoff: actual dashboard transports an uncapped 1001-session peak i
   const money = snapshot.achievementMoney;
   assert.ok(money);
   assert.equal(money.maxSessionTask, 1_000_000_000);
-  assert.equal(money.completedMondayWeekPeak, 1_000_000_000);
+  assert.equal(money.completedRollingSevenDayPeak, 1_000_000_000);
   assert.equal(money.cumulative?.microUsd, 1_000_004_000);
   assert.equal(money.cumulative?.totalTokens, 250_001_000);
   assert.equal(money.cumulative?.pricingCoverage, 1);
@@ -226,7 +226,7 @@ test('money handoff: accepted priced append replaces money proof, preserves old 
   assert.equal(freshMoney.cumulative?.microUsd, 1_100_004_000);
   assert.equal(freshMoney.cumulative?.totalTokens, 275_001_000);
   assert.equal(freshMoney.maxSessionTask, 1_100_000_000);
-  assert.equal(freshMoney.completedMondayWeekPeak, 1_100_000_000);
+  assert.equal(freshMoney.completedRollingSevenDayPeak, 1_100_000_000);
   assert.equal(freshMoney.pricebookVersion, oldMoney.pricebookVersion);
   assert.equal(dashboard.sessions.length, 1000);
   assert.ok(!dashboard.sessions.some(row => row.sessionId === 'session-1000'),
@@ -286,7 +286,7 @@ test('money handoff: a TTL-proof rewrite with equal primary counters invalidates
     assert.equal(freshMoney.cumulative?.pricingCoverage, 1);
     assert.equal(freshMoney.cumulative?.microUsd, 100_000_500);
     assert.equal(freshMoney.maxSessionTask, 100_000_500);
-    assert.equal(freshMoney.completedMondayWeekPeak, 100_000_500);
+    assert.equal(freshMoney.completedRollingSevenDayPeak, 100_000_500);
     assert.equal(JSON.stringify(oldMoney), oldBytes);
     const warm = await updateClaudeUsageIndex(rewritten.index, directory, { analyzeContent: false });
     assert.equal(warm.diagnostics.bodyReads, 0);

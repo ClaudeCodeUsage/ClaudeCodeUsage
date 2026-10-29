@@ -142,16 +142,20 @@ test('an existing 144-rule v2 canonical envelope wins over stale legacy drafts w
     assert.equal(ids.length, 144);
     const host = new api.AchievementRecordRepository(current);
     const initial = await host.initialize([]);
-    const original: AchievementRecordStore = { ...initial, sequence: ids.length,
+    // Freeze the actual pre-rolling catalog header and rule versions; a fresh
+    // current repository is catalog 3 and cannot stand in for the old fixture.
+    const original: AchievementRecordStore = { ...initial, catalogVersion: 2, sequence: ids.length,
       pins: oldSeriesKeys.slice(0, 6), showcaseMode: 'manual', pinRevision: 6,
       records: ids.map((id, index) => ({ id, origin: index % 2 ? 'usage' : 'history',
         recordedDay: index % 2 ? stamp.recordedDay : null, timeZone: index % 2 ? stamp.timeZone : null,
-        ruleVersion: achievementRuleVersion(id), seq: index + 1, unread: !!(index % 2),
+        ruleVersion: RECALIBRATED_ACHIEVEMENT_IDS_V2.includes(id) ? 2 : 1, seq: index + 1, unread: !!(index % 2),
         ...(isAchievementMoneyId(id) ? { referencePricebook: reference(id) } : {}) })) };
     const bytes = JSON.stringify(api.parseAchievementRecordStore(original));
     await writeFile(current, bytes);
     const saved = await new api.AchievementRecordRepository(current).initialize(highIds);
     assert.deepEqual(saved, original);
+    assert.equal(saved.catalogVersion, 2, 'reading an old envelope does not upgrade its header');
+    assert.equal(saved.records.find(row => row.id === 'weekly-volume-bronze')!.ruleVersion, 1);
     assert.equal(await readFile(current, 'utf8'), bytes);
     const appended = await host.append(saved.generation, highIds.map(history));
     assert.deepEqual(appended.store.records.slice(0, 144), original.records);
@@ -159,7 +163,7 @@ test('an existing 144-rule v2 canonical envelope wins over stale legacy drafts w
     assert.equal(appended.store.sequence, 144 + highIds.length);
     assert.deepEqual(appended.store.pins, original.pins);
     assert.equal(appended.store.schemaVersion, 2);
-    assert.equal(appended.store.catalogVersion, 2);
+    assert.equal(appended.store.catalogVersion, 3, 'a new guarded write uses the current catalog without rewriting prior receipts');
   }));
 });
 

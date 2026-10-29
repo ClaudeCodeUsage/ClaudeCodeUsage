@@ -472,6 +472,7 @@ export interface ClaudeCredentials {
     accessToken: string;
     refreshToken: string;
     expiresAt: number;
+    scopes?: string[];
   };
 }
 

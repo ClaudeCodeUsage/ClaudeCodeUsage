@@ -39,8 +39,8 @@ test('default gallery folds legacy milestones into their themes without dropping
       assert.match(card, new RegExp(`data-achievement-milestone="${milestone}"`));
       assert.ok(card.includes(`achievement:${milestone}`), 'old disclosure alias still opens the owning theme');
       assert.match(card, new RegExp(`data-achievement-level="${milestone}"`));
-      assert.equal((card.match(/achievement-tier-pip(?: complete| next)?"/g) ?? []).length, 3,
-        'an old single milestone is not a new tier');
+      assert.equal((card.match(/class="achievement-tier-pips"/g) ?? []).length, 0,
+        'collapsed cards do not repeat the actual tier rules as dots');
     }
   });
 });
@@ -207,7 +207,7 @@ test('missing and stale proof are not zero progress, while an earned badge remai
   });
 });
 
-test('a long Token ladder exposes current progress and a display-only stage without opening its rules', async () => {
+test('a long Token ladder exposes current and target while retaining display-only stages in its details', async () => {
   await gallery(provider => {
     // This test injects exact evaluated family progress, rather than an
     // unverified index. Its presentation bound must describe that fixture.
@@ -218,11 +218,12 @@ test('a long Token ladder exposes current progress and a display-only stage with
     const read = () => provider.renderAchievementData()
       .match(/<article[^>]*data-achievement-series="astra-regular"[\s\S]*?<\/article>/)![0];
     const summary = read().split('</summary>')[0];
-    assert.match(summary, /class="achievement-current-progress"[^>]*>600M \/ 5B/);
-    assert.match(summary, /class="achievement-stage-target"[^>]*>Next stage · 1B/);
+    assert.match(summary, /class="achievement-current-progress"[^>]*>600M<\/span>/);
+    assert.match(summary, /class="achievement-stage-target"[^>]*> \/ 5B Token/);
+    assert.match(read(), /achievement-intermediate-stage[^>]*>Next stage: 1,000,000,000 processed tokens/);
     assert.doesNotMatch(summary, /data-achievement-id="[^"]*stage/);
     provider.codexAchievementVolume = () => ({ processed: 600_000_000, lowerBound: true });
-    assert.match(read().split('</summary>')[0], /class="achievement-current-progress"[^>]*>≥600M \/ 5B/);
+    assert.match(read().split('</summary>')[0], /class="achievement-current-progress"[^>]*>≥600M<\/span>/);
     provider.achievementEvidenceStates = { 'codex-lineage': 'pending' };
     const pending = read().split('</summary>')[0];
     assert.doesNotMatch(pending, /class="achievement-current-progress"|class="achievement-stage-target"/);

@@ -9,13 +9,14 @@ import { ACHIEVEMENT_COPY } from '../i18n';
 import { API_ACHIEVEMENT_DEFINITIONS } from '../achievementMoneyCatalog';
 import { achievementConditionFor } from '../achievementConditions';
 import { achievementTitleWithoutRank } from '../achievementTitles';
+import {achievementUnitFor} from '../achievementUnit';
 
 function shareBadge(svg: string, id: string): { title: string; name: string; rank: string } {
   const cell = svg.split(`<g data-achievement-share-badge="${id}">`)[1]?.split('</g>')[0];
   assert.ok(cell, id);
-  const text = [...cell.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map(match => match[1]);
+  const text = new Map([...cell.matchAll(/<text\b[^>]*data-share-field="([^"]+)"[^>]*>([\s\S]*?)<\/text>/g)].map(match => [match[1],match[2]]));
   return { title: /<title>([\s\S]*?)<\/title>/.exec(cell)![1],
-    name: text[0].replace(/<[^>]+>/g, ''), rank: text[2].replace(/<\/tspan><tspan[^>]*>/g, ' ').replace(/<[^>]+>/g, '') };
+    name: text.get('name')!.replace(/<[^>]+>/g, ''), rank: text.get('rank')!.replace(/<\/tspan><tspan[^>]*>/g, ' ').replace(/<[^>]+>/g, '') };
 }
 
 const repositoryUrl = 'https://github.com/ClaudeCodeUsage/ClaudeCodeUsage';
@@ -36,7 +37,7 @@ function textBlocks(svg: string) {
     const attribute = (name: string) => Number(new RegExp(`\\b${name}="([^"]+)"`).exec(attributes)?.[1]);
     const y = attribute('y');
     const spans = [...body.matchAll(/<tspan\b[^>]*dy="([^"]+)"[^>]*>([^<]*)<\/tspan>/g)];
-    return { x: attribute('x'), y, size: attribute('font-size'),
+    return { field: /data-share-field="([^"]+)"/.exec(attributes)?.[1], x: attribute('x'), y, size: attribute('font-size'),
       bottom: y + spans.reduce((sum, span) => sum + Number(span[1]), 0),
       lines: spans.length ? spans.map(span => span[2]) : [body] };
   });
@@ -55,7 +56,9 @@ for (const [locale, copy] of Object.entries(ACHIEVEMENT_COPY)) {
       const svg = renderAchievementShareSvg(args);
       const blocks = textBlocks(svg);
       const [heading, subtitle] = blocks;
-      const [footer, link] = blocks.slice(-2);
+      const footer=blocks.find(block=>block.field==='footer')!;
+      const moneyNote=blocks.find(block=>block.field==='money-note')!;
+      const link=blocks[blocks.length-1];
       assert.ok(heading.lines.length > 1, 'long heading must wrap');
       assert.ok(footer.lines.length > 1, 'long footer must wrap');
       assert.equal(heading.lines.join('').replace(/\s/g, ''), args.heading.replace(/\s/g, ''));
@@ -68,12 +71,12 @@ for (const [locale, copy] of Object.entries(ACHIEVEMENT_COPY)) {
         const rect = /<rect x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/.exec(cell)!;
         const [, x, y, width, height] = rect.map(Number);
         assert.ok(subtitle.bottom + 12 < y, 'subtitle/cards gap');
-        const [title, group, rank] = textBlocks(cell);
-        assert.ok(title.bottom + 4 < group.y - group.size, 'title/group gap');
-        assert.ok(group.bottom + 4 < rank.y - rank.size, 'group/rank gap');
-        assert.ok(rank.bottom + 8 < y + height, 'rank stays in card');
+        const [title, rank, group] = textBlocks(cell);
+        assert.ok(title.bottom + 4 < rank.y - rank.size, 'title/rank gap');
+        assert.ok(rank.bottom + 4 < group.y - group.size, 'rank/group gap');
+        assert.ok(group.bottom + 8 < y + height, 'group stays in card');
         for (const block of [title, group, rank]) {
-          assert.ok(block.x >= x + 80 && block.x < x + width, `${id}: labels clear the icon column`);
+          assert.equal(block.x, x + width / 2, `${id}: labels center below the artwork`);
         }
         const entry = API_ACHIEVEMENT_DEFINITIONS.find(entry => entry.id === id)!;
         const threshold = `≥$${new Intl.NumberFormat(locale).format(entry.target / 1_000_000)} USD`;
@@ -86,7 +89,8 @@ for (const [locale, copy] of Object.entries(ACHIEVEMENT_COPY)) {
         lastBottom = Math.max(lastBottom, y + height);
       }
       assert.ok(lastBottom + 16 < footer.y - footer.size, 'cards/footer gap');
-      assert.ok(footer.bottom + 12 < link.y - link.size, 'footer/link gap');
+      assert.ok(footer.bottom + 4 < moneyNote.y - moneyNote.size, 'footer/estimate gap');
+      assert.ok(moneyNote.bottom + 12 < link.y - link.size, 'estimate/link gap');
       assert.deepEqual(link.lines, [repositoryUrl]);
       const height = Number(/viewBox="0 0 1000 (\d+)"/.exec(svg)![1]);
       assert.ok(link.bottom + 24 <= height, 'link fits canvas');
@@ -139,7 +143,8 @@ for (const [locale, copy] of Object.entries(ACHIEVEMENT_COPY)) {
       levels: copy.levels, milestone: copy.milestone, footer: '<&"\'>' };
     const svg = renderAchievementShareSvg(args);
     const badge = shareBadge(svg, 'sonnet-main-silver');
-    assert.equal(badge.title, `&lt;&amp;&quot;&apos;&gt; · ${copy.levels[1]}`);
+    const target='≥'+(1_000_000_000).toLocaleString(locale,{maximumFractionDigits:0})+' '+copy.units.tokens;
+    assert.equal(badge.title, `&lt;&amp;&quot;&apos;&gt; · ${copy.levels[1]} · ${target}`);
     assert.equal(badge.name, '&lt;&amp;&quot;&apos;&gt;');
     assert.equal(badge.rank, copy.levels[1]);
     assert.equal(svg, renderAchievementShareSvg(args));
@@ -157,7 +162,9 @@ for (const [locale, copy] of Object.entries(ACHIEVEMENT_COPY)) {
       const badge = shareBadge(svg, id);
       const rank = index < 5 ? copy.levels[index] : copy.milestone;
       const name = index < 5 ? sonnetNames[locale as keyof typeof sonnetNames] : copy.titles[id];
-      assert.equal(badge.title, `${name} · ${rank}`, id);
+      const target=ACHIEVEMENT_DEFINITIONS.find(row=>row.id===id)!.target;
+      const threshold='≥'+target.toLocaleString(locale,{maximumFractionDigits:0})+' '+achievementUnitFor(id,copy.units,'USD');
+      assert.equal(badge.title, [name,rank,threshold,achievementConditionFor(locale,id)].filter(Boolean).join(' · '), id);
       // Wrapping may remove one inter-word space, but must retain the whole name.
       assert.equal(badge.name.replace(/\s/g, ''), name.replace(/\s/g, ''), id);
       assert.equal(badge.rank, rank, id);
@@ -173,7 +180,7 @@ for (const [locale, copy] of Object.entries(ACHIEVEMENT_COPY)) {
         levels: copy.levels, milestone: copy.milestone, footer: copy.heading });
       const badge = shareBadge(svg, entry.id);
       const threshold = `≥$${new Intl.NumberFormat(locale).format(entry.target / 1_000_000)} USD`;
-      assert.equal(badge.title, `${copy.titles[entry.id]} · ${threshold}`, entry.id);
+      assert.equal(badge.title, [copy.titles[entry.id],threshold,achievementConditionFor(locale,entry.id)].filter(Boolean).join(' · '), entry.id);
       const rank = copy.titles[entry.id].split(' · ').slice(-1)[0];
       assert.equal(badge.rank, `${rank} · ${threshold}`, entry.id);
       assert.equal(badge.title.split(rank).length - 1, 1, entry.id);

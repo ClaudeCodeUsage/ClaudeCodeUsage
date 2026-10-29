@@ -8,7 +8,7 @@ import { AchievementActivity, emptyAchievementActivity, parseAchievementActivity
 import { CalendarPeakEvidence, parseCalendarPeakEvidence, updateCalendarPeakEvidence } from './achievementCalendar';
 import { HourEvidence, parseHourEvidence } from './achievementHours';
 import { acquireCodexIndexLease } from './providers/codex/codexIndexLease';
-import { achievementRuleVersion, isLegacyAchievementId } from './achievementRuleVersions';
+import { achievementRuleVersion, isLegacyAchievementId, isRollingSevenDayAchievement } from './achievementRuleVersions';
 import { isAchievementMoneyId, type AchievementMoneyId } from './achievementMoneyCatalog';
 import { getAchievementMoneyPricebook } from './achievementMoney';
 import {isPublishedAchievementReferencePricebook} from './achievementReferenceBooks';
@@ -38,7 +38,7 @@ export interface AchievementUsageRecording {
   referencePricebooks?: Partial<Record<AchievementMoneyId, string>>;
 }
 export interface AchievementRecord extends AchievementRecordDraft {
-  ruleVersion: 1 | 2;
+  ruleVersion: 1 | 2 | 3;
   seq: number;
   unread: boolean;
 }
@@ -51,7 +51,7 @@ export interface AchievementRecordStore {
   records: AchievementRecord[];
   auxiliary: AchievementAuxiliaryProof;
   /** Present only in v2. Old qualifications do not confer current grant rights. */
-  catalogVersion?: 2;
+  catalogVersion?: 2 | 3;
   legacyRecords?: AchievementRecord[];
   showcaseMode?: 'automatic' | 'manual';
   pinRevision?: number;
@@ -190,17 +190,18 @@ export function parseAchievementRecordStore(value: unknown): AchievementRecordSt
     const expectedVersion = archived || version === 1 ? 1 : achievementRuleVersion(base.id);
     if ((version === 1 || archived) && !isLegacyAchievementId(base.id)) return invalid();
     if (archived && (achievementRuleVersion(base.id) !== 2 || row.unread !== false)) return invalid();
-    if (row.ruleVersion !== expectedVersion || !integer(row.seq) || row.seq <= previous || row.seq > (store.sequence as number) ||
+    const preservedCalendarGrant=version===2&&!archived&&isRollingSevenDayAchievement(base.id)&&row.ruleVersion===1;
+    if ((!preservedCalendarGrant&&row.ruleVersion !== expectedVersion) || !integer(row.seq) || row.seq <= previous || row.seq > (store.sequence as number) ||
         seen.has(base.id) || typeof row.unread !== 'boolean' ||
         ((base.origin === 'history' || base.origin === 'existing') && row.unread)) return invalid();
     seen.add(base.id); previous = row.seq;
-    return { ...base, ruleVersion: expectedVersion, seq: row.seq, unread: row.unread };
+    return { ...base, ruleVersion: preservedCalendarGrant ? 1 : expectedVersion, seq: row.seq, unread: row.unread };
     });
   }
   const result: AchievementRecordStore = { schemaVersion: version, generation: store.generation, sequence: store.sequence,
     lastNoticeAt: store.lastNoticeAt, pins: pins(store.pins, version === 2 ? 6 : 3, version===1), records: rows(store.records), auxiliary: auxiliary(store.auxiliary) };
   if (version === 2) {
-    if (store.catalogVersion !== 2 || !['automatic','manual'].includes(store.showcaseMode as string) || !integer(store.pinRevision)) return invalid();
+    if (![2,3].includes(store.catalogVersion as number) || !['automatic','manual'].includes(store.showcaseMode as string) || !integer(store.pinRevision)) return invalid();
     let boundary: AchievementRecordStore['legacyBoundary'] = null;
     if (store.legacyBoundary !== null) {
       const parsed = object(store.legacyBoundary, ['generation','sequence','signature']);
@@ -208,7 +209,7 @@ export function parseAchievementRecordStore(value: unknown): AchievementRecordSt
           typeof parsed.signature !== 'string' || !/^[a-f0-9]{64}$/.test(parsed.signature)) return invalid();
       boundary = {generation:parsed.generation,sequence:parsed.sequence,signature:parsed.signature};
     }
-    Object.assign(result, {catalogVersion:2, legacyRecords:rows(store.legacyRecords,true),
+    Object.assign(result, {catalogVersion:store.catalogVersion, legacyRecords:rows(store.legacyRecords,true),
       showcaseMode:store.showcaseMode,pinRevision:store.pinRevision,legacyBoundary:boundary});
     const receipts = new Set(result.records.map(row => row.seq));
     const currentById = new Map(result.records.map(row => [row.id,row]));
@@ -227,7 +228,7 @@ function empty(generation = 1, sequence = 0): AchievementRecordStore {
   return { schemaVersion: 1, generation, sequence, lastNoticeAt: 0, pins: [], records: [], auxiliary: emptyAuxiliary() };
 }
 function v2Empty(generation = 1, sequence = 0, legacyBoundary: AchievementRecordStore['legacyBoundary'] = null): AchievementRecordStore {
-  return {...empty(generation,sequence),schemaVersion:2,catalogVersion:2,legacyRecords:[],
+  return {...empty(generation,sequence),schemaVersion:2,catalogVersion:3,legacyRecords:[],
     showcaseMode:'automatic',pinRevision:0,legacyBoundary};
 }
 function boundaryFor(store: AchievementRecordStore): NonNullable<AchievementRecordStore['legacyBoundary']> {
@@ -239,7 +240,7 @@ function migrateV1(store: AchievementRecordStore): AchievementRecordStore {
   const result = v2Empty(store.generation + 1,store.sequence,boundaryFor(store));
   result.lastNoticeAt = store.lastNoticeAt;
   result.auxiliary = auxiliary(store.auxiliary);
-  result.records = store.records.filter(row => achievementRuleVersion(row.id) === 1).map(row => ({...row}));
+  result.records = store.records.filter(row => achievementRuleVersion(row.id) !== 2).map(row => ({...row}));
   result.legacyRecords = store.records.filter(row => achievementRuleVersion(row.id) === 2).map(row => ({...row,unread:false}));
   result.pins = store.pins.slice();
   result.showcaseMode = result.pins.length ? 'manual' : 'automatic';
@@ -378,6 +379,7 @@ export class AchievementRecordRepository {
       const store = loaded ? await this.synchronizeLegacy(loaded,guard,false) : undefined;
       if (!store || store.generation !== generation) throw new Error('achievement-record:generation');
       const before = JSON.stringify(store);
+      if(this.v2)store.catalogVersion=3;
       const pinBefore = JSON.stringify([store.pins,store.showcaseMode]);
       const value = run(store);
       if (this.v2 && pinBefore !== JSON.stringify([store.pins,store.showcaseMode])) {

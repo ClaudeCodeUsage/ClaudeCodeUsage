@@ -13,8 +13,8 @@ import * as path from 'node:path';
 const base:any = {claudeTokens:0,codexTokens:0,activeDays:0,claudeFamilies:[],codex:{modelCount:0,efforts:[],familyRootCounts:{astra:0,sol:0,luna:0}}};
 const amount = (microUsd:number,provider='claude') => ({provider,backend:provider==='codex' ? 'openai' : 'anthropic',
   pricebookVersion:getAchievementMoneyPricebook(provider==='codex' ? 'openai' : 'anthropic').version,
-  cumulative:{microUsd,status:'complete'},completedMondayWeekPeak:microUsd,maxSessionTask:microUsd,
-  coverage:{cumulative:{status:'complete'},completedMondayWeekPeak:{status:'complete'},maxSessionTask:{status:'complete'}}});
+  cumulative:{microUsd,status:'complete'},completedRollingSevenDayPeak:microUsd,maxSessionTask:microUsd,
+  coverage:{cumulative:{status:'complete'},completedRollingSevenDayPeak:{status:'complete'},maxSessionTask:{status:'complete'}}});
 const row = (facts:any,id:string) => evaluateAchievements(facts).find(r=>r.id===id);
 
 test('six provider-specific API themes have twenty-four award conditions, thresholds expressed as integer microUSD',()=>{
@@ -43,7 +43,7 @@ test('unsafe, unpriced or mismatched reference DTOs cannot authorize monetary aw
 });
 test('providers and money scopes never substitute for one another or dashboard cost',()=>{
   const money=amount(100_000_000_000);
-  money.completedMondayWeekPeak=undefined as any; money.maxSessionTask=undefined as any;
+  money.completedRollingSevenDayPeak=undefined as any; money.maxSessionTask=undefined as any;
   const facts={...base,claudeTokens:1e12,codexTokens:1e12,totalCost:1e12,money:{claude:money}};
   assert.equal(row(facts,'claude-api-total-platinum')?.unlocked,true);
   assert.equal(row(facts,'claude-api-week-bronze')?.unlocked,false);

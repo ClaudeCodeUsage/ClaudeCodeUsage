@@ -6,7 +6,17 @@
 extensão lê registros locais e mostra cada provedor conforme o significado
 dos seus dados. **Não é uma ferramenta de cobrança.**
 
-- O Codex pode mostrar entrada, saída e cache juntos com `codex.statusBarUsageFormat` opcional; vazio mantém a métrica atual. Veja [detalhes do formato](CHANGELOG.md#unreleased).
+## Atualizações de visualização e cota
+
+- As páginas de conquistas Claude e Codex compartilham um layout mais claro. As ilustrações mantêm o tamanho integral com adornos de nível nas bordas; os cartões de compartilhamento destacam as imagens em fileiras de emblemas centralizadas, preservando os critérios de conquista.
+- Os gráficos de projetos reúnem o período selecionado de 30/90 dias, o subtotal de Tokens indexados e a cobertura acima de legendas e gráficos alinhados. As datas recentes aparecem primeiro e a posição de rolagem é preservada. Continuam disponíveis as escalas diária, semanal e mensal, os filtros de projetos e a distinção entre valores desconhecidos, zero e subtotais parciais.
+- O compartilhamento de valores oferece layout compacto opcional; o padrão continua sendo o normal. Claude e Codex ficam separados. Alterações exigem uma nova prévia aceita; os bytes do SVG salvo são relidos e comparados com essa prévia.
+- Conquistas de volume e valores por provedor em sete dias usam janelas móveis encerradas de sete dias civis. Prêmios existentes preservam os registros e são identificados como regras anteriores; evidência ausente não gera datas. Os ciclos reais de redefinição de cota não mudam.
+- A análise de Claude e Codex começa pelos números principais do mesmo período, seguidos de observações, evidências e sugestões. Saída por hora decorrida e mudanças observadas no uso permanecem desativadas por padrão; a cobertura parcial continua visível. Saída por hora não é TPS de geração, e mudanças não provam causas.
+- O Codex pode mostrar entrada, saída e cache juntos com `codex.statusBarUsageFormat` opcional; vazio mantém a métrica atual. Veja [detalhes do formato](CHANGELOG.md).
+- A consulta de cota do Claude usa o endpoint OAuth atual e salva as credenciais renovadas. Veja [dados locais](LOCAL-DATA.md).
+
+As atualizações preservam o processamento local de uso. A cota do Claude usa o fluxo OAuth existente. Consulte [dados locais e limpeza](LOCAL-DATA.md).
 
 ## O essencial
 

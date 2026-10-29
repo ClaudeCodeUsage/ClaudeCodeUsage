@@ -2,6 +2,8 @@ import { SupportedLanguage } from './types';
 
 export interface ApiHeatmapCopy {
   sourceIncomplete: string;
+  compactRange: Record<'30d' | '90d' | 'year', string>;
+  promotion: string;
   apiEquivalent: string;
   tokens: string;
   estimated: string;
@@ -16,7 +18,7 @@ export interface ApiHeatmapCopy {
 }
 
 /** Compact artifact copy only; integration UI remains owned by I18n. */
-const baseCopies: Record<SupportedLanguage, Omit<ApiHeatmapCopy,'sourceIncomplete'>> = {
+const baseCopies: Record<SupportedLanguage, Omit<ApiHeatmapCopy,'sourceIncomplete' | 'compactRange' | 'promotion'>> = {
   en: { apiEquivalent: 'API equivalent', tokens: 'Processed tokens', estimated: 'Estimated', exact: 'Exact model pricing', currentPricing: 'Current pricing', noData: 'No data', unpriced: 'Unpriced', subtotal: 'Priced subtotal', coverage: 'Coverage', notBill: 'Reference estimate; not a bill or subscription usage.', missingLegend: 'Gray: unpriced; outline: no data; dashed: partial pricing.' },
   'de-DE': { apiEquivalent: 'API-Äquivalent', tokens: 'Verarbeitete Token', estimated: 'Geschätzt', exact: 'Exakte Modellpreise', currentPricing: 'Aktuelle Preise', noData: 'Keine Daten', unpriced: 'Ohne Preis', subtotal: 'Bepreiste Teilsumme', coverage: 'Abdeckung', notBill: 'Referenzschätzung; keine Rechnung oder Abonutzung.', missingLegend: 'Grau: ohne Preis; Umriss: keine Daten; gestrichelt: Teilpreise.' },
   'zh-TW': { apiEquivalent: 'API 等價金額', tokens: '已處理 Token', estimated: '估算', exact: '精確型號定價', currentPricing: '目前定價', noData: '無資料', unpriced: '未定價', subtotal: '已定價小計', coverage: '覆蓋', notBill: '參考估值；不是帳單或訂閱用量。', missingLegend: '灰色：未定價；空框：無資料；虛線：部分定價。' },
@@ -34,6 +36,21 @@ const incompleteCopies:Record<SupportedLanguage,string>={
   'pt-BR':'Subtotal indexado; histórico da origem incompleto',
   id:'Subtotal terindeks; riwayat sumber belum lengkap',
 };
+const compactCopies: Record<SupportedLanguage, Pick<ApiHeatmapCopy, 'compactRange'>> = {
+  en: { compactRange: { '30d': 'last 30 days', '90d': 'last 90 days', year: 'trailing 12 months' } },
+  'de-DE': { compactRange: { '30d': 'letzte 30 Tage', '90d': 'letzte 90 Tage', year: 'letzte 12 Monate' } },
+  'zh-TW': { compactRange: { '30d': '近 30 天', '90d': '近 90 天', year: '近 12 個月' } },
+  'zh-CN': { compactRange: { '30d': '近 30 天', '90d': '近 90 天', year: '近 12 个月' } },
+  ja: { compactRange: { '30d': '過去30日', '90d': '過去90日', year: '過去12か月' } },
+  ko: { compactRange: { '30d': '최근 30일', '90d': '최근 90일', year: '최근 12개월' } },
+  'pt-BR': { compactRange: { '30d': 'últimos 30 dias', '90d': 'últimos 90 dias', year: 'últimos 12 meses' } },
+  id: { compactRange: { '30d': '30 hari terakhir', '90d': '90 hari terakhir', year: '12 bulan terakhir' } },
+};
 export const API_HEATMAP_COPY:Record<SupportedLanguage,ApiHeatmapCopy> = Object.fromEntries(
-  Object.entries(baseCopies).map(([locale,copy])=>[locale,{...copy,sourceIncomplete:incompleteCopies[locale as SupportedLanguage]}]),
+  Object.entries(baseCopies).map(([locale,copy])=>[locale,{...copy,
+    sourceIncomplete:incompleteCopies[locale as SupportedLanguage],
+    ...compactCopies[locale as SupportedLanguage],
+    // Exact product-link copy requested for the exported artifact in every locale.
+    promotion: 'Track Claude Code + Codex with our VS Code extension ↗',
+  }]),
 ) as Record<SupportedLanguage,ApiHeatmapCopy>;

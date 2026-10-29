@@ -12,6 +12,8 @@ const { freezeClock } = require(path.resolve(__dirname, '../../tests/ui/support/
 let handler: (message: Record<string, unknown>) => Promise<void>;
 let saveDialogs = 0;
 const writes: string[] = [];
+const writtenFiles = new Map<unknown, Uint8Array>();
+const readUris: unknown[] = [];
 const posted: Record<string, any>[] = [];
 const vscode = {
   ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
@@ -38,7 +40,17 @@ const vscode = {
   workspace: {
     workspaceFolders: [],
     getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback, update: async () => undefined }),
-    fs: { writeFile: async (_uri: unknown, bytes: Uint8Array) => { writes.push(Buffer.from(bytes).toString('utf8')); } },
+    fs: {
+      writeFile: async (uri: unknown, bytes: Uint8Array) => {
+        writes.push(Buffer.from(bytes).toString('utf8')); writtenFiles.set(uri, Uint8Array.from(bytes));
+      },
+      readFile: async (uri: unknown): Promise<Uint8Array> => {
+        readUris.push(uri);
+        const bytes = writtenFiles.get(uri);
+        if (!bytes) throw new Error('synthetic-file-not-written');
+        return Uint8Array.from(bytes);
+      },
+    },
   },
 };
 const originalLoad = (Module as any)._load;
@@ -56,7 +68,7 @@ const { ClaudeDataLoader } = require('../dataLoader') as typeof import('../dataL
 (Module as any)._load = originalLoad;
 
 function provider(): any {
-  posted.length = 0; writes.length = 0; saveDialogs = 0;
+  posted.length = 0; writes.length = 0; saveDialogs = 0; writtenFiles.clear(); readUris.length = 0;
   const value = new UsageWebviewProvider({ globalState: { get: () => undefined, update: async () => undefined } } as any) as any;
   value.show();
   value.allRecords = [{ timestamp: '2026-09-01T12:00:00Z' }];
@@ -225,9 +237,14 @@ test('achievement sharing refreshes its language before saving but a started sav
     vscode.window.showSaveDialog = () => new Promise<any>(resolve => { finish = resolve; });
     const saving = handler({ command: 'exportAchievementShare', ids: request.ids, previewId: current.previewId });
     I18n.setLanguage('en');
+    await handler({ command: 'previewAchievementShare', ...request, requestId: 3 });
+    assert.equal(posted.filter(message => message.command === 'achievementShareResult').slice(-1)[0].svg, '<svg>en</svg>');
     finish({ fsPath: '/synthetic/export.svg' });
     await saving;
     assert.deepEqual(writes, ['<svg>zh-CN</svg>']);
+    assert.equal(readUris.length, 1);
+    assert.equal(posted.filter(message => message.command === 'achievementShareExportResult').slice(-1)[0].ok, true,
+      'a replacement preview during the dialog does not retire the already captured artifact');
   } finally { I18n.setLanguage(locale as Parameters<typeof I18n.setLanguage>[0]); vscode.window.showSaveDialog = originalDialog; }
 });
 
@@ -293,6 +310,42 @@ test('achievement export uses one save dialog at a time and acknowledges success
     vscode.workspace.fs.writeFile = originalWrite;
   }
 });
+
+for (const failure of ['mismatch', 'read-failure'] as const) {
+  test(`achievement export verifies saved bytes before success: ${failure}`, async () => {
+    const p = provider();
+    p.earnedAchievements = () => [{ id: 'astra-regular', group: 'codex', progress: 1, target: 1, unlocked: true }];
+    const accepted = '<svg>accepted</svg>';
+    p.achievementShareSvg = () => accepted;
+    await handler({ command: 'previewAchievementShare', ids: ['astra-regular'], clientId: 'client', requestId: 1 });
+    const preview = posted.find(message => message.command === 'achievementShareResult')!;
+    const actions: string[] = [];
+    p.recordAchievementFeature = (feature: string) => { actions.push(feature); };
+    const originalRead = vscode.workspace.fs.readFile;
+    vscode.workspace.fs.readFile = async uri => {
+      await originalRead(uri); // Also proves the exact written URI is read back.
+      if (failure === 'read-failure') throw new Error('/private/synthetic-readback-error');
+      const changed = Buffer.from(accepted, 'utf8'); changed[5] ^= 1;
+      return changed; // Same length, different bytes.
+    };
+    const message = { command: 'exportAchievementShare', ids: ['astra-regular'], previewId: preview.previewId };
+    try {
+      await assert.doesNotReject(handler(message));
+      assert.deepEqual(writes, [accepted]);
+      assert.equal(readUris.length, 1);
+      assert.deepEqual(actions, [], 'unverified bytes cannot grant the local-export milestone');
+      assert.deepEqual(posted[posted.length - 1], {
+        command: 'achievementShareExportResult', previewId: preview.previewId, ok: false, stale: false,
+      });
+      assert.equal(p.achievementExportPending, false);
+      assert.equal(JSON.stringify(posted).includes('synthetic-readback-error'), false);
+      vscode.workspace.fs.readFile = originalRead;
+      await handler(message);
+      assert.deepEqual(actions, ['localShareExport'], 'a verified retry records exactly one successful export');
+      assert.equal(posted[posted.length - 1].ok, true);
+    } finally { vscode.workspace.fs.readFile = originalRead; }
+  });
+}
 
 test('ordinary reset-all preserves secrets even if the client explicitly includes their keys', async () => {
   const p = provider();

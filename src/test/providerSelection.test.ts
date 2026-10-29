@@ -96,9 +96,12 @@ test('Codex dashboard HTML uses only classes already rendered by the Claude dash
       }],
     };
     const content: ContentAnalysis = {
-      categories: [{ key: 'assistantText', estimatedTokens: 300, charCount: 1_200, count: 1 }],
-      toolResultBreakdown: [],
-      totalEstimatedTokens: 300,
+      categories: [
+        { key: 'assistantText', estimatedTokens: 300, charCount: 1_200, count: 1 },
+        { key: 'toolResults', estimatedTokens: 100, charCount: 400, count: 1 },
+      ],
+      toolResultBreakdown: [{ key: 'Read', estimatedTokens: 100, charCount: 400, count: 1 }],
+      totalEstimatedTokens: 400,
       recentPrompts: [],
       thinkingBySession: {},
       thinkingByDay: {},

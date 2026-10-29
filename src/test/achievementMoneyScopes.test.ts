@@ -71,59 +71,59 @@ test('empty, unknown model, missing price and invalid aggregates remain distingu
   const bad = cm(); bad['claude-opus-5-5'].referenceUsage!.inputTokens = 101;
   assert.deepEqual(claudeMoneyEvidenceFromModels(bad, backend), { status: 'invalid' });
 });
-test('Claude scopes use completed Monday weeks, actual model/day prices and all session Iterable', () => {
+test('Claude scopes use closed seven-day windows, actual model/day prices and all session Iterable', () => {
   const rows = [{ date: '2026-10-11', models: cm(100, 'claude-sonnet-5-5') },
     { date: '2026-10-05', models: cm(100) }, { date: '2026-10-12', models: cm(10000) }];
   function* sessions() { for (let i = 0; i < 1000; i++) yield cm(1); yield cm(5000); }
   const result = claudeAchievementMoneyScopes({ allTimeModels: cm(999999), backend, asOfDay,
     days: { complete: true, rows }, allSessionModels: sessions(), sessionsComplete: true });
   assert.equal(result.cumulative?.microUsd, 3999996);
-  assert.equal(result.completedMondayWeekPeak, 600);
+  assert.equal(result.completedRollingSevenDayPeak, 600);
   assert.equal(result.maxSessionTask, 20000);
   assert.equal(result.pricebookVersion, getAchievementMoneyPricebook(backend).version);
   assert.equal(claudeAchievementMoneyScopes({ allTimeModels: cm(), backend, asOfDay: '2026-10-11',
-    days: { complete: true, rows: rows.slice(0, 2) } }).completedMondayWeekPeak, undefined);
+    days: { complete: true, rows: rows.slice(0, 2) } }).completedRollingSevenDayPeak, undefined);
 });
 test('identical daily projections dedup regardless of model order; TTL conflicts invalidate only week', () => {
   const models = { ...cm(), ...cm(10, 'claude-sonnet-5-5') };
   const reversed = Object.fromEntries(Object.entries(models).reverse());
   const input = { allTimeModels: models, backend, asOfDay, days: { complete: true,
     rows: [{ date: '2026-10-05', models }, { date: '2026-10-05', models: reversed }] } };
-  assert.equal(claudeAchievementMoneyScopes(input).completedMondayWeekPeak, 420);
+  assert.equal(claudeAchievementMoneyScopes(input).completedRollingSevenDayPeak, 420);
   const conflict = cm(); delete conflict['claude-opus-5-5'].referenceUsage;
   const result = claudeAchievementMoneyScopes({ ...input, days: { complete: true,
     rows: [{ date: '2026-10-05', models: cm() }, { date: '2026-10-05', models: conflict }] } });
-  assert.equal(result.completedMondayWeekPeak, undefined);
-  assert.equal(result.coverage.completedMondayWeekPeak.status, 'invalid');
+  assert.equal(result.completedRollingSevenDayPeak, undefined);
+  assert.equal(result.coverage.completedRollingSevenDayPeak.status, 'invalid');
   assert.equal(result.cumulative?.microUsd, 420);
 });
 test('scopepending, verified empty, unpriced and partial money scopes do not become total money', () => {
   const base = { allTimeModels: cm(), backend, asOfDay };
-  assert.equal(claudeAchievementMoneyScopes(base).coverage.completedMondayWeekPeak.status, 'scopepending');
+  assert.equal(claudeAchievementMoneyScopes(base).coverage.completedRollingSevenDayPeak.status, 'scopepending');
   const empty = claudeAchievementMoneyScopes({ ...base, days: { complete: true, rows: [] }, allSessionModels: [], sessionsComplete: true });
-  assert.equal(empty.coverage.completedMondayWeekPeak.status, 'empty');
+  assert.equal(empty.coverage.completedRollingSevenDayPeak.status, 'empty');
   assert.equal(empty.coverage.maxSessionTask.status, 'empty');
   const unpriced = claudeAchievementMoneyScopes({ ...base, days: { complete: true,
     rows: [{ date: '2026-10-05', models: cm(100, 'unknown') }] } });
-  assert.equal(unpriced.completedMondayWeekPeak, undefined);
-  assert.equal(unpriced.coverage.completedMondayWeekPeak.status, 'unpriced');
+  assert.equal(unpriced.completedRollingSevenDayPeak, undefined);
+  assert.equal(unpriced.coverage.completedRollingSevenDayPeak.status, 'unpriced');
   const partialModels = { ...cm(), ...cm(100, 'unknown') };
   const partial = claudeAchievementMoneyScopes({ ...base, days: { complete: true,
     rows: [{ date: '2026-10-05', models: partialModels }] } });
-  assert.equal(partial.completedMondayWeekPeak, 400);
-  assert.equal(partial.coverage.completedMondayWeekPeak.status, 'partial');
+  assert.equal(partial.completedRollingSevenDayPeak, 400);
+  assert.equal(partial.coverage.completedRollingSevenDayPeak.status, 'partial');
 });
 test('Codex root task sums each canonical file once including actual APR usage, no total/ancestor double count', () => {
   const files = [file('grand', 300, 'child'), file('other', 500), file('apr', 40, 'root', 'approval-reviewer'),
     file('child', 200, 'root'), file('root', 100)];
   const result = codexAchievementMoneyScopes({ files, complete: true, dayEvidence: proof(files), backend, asOfDay });
   assert.equal(result.cumulative?.microUsd, 2280);
-  assert.equal(result.completedMondayWeekPeak, 2280);
+  assert.equal(result.completedRollingSevenDayPeak, 2280);
   assert.equal(result.maxSessionTask, 1280);
   assert.equal(result.cumulative?.provider, 'codex');
   const huge = codexAchievementMoneyScopes({ files: [file('huge', 1_000_000)], complete: true, backend, asOfDay });
   assert.equal(huge.maxSessionTask, 2_000_000);
-  assert.equal(huge.completedMondayWeekPeak, undefined);
+  assert.equal(huge.completedRollingSevenDayPeak, undefined);
   assert.equal('multiAgentRootCount' in huge, false);
 });
 test('Codex identity conflict excludes descendants, independent root survives; no repeated prefix subtraction', () => {
@@ -139,15 +139,15 @@ test('Codex identity conflict excludes descendants, independent root survives; n
 test('Codex date proof is required and jointly checked against actual period model counters', () => {
   const files = [file('r')];
   const base = { files, complete: true, backend, asOfDay };
-  assert.equal(codexAchievementMoneyScopes(base).completedMondayWeekPeak, undefined);
+  assert.equal(codexAchievementMoneyScopes(base).completedRollingSevenDayPeak, undefined);
   const evidence = proof(files);
-  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: evidence }).completedMondayWeekPeak, 200);
+  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: evidence }).completedRollingSevenDayPeak, 200);
   evidence.days[0].models = { 'gpt-6-astra': { processed: 100, output: 0 } };
-  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: evidence }).completedMondayWeekPeak, undefined);
+  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: evidence }).completedRollingSevenDayPeak, undefined);
   const wrongZone = { ...proof(files), timeZone: 'Asia/Shanghai' };
-  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: wrongZone }).completedMondayWeekPeak, undefined);
+  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: wrongZone }).completedRollingSevenDayPeak, undefined);
   files[0].period!.days['2026-10-05'].byModel['gpt-6.1-sol'].inputTotal = 101;
-  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: proof(files) }).completedMondayWeekPeak, undefined);
+  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: proof(files) }).completedRollingSevenDayPeak, undefined);
   assert.equal(codexAchievementMoneyScopes(base).cumulative?.microUsd, 200);
 });
 test('unsafe or overflowing cumulative counters never throw into host; amount overflow has no scope value', () => {
@@ -182,8 +182,8 @@ test('Codex invalid zone cannot supply an independently complete date proof', ()
   files[0].period!.timeZone = 'not-a-zone';
   const result = codexAchievementMoneyScopes({ files, complete: true, backend, asOfDay,
     dayEvidence: { ...proof(files), timeZone: 'not-a-zone' } });
-  assert.equal(result.completedMondayWeekPeak, undefined);
-  assert.equal(result.coverage.completedMondayWeekPeak.status, 'invalid');
+  assert.equal(result.completedRollingSevenDayPeak, undefined);
+  assert.equal(result.coverage.completedRollingSevenDayPeak.status, 'invalid');
   assert.equal(result.cumulative?.microUsd, 200);
 });
 test('exact fractions round after the entire week/root, never per model or per day', () => {
@@ -193,7 +193,7 @@ test('exact fractions round after the entire week/root, never per model or per d
     return { date: `2026-10-${String(5 + i).padStart(2, '0')}`, models };
   });
   const claude = claudeAchievementMoneyScopes({ allTimeModels: {}, backend, asOfDay, days: { complete: true, rows } });
-  assert.equal(claude.completedMondayWeekPeak, 1); // 6 * 0.2, floored once.
+  assert.equal(claude.completedRollingSevenDayPeak, 1); // 6 * 0.2, floored once.
   const files = Array.from({ length: 10 }, (_, i) => {
     const f = file(String(i), 1, i ? '0' : undefined);
     f.total.cachedInput = f.byModel['gpt-6.1-sol'].cachedInput = 1;
@@ -202,29 +202,29 @@ test('exact fractions round after the entire week/root, never per model or per d
   });
   const codex = codexAchievementMoneyScopes({ files, complete: true, backend, asOfDay, dayEvidence: proof(files) });
   assert.equal(codex.cumulative?.microUsd, 1);
-  assert.equal(codex.completedMondayWeekPeak, 1);
+  assert.equal(codex.completedRollingSevenDayPeak, 1);
   assert.equal(codex.maxSessionTask, 1);
 });
 test('model/day joint buckets choose the actual highest completed week, not global rates times day marginals', () => {
   const rows = [{ date: '2026-09-28', models: cm(200, 'claude-sonnet-5-5') },
     { date: '2026-10-05', models: cm(150) }];
   const c = claudeAchievementMoneyScopes({ allTimeModels: {}, backend, asOfDay, days: { complete: true, rows } });
-  assert.equal(c.completedMondayWeekPeak, 600); // Cheaper 200 tokens is only 400.
+  assert.equal(c.completedRollingSevenDayPeak, 600); // Cheaper 200 tokens is only 400.
   const files = [file('cheap', 200), file('expensive', 150, undefined, 'root', 'gpt-6-astra')];
   const period = files[0].period!;
   period.days['2026-09-28'] = period.days['2026-10-05']; delete period.days['2026-10-05'];
   const x = codexAchievementMoneyScopes({ files, complete: true, backend, asOfDay, dayEvidence: proof(files) });
-  assert.equal(x.completedMondayWeekPeak, 1500);
+  assert.equal(x.completedRollingSevenDayPeak, 1500);
   assert.equal(x.cumulative?.microUsd, 1900);
 });
 test('independent date proof does not bless a period with missing undated usage or wrong joint subsets', () => {
   const f = file('r', 100); f.period!.days['2026-10-05'].total.inputTotal = 50;
   f.period!.days['2026-10-05'].byModel['gpt-6.1-sol'].inputTotal = 50;
   const base = { files: [f], complete: true, backend, asOfDay };
-  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: proof([f]) }).completedMondayWeekPeak, undefined);
+  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: proof([f]) }).completedRollingSevenDayPeak, undefined);
   assert.equal(codexAchievementMoneyScopes(base).maxSessionTask, 200);
   f.period = undefined;
-  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: { complete: true, timeZone: 'UTC', days: [] } }).completedMondayWeekPeak, undefined);
+  assert.equal(codexAchievementMoneyScopes({ ...base, dayEvidence: { complete: true, timeZone: 'UTC', days: [] } }).completedRollingSevenDayPeak, undefined);
 });
 test('date duplicates cannot hide component or TTL differences behind equal rounded money', () => {
   const a = cm(0), b = cm(0);
@@ -232,10 +232,10 @@ test('date duplicates cannot hide component or TTL differences behind equal roun
   b['claude-opus-5-5'].cacheReadTokens = 1;
   const result = claudeAchievementMoneyScopes({ allTimeModels: {}, backend, asOfDay,
     days: { complete: true, rows: [{ date: '2026-10-05', models: a }, { date: '2026-10-05', models: b }] } });
-  assert.equal(result.coverage.completedMondayWeekPeak.status, 'invalid');
+  assert.equal(result.coverage.completedRollingSevenDayPeak.status, 'invalid');
   for (const date of ['2026-02-30', '2026-13-01', '2026-1-01']) {
     assert.equal(claudeAchievementMoneyScopes({ allTimeModels: {}, backend, asOfDay,
-      days: { complete: true, rows: [{ date, models: cm() }] } }).completedMondayWeekPeak, undefined);
+      days: { complete: true, rows: [{ date, models: cm() }] } }).completedRollingSevenDayPeak, undefined);
   }
 });
 test('missing required price excludes only that model subset and unknown labels are never guessed', () => {
@@ -264,15 +264,15 @@ test('cycles, orphans, empty census and incomplete index preserve evidence bound
     dayEvidence: { complete: true, timeZone: 'UTC', days: [] } });
   assert.equal(empty.cumulative?.status, 'empty');
   assert.equal(empty.coverage.maxSessionTask.status, 'empty');
-  assert.equal(empty.coverage.completedMondayWeekPeak.status, 'empty');
+  assert.equal(empty.coverage.completedRollingSevenDayPeak.status, 'empty');
 });
 test('Codex period duplicate proof rows dedup; changed same-day proof or unsafe totals withhold week only', () => {
   const files = [file('r')], evidence = proof(files);
   evidence.days.push({ ...evidence.days[0] });
   const input = { files, complete: true, backend, asOfDay, dayEvidence: evidence };
-  assert.equal(codexAchievementMoneyScopes(input).completedMondayWeekPeak, 200);
+  assert.equal(codexAchievementMoneyScopes(input).completedRollingSevenDayPeak, 200);
   evidence.days[1] = { ...evidence.days[1], output: 1 };
-  assert.equal(codexAchievementMoneyScopes(input).completedMondayWeekPeak, undefined);
+  assert.equal(codexAchievementMoneyScopes(input).completedRollingSevenDayPeak, undefined);
   assert.equal(codexAchievementMoneyScopes(input).cumulative?.microUsd, 200);
   files[0].total.inputTotal = Number.MAX_SAFE_INTEGER;
   files[0].total.outputTotal = 1;

@@ -52,6 +52,36 @@ function fakeHost(request, { daily = knownDaily, locale = 'en' } = {}) {
   } };
 }
 
+test('compact amount layout retires receipts, survives reload, and restores standard on reset', async ({ page }) => {
+  await openCompare(page, { fixture:'combined-heatmap', locale:'en', theme:'dark' });
+  const layout = page.locator('#combinedHeatmapPresentation');
+  await expect(layout).toHaveValue('standard');
+  await expect(layout).toBeDisabled();
+  await page.locator('#combinedHeatmapMetric').selectOption('apiEquivalent');
+  await expect(layout).toBeEnabled();
+  await layout.selectOption('compact');
+  await expectRetired(page);
+  await expect(page.locator('#combinedHeatmapIntensityMode')).toBeDisabled();
+  await expect(page.locator('#combinedHeatmapCompactDisclosure')).toBeVisible();
+  const accepted = await acceptPreview(page);
+  expect(accepted.request.presentation).toBe('compact');
+  expect(accepted.artifact.config.intensityMode).toBe('peakRelative');
+  await expect(preview(page).locator('[data-heatmap-promotion]')).toHaveCount(2);
+  await page.reload();
+  await expect(layout).toHaveValue('compact');
+  await expect(page.locator('#combinedHeatmapMetric')).toHaveValue('apiEquivalent');
+  await page.locator('#combinedHeatmapMetric').selectOption('tokens');
+  await expect(layout).toBeDisabled();
+  await expect(page.locator('#combinedHeatmapIntensityMode')).toBeEnabled();
+  const tokenRequest = await requestPreview(page);
+  expect(tokenRequest.presentation).toBe('standard');
+  await page.locator('#combinedHeatmapMetric').selectOption('apiEquivalent');
+  await expect(layout).toHaveValue('compact');
+  await page.evaluate(() => ccuApplyLocalDataClientAction('reset-sharing-preferences'));
+  await expect(layout).toHaveValue('standard');
+  expect(await page.evaluate(() => localStorage.getItem('ccu.combinedHeatmap.presentation'))).toBeNull();
+});
+
 async function acceptPreview(page, options) {
   const request = await requestPreview(page);
   const result = fakeHost(request, options);
@@ -406,8 +436,42 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
     expect(await page.locator('#combinedHeatmapShowAmounts').evaluate(input =>
       input.closest('label').nextElementSibling.id)).toBe('combinedHeatmapAmountDisclosure');
     await acceptPreview(page, { locale });
+    const layout = panel.getByRole('combobox', { name:copy.presentationLabel, exact:true });
+    await expect(layout).toHaveValue('standard');
+    await layout.selectOption('compact');
+    await expectRetired(page);
+    await expect(page.locator('#combinedHeatmapCompactDisclosure')).toHaveText(copy.compactDisclosure);
+    const compact = await acceptPreview(page, { locale });
+    expect(compact.request.presentation).toBe('compact');
+    await expect(preview(page).locator('[data-heatmap-promotion]')).toHaveCount(2);
     const results = await new AxeBuilder({ page }).include('.combined-heatmap-panel').analyze();
     expect(results.violations).toEqual([]);
+  });
+}
+
+for (const [width,locale,theme] of [[320,'de-DE','light'],[360,'zh-CN','dark'],[360,'en','highContrast']]) {
+  test(`${width}px ${locale} ${theme} compact production sharing controls stay inside the viewport`, async ({page},testInfo)=>{
+    await openCompare(page,{fixture:'combined-heatmap',locale,theme,width,height:900});
+    await page.locator('#combinedHeatmapMetric').selectOption('apiEquivalent');
+    const layout=page.locator('#combinedHeatmapPresentation');
+    await layout.selectOption('compact');
+    await layout.focus();
+    await expect(layout).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#combinedHeatmapTitle')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(layout).toBeFocused();
+    await expect(layout).toHaveValue('compact');
+    await acceptPreview(page,{locale});
+    const panel=page.locator('[data-sharing-presentation="combinedHeatmap"]');
+    expect(await panel.evaluate(el=>el.getBoundingClientRect().right<=innerWidth+1)).toBe(true);
+    await layout.focus();
+    await page.reload();
+    await expect(layout).toHaveValue('compact');
+    const request=(await posted(page)).findLast(row=>row.command==='previewCombinedHeatmap');
+    await reply(page,fakeHost(request,{locale}).response);
+    await expect(exports(page)).toBeEnabled();
+    await panel.screenshot({path:testInfo.outputPath('compact-sharing.png')});
   });
 }
 

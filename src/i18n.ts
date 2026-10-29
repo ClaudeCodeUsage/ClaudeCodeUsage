@@ -1,4 +1,5 @@
 import { SupportedLanguage } from './types';
+import {usageDiagnosticsCopyFor, USAGE_DIAGNOSTIC_SETTING_KEYS} from './usageDiagnosticsCopy';
 import {
   formatUsdBaseline as formatUsdBaselineValue,
   formatUsdForDisplay,
@@ -74,14 +75,14 @@ export function achievementRecordStatusCopyFor(locale:string):Record<'loading'|'
 
 function apiAchievementTitles(locale: SupportedLanguage): Record<AchievementMoneyId,string> {
   const themes:Record<SupportedLanguage,readonly string[]> = {
-    en:['API-equivalent total','Weekly API equivalent','Session API equivalent','Task API equivalent'],
-    'zh-CN':['API 等价积累','单周 API 等价','单次会话 API 等价','单次任务 API 等价'],
-    'zh-TW':['API 等效累積','單週 API 等效','單次工作階段 API 等效','單次任務 API 等效'],
-    'de-DE':['API-Gegenwert gesamt','API-Gegenwert je Woche','API-Gegenwert je Sitzung','API-Gegenwert je Aufgabe'],
-    ja:['API 等価の累積','週間 API 等価','セッション API 等価','タスク API 等価'],
-    ko:['누적 API 등가','주간 API 등가','세션 API 등가','작업 API 등가'],
-    'pt-BR':['Equivalente API acumulado','Equivalente API semanal','Equivalente API por sessão','Equivalente API por tarefa'],
-    id:['Total ekuivalen API','Ekuivalen API mingguan','Ekuivalen API per sesi','Ekuivalen API per tugas'],
+    en:['API-equivalent total','Seven-day API equivalent','Session API equivalent','Task API equivalent'],
+    'zh-CN':['API 等价积累','连续七天 API 等价','单次会话 API 等价','单次任务 API 等价'],
+    'zh-TW':['API 等效累積','連續七天 API 等效','單次工作階段 API 等效','單次任務 API 等效'],
+    'de-DE':['API-Gegenwert gesamt','API-Gegenwert für sieben Tage','API-Gegenwert je Sitzung','API-Gegenwert je Aufgabe'],
+    ja:['API 等価の累積','連続7日 API 等価','セッション API 等価','タスク API 等価'],
+    ko:['누적 API 등가','연속 7일 API 등가','세션 API 등가','작업 API 등가'],
+    'pt-BR':['Equivalente API acumulado','Equivalente API em sete dias','Equivalente API por sessão','Equivalente API por tarefa'],
+    id:['Total ekuivalen API','Ekuivalen API tujuh hari','Ekuivalen API per sesi','Ekuivalen API per tugas'],
   };
   const levels:Record<SupportedLanguage,readonly string[]> = {
     en:['Bronze','Silver','Gold','Platinum','Legendary'], 'zh-CN':['铜','银','金','铂金','传奇'],
@@ -90,7 +91,7 @@ function apiAchievementTitles(locale: SupportedLanguage): Record<AchievementMone
     'pt-BR':['Bronze','Prata','Ouro','Platina','Lendário'],id:['Perunggu','Perak','Emas','Platina','Legendaris'],
   };
   return Object.fromEntries(API_ACHIEVEMENT_DEFINITIONS.map(row=>{
-    const theme=row.scope==='cumulative' ? 0 : row.scope==='completedMondayWeekPeak' ? 1 : row.group==='claude' ? 2 : 3;
+    const theme=row.scope==='cumulative' ? 0 : row.scope==='completedRollingSevenDayPeak' ? 1 : row.group==='claude' ? 2 : 3;
     const parts=row.id.split('-');
     const rank=['bronze','silver','gold','platinum','legendary'].indexOf(parts[parts.length-1]);
     return [row.id,(row.group==='claude' ? 'Claude' : 'Codex')+' '+themes[locale][theme]+' · '+levels[locale][rank]];
@@ -327,8 +328,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'model-relay-roots-gold': 'Multi-model tasks · Gold',
       'active-days-bronze': 'Active days · Bronze', 'active-days-silver': 'Active days · Silver',
       'active-days-gold': 'Active days · Gold',
-      'weekly-volume-bronze': 'Weekly volume · Bronze', 'weekly-volume-silver': 'Weekly volume · Silver',
-      'weekly-volume-gold': 'Weekly volume · Gold',
+      'weekly-volume-bronze': 'Seven-day volume · Bronze', 'weekly-volume-silver': 'Seven-day volume · Silver',
+      'weekly-volume-gold': 'Seven-day volume · Gold',
       'output-hours-bronze': 'Hourly output · Bronze', 'output-hours-silver': 'Hourly output · Silver',
       'output-hours-gold': 'Hourly output · Gold', 'night-output-peak': 'Night-time output pattern',
       'settings-explorer-bronze': 'Settings explorer · Bronze', 'settings-explorer-silver': 'Settings explorer · Silver',
@@ -482,8 +483,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'model-relay-roots-gold': '多模型任务·金',
       'active-days-bronze': '活跃日积累·铜', 'active-days-silver': '活跃日积累·银',
       'active-days-gold': '活跃日积累·金',
-      'weekly-volume-bronze': '单周用量·铜', 'weekly-volume-silver': '单周用量·银',
-      'weekly-volume-gold': '单周用量·金',
+      'weekly-volume-bronze': '连续七天用量·铜', 'weekly-volume-silver': '连续七天用量·银',
+      'weekly-volume-gold': '连续七天用量·金',
       'output-hours-bronze': '逐小时输出·铜', 'output-hours-silver': '逐小时输出·银',
       'output-hours-gold': '逐小时输出·金', 'night-output-peak': '夜间输出偏好',
       'settings-explorer-bronze': '设置探索·铜', 'settings-explorer-silver': '设置探索·银',
@@ -636,8 +637,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'model-relay-roots-gold': '多模型任務・金',
       'active-days-bronze': '活躍日累積・銅', 'active-days-silver': '活躍日累積・銀',
       'active-days-gold': '活躍日累積・金',
-      'weekly-volume-bronze': '單週用量・銅', 'weekly-volume-silver': '單週用量・銀',
-      'weekly-volume-gold': '單週用量・金',
+      'weekly-volume-bronze': '連續七天用量・銅', 'weekly-volume-silver': '連續七天用量・銀',
+      'weekly-volume-gold': '連續七天用量・金',
       'output-hours-bronze': '逐時輸出・銅', 'output-hours-silver': '逐時輸出・銀',
       'output-hours-gold': '逐時輸出・金', 'night-output-peak': '夜間輸出傾向',
       'settings-explorer-bronze': '設定探索・銅', 'settings-explorer-silver': '設定探索・銀',
@@ -790,8 +791,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'model-relay-roots-gold': 'Mehrmodell-Aufgaben · Gold',
       'active-days-bronze': 'Aktive Tage · Bronze', 'active-days-silver': 'Aktive Tage · Silber',
       'active-days-gold': 'Aktive Tage · Gold',
-      'weekly-volume-bronze': 'Wochenvolumen · Bronze', 'weekly-volume-silver': 'Wochenvolumen · Silber',
-      'weekly-volume-gold': 'Wochenvolumen · Gold',
+      'weekly-volume-bronze': 'Sieben-Tage-Volumen · Bronze', 'weekly-volume-silver': 'Sieben-Tage-Volumen · Silber',
+      'weekly-volume-gold': 'Sieben-Tage-Volumen · Gold',
       'output-hours-bronze': 'Stündliche Ausgabe · Bronze', 'output-hours-silver': 'Stündliche Ausgabe · Silber',
       'output-hours-gold': 'Stündliche Ausgabe · Gold', 'night-output-peak': 'Nächtliches Ausgabemuster',
       'settings-explorer-bronze': 'Einstellungen · Bronze', 'settings-explorer-silver': 'Einstellungen · Silber',
@@ -944,8 +945,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'model-relay-roots-gold': '複数モデルのタスク · ゴールド',
       'active-days-bronze': '活動日の蓄積 · ブロンズ', 'active-days-silver': '活動日の蓄積 · シルバー',
       'active-days-gold': '活動日の蓄積 · ゴールド',
-      'weekly-volume-bronze': '週間使用量 · ブロンズ', 'weekly-volume-silver': '週間使用量 · シルバー',
-      'weekly-volume-gold': '週間使用量 · ゴールド',
+      'weekly-volume-bronze': '連続7日使用量 · ブロンズ', 'weekly-volume-silver': '連続7日使用量 · シルバー',
+      'weekly-volume-gold': '連続7日使用量 · ゴールド',
       'output-hours-bronze': '毎時出力 · ブロンズ', 'output-hours-silver': '毎時出力 · シルバー',
       'output-hours-gold': '毎時出力 · ゴールド', 'night-output-peak': '夜間の出力傾向',
       'settings-explorer-bronze': '設定探索 · ブロンズ', 'settings-explorer-silver': '設定探索 · シルバー',
@@ -1098,8 +1099,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'model-relay-roots-gold': '다중 모델 작업 · 골드',
       'active-days-bronze': '활동일 누적 · 브론즈', 'active-days-silver': '활동일 누적 · 실버',
       'active-days-gold': '활동일 누적 · 골드',
-      'weekly-volume-bronze': '주간 사용량 · 브론즈', 'weekly-volume-silver': '주간 사용량 · 실버',
-      'weekly-volume-gold': '주간 사용량 · 골드',
+      'weekly-volume-bronze': '연속 7일 사용량 · 브론즈', 'weekly-volume-silver': '연속 7일 사용량 · 실버',
+      'weekly-volume-gold': '연속 7일 사용량 · 골드',
       'output-hours-bronze': '시간별 출력 · 브론즈', 'output-hours-silver': '시간별 출력 · 실버',
       'output-hours-gold': '시간별 출력 · 골드', 'night-output-peak': '야간 출력 패턴',
       'settings-explorer-bronze': '설정 탐색 · 브론즈', 'settings-explorer-silver': '설정 탐색 · 실버',
@@ -1252,8 +1253,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'model-relay-roots-gold': 'Tarefas multimodelo · Ouro',
       'active-days-bronze': 'Dias ativos · Bronze', 'active-days-silver': 'Dias ativos · Prata',
       'active-days-gold': 'Dias ativos · Ouro',
-      'weekly-volume-bronze': 'Volume semanal · Bronze', 'weekly-volume-silver': 'Volume semanal · Prata',
-      'weekly-volume-gold': 'Volume semanal · Ouro',
+      'weekly-volume-bronze': 'Volume em sete dias · Bronze', 'weekly-volume-silver': 'Volume em sete dias · Prata',
+      'weekly-volume-gold': 'Volume em sete dias · Ouro',
       'output-hours-bronze': 'Saída por hora · Bronze', 'output-hours-silver': 'Saída por hora · Prata',
       'output-hours-gold': 'Saída por hora · Ouro', 'night-output-peak': 'Padrão de saída noturna',
       'settings-explorer-bronze': 'Configurações · Bronze', 'settings-explorer-silver': 'Configurações · Prata',
@@ -1406,8 +1407,8 @@ const BASE_ACHIEVEMENT_COPY: Record<SupportedLanguage, BaseAchievementCopy> = {
       'model-relay-roots-gold': 'Tugas multimodel · Emas',
       'active-days-bronze': 'Akumulasi hari aktif · Perunggu', 'active-days-silver': 'Akumulasi hari aktif · Perak',
       'active-days-gold': 'Akumulasi hari aktif · Emas',
-      'weekly-volume-bronze': 'Volume mingguan · Perunggu', 'weekly-volume-silver': 'Volume mingguan · Perak',
-      'weekly-volume-gold': 'Volume mingguan · Emas',
+      'weekly-volume-bronze': 'Volume tujuh hari · Perunggu', 'weekly-volume-silver': 'Volume tujuh hari · Perak',
+      'weekly-volume-gold': 'Volume tujuh hari · Emas',
       'output-hours-bronze': 'Keluaran per jam · Perunggu', 'output-hours-silver': 'Keluaran per jam · Perak',
       'output-hours-gold': 'Keluaran per jam · Emas', 'night-output-peak': 'Pola keluaran malam',
       'settings-explorer-bronze': 'Jelajah pengaturan · Perunggu', 'settings-explorer-silver': 'Jelajah pengaturan · Perak',
@@ -6371,6 +6372,10 @@ export function achievementEffortCopyFor(language: SupportedLanguage): {
 }
 
 export interface ApiHeatmapUiTranslations {
+  presentationLabel: string;
+  presentationStandard: string;
+  presentationCompact: string;
+  compactDisclosure: string;
   providerLabel: string;
   bothProviders: string;
   metricLabel: string;
@@ -6391,6 +6396,10 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
     "metricLabel": "Dimension",
     "amountMetric": "API equivalent (includes amounts)",
     "showAmounts": "Include monetary amounts",
+    "presentationLabel": "Amount layout",
+    "presentationStandard": "Standard",
+    "presentationCompact": "Compact",
+    "compactDisclosure": "Compact amounts use whole display units and colors relative to the daily peak. Unknown amounts stay —; partial amounts are indexed subtotals. Quality details remain in the image description and daily tooltips.",
     "amountDisclosure": "The export includes current estimated amounts and amount-based colors for each selected provider. It is not a bill or subscription usage.",
     "stale": "Preview changed. Generate a new preview before exporting.",
     "failed": "Could not generate or save this preview. Try again.",
@@ -6404,6 +6413,10 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
     "metricLabel": "Dimension",
     "amountMetric": "API-Gegenwert (mit Beträgen)",
     "showAmounts": "Geldbeträge einschließen",
+    "presentationLabel": "Betragslayout",
+    "presentationStandard": "Standard",
+    "presentationCompact": "Kompakt",
+    "compactDisclosure": "Kompakte Beträge werden ganzzahlig angezeigt; Farben beziehen sich auf den Tageshöchstwert. Unbekannte Beträge bleiben —; Teilbeträge sind indizierte Teilsummen. Qualitätsdetails stehen in Bildbeschreibung und Tages-Tooltips.",
     "amountDisclosure": "Der Export enthält aktuelle geschätzte Beträge und betragsabhängige Farben je gewähltem Anbieter. Er ist keine Rechnung oder Abonutzung.",
     "stale": "Vorschau geändert. Vor dem Export neu erzeugen.",
     "failed": "Vorschau konnte nicht erzeugt oder gespeichert werden. Erneut versuchen.",
@@ -6417,6 +6430,10 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
     "metricLabel": "維度",
     "amountMetric": "API 等價金額（含金額）",
     "showAmounts": "包含金額",
+    "presentationLabel": "金額版式",
+    "presentationStandard": "標準",
+    "presentationCompact": "緊湊",
+    "compactDisclosure": "緊湊版式以整數顯示金額，色階按每日峰值比例劃分。未知金額保留 —，部分金額為已索引小計；品質詳情保留於圖片說明和每日提示。",
     "amountDisclosure": "匯出將包含各所選供應商的目前估值及金額色階，不代表帳單或訂閱用量。",
     "stale": "預覽已變更，請重新產生預覽後匯出。",
     "failed": "無法產生或儲存預覽，請重試。",
@@ -6430,6 +6447,10 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
     "metricLabel": "维度",
     "amountMetric": "API 等价金额（含金额）",
     "showAmounts": "包含金额",
+    "presentationLabel": "金额版式",
+    "presentationStandard": "标准",
+    "presentationCompact": "紧凑",
+    "compactDisclosure": "紧凑版式以整数显示金额，色阶按每日峰值比例划分。未知金额保留 —，部分金额为已索引小计；质量详情保留于图片说明和每日提示。",
     "amountDisclosure": "导出将包含各所选供应商的当前估值及金额色阶，不代表账单或订阅用量。",
     "stale": "预览已变更，请重新生成预览后导出。",
     "failed": "无法生成或保存预览，请重试。",
@@ -6443,6 +6464,10 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
     "metricLabel": "指標",
     "amountMetric": "API 相当額（金額を含む）",
     "showAmounts": "金額を含める",
+    "presentationLabel": "金額のレイアウト",
+    "presentationStandard": "標準",
+    "presentationCompact": "コンパクト",
+    "compactDisclosure": "コンパクト表示では金額を整数に丸め、日別の最大値に対する割合で配色します。不明な金額は —、一部の金額は索引済み小計です。品質の詳細は画像の説明と日別ツールチップに残ります。",
     "amountDisclosure": "選択した各プロバイダーの現在の推定額と金額に基づく色を出力します。請求額やサブスク使用量ではありません。",
     "stale": "プレビューが変わりました。再生成してから出力してください。",
     "failed": "プレビューを生成または保存できませんでした。再試行してください。",
@@ -6456,6 +6481,10 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
     "metricLabel": "지표",
     "amountMetric": "API 환산 금액(금액 포함)",
     "showAmounts": "금액 포함",
+    "presentationLabel": "금액 레이아웃",
+    "presentationStandard": "표준",
+    "presentationCompact": "간결",
+    "compactDisclosure": "간결 보기에서는 금액을 정수로 표시하고 일별 최댓값에 대한 비율로 색상을 정합니다. 알 수 없는 금액은 —, 일부 금액은 색인된 소계입니다. 품질 정보는 이미지 설명과 일별 도움말에 유지됩니다.",
     "amountDisclosure": "선택한 각 제공자의 현재 추정 금액과 금액 기반 색상이 내보내기에 포함됩니다. 청구액이나 구독 사용량이 아닙니다.",
     "stale": "미리보기가 변경되었습니다. 다시 생성한 후 내보내세요.",
     "failed": "미리보기를 생성하거나 저장하지 못했습니다. 다시 시도하세요.",
@@ -6469,6 +6498,10 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
     "metricLabel": "Dimensão",
     "amountMetric": "Equivalente de API (inclui valores)",
     "showAmounts": "Incluir valores monetários",
+    "presentationLabel": "Layout dos valores",
+    "presentationStandard": "Padrão",
+    "presentationCompact": "Compacto",
+    "compactDisclosure": "O modo compacto usa valores inteiros e cores relativas ao pico diário. Valores desconhecidos continuam —; valores parciais são subtotais indexados. Detalhes de qualidade permanecem na descrição da imagem e nas dicas diárias.",
     "amountDisclosure": "A exportação inclui estimativas atuais e cores baseadas nos valores de cada provedor selecionado. Não representa fatura ou uso da assinatura.",
     "stale": "A prévia mudou. Gere uma nova antes de exportar.",
     "failed": "Não foi possível gerar ou salvar a prévia. Tente novamente.",
@@ -6482,6 +6515,10 @@ export const API_HEATMAP_UI_TRANSLATIONS: Record<SupportedLanguage, ApiHeatmapUi
     "metricLabel": "Dimensi",
     "amountMetric": "Setara API (termasuk nilai uang)",
     "showAmounts": "Sertakan nilai uang",
+    "presentationLabel": "Tata letak nilai",
+    "presentationStandard": "Standar",
+    "presentationCompact": "Ringkas",
+    "compactDisclosure": "Tampilan ringkas menggunakan nilai bulat dan warna relatif terhadap puncak harian. Nilai tidak diketahui tetap —; nilai parsial adalah subtotal terindeks. Detail kualitas tetap tersedia dalam deskripsi gambar dan tooltip harian.",
     "amountDisclosure": "Ekspor memuat estimasi saat ini dan warna berbasis nilai untuk tiap penyedia terpilih. Bukan tagihan atau penggunaan langganan.",
     "stale": "Pratinjau berubah. Buat ulang sebelum mengekspor.",
     "failed": "Pratinjau tidak dapat dibuat atau disimpan. Coba lagi.",
@@ -6501,6 +6538,15 @@ const CODEX_COMPRESSION_RUNTIME_UNSUPPORTED: Record<SupportedLanguage, string> =
   'pt-BR': 'O ambiente de execução atual do VS Code não suporta logs compactados do Codex. Atualize o VS Code. Os últimos dados verificados são mantidos.',
   id: 'Runtime VS Code saat ini tidak mendukung log Codex terkompresi. Perbarui VS Code. Data terakhir yang terverifikasi tetap dipertahankan.',
 };
+
+// Diagnostic settings share the same eight-locale copy as their content panels.
+for (const locale of ['en','de-DE','zh-TW','zh-CN','ja','ko','pt-BR','id'] as SupportedLanguage[]) {
+  const copy=usageDiagnosticsCopyFor(locale);
+  const entries=SETTINGS_I18N[locale] ?? (SETTINGS_I18N[locale]={});
+  USAGE_DIAGNOSTIC_SETTING_KEYS.forEach((key,index)=>{
+    entries[key]={label:[copy.throughput,copy.change][index],help:copy.settingHelp};
+  });
+}
 
 export class I18n {
   private static currentLanguage: SupportedLanguage = 'en';
@@ -6635,9 +6681,15 @@ export class I18n {
     return SHARING_WORKSPACE_TRANSLATIONS[this.currentLanguage];
   }
 
+  static get visualization() { return VISUALIZATION_COPY[this.getCurrentLanguage()]; }
+
+  static get projectChartControls() { return PROJECT_CHART_CONTROLS[this.getCurrentLanguage()]; }
+
   static get apiHeatmap() {
     return { ...API_HEATMAP_COPY[this.currentLanguage], ...API_HEATMAP_UI_TRANSLATIONS[this.currentLanguage] };
   }
+
+  static get usageDiagnostics() { return usageDiagnosticsCopyFor(this.currentLanguage); }
 
   static get dashboardFeedback(): typeof DASHBOARD_FEEDBACK_TRANSLATIONS.en {
     return DASHBOARD_FEEDBACK_TRANSLATIONS[this.currentLanguage];
@@ -6727,3 +6779,147 @@ export class I18n {
     return num.toLocaleString(this.currentLanguage);
   }
 }
+
+export const PROJECT_CHART_CONTROLS = {
+  "en": {
+    "scale": "Scale",
+    "area": "Stacked area",
+    "reset": "Project availability or source changed; the filter was reset.",
+    "day": "Day",
+    "week": "Week",
+    "month": "Month",
+    "filter": "Filter projects",
+    "all": "All projects",
+    "none": "Clear selection",
+    "unknown": "Unknown",
+    "empty": "No selected project data.",
+    "bounded": "Project selection lists the first 200 names; All projects includes the complete source.",
+    "legend": "Zero is confirmed inactivity; hatching is unknown; a dot marks a partial subtotal. * = clipped calendar period.",
+    "subtotal": "Stacked areas show indexed Token subtotals; unknown contributions break the band."
+  },
+  "zh-CN": {
+    "scale": "尺度",
+    "area": "堆叠面积",
+    "reset": "项目范围或来源已变化，筛选已重置。",
+    "day": "日",
+    "week": "周",
+    "month": "月",
+    "filter": "筛选项目",
+    "all": "全部项目",
+    "none": "清空选择",
+    "unknown": "未知",
+    "empty": "所选范围暂无项目数据。",
+    "bounded": "筛选列出前200个项目；全部项目包含完整来源。",
+    "legend": "零表示已确认无活动；纹理表示未知；圆点表示部分小计。* 表示截断的日历周期。",
+    "subtotal": "堆叠面积表示已索引Token小计，未知贡献处不连线。"
+  },
+  "zh-TW": {
+    "scale": "尺度",
+    "area": "堆疊面積",
+    "reset": "專案範圍或來源已變更，篩選已重設。",
+    "day": "日",
+    "week": "週",
+    "month": "月",
+    "filter": "篩選專案",
+    "all": "全部專案",
+    "none": "清除選擇",
+    "unknown": "未知",
+    "empty": "所選範圍暫無專案資料。",
+    "bounded": "篩選列出前200個專案；全部專案包含完整來源。",
+    "legend": "零表示已確認無活動；紋理表示未知；圓點表示部分小計。* 表示截斷的日曆週期。",
+    "subtotal": "堆疊面積表示已索引Token小計，未知貢獻處不連線。"
+  },
+  "de-DE": {
+    "scale": "Skala",
+    "area": "Gestapelte Fläche",
+    "reset": "Projektumfang oder Quelle geändert; Filter zurückgesetzt.",
+    "day": "Tag",
+    "week": "Woche",
+    "month": "Monat",
+    "filter": "Projekte filtern",
+    "all": "Alle Projekte",
+    "none": "Auswahl leeren",
+    "unknown": "Unbekannt",
+    "empty": "Keine ausgewählten Projektdaten.",
+    "bounded": "Die Auswahl zeigt die ersten 200 Namen; Alle Projekte umfasst die gesamte Quelle.",
+    "legend": "Null: bestätigte Inaktivität. Schraffur: unbekannt. Punkt: Teilsumme. *: gekürzter Kalenderzeitraum.",
+    "subtotal": "Flächen zeigen indexierte Token-Teilsummen; unbekannte Beiträge unterbrechen das Band."
+  },
+  "ja": {
+    "scale": "粒度",
+    "area": "積み上げ面",
+    "reset": "プロジェクトまたはソースが変更されたため、絞り込みをリセットしました。",
+    "day": "日",
+    "week": "週",
+    "month": "月",
+    "filter": "プロジェクトを絞り込み",
+    "all": "すべて",
+    "none": "選択を解除",
+    "unknown": "不明",
+    "empty": "選択したプロジェクトのデータがありません。",
+    "bounded": "先頭200件を表示。「すべて」は全データを含みます。",
+    "legend": "ゼロは確認済み非活動、斜線は不明、点は部分集計。* は一部の暦期間。",
+    "subtotal": "積み上げ面は索引済みToken小計。不明部分は接続しません。"
+  },
+  "ko": {
+    "scale": "단위",
+    "area": "누적 영역",
+    "reset": "프로젝트 또는 원본이 변경되어 필터를 초기화했습니다.",
+    "day": "일",
+    "week": "주",
+    "month": "월",
+    "filter": "프로젝트 필터",
+    "all": "전체 프로젝트",
+    "none": "선택 지우기",
+    "unknown": "알 수 없음",
+    "empty": "선택한 프로젝트 데이터가 없습니다.",
+    "bounded": "처음 200개 이름을 표시합니다. 전체는 모든 원본을 포함합니다.",
+    "legend": "0은 확인된 비활동, 무늬는 미상, 점은 부분 합계. *는 일부 달력 기간입니다.",
+    "subtotal": "누적 면적은 색인된 Token 소계이며 미상 구간은 연결하지 않습니다."
+  },
+  "pt-BR": {
+    "scale": "Escala",
+    "area": "Área empilhada",
+    "reset": "Projetos ou fonte alterados; filtro redefinido.",
+    "day": "Dia",
+    "week": "Semana",
+    "month": "Mês",
+    "filter": "Filtrar projetos",
+    "all": "Todos os projetos",
+    "none": "Limpar seleção",
+    "unknown": "Desconhecido",
+    "empty": "Sem dados dos projetos selecionados.",
+    "bounded": "A seleção lista os primeiros 200 nomes; Todos inclui a fonte completa.",
+    "legend": "Zero: inatividade confirmada; hachura: desconhecido; ponto: subtotal parcial. *: período incompleto.",
+    "subtotal": "Áreas mostram subtotais de Token indexados; dados desconhecidos interrompem a faixa."
+  },
+  "id": {
+    "scale": "Skala",
+    "area": "Area bertumpuk",
+    "reset": "Proyek atau sumber berubah; filter diatur ulang.",
+    "day": "Hari",
+    "week": "Minggu",
+    "month": "Bulan",
+    "filter": "Filter proyek",
+    "all": "Semua proyek",
+    "none": "Hapus pilihan",
+    "unknown": "Tidak diketahui",
+    "empty": "Tidak ada data proyek terpilih.",
+    "bounded": "Pilihan menampilkan 200 nama pertama; Semua mencakup seluruh sumber.",
+    "legend": "Nol: tidak aktif terverifikasi; arsiran: tidak diketahui; titik: subtotal parsial. *: periode kalender terpotong.",
+    "subtotal": "Area menunjukkan subtotal Token terindeks; kontribusi tak diketahui memutus pita."
+  }
+} as const;
+
+
+/** Shared presentation copy; metrics and eligibility remain provider-specific. */
+export const VISUALIZATION_COPY = {
+  en: { evidenceDetails: 'Methods and evidence', observedChange: 'Output change: {delta} Token', expired: 'Expired observation; no current rate is available.', stale: 'The last observation is stale; no current rate is available.', compactOutputHours: 'output-covered hours', compactWeeks: 'closed weeks', compactConditions: 'conditions', compactFeatures: 'local features', compactSettings: 'settings', completed: 'Completed' },
+  'zh-CN': { evidenceDetails: '统计口径与依据', observedChange: '输出变化：{delta} Token', expired: '观测已过期，当前速率不可用。', stale: '末次观测已陈旧，当前速率不可用。', compactOutputHours: '个输出覆盖小时', compactWeeks: '个完整周', compactConditions: '项条件', compactFeatures: '项本地功能', compactSettings: '项设置', completed: '已完成' },
+  'zh-TW': { evidenceDetails: '統計口徑與依據', observedChange: '輸出變化：{delta} Token', expired: '觀測已過期，目前速率不可用。', stale: '最後觀測已陳舊，目前速率不可用。', compactOutputHours: '個輸出涵蓋小時', compactWeeks: '個完整週', compactConditions: '項條件', compactFeatures: '項本機功能', compactSettings: '項設定', completed: '已完成' },
+  'de-DE': { evidenceDetails: 'Methoden und Belege', observedChange: 'Änderung der Ausgabe: {delta} Token', expired: 'Beobachtung abgelaufen; keine aktuelle Rate verfügbar.', stale: 'Letzte Beobachtung veraltet; keine aktuelle Rate verfügbar.', compactOutputHours: 'Stunden mit Ausgabe', compactWeeks: 'abgeschlossene Wochen', compactConditions: 'Bedingungen', compactFeatures: 'lokale Funktionen', compactSettings: 'Einstellungen', completed: 'Abgeschlossen' },
+  ja: { evidenceDetails: '集計方法と根拠', observedChange: '出力の変化：{delta} Token', expired: '観測の有効期限切れのため、現在の率は利用できません。', stale: '最終観測が古いため、現在の率は利用できません。', compactOutputHours: '出力があった時間枠', compactWeeks: '終了済み週', compactConditions: '条件', compactFeatures: 'ローカル機能', compactSettings: '設定項目', completed: '完了' },
+  ko: { evidenceDetails: '집계 방법 및 근거', observedChange: '출력 변화: {delta} Token', expired: '관측이 만료되어 현재 속도를 확인할 수 없습니다.', stale: '최근 관측이 오래되어 현재 속도를 확인할 수 없습니다.', compactOutputHours: '출력이 있는 시간', compactWeeks: '완료된 주', compactConditions: '조건', compactFeatures: '로컬 기능', compactSettings: '설정', completed: '완료' },
+  'pt-BR': { evidenceDetails: 'Métodos e evidências', observedChange: 'Variação da saída: {delta} Token', expired: 'Observação expirada; taxa atual indisponível.', stale: 'Última observação desatualizada; taxa atual indisponível.', compactOutputHours: 'horas com saída', compactWeeks: 'semanas encerradas', compactConditions: 'condições', compactFeatures: 'recursos locais', compactSettings: 'configurações', completed: 'Concluído' },
+  id: { evidenceDetails: 'Metode dan bukti', observedChange: 'Perubahan keluaran: {delta} Token', expired: 'Pengamatan kedaluwarsa; laju saat ini tidak tersedia.', stale: 'Pengamatan terakhir sudah lama; laju saat ini tidak tersedia.', compactOutputHours: 'jam dengan keluaran', compactWeeks: 'minggu selesai', compactConditions: 'syarat', compactFeatures: 'fitur lokal', compactSettings: 'pengaturan', completed: 'Selesai' },
+} as const;

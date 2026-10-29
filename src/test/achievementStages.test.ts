@@ -56,7 +56,7 @@ test('six monetary series expose only integer 2×/5× stages strictly between fo
   assert.equal(Object.keys(API_ACHIEVEMENT_SERIES).length, 6);
   const expectedByScope = {
     cumulative: [200, 500, 2_000, 5_000, 20_000, 50_000],
-    completedMondayWeekPeak: [200, 1_000, 2_000, 5_000, 20_000],
+    completedRollingSevenDayPeak: [200, 1_000, 2_000, 5_000, 20_000],
     maxSessionTask: [20, 50, 200, 500],
   };
   for (const [series, ids] of Object.entries(API_ACHIEVEMENT_SERIES)) {

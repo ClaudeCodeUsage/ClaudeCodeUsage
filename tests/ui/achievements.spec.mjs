@@ -7,6 +7,20 @@ const { renderAchievementShareSvg } = require('../../out/achievementShare.js');
 const { ACHIEVEMENT_DEFINITIONS, ACHIEVEMENT_SERIES } = require('../../out/achievements.js');
 const { ACHIEVEMENT_GALLERY } = require('../../out/achievementGallery.js');
 
+// Detail/legacy milestone artwork is secondary to each card's summary artwork.
+const PRIMARY_GALLERY_ARTWORK = 'summary > .achievement-emblem > [data-icon-context="gallery"] > img[data-achievement-icon]';
+
+async function expectGalleryArtwork(page) {
+  const cards = page.locator('.achievement-card');
+  await expect(cards).toHaveCount(ACHIEVEMENT_GALLERY.length);
+  const icons = cards.locator(PRIMARY_GALLERY_ARTWORK);
+  await expect(icons).toHaveCount(ACHIEVEMENT_GALLERY.length);
+  expect(await cards.evaluateAll((cards, selector) =>
+    cards.map(card => card.querySelectorAll(selector).length), PRIMARY_GALLERY_ARTWORK))
+    .toEqual(ACHIEVEMENT_GALLERY.map(() => 1));
+  return icons;
+}
+
 function shareSvg(selected, copy) {
   return renderAchievementShareSvg({ selected, titles: copy.titles, heading: copy.shareTitle,
     subtitle: copy.intro, groups: copy.groups, levels: copy.levels, milestone: copy.milestone, footer: copy.heading });
@@ -65,7 +79,7 @@ test('achievements are on by default and remain selected after reload', async ({
   await expect(page.locator('#achievements')).toBeVisible();
   // Tiered series occupy one card, including the five-level cumulative ladder.
   await expect(page.locator('.achievement-card')).toHaveCount(ACHIEVEMENT_GALLERY.length);
-  await expect(page.locator('.achievement-card img[data-achievement-icon]')).toHaveCount(ACHIEVEMENT_GALLERY.length);
+  await expectGalleryArtwork(page);
   await expect(page.locator('.achievement-count')).toContainText(`/ ${ACHIEVEMENT_DEFINITIONS.length}`);
   expect(await page.locator('.achievement-card').evaluateAll(cards =>
     cards.map(card => card.getAttribute('data-achievement-series') ?? card.getAttribute('data-achievement-id')).sort()))
@@ -106,7 +120,7 @@ test('gallery leads with artwork and reveals numeric progress on demand', async 
   const tile = page.locator('.achievement-card[data-achievement-proof="ready"]').first();
   const series = await tile.getAttribute('data-achievement-series');
   const detail = tile.locator('details[data-persist]');
-  const icon = tile.locator('img[data-achievement-icon]');
+  const icon = tile.locator(PRIMARY_GALLERY_ARTWORK);
   await expect(detail).not.toHaveAttribute('open');
   await expect(tile.locator('.achievement-progress-label')).toBeHidden();
   await expect(page.locator('#achievementSize')).toHaveValue('medium');
@@ -320,7 +334,7 @@ test('unlock notice reuses a bundled gallery icon even when its PNG exceeds the 
   await openCodex(page);
   await expect(page.locator('#tab-achievements')).not.toHaveAttribute('aria-selected', 'true');
   const artwork = 'codex-astra-regular.png';
-  const galleryIcon = page.locator(`.achievement-card img[data-achievement-artwork="${artwork}"]`).first();
+  const galleryIcon = page.locator('.achievement-card').locator(`${PRIMARY_GALLERY_ARTWORK}[data-achievement-artwork="${artwork}"]`);
   await expect(galleryIcon).toHaveCount(1);
   await page.evaluate((iconFile) => window.dispatchEvent(new MessageEvent('message', {
     data: { command: 'achievementUnlockNotice', text: 'Astra unlocked', iconFile },
@@ -415,8 +429,7 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       expect(sizes.document, sizes).toBeLessThanOrEqual(sizes.viewport + 1);
       expect(sizes.body, sizes).toBeLessThanOrEqual(sizes.viewport + 1);
       expect(sizes.cards.every((overflow) => overflow <= 1), sizes).toBe(true);
-      const icons = page.locator('.achievement-card img[data-achievement-icon]');
-      await expect(icons).toHaveCount(ACHIEVEMENT_GALLERY.length);
+      const icons = await expectGalleryArtwork(page);
       // Walk the gallery in small batches, preserving production lazy loading.
       // Offscreen PNGs must decode before a full-gallery evidence screenshot;
       // capturing first would show blank emblems that are not a product defect.

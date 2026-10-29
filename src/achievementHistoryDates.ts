@@ -1,3 +1,5 @@
+import {achievementRollingPeak} from './achievementRollingPeak';
+import type {RollingDayObservation} from './rollingSevenDay';
 import {ACHIEVEMENT_DEFINITIONS,ACHIEVEMENT_SERIES,type AchievementId} from './achievements';
 import {achievementRuleVersion} from './achievementRuleVersions';
 import {claudeAchievementFamily,codexModelFamily,normalizeCodexAchievementModel} from './achievementModels';
@@ -28,6 +30,7 @@ export interface AchievementHistoryDate {
  schemaVersion:1;ruleVersion:number;day:string;timeZone:string;
  scope:'retained-local-history'|'verified-subset';
  pricebookVersion?:string;
+ windowStartDay?:string;windowEndDay?:string;
 }
 const DAY=86400000;
 const count=(n:unknown):n is number=>typeof n==='number'&&Number.isSafeInteger(n)&&n>=0;
@@ -162,7 +165,7 @@ export function achievementHistoryDates(input:AchievementHistoryInput):Readonly<
   if(!count(value)||time>asOf)return;
   for(const id of ids){
    const rule=rules.get(id);
-   // All handlers below model v1 numeric rules, not the recalibrated joint v2 rules.
+   // Only explicitly registered counters may supply dates, including rolling v3 rules.
    if(!rule||!historyRegistrationAllows(id,counter)||rule.group!==provider||value<rule.target||result[id])continue;
    result[id]=Object.freeze({schemaVersion:ACHIEVEMENT_HISTORY_VERSION,ruleVersion:achievementRuleVersion(id),day:label(time),
     timeZone:input.timeZone,scope:scope(provider)?'verified-subset':'retained-local-history'});
@@ -177,10 +180,10 @@ export function achievementHistoryDates(input:AchievementHistoryInput):Readonly<
  const processed={claude:0,codex:0},outputs={claude:0,codex:0};
  const cache={read:0,creation:0,codexRead:0,readKnown:true,creationKnown:true,codexReadKnown:true};
  const moneyTotals={claude:0n,codex:0n};
- const moneyWeeks={claude:new Map<number,bigint>(),codex:new Map<number,bigint>()};
+ const moneyDays={claude:new Map<string,RollingDayObservation>(),codex:new Map<string,RollingDayObservation>()};
  const moneyBooks:Partial<Record<'claude'|'codex',string>>={};
  const moneyBounds={claude:false,codex:false};
- const markMoney=(provider:'claude'|'codex',scopeKey:'cumulative'|'completedMondayWeekPeak',units:bigint,time:number)=>{
+ const markMoney=(provider:'claude'|'codex',scopeKey:'cumulative'|'completedRollingSevenDayPeak',units:bigint,time:number)=>{
   if(units<0n||units/SCALE>BigInt(Number.MAX_SAFE_INTEGER))return;
   const ids=API_ACHIEVEMENT_DEFINITIONS.filter(r=>r.group===provider&&r.scope===scopeKey).map(r=>r.id);
   mark(ids,Number(units/SCALE),time,provider,provider+'-api-'+(scopeKey==='cumulative'?'total':'week'));
@@ -227,11 +230,11 @@ export function achievementHistoryDates(input:AchievementHistoryInput):Readonly<
     moneyBooks[provider]=m.pricebookVersion;moneyBounds[provider] ||= m.status==='partial'||m.totalTokens<row.processed;
     const units=BigInt(m.exactMicroUsdUnits);
     moneyTotals[provider]+=units;
-    const w=monday(time);moneyWeeks[provider].set(w,(moneyWeeks[provider].get(w)??0n)+units);
+    moneyDays[provider].set(day,{day,units,coverage:m.status==='complete'&&m.totalTokens===row.processed?'complete':'partial'});
     markMoney(provider,'cumulative',moneyTotals[provider],time);
    }else if(row.processed>0){
-    moneyBounds[provider]=true;
-   }
+    moneyBounds[provider]=true;moneyDays[provider].set(day,{day,coverage:'unknown'});
+   }else{moneyDays[provider].set(day,{day,coverage:'complete',units:0n});}
   }
   if(!count(dayVolume)||!count(processed.claude+processed.codex))return Object.freeze({});
   if(claude){
@@ -250,8 +253,8 @@ export function achievementHistoryDates(input:AchievementHistoryInput):Readonly<
    processed.claude+processed.codex,time,'combined','cumulative-volume');
   week.total+=dayVolume;
   if(!count(week.total))return Object.freeze({});
-  // Existing weekly-volume rule includes the current observed week.
-  series('weekly-volume',week.total,time,'combined');
+  // Active weeks/four-week averages keep their natural-week definitions.
+  // Rolling volume is evaluated below only after seven whole days have closed.
   if(closed&&qualified)week.qualifiedDays++;
   weeks.set(monday(time),week);
   if(dayVolume>0){
@@ -272,9 +275,24 @@ export function achievementHistoryDates(input:AchievementHistoryInput):Readonly<
    dual++;series('dual-provider-days',dual,eligibleAt,'combined');mark(['dual-provider-day'],1,eligibleAt,'combined','dual-provider-days');
   }
  }
+ const rollingIds=ACHIEVEMENT_SERIES['weekly-volume'];
+ const tokenRolling=achievementRollingPeak({asOfDay:input.asOfDay,complete:whole,
+  days:[...byDay].map(([day,rows])=>({day,units:BigInt(rows.claude?.processed??0)+BigInt(rows.codex?.processed??0),
+   coverage:whole?'complete':'partial'})),thresholds:rollingIds.map(id=>BigInt(rules.get(id)!.target))});
+ for(const id of rollingIds){
+  const window=tokenRolling.first.get(BigInt(rules.get(id)!.target));if(!window)continue;
+  mark([id],rules.get(id)!.target,ordinal(window.endDay)+DAY,'combined','weekly-volume');
+  if(result[id])result[id]=Object.freeze({...result[id]!,windowStartDay:window.startDay,windowEndDay:window.endDay});
+ }
  for(const provider of ['claude','codex']as const){
-  for(const [w,units]of [...moneyWeeks[provider]].sort(([a],[b])=>a-b))if(w+7*DAY<=asOf){
-   markMoney(provider,'completedMondayWeekPeak',units,w+7*DAY);
+  if(!input.enabled[provider]||!moneyBooks[provider])continue;
+  const ids=API_ACHIEVEMENT_DEFINITIONS.filter(r=>r.group===provider&&r.scope==='completedRollingSevenDayPeak').map(r=>r.id);
+  const rolling=achievementRollingPeak({asOfDay:input.asOfDay,complete:input[provider].complete,
+   days:[...moneyDays[provider].values()],thresholds:ids.map(id=>BigInt(rules.get(id)!.target)*SCALE)});
+  for(const id of ids){
+   const window=rolling.first.get(BigInt(rules.get(id)!.target)*SCALE);if(!window)continue;
+   markMoney(provider,'completedRollingSevenDayPeak',BigInt(rules.get(id)!.target)*SCALE,ordinal(window.endDay)+DAY);
+   if(result[id])result[id]=Object.freeze({...result[id]!,windowStartDay:window.startDay,windowEndDay:window.endDay});
   }
  }
  if(input.enabled.claude&&claude&&Array.isArray(input.claudeSessions)){

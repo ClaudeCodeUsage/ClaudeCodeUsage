@@ -29,7 +29,7 @@ for (const locale of ['en', 'de-DE', 'zh-TW', 'zh-CN', 'ja', 'ko', 'pt-BR', 'id'
       const milestone = card.locator('[data-achievement-milestone="streak-machine"]');
       await expect(milestone.locator('img')).toBeVisible();
       await expect(card.locator('[data-achievement-level]')).toHaveCount(4);
-      await expect(card.locator('.achievement-tier-pip')).toHaveCount(3);
+      await expect(card.locator('.achievement-tier-pip')).toHaveCount(0);
       expect(await milestone.locator('img').evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
       await page.clock.runFor(200);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -113,4 +113,22 @@ test('merged display themes do not merge the exact legacy share choices or opt i
   const commands = await page.evaluate(() => window.__ccuPostedMessages.map(row => row.command));
   for (const command of ['refresh', 'achievementNoticeAck', 'exportAchievementShare', 'updateSetting'])
     expect(commands).not.toContain(command);
+});
+
+test.describe('multiple retained pins remain clear of narrow artwork and titles',()=>{
+ test.use({hasTouch:true});
+ for(const locale of ['zh-CN','de-DE'])test(`${locale}: two retained theme pins do not cover a large card`,async({page})=>{
+  await openCodex(page,{fixture:'achievement-theme-pins',locale,width:320,theme:'dark'});await page.locator('#tab-achievements').click();
+  await page.locator('#achievementSize').selectOption('large');
+  const card=page.locator('[data-achievement-key="active-day-streak"]');await card.scrollIntoViewIfNeeded();
+  await expect(card.locator(':scope > .achievement-card-pins button')).toHaveCount(2);
+  const collisions=await card.evaluate(el=>{
+   const title=el.querySelector('h4'),range=document.createRange();range.selectNodeContents(title);
+   const areas=[...range.getClientRects(),el.querySelector('summary img').getBoundingClientRect()];
+   return [...el.querySelectorAll(':scope > .achievement-card-pins button')].some(pin=>{
+    const box=pin.getBoundingClientRect();return areas.some(area=>area.right>box.left+1&&area.left<box.right&&area.bottom>box.top&&area.top<box.bottom);
+   });
+  });
+  expect(collisions).toBe(false);
+ });
 });

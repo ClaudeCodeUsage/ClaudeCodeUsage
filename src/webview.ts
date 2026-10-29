@@ -1,6 +1,8 @@
 import {isValidCodexUsageFormat} from './codexStatus';
+import { projectChartProjection, ProjectChartScale } from './projectChartProjection';
 import * as vscode from 'vscode';
 import { ClaudeDataLoader } from './dataLoader';
+import {adaptClaudeDiagnosticDays, diagnosticThroughput, diagnosticChange, diagnosticSevenDayPeak, type DiagnosticDay} from './usageDiagnostics';
 import type { ClaudeUsageRecord } from './types';
 import {achievementTitleWithoutRank} from './achievementTitles';
 import {achievementUiIcon} from './achievementUiIcons';
@@ -14,11 +16,13 @@ import {EFFORT_PROCESSED,EFFORT_OUTPUT,EFFORT_ROOTS} from './achievementCollabor
 import {adaptClaudeQuotaPace,adaptCodexQuotaPace,QUOTA_PACE_MAX_WINDOWS,type QuotaPaceAdapterSnapshot} from './quotaPaceAdapters';
 import {matchesClaudeQuotaPaceWindow,projectCodexQuotaPaceSource} from './quotaPaceSource';
 import { achievementConditionFor } from './achievementConditions';
+import { achievementUnitFor } from './achievementUnit';
 import {API_ACHIEVEMENT_DEFINITIONS,isAchievementMoneyId,type AchievementMoneyFacts,type AchievementMoneyId} from './achievementMoneyCatalog';
 import {cumulativeCrossings} from './achievementMoneyOrigin';
 import type {AchievementMoneyScopes} from './achievementMoneyScopes';
 import {achievementMoneyCopyFor} from './achievementMoneyCopy';
-import { achievementRuleVersion } from './achievementRuleVersions';
+import { achievementRuleVersion, isRollingSevenDayAchievement } from './achievementRuleVersions';
+import {achievementRollingCopyFor} from './achievementRollingCopy';
 import {
   ACHIEVEMENT_DEFINITIONS,
   ACHIEVEMENT_SERIES,
@@ -36,7 +40,6 @@ import {
   longestActiveDayStreak,
   notifiableAchievementIds,
   newlyUnlockedPluginAchievements,
-  peakCalendarWeekProcessed,
 } from './achievements';
 import { achievementCalendarSignals, claudeAchievementDayEvidence, AchievementDayEvidence,
   CalendarPeakEvidence, calendarPeakContext, parseCalendarPeakEvidence,
@@ -75,7 +78,7 @@ import { DEFAULT_SECTIONS, ShareSections, buildShareCardData, shareCardFilename 
 import { renderShareCardSvg, ShareCardTheme } from './shareCardSvg';
 import { AchievementSharePreview, highestEarnedAchievements, renderAchievementShareSvg, selectShareAchievements } from './achievementShare';
 import { getAchievementMoneyPricebook } from './achievementMoney';
-import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath } from './achievementIcons';
+import { ACHIEVEMENT_IMAGE_FILES, achievementImageDataUrl, achievementImagePath, renderAchievementWebviewIcon } from './achievementIcons';
 import { formatAchievementCompact, formatAchievementInteger } from './achievementFormat';
 import { nextAchievementStage } from './achievementStages';
 import { ACHIEVEMENT_GALLERY, achievementGalleryKey, achievementStatisticsDestination } from './achievementGallery';
@@ -1063,6 +1066,11 @@ export class UsageWebviewProvider {
   private error: string | null = null;
   private dataDirectory: string | null = null;
   private currentTab: string = 'today';
+  private projectChartSelection: Partial<Record<SettingProvider, string[]>> = {};
+  private projectChartHandles?: Map<string, string>;
+  private projectChartCache?: WeakMap<ProjectUsageMatrixSnapshot, Map<string, ReturnType<typeof projectChartProjection>>>;
+  private projectChartHandleScopes?: Partial<Record<SettingProvider,string>>;
+  private projectChartEpochs: Partial<Record<SettingProvider,string>> = {};
   private currentProvider: 'claude' | 'codex' | 'compare' = 'claude';
   private sharingTemplate: SharingTemplate = 'combinedHeatmap';
   private sharingWorkspaceRequested = false;
@@ -1540,7 +1548,7 @@ export class UsageWebviewProvider {
     // paint their old qualification as a current joint-rule achievement.
     this.achievementLegacyRuleGrants = [...new Set([...legacyRuleRecordInput,
       ...[...this.achievementGrants].filter(id => achievementRuleVersion(id) === 2)])];
-    this.achievementGrants = new Set([...this.achievementGrants].filter(id => achievementRuleVersion(id) === 1));
+    this.achievementGrants = new Set([...this.achievementGrants].filter(id => achievementRuleVersion(id) !== 2));
     void this.achievementWrite.catch(() => undefined);
     void this.achievementActivityWrite.catch(() => undefined);
     void this.achievementHourWrite.catch(() => undefined);
@@ -2055,6 +2063,7 @@ export class UsageWebviewProvider {
    * not reported until the live panel confirms its exact allowlists ran.
    */
   public requestClientLocalDataAction(action: LocalDataClientAction): Promise<boolean> {
+    if (action === 'reset-ui-state' || action === 'clear-all-client-state') this.clearProjectChartRuntime(true);
     const panel = this.panel;
     if (!panel) return Promise.resolve(false);
     const requestId = randomBytes(12).toString('hex');
@@ -2470,6 +2479,7 @@ export class UsageWebviewProvider {
     });
 
     this.panel.onDidDispose(() => {
+      this.clearProjectChartRuntime();
       this.panel = undefined;
       this.dashboardDocumentId = randomBytes(24).toString('hex');
       this.achievementUnreadPacket = undefined;
@@ -2496,6 +2506,9 @@ export class UsageWebviewProvider {
 
     this.panel.webview.onDidReceiveMessage(async (message) => {
       switch (message.command) {
+        case 'projectChartFilter':
+          this.handleProjectChartFilter(message);
+          break;
         case 'refresh':
           this.achievementOverviewSelection = undefined;
           vscode.commands.executeCommand('claudeCodeUsage.refresh');
@@ -2725,6 +2738,12 @@ export class UsageWebviewProvider {
             });
             if (uri) {
               await vscode.workspace.fs.writeFile(uri, Buffer.from(svg, 'utf8'));
+              const savedBytes = await vscode.workspace.fs.readFile(uri);
+              // Verify against the captured immutable SVG, not any later preview
+              // or the mutable buffer handed to a filesystem provider.
+              if (!Buffer.from(savedBytes).equals(Buffer.from(svg, 'utf8'))) {
+                throw new Error('achievement-share:readback-mismatch');
+              }
               this.recordAchievementFeature('localShareExport');
               reply({ ok: true });
             } else { reply({ ok: false, cancelled: true }); }
@@ -2755,7 +2774,7 @@ export class UsageWebviewProvider {
               message.palette,
               message.customAccent,
               message.intensityMode,
-              message.provider, message.metric, message.showAmounts,
+              message.provider, message.metric, message.showAmounts, message.presentation,
             );
             const accepted = this.acceptApiHeatmapArtifact(artifact);
             this.panel.webview.postMessage({
@@ -2792,7 +2811,11 @@ export class UsageWebviewProvider {
             });
             if (!uri) { reply({ok:false,cancelled:true}); break; }
             if (this.acceptedApiHeatmapForMessage(message) !== accepted) { reply({ok:false,stale:true}); break; }
-            await vscode.workspace.fs.writeFile(uri, Buffer.from(accepted.artifact.svg, 'utf8'));
+            const expectedBytes = Buffer.from(accepted.artifact.svg, 'utf8');
+            await vscode.workspace.fs.writeFile(uri, expectedBytes);
+            const savedBytes = await vscode.workspace.fs.readFile(uri);
+            if (!expectedBytes.equals(Buffer.from(savedBytes))) { reply({ok:false}); break; }
+            if (this.acceptedApiHeatmapForMessage(message) !== accepted) { reply({ok:false,stale:true}); break; }
             this.recordAchievementFeature('localShareExport');
             reply({ok:true});
           } catch { reply({ok:false}); }
@@ -3154,6 +3177,7 @@ export class UsageWebviewProvider {
 
   /** Drop every source-owned artifact before a replacement source is verified. */
   clearClaudeSource(): void {
+    this.clearProjectChartRuntime(true, 'claude');
     this.invalidateAchievementEvidence('claude');
     this.achievementNoticeBaseline.reset();
     this.usageLimits = null;
@@ -3192,6 +3216,7 @@ export class UsageWebviewProvider {
     achievementTimeZone?: string,
     achievementMoney?: AchievementMoneyScopes,
   ): void {
+    if ((this.dataDirectory && this.dataDirectory !== (dataDirectory || null)) || error || (achievementTimeZone && this.achievementCalendarTimeZone && achievementTimeZone !== this.achievementCalendarTimeZone)) this.clearProjectChartRuntime(true, 'claude');
     if (achievementTimeZone && this.achievementCalendarTimeZone &&
         achievementTimeZone !== this.achievementCalendarTimeZone) this.achievementNoticeBaseline.reset();
     if (error) this.invalidateAchievementEvidence('claude');
@@ -3254,6 +3279,9 @@ export class UsageWebviewProvider {
     codexAchievementSignals?: CodexAchievementSignals,
     awardEvidenceCurrent = true,
   ): void {
+    if (this.codexView && (!codexView || !providerAvailability.codex ||
+        (this.codexView.currentManifestVerified === true && !awardEvidenceCurrent) ||
+        this.codexView.periodCoverage.timeZone !== codexView.periodCoverage.timeZone)) this.clearProjectChartRuntime(true, 'codex');
     if (!providerAvailability.codex) this.invalidateAchievementEvidence('codex');
     if ((this.codexView && !codexView) ||
         (codexView && this.codexView &&
@@ -3798,6 +3826,7 @@ export class UsageWebviewProvider {
     customAccentInput: unknown = '#4f2f87',
     intensityModeInput: unknown = 'quantile',
     providerInput: unknown = 'both', metricInput: unknown = 'tokens', showAmountsInput: unknown = false,
+    presentationInput: unknown = 'standard',
   ): ApiHeatmapConfig {
     const copy = combinedHeatmapUiCopy(I18n.getLocale());
     const title = sanitizeCombinedHeatmapTitle(titleInput, copy.defaultTitle);
@@ -3811,6 +3840,7 @@ export class UsageWebviewProvider {
       intensityMode: normalizeCombinedHeatmapIntensityMode(intensityModeInput),
       provider: providerInput === 'claude' || providerInput === 'codex' ? providerInput : 'both',
       metric: metricInput === 'apiEquivalent' ? 'apiEquivalent' : 'tokens', showAmounts: showAmountsInput === true,
+      presentation: presentationInput === 'compact' ? 'compact' : 'standard',
       claudeBackend: getPricingBackend(), dataRevision: this.apiHeatmapRevision,
       pricingRevision: getPricingLastFetched()?.time ?? 0,
     };
@@ -3821,9 +3851,10 @@ export class UsageWebviewProvider {
     rangeInput: unknown, titleInput: unknown, paletteInput: unknown = 'academicViolet',
     customAccentInput: unknown = '#4f2f87', intensityModeInput: unknown = 'quantile',
     providerInput: unknown = 'both', metricInput: unknown = 'tokens', showAmountsInput: unknown = false,
+    presentationInput: unknown = 'standard',
   ): ApiHeatmapArtifact & {title:string;range:CombinedHeatmapRange;endDateISO:string;hasData:boolean} {
     const config = this.apiHeatmapConfigFor(rangeInput,titleInput,paletteInput,customAccentInput,intensityModeInput,
-      providerInput,metricInput,showAmountsInput);
+      providerInput,metricInput,showAmountsInput,presentationInput);
     if (config.metric === 'apiEquivalent' && this.apiHeatmapPricingPending) throw new Error('Pricing refresh pending');
     if ((config.provider !== 'codex' && this.achievementCalendarTimeZone !== undefined &&
         resolveTimeZone(this.achievementCalendarTimeZone) !== config.timezone) ||
@@ -3863,7 +3894,7 @@ export class UsageWebviewProvider {
         accepted.documentId !== this.dashboardDocumentId || message.previewId !== accepted.id ||
         accepted.sources[0] !== this.dailyDataForEveryDay || accepted.sources[1] !== this.codexView?.daily) return;
     const config = this.apiHeatmapConfigFor(message.range,message.title,message.palette,message.customAccent,
-      message.intensityMode,message.provider,message.metric,message.showAmounts);
+      message.intensityMode,message.provider,message.metric,message.showAmounts,message.presentation);
     return JSON.stringify(config) === JSON.stringify(accepted.artifact.config) ? accepted : undefined;
   }
 
@@ -3951,6 +3982,10 @@ export class UsageWebviewProvider {
       '<select id="combinedHeatmapMetric" data-default-value="tokens" onchange="combinedHeatmapMetricChanged()">' +
       '<option value="tokens" selected>' + this.escapeHtml(apiCopy.tokens) + '</option>' +
       '<option value="apiEquivalent">' + this.escapeHtml(apiCopy.amountMetric) + '</option></select></label>' +
+      '<label class="sc-field" for="combinedHeatmapPresentation"><span>' + this.escapeHtml(apiCopy.presentationLabel) + '</span>' +
+      '<select id="combinedHeatmapPresentation" data-default-value="standard" disabled onchange="combinedHeatmapConfigChanged()">' +
+      '<option value="standard" selected>' + this.escapeHtml(apiCopy.presentationStandard) + '</option>' +
+      '<option value="compact">' + this.escapeHtml(apiCopy.presentationCompact) + '</option></select></label>' +
       '<label class="sc-field" for="combinedHeatmapTitle"><span>' + this.escapeHtml(copy.titleLabel) + '</span>' +
       '<input type="text" id="combinedHeatmapTitle" maxlength="80" value="' + this.escapeHtml(artifact.title) + '" data-default-value="' + this.escapeHtml(artifact.title) + '" oninput="combinedHeatmapConfigChanged()"></label>' +
       '<label class="sc-field" for="combinedHeatmapRange"><span>' + this.escapeHtml(copy.rangeLabel) + '</span>' +
@@ -3972,6 +4007,7 @@ export class UsageWebviewProvider {
       '<label class="sc-check"><input type="checkbox" id="combinedHeatmapShowAmounts" onchange="combinedHeatmapAmountsChanged()"> ' +
       this.escapeHtml(apiCopy.showAmounts) + '</label>' +
       '<p id="combinedHeatmapAmountDisclosure" class="table-hint" hidden>' + this.escapeHtml(apiCopy.amountDisclosure) + '</p>' +
+      '<p id="combinedHeatmapCompactDisclosure" class="table-hint" hidden>' + this.escapeHtml(apiCopy.compactDisclosure) + '</p>' +
       '<p class="table-hint">' + this.escapeHtml(apiCopy.titleDisclosure) + '</p>' +
       '<label class="sc-check combined-privacy-toggle"><input type="checkbox" id="combinedHeatmapPrivacy" checked onchange="toggleCombinedHeatmapPrivacy(true)"> ' +
       this.escapeHtml(copy.privacyToggle) + '</label>' +
@@ -4194,9 +4230,15 @@ export class UsageWebviewProvider {
 
     // The Content tab is hidden when content analysis is disabled via
     // claudeCodeUsage.enableContentAnalysis (the analyser returned null).
+    // Retire diagnostic runtime state even when disabling the last optional
+    // panel also hides the Content tab entirely. No source projection occurs.
+    if (!this.setting<boolean>('showUsageThroughput', false) && !this.setting<boolean>('showUsageChange', false))
+      this.usageDiagnosticsRenderCache = undefined;
     const contentEnabled = provider === 'codex'
-      ? Boolean(this.codexView && this.setting<boolean>('codex.optimization.enabled', true))
-      : this.contentAnalysis !== null;
+      ? Boolean(this.codexView && (this.setting<boolean>('codex.optimization.enabled', true) ||
+        this.setting<boolean>('showUsageThroughput', false) || this.setting<boolean>('showUsageChange', false)))
+      : this.contentAnalysis !== null || this.setting<boolean>('showUsageThroughput', false) ||
+        this.setting<boolean>('showUsageChange', false);
     const contentTabButton = contentEnabled
       ? dashboardTab('content', contentTab, contentActive)
       : '';
@@ -4325,6 +4367,7 @@ export class UsageWebviewProvider {
       this.settings?.snapshot?.().map((s) => [s.key, s.value]),
       this.providerAvailability, this.sharingTemplate, this.sharingWorkspaceRequested,
       this.lastShareCardConfig,
+      name === 'projects' ? [this.projectChartSelection?.[provider] ?? null, this.projectChartEpochs?.[provider] ?? ''] : null,
     ]);
     const key = provider + ':' + name;
     const previous = this.dataPanelCache.get(key);
@@ -4876,7 +4919,6 @@ export class UsageWebviewProvider {
     const claudeDayRows = calendar.claudeEvidenceComplete ? currentRows(claudeProof) : [];
     const codexDayRows = calendar.codexEvidenceUsable ? currentRows(codexProof) : [];
     const active = achievementActiveDayKeys(claudeDayRows, codexDayRows, calendar.codexEvidenceUsable === true);
-    const weekRows = [...claudeDayRows, ...codexDayRows];
     const weekCoverageComplete = calendar.peakEvidenceComplete === true;
     const positiveCalendarProof = (availability.claude && calendar.claudeEvidenceComplete === true) ||
       (availability.codex && calendar.codexEvidenceUsable === true);
@@ -4964,7 +5006,7 @@ export class UsageWebviewProvider {
       claudeFamilyTokens,
       claudeFamilyOutputTokens,
       fable: { ...fable, activeDays: claudeProof.complete ? fable.activeDays : 0 },
-      weeklyPeakProcessed: peakCalendarWeekProcessed(weekRows, positiveCalendarProof),
+      weeklyPeakProcessed: calendar.rollingSevenDayPeak,
       outputHourStreak: Math.max(hours.streak, this.achievementHourEvidence.maxStreak),
       nightOutputPeak: hours.nightPeak,
       activity: this.achievementActivity,
@@ -5626,6 +5668,7 @@ export class UsageWebviewProvider {
     const copy = achievementCopyFor(I18n.getLocale());
     const appearance = achievementAppearanceCopyFor(I18n.getLocale());
     const moneyCopy = achievementMoneyCopyFor(I18n.getLocale());
+    const rollingCopy = achievementRollingCopyFor(I18n.getLocale());
     const compact = (value: number): string => formatAchievementCompact(value, I18n.getLocale());
     const integer = (value: number): string => formatAchievementInteger(value, I18n.getLocale());
     const moneyValue = (id:AchievementId,value:number):string => {
@@ -5633,7 +5676,7 @@ export class UsageWebviewProvider {
       const positive=rule && this.achievementMoneyFacts[rule.group]?.coverage[rule.scope].amountPositive;
       return value<1_000_000 && (value>0 || value===0 && positive===true) ? '<$1' : '$'+integer(Math.floor(value/1_000_000));
     };
-    const compactValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : compact(value);
+    const compactValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : tokenDisplayUnits.has(unitFor(id)) ? compact(value) : integer(value);
     const integerValue = (id:AchievementId,value:number):string => isAchievementMoneyId(id) ? moneyValue(id,value) : integer(value);
     const results = this.achievementResults(),management=I18n.achievementManagement;
     const recordState = !this.setting<boolean>('enableAchievements',true) ? 'disabled' :
@@ -5652,43 +5695,26 @@ export class UsageWebviewProvider {
       if (this.achievementCalendarLowerBounds.has(result.id)) return 'ready';
       const base=this.achievementEvidenceStates?.[achievementEvidenceDomain(result)] ?? 'ready';
       if (base==='stale') return base;
+      if(result.id.startsWith('weekly-volume-')&&this.achievementCalendarCache?.value.rollingSevenDayPeak===undefined)return 'pending';
       const rule=API_ACHIEVEMENT_DEFINITIONS.find(row=>row.id===result.id);
       const quality=rule ? this.achievementMoneyFacts[rule.group]?.coverage[rule.scope] : undefined;
       return rule && !['complete','partial','empty'].includes(quality?.status ?? '') ? 'pending' : base;
     };
-    const unitFor = (id: AchievementId): string =>
-      isAchievementMoneyId(id) ? moneyCopy.unit :
-      id.startsWith('codex-output-') ? copy.units.outputTokens :
-      id.startsWith('codex-cache-read-') ? copy.units.codexCachedTokens :
-      /^(astra|sol|luna|sonnet|opus|haiku)-days-/.test(id) ? copy.units.qualifiedDays :
-      id.startsWith('fable-days-') ? copy.units.qualifiedDays :
-      id.startsWith('dual-provider-days-') ? copy.units.sharedDays :
-      id.startsWith('active-weeks-') ? copy.units.weeks :
-      id.startsWith('weekly-average-') ? copy.units.weeklyAverage :
-      id === 'three-family-day' ? copy.units.threeFamilyDay :
-      id === 'dual-provider-day' ? copy.units.sharedDays :
-      id.startsWith('claude-output-') && !id.startsWith('claude-output-sessions-') ? copy.units.outputTokens :
-      id.startsWith('cache-wizard') ? copy.units.cacheReadTokens :
-      id.startsWith('claude-cache-creation-') ? copy.units.cacheCreationTokens :
-      id.startsWith('output-hours-') ? copy.units.hours :
-      id === 'night-output-peak' ? copy.units.nightPeak :
-      id.startsWith('settings-explorer-') ? copy.units.settings :
-      id === 'safe-feature-explorer' ? copy.units.features :
-      id === 'local-share-export' ? copy.units.exports :
-      id === 'local-advice-feedback' ? copy.units.feedback :
-      id.startsWith('root-portfolio-') ||
-      id.startsWith('model-relay-roots-') ? copy.units.roots :
-      id.startsWith('agent-participation-') ? copy.units.childSessions :
-      id.startsWith('agent-conductor') ? copy.units.agentRoots :
-      id === 'agent-standup' || id === 'tiny-ai-company' || id === 'agent-team-gold' ? copy.units.agents :
-      id.startsWith('effort-') ? copy.units.efforts :
-      id.startsWith('active-day-streak') || id === 'streak-machine' ? copy.units.streak :
-      id.startsWith('active-days-') ? copy.units.days :
-      id.startsWith('fable-sessions-') ? copy.units.sessions :
-      id.startsWith('claude-output-sessions-') ? copy.units.outputSessions :
-      id === 'fable-relay' ? copy.units.relay :
-      id.startsWith('model-rainbow') ? copy.units.families :
-      id === 'multi-core-human' || id.startsWith('same-root-models-') ? copy.units.models : copy.units.tokens;
+    const unitFor = (id: AchievementId): string => achievementUnitFor(id,copy.units,moneyCopy.unit);
+    const tokenDisplayUnits = new Set([copy.units.tokens,copy.units.outputTokens,copy.units.codexCachedTokens,copy.units.cacheReadTokens,copy.units.cacheCreationTokens,copy.units.weeklyAverage]);
+    const faceUnitFor = (id:AchievementId):string => {
+      if(isAchievementMoneyId(id))return 'USD';
+      const unit=unitFor(id),short=I18n.visualization;
+      if(tokenDisplayUnits.has(unit))return 'Token';
+      if(unit===copy.units.qualifiedDays||unit===copy.units.sharedDays)return copy.units.days;
+      if(unit===copy.units.hours)return short.compactOutputHours;
+      if(unit===copy.units.weeks)return short.compactWeeks;
+      if(unit===copy.units.features)return short.compactFeatures;
+      if(unit===copy.units.settings)return short.compactSettings;
+      if(unit===copy.units.threeFamilyDay||unit===copy.units.nightPeak||unit===copy.units.exports||unit===copy.units.feedback)return short.compactConditions;
+      if(unit===copy.units.relay)return copy.units.outputSessions;
+      return unit;
+    };
     const byId = new Map(results.map((result) => [result.id, result]));
     const tierOrder = ['bronze', 'silver', 'gold', 'platinum', 'legendary'];
     const isEarned = (result: AchievementResult): boolean => result.unlocked || this.achievementGrants.has(result.id);
@@ -5741,7 +5767,12 @@ export class UsageWebviewProvider {
       const quality = monetary ? moneyProof?.coverage[monetary.scope] : undefined;
       const evidenceState = evidenceFor(nextResult);
       const proofReady = evidenceState === 'ready';
-      const proofLabel = evidenceState === 'stale' ? copy.evidenceStale : quality?.status==='unpriced' ? moneyCopy.unpriced : copy.evidencePending;
+      const proofLabel = evidenceState === 'stale' ? copy.evidenceStale : quality?.status==='unpriced' ? moneyCopy.unpriced :
+        isRollingSevenDayAchievement(nextResult.id)&&!proofReady ? rollingCopy.pending : copy.evidencePending;
+      const peakWindow=key==='weekly-volume'?this.achievementCalendarCache?.value.rollingSevenDayWindow:
+        monetary?.scope==='completedRollingSevenDayPeak'?moneyProof?.rollingSevenDayWindow:undefined;
+      const peakWindowLabel=proofReady&&peakWindow?'<small class="achievement-window">'+
+        this.escapeHtml(rollingCopy.window+': '+peakWindow.startDay+' – '+peakWindow.endDay+' ('+resolveTimeZone(I18n.getTimezone())+')')+'</small>':'';
       const domain=achievementEvidenceDomain(nextResult);
       const proofHintKind=evidenceState==='stale' ? 'stale' : monetary ? 'money' :
         domain.includes('calendar') ? 'calendar' : domain==='codex-lineage' ? 'lineage' : 'index';
@@ -5778,11 +5809,6 @@ export class UsageWebviewProvider {
             '<span class="achievement-tier-marker' + (earnedLevels[index] ? ' complete' : '') +
             (index === nextTierIndex && hasNextTier ? ' next' : '') + '">' + marker + '</span>')
             .join('') + '</div>' : '';
-      const tierPips = series
-        ? '<span class="achievement-tier-pips" aria-hidden="true">' +
-          earnedLevels.map((complete, index) => '<span class="achievement-tier-pip' +
-            (complete ? ' complete' : index === nextTierIndex ? ' next' : '') + '"></span>').join('') +
-          '</span>' : '';
       const allResults = [...(tiers ?? [result]), ...milestones];
       const savedPins = (this.achievementRecordState?.pins ?? []).filter(pin => achievementGalleryKey(pin) === key);
       const canPin = this.achievementRecordState?.records.some(row => allResults.some(entry => entry.id === row.id)) === true;
@@ -5799,15 +5825,12 @@ export class UsageWebviewProvider {
       const stage = series && next ? nextAchievementStage(series, nextResult.progress, nextResult.target, proofReady) : undefined;
       const faceProgress = proofReady && next
         ? '<span class="achievement-current-progress" title="' + this.escapeHtml(copy.nextTarget + ': ' + bound +
-          exactProgress + ' ' + unitFor(result.id)) + '">' + this.escapeHtml(bound + formatted) + '</span>' +
-          (stage === undefined ? '' : '<span class="achievement-stage-target" title="' +
-            this.escapeHtml(copy.nextStage + ': ' + integerValue(nextResult.id,stage) + ' ' + unitFor(result.id)) + '">' +
-            this.escapeHtml(copy.nextStage + ' · ' + compactValue(nextResult.id,stage)) + '</span>')
-        : !proofReady?this.escapeHtml(proofLabel):fullRank&&current!==undefined?
-          '<span>'+this.escapeHtml(copy.complete)+'</span><span class="achievement-current-value" title="'+
-          this.escapeHtml(management.currentValue+': '+bound+exactProgress+' '+unitFor(nextResult.id))+'">'+
-          this.escapeHtml(management.currentValue+': '+bound+formatted)+'</span>':
-          this.escapeHtml(next ? copy.milestone : copy.complete);
+          exactProgress + ' ' + unitFor(result.id)) + '">' + this.escapeHtml(bound + compactValue(nextResult.id,progress)) + '</span>' +
+          '<span class="achievement-stage-target" title="' + this.escapeHtml(copy.nextTarget + ': ' + integerValue(nextResult.id,nextResult.target) + ' ' + unitFor(result.id)) + '"> / ' + this.escapeHtml(compactValue(nextResult.id,nextResult.target) + ' ' + faceUnitFor(result.id)) + '</span>'
+        : !proofReady ? this.escapeHtml(proofLabel) : !series && earned ? this.escapeHtml(I18n.visualization.completed) : fullRank && current !== undefined
+          ? '<span class="achievement-current-value" title="' + this.escapeHtml(management.currentValue + ': ' + bound + exactProgress + ' ' + unitFor(nextResult.id)) + '">' +
+            this.escapeHtml(management.currentValue + ': ' + bound + formatted + ' ' + faceUnitFor(result.id)) + '</span><span> · ' + this.escapeHtml(copy.complete) + '</span>'
+          : this.escapeHtml(next ? copy.milestone : copy.complete);
       const levelEntries=tiers??[result];
       const notes=compactAchievementLevelNotes(levelEntries.map(entry=>achievementConditionFor(I18n.getLocale(),entry.id)));
       const commonUnit=levelEntries.every(entry=>unitFor(entry.id)===unitFor(levelEntries[0].id))?unitFor(levelEntries[0].id):undefined;
@@ -5816,20 +5839,23 @@ export class UsageWebviewProvider {
           '<small class="achievement-level-status" data-level-status="next">'+this.escapeHtml(copy.locked)+'</small>':'';
         const record=this.achievementRecordState?.records.find(row=>row.id===entry.id);
         const proof=this.achievementHistoryAnnotations[entry.id];
+        const retainedCalendar=this.retainedCalendarAchievement(entry.id);
         const usable=evidenceFor(entry)==='ready'&&proof&&proof.ruleVersion===achievementRuleVersion(entry.id)&&
           (!isAchievementMoneyId(entry.id)||!record?.referencePricebook||record.referencePricebook===proof.pricebookVersion);
         const verifiedLabel=usable?management.verifiedDay+': '+proof.day+' ('+proof.timeZone+')'+
+          (proof.windowStartDay&&proof.windowEndDay?' · '+rollingCopy.window+': '+proof.windowStartDay+' – '+proof.windowEndDay:'')+
           (record?.recordedDay?' · '+management.firstRecorded+': '+record.recordedDay+' ('+(record.timeZone??'')+')':''):'';
         const shown=usable?'<small class="achievement-level-date" data-date-source="retained-logs" data-date-scope="'+proof.scope+'" title="'+
           this.escapeHtml(verifiedLabel)+'"><time datetime="'+proof.day+'" aria-label="'+this.escapeHtml(verifiedLabel)+'">'+proof.day+'</time>'+
-          '</small>':'';
+          (proof.windowStartDay&&proof.windowEndDay?' · '+this.escapeHtml(proof.windowStartDay+' – '+proof.windowEndDay):'')+'</small>':'';
         const recorded=record?.recordedDay?'<small class="achievement-level-date achievement-level-date-recorded" data-date-source="first-recorded">'+
           this.escapeHtml(management.firstRecorded)+': <time datetime="'+record.recordedDay+'" title="'+
           this.escapeHtml(record.timeZone??'')+'">'+record.recordedDay+'</time></small>':'';
         return '<small class="achievement-level-status" data-level-status="earned">'+this.escapeHtml(copy.earned)+'</small>'+
-          (shown||recorded?shown||recorded:'<small class="achievement-level-date" data-date-source="unknown" title="'+
+          (shown||recorded?(retainedCalendar?shown+recorded:shown||recorded):'<small class="achievement-level-date" data-date-source="unknown" title="'+
             this.escapeHtml(management.dateUnavailable)+'" aria-label="'+this.escapeHtml(management.unknownDay+'. '+management.dateUnavailable)+'">'+
-            this.escapeHtml(management.unknownDay)+'</small>');
+            this.escapeHtml(management.unknownDay)+'</small>')+
+          (retainedCalendar?'<small class="achievement-retained-rule" data-award-rule-version="1">'+this.escapeHtml(rollingCopy.legacy)+'</small>':'');
       };
       const sharedDetails='<p class="achievement-common-conditions">'+this.escapeHtml(management.sharedConditions+': '+
         [commonUnit,notes.shared].filter(Boolean).join(' · '))+'</p>';
@@ -5848,7 +5874,7 @@ export class UsageWebviewProvider {
           const src = webview?.asWebviewUri && this.context.extensionPath
             ? webview.asWebviewUri(vscode.Uri.file(achievementImagePath(entry.id))).toString() : achievementImageDataUrl(entry.id);
           return '<li data-achievement-milestone="' + entry.id + '" data-achievement-level="' + entry.id + '">' +
-            '<img src="' + this.escapeHtml(src) + '" alt="" loading="lazy"><strong>' + this.escapeHtml(copy.titles[entry.id]) +
+            renderAchievementWebviewIcon(entry.id, src, isEarned(entry) ? 'earned' : 'locked', undefined, 'detail') + '<strong>' + this.escapeHtml(copy.titles[entry.id]) +
             '</strong><span>' + this.escapeHtml(compact(entry.target) + ' ' + unitFor(entry.id)) + '</span>'+
             (metadata?'<div class="achievement-level-meta">'+metadata+'</div>':'')+'</li>';
         }).join('') + '</ul>' : '';
@@ -5864,7 +5890,7 @@ export class UsageWebviewProvider {
         }).join('') + '</ol>' : '';
       const statistics = this.achievementStatisticsSection(key);
       const monetaryDetails = monetary ? '<p class="table-hint achievement-money-scope">' +
-        this.escapeHtml(moneyCopy[monetary.scope==='cumulative' ? 'total' : monetary.scope==='completedMondayWeekPeak' ? 'week' : monetary.group==='claude' ? 'session' : 'task']) +
+        this.escapeHtml(moneyCopy[monetary.scope==='cumulative' ? 'total' : monetary.scope==='completedRollingSevenDayPeak' ? 'week' : monetary.group==='claude' ? 'session' : 'task']) +
         '</p>' +
         (quality?.pricingCoverage === undefined ? '' : '<p class="table-hint achievement-money-coverage">' +
           this.escapeHtml(moneyCopy.coverage.replace('{percent}',integer(Math.floor(quality.pricingCoverage*100)))) + '</p>') +
@@ -5875,7 +5901,7 @@ export class UsageWebviewProvider {
         '" data-statistics-section="' + statistics + '" onclick="openAchievementStatistics(this)">' +
         this.escapeHtml(statistics === 'models' ? copy.viewCurrentModels : copy.viewCurrentTokens) + '</button>' : '';
       return '<article class="achievement-card ' + (earned ? 'earned' : 'locked') +
-        '"' + seriesAttrs + ' data-achievement-key="' + key + '" data-achievement-earned="' + earned +
+        '"' + (savedPins.length > 1 ? ' data-achievement-multiple-pins="true"' : '') + seriesAttrs + ' data-achievement-group="' + result.group + '" data-achievement-key="' + key + '" data-achievement-earned="' + earned +
         '" data-achievement-next="' + (next && proofReady) + '" data-achievement-proof="' + evidenceState +
         '" data-achievement-id="' + result.id + '">' +
         (pinButtons ? '<div class="achievement-card-pins">' + pinButtons + '</div>' : '') +
@@ -5885,15 +5911,15 @@ export class UsageWebviewProvider {
           (proofReady ? bound + formatted + ' ' + unitFor(result.id) : proofLabel) +
           (series ? ' · ' + earnedTiers + '/' + tierCount : '')) + '">' +
         '<span class="achievement-emblem" aria-hidden="true">' +
-        '<img data-achievement-icon="' + result.id + '" data-achievement-artwork="' +
-        this.escapeHtml(ACHIEVEMENT_IMAGE_FILES[result.id]) + '" src="' + this.escapeHtml(iconSrc) +
-        '" alt="" loading="lazy"></span>' +
+        renderAchievementWebviewIcon(result.id, iconSrc, earned ? 'earned' : 'locked', undefined, 'gallery') + '</span>' +
         '<h4>' + this.escapeHtml(baseName) + '</h4>' +
         (earned ? '<span class="achievement-rank">' + this.escapeHtml(levelName) + '</span>' : '') +
-        tierPips + '<span class="achievement-next-target">' + faceProgress + '</span>' +
+        (this.retainedCalendarAchievement(result.id) ? '<span class="achievement-legacy-rule">' + this.escapeHtml(rollingCopy.legacyShort) + '</span>' : '') +
+        '<span class="achievement-next-target">' + faceProgress + peakWindowLabel + '</span>' +
         (proofReady && next ? '<span class="achievement-progress-track" aria-hidden="true"><span style="width:' +
           Math.min(100, Math.max(0, progress / nextResult.target * 100)) + '%"></span></span>' : '') + '</summary>' +
-        '<div class="achievement-card-detail">' + tierMarkers +
+        '<div class="achievement-card-detail">' + tierMarkers + '<p class="table-hint">' + this.escapeHtml(copy.groups[result.group]) + '</p>' +
+        (stage === undefined ? '' : '<p class="table-hint achievement-intermediate-stage" title="' + this.escapeHtml(copy.nextStage + ': ' + integerValue(nextResult.id,stage) + ' ' + unitFor(result.id)) + '">' + this.escapeHtml(copy.nextStage + ': ' + integerValue(nextResult.id,stage) + ' ' + unitFor(result.id)) + '</p>') +
         (proofReady ?
         '<label class="achievement-progress-label" for="achievement-progress-' + result.id +
         '" title="' + this.escapeHtml(bound + exactProgress + ' ' + unitFor(result.id)) + '">' +
@@ -5971,9 +5997,10 @@ export class UsageWebviewProvider {
             (monetary ? moneyLowerBound ? '≥' : '' : this.achievementCalendarLowerBounds.has(entry.nextResult.id) ||
               cumulativeLowerBound && (entry.series === 'cumulative-volume' || entry.result.group === 'codex') ? '≥' : '') +
             compactValue(entry.nextResult.id,state.progress) + ' / ' + compactValue(entry.nextResult.id,state.target) : proofLabel);
-          const imagePath = achievementImagePath(entry.result.id);
+          const displayId = kind === 'next' ? entry.nextResult.id : entry.result.id;
+          const imagePath = achievementImagePath(displayId);
           const iconSrc = this.panel?.webview?.asWebviewUri && this.context.extensionPath ?
-            this.panel.webview.asWebviewUri(vscode.Uri.file(imagePath)).toString() : achievementImageDataUrl(entry.result.id);
+            this.panel.webview.asWebviewUri(vscode.Uri.file(imagePath)).toString() : achievementImageDataUrl(displayId);
           const selectedPin = pins.find(pin => achievementGalleryKey(pin) === key);
           const pinKey = selectedPin ?? (currentPin(key) ? key : entry.milestones.find(row => currentPin(row.id))?.id);
           return '<div class="achievement-overview-item">' + (kind === 'badges' && pinKey ?
@@ -5983,8 +6010,9 @@ export class UsageWebviewProvider {
             ' aria-label="' + this.escapeHtml(copy.viewBadge + ': ' + name + ' · ' + rank +
               (kind === 'next' ? ' · ' + progress + ' ' + unitFor(entry.result.id) :
                 state.proof === 'ready' ? '' : ' · ' + proofLabel)) + '">' +
-            '<img src="' + this.escapeHtml(iconSrc) + '" alt="" loading="lazy"><span class="achievement-overview-name">' +
+            renderAchievementWebviewIcon(displayId, iconSrc, kind === 'next' ? 'target' : 'earned', undefined, 'overview') + '<span class="achievement-overview-name">' +
             this.escapeHtml(name) + '</span><span class="achievement-overview-rank">' + this.escapeHtml(rank) + '</span>' +
+            (kind === 'badges' && this.retainedCalendarAchievement(displayId) ? '<span class="achievement-legacy-rule">' + this.escapeHtml(rollingCopy.legacyShort) + '</span>' : '') +
             (kind === 'next' ? '<span class="achievement-overview-progress">' + this.escapeHtml(progress) + '</span>' :
               state.proof === 'ready' ? '' : '<span class="achievement-overview-progress">' + this.escapeHtml(proofLabel) + '</span>') +
             (kind === 'next' && state.proof === 'ready' ? '<span class="achievement-overview-track" aria-hidden="true"><span style="width:' +
@@ -6008,8 +6036,9 @@ export class UsageWebviewProvider {
       return '<button class="achievement-record-badge" data-achievement-record="' + record.id +
         '" data-achievement-open="' + key + '" onclick="openAchievementDetail(this.dataset.achievementOpen)"' +
         ' aria-label="' + this.escapeHtml(copy.viewBadge + ': ' + copy.titles[record.id] + ' · ' + spokenStamp) + '">' +
-        '<img src="' + this.escapeHtml(iconSrc) + '" alt="" loading="lazy"><span class="achievement-record-name">' +
-        this.escapeHtml(copy.titles[record.id]) + '</span><small>' + stamp + '</small></button>';
+        renderAchievementWebviewIcon(record.id, iconSrc, 'earned', undefined, 'record') + '<span class="achievement-record-name">' +
+        this.escapeHtml(copy.titles[record.id]) + '</span><small>' + stamp + '</small>' +
+        (this.retainedCalendarAchievement(record.id) ? '<span class="achievement-legacy-rule">' + this.escapeHtml(rollingCopy.legacyShort) + '</span>' : '') + '</button>';
     };
     const recentSection = records.recent.length ? '<section class="achievement-overview" data-achievement-overview="recent"><h3>' +
       this.escapeHtml(copy.recentAwards) + '</h3><div class="achievement-recent-grid">' +
@@ -6088,7 +6117,7 @@ export class UsageWebviewProvider {
       '<details class="achievement-evidence-note" data-persist="achievement:evidence"><summary>' +
       achievementUiIcon('info') + this.escapeHtml(copy.evidenceTitle) + '</summary><p>' +
       this.escapeHtml((cumulativeLowerBound || this.achievementCalendarLowerBounds.size > 0 ||
-        this.achievementMoneyFacts.codex?.coverage.completedMondayWeekPeak.scopeLowerBound
+        this.achievementMoneyFacts.codex?.coverage.completedRollingSevenDayPeak?.scopeLowerBound
         ? copy.lowerBoundNote + ' ' : '') + copy.lowerBoundDetails) +
       '</p><p class="achievement-date-note"><strong>'+this.escapeHtml(management.verifiedDay)+': </strong>'+this.escapeHtml(management.dateNote)+'</p>'+this.renderAchievementMoneyReferences()+'</details>' +
       '<p class="achievement-count">' +
@@ -6107,17 +6136,12 @@ export class UsageWebviewProvider {
         management.recalibrating:this.achievementCalibrationFailed?management.recalibrationFailed:'')+'</p>'+
       '<p id="achievementPinStatus" class="table-hint" role="status"></p>' +
       '<p id="achievementUnreadStatus" class="table-hint" role="status"></p>' +
-      filterToolbar +
       showcaseEditor + '<div class="achievement-showcase">' + overviewSection('badges', copy.myBadges) +
       overviewSection('next', copy.nextGoals) + '</div>' + hiddenPinSection + legacySection + unreadSection + recentSection + historySection +
-      '<h3 class="achievement-gallery-heading">' + this.escapeHtml(copy.galleryTitle) + '</h3>' +
+      '<h3 id="achievementGalleryHeading" class="achievement-gallery-heading">' + this.escapeHtml(copy.galleryTitle) + '</h3>' + filterToolbar +
       '<p id="achievementFilterEmpty" class="table-hint" hidden>' + this.escapeHtml(copy.filterEmpty) + '</p>' +
-      visibleGroups
-        .map((group) => '<section class="achievement-group achievement-group-' + group + '"><h3>' +
-          this.escapeHtml(copy.groups[group]) + '</h3><div class="achievement-grid">' +
-          visibleCards.filter((entry) => entry.result.group === group)
-            .map(card).join('') +
-          '</div></section>').join('') + '</section>';
+      '<section class="achievement-group" aria-labelledby="achievementGalleryHeading"><div class="achievement-grid">' +
+      visibleCards.map(card).join('') + '</div></section>'  + '</section>';
   }
 
   /** One common disclosure; historical books keep their exact award association. */
@@ -6151,6 +6175,11 @@ export class UsageWebviewProvider {
       '<h4>'+this.escapeHtml(copy.earnedReference)+'</h4><ul class="achievement-reference-history">'+history.join('')+'</ul>':'')+'</section>';
   }
 
+  private retainedCalendarAchievement(id:AchievementId):boolean {
+    return isRollingSevenDayAchievement(id)&&this.achievementGrants.has(id)&&
+      this.achievementRecordState?.records.find(row=>row.id===id)?.ruleVersion!==3;
+  }
+
   private earnedAchievements(): AchievementResult[] {
     return this.achievementResults().map((result) => ({
       ...result,
@@ -6164,6 +6193,7 @@ export class UsageWebviewProvider {
     if (selected.length === 0) return '';
     return renderAchievementShareSvg({
       selected,
+      retainedCalendarIds:selected.filter(id=>this.retainedCalendarAchievement(id)),
       titles: copy.titles,
       heading: copy.shareTitle,
       subtitle: copy.intro,
@@ -6190,21 +6220,25 @@ export class UsageWebviewProvider {
       const title=achievementTitleWithoutRank(copy.titles[result.id],rank);
       return '<label class="sc-check achievement-share-option"><input type="checkbox" class="achievement-share-choice" value="' +
         result.id + '" aria-label="'+this.escapeHtml(copy.titles[result.id])+'"'+(chosen.includes(result.id) ? ' checked' : '') +
-        ' onchange="previewAchievementShare(this)"><img class="achievement-share-choice-icon" src="' +
-        this.escapeHtml(iconSrc(result.id)) + '" alt="" loading="lazy"><span class="achievement-share-option-text"><span class="achievement-share-option-name">'+
-        this.escapeHtml(title)+'</span><small>'+this.escapeHtml(rank)+'</small></span></label>';
+        ' onchange="previewAchievementShare(this)">' +
+        renderAchievementWebviewIcon(result.id, iconSrc(result.id), 'earned', 'achievement-share-choice-icon', 'selection') +
+        '<span class="achievement-share-option-text"><span class="achievement-share-option-name">'+
+        this.escapeHtml(title)+'</span><small>'+this.escapeHtml(rank)+'</small>'+
+        (this.retainedCalendarAchievement(result.id)?'<small data-award-rule-version="1">'+this.escapeHtml(achievementRollingCopyFor(I18n.getLocale()).legacyShort)+'</small>':'')+'</span></label>';
     }).join('');
     return '<section class="sharing-presentation achievement-share-presentation" data-sharing-presentation="achievements"' +
       (selected === 'achievements' ? '' : ' hidden') + ' aria-labelledby="achievementShareHeading">' +
       '<h3 id="achievementShareHeading" class="sharing-presentation-title">' + this.escapeHtml(copy.shareTitle) + '</h3>' +
       '<p class="sharing-presentation-description">' + this.escapeHtml(copy.shareIntro) + '</p>' +
+      '<div class="sharing-controls-panel"><fieldset class="sc-checks achievement-share-options"><legend>' + this.escapeHtml(copy.shareChoose) +
+      ' <span id="achievementShareCount" aria-live="polite">' + chosen.length + '/9</span></legend>' + choices +
+      '</fieldset><p id="achievementShareLimit" class="table-hint" role="status"></p>' +
+      '</div>' +
       '<div class="combined-preview-toolbar"><strong>' + this.escapeHtml(workspaceCopy.previewLabel) + '</strong></div>' +
       '<div id="achievementSharePreview" class="sharing-artifact-preview achievement-share-preview" role="region" tabindex="0" aria-label="' +
       this.escapeHtml(copy.shareTitle) + '" data-preview-id="' + this.escapeHtml(accepted?.previewId ?? '') + '">' +
       (preview || '<p class="table-hint">' + this.escapeHtml(results.length ? copy.shareSelect : copy.shareEmpty) + '</p>') + '</div>' +
-      '<div class="sharing-controls-panel"><fieldset class="sc-checks achievement-share-options"><legend>' + this.escapeHtml(copy.shareChoose) +
-      ' <span id="achievementShareCount" aria-live="polite">' + chosen.length + '/9</span></legend>' + choices +
-      '</fieldset><p id="achievementShareLimit" class="table-hint" role="status"></p>' +
+      '<div class="sharing-controls-panel">' +
       '<p id="achievementShareStatus" class="table-hint" role="status"></p><div class="share-actions">' +
       '<button class="btn-primary btn-small" onclick="previewAchievementShare()"' + (results.length ? '' : ' disabled') + '>' +
       this.escapeHtml(workspaceCopy.updatePreview) + '</button>' +
@@ -8458,126 +8492,180 @@ export class UsageWebviewProvider {
     return copy.noCoverage;
   }
 
-  private renderProjectMatrixHeatmap(
-    snapshot: ProjectUsageMatrixSnapshot,
-    range: 30 | 90,
-    copy: ProjectMatrixUiCopy,
-  ): string {
-    const rows = projectHeatmap(snapshot, range, 40);
-    const headerDays = (rows[0]?.cells ?? []).map((cell, index, cells) => {
-      const monthChanged = index === 0 || cells[index - 1].day.slice(0, 7) !== cell.day.slice(0, 7);
-      const label = monthChanged ? this.getShortDate(cell.day) : cell.day.slice(8);
-      return '<th scope="col" title="' + this.escapeHtml(this.formatDate(cell.day)) + '">' +
-        this.escapeHtml(label) + '</th>';
-    }).join('');
-    const body = rows.map((row, index) => {
-      const name = row.projectName || copy.project;
-      const meta = I18n.formatNumber(row.totalTokens) + ' Token · ' +
-        I18n.formatNumber(row.activeDays) + ' ' + copy.activeDays;
-      const cells = row.cells.map((cell) => {
-        const coverage = this.projectMatrixCoverageLabel(cell.coverage, copy);
-        const title = name + ' · ' + this.formatDate(cell.day) + ' · ' +
-          I18n.formatNumber(cell.tokens) + ' Token · ' + coverage;
-        return '<td class="project-matrix-cell project-matrix-level-' + cell.bucket + '" ' +
-          'data-day="' + this.escapeHtml(cell.day) + '" data-tokens="' + cell.tokens + '" ' +
-          'title="' + this.escapeHtml(title) + '" aria-label="' + this.escapeHtml(title) + '"></td>';
-      }).join('');
-      return '<tr class="project-matrix-row"' +
-        (index >= 12 ? ' data-project-matrix-extra="true" hidden' : '') + '>' +
-        '<th scope="row" class="project-matrix-project"><span>' + this.escapeHtml(name) + '</span>' +
-        '<small>' + this.escapeHtml(meta) + '</small></th>' + cells + '</tr>';
-    }).join('');
-    return '<div class="project-matrix-scroll" tabindex="0" role="region" aria-label="' +
-      this.escapeHtml(copy.matrixAria + ' · ' + (range === 90 ? copy.last90 : copy.last30)) + '">' +
-      '<table class="project-matrix-grid"><thead><tr><th scope="col" class="project-matrix-project">' +
-      this.escapeHtml(copy.project) + '</th>' + headerDays + '</tr></thead><tbody>' + body +
-      '</tbody></table></div>';
+  private clearProjectChartRuntime(retire = false, provider?: SettingProvider): void {
+    if (!this.projectChartEpochs) this.projectChartEpochs = {};
+    if (retire) for (const key of provider ? [provider] : ['claude','codex'] as const) this.projectChartEpochs[key] = randomBytes(12).toString('hex');
+    if (provider) {
+      if (this.projectChartSelection) delete this.projectChartSelection[provider];
+      for (const key of this.projectChartHandles?.keys() ?? []) if (key.startsWith(provider + '|')) this.projectChartHandles!.delete(key);
+    } else { this.projectChartSelection = {}; this.projectChartHandles?.clear(); this.projectChartHandles = undefined; }
+    this.projectChartCache = undefined;
+    if (provider) { if (this.projectChartHandleScopes) delete this.projectChartHandleScopes[provider]; this.dataPanelCache?.delete(provider + ':projects'); }
+    else { this.projectChartHandleScopes = undefined; this.dataPanelCache?.delete('claude:projects'); this.dataPanelCache?.delete('codex:projects'); }
   }
 
-  private renderProjectMatrixTrend(
-    snapshot: ProjectUsageMatrixSnapshot,
-    range: 30 | 90,
-    copy: ProjectMatrixUiCopy,
-  ): string {
-    const series = projectTrend(snapshot, range, 6);
-    const names = series.map((item) => item.other ? copy.otherProjects : (item.projectName || copy.project));
-    const dayTotals = (series[0]?.values ?? []).map((_, dayIndex) =>
-      series.reduce((sum, item) => sum + item.values[dayIndex].tokens, 0));
-    const maxDay = Math.max(1, ...dayTotals);
-    const legend = series.map((item, index) =>
-      '<span class="project-matrix-trend-series"><i class="project-matrix-series-' + index +
-      '" aria-hidden="true"></i><span>' + this.escapeHtml(names[index]) + '</span><strong>' +
-      this.escapeHtml(I18n.formatNumber(item.totalTokens)) + '</strong></span>').join('');
-    const columns = (series[0]?.values ?? []).map((value, dayIndex, values) => {
-      const total = dayTotals[dayIndex];
-      const coverage = this.projectMatrixCoverageLabel(value.coverage, copy);
-      const totalTitle = this.formatDate(value.day) + ' · ' + I18n.formatNumber(total) +
-        ' Token · ' + coverage;
-      const segments = series.map((item, seriesIndex) => {
-        const point = item.values[dayIndex];
-        if (!(point.tokens > 0)) return '';
-        const title = names[seriesIndex] + ' · ' + this.formatDate(point.day) + ' · ' +
-          I18n.formatNumber(point.tokens) + ' Token · ' +
-          this.projectMatrixCoverageLabel(point.coverage, copy);
-        return '<span class="project-matrix-trend-segment project-matrix-series-' + seriesIndex + '" ' +
-          'style="height:' + ((point.tokens / maxDay) * 100).toFixed(4) + '%" ' +
-          'title="' + this.escapeHtml(title) + '" aria-label="' + this.escapeHtml(title) + '"></span>';
-      }).join('');
-      const showLabel = dayIndex === 0 || dayIndex === values.length - 1 || dayIndex % 7 === 0;
-      return '<div class="project-matrix-trend-col" title="' + this.escapeHtml(totalTitle) + '">' +
-        '<div class="project-matrix-trend-stack">' + segments + '</div>' +
-        '<span class="project-matrix-trend-date">' +
-        (showLabel ? this.escapeHtml(this.getShortDate(value.day)) : '') + '</span></div>';
+  private projectChartHandle(provider: string, key: string): string {
+    return createHash('sha256').update(String(vscode.env?.machineId ?? 'test-host') + '|project-filter-v1|' + provider + '|' + key).digest('hex').slice(0,32);
+  }
+
+  private handleProjectChartFilter(message: any): void {
+          if (message.documentId !== this.dashboardDocumentId || message.provider !== this.currentProvider ||
+              !['claude','codex'].includes(message.provider) || message.scope !== this.projectChartHandleScopes?.[message.provider as SettingProvider] ||
+              !Array.isArray(message.handles) || message.handles.length > 200 ||
+              message.handles.some((h: unknown) => typeof h !== 'string' || h.length > 64)) return;
+          const provider = message.provider as SettingProvider;
+          const source = provider === 'codex' ? this.codexView?.projectUsageMatrix : this.claudeProjectUsageMatrix;
+          const keys = [...new Set(source?.points.map(p => p.projectKey) ?? [])];
+          const handles = new Set(message.handles);
+          const selected = keys.filter(key => handles.has(this.projectChartHandles?.get(provider + '|' + key)));
+          if (selected.length !== handles.size) return;
+          this.projectChartSelection[provider] = message.all === true ? undefined : selected;
+          this.dataPanelCache?.delete(provider + ':projects');
+          this.updateWebview();
+  }
+
+  private projectChartProjection(snapshot: ProjectUsageMatrixSnapshot, range: 30 | 90, scale: ProjectChartScale = 'day') {
+    const selected = this.projectChartSelection?.[snapshot.provider];
+    if (!this.projectChartCache) this.projectChartCache = new WeakMap();
+    let cache = this.projectChartCache.get(snapshot);
+    if (!cache) { cache = new Map(); this.projectChartCache.set(snapshot, cache); }
+    const key = JSON.stringify([range,scale,selected ?? null]);
+    const previous = cache.get(key); if (previous) return previous;
+    const projected = projectChartProjection(snapshot, { startDay: snapshot.days.slice(-range)[0], endDay: snapshot.asOfDay,
+      scale, maxRows: 40, maxSeries: 6, ...(selected === undefined ? {} : { projectKeys: selected }) });
+    if (cache.size >= 12) cache.delete(cache.keys().next().value!);
+    cache.set(key, projected); return projected;
+  }
+
+  private renderProjectMatrixHeatmap(snapshot: ProjectUsageMatrixSnapshot, range: 30 | 90,
+    copy: ProjectMatrixUiCopy, scale: ProjectChartScale = 'day'): string {
+    const data = this.projectChartProjection(snapshot, range, scale), esc = (s: string) => this.escapeHtml(s);
+    const header = data.periods.map(p => '<th scope="col" title="' + esc(p.startDay + ' – ' + p.endDay) + '">' +
+      esc(this.getShortDate(p.startDay)) + (p.clipped ? ' *' : '') + '</th>').join('');
+    const body = data.rows.map((row, index) => '<tr class="project-matrix-row"' +
+      (index >= 12 ? ' data-project-matrix-extra="true" hidden' : '') + '><th scope="row" class="project-matrix-project"><span>' +
+      esc(row.projectName || copy.project) + '</span><small>' + (row.total.tokens === null ? '—' : I18n.formatNumber(row.total.tokens)) +
+      ' Token</small></th>' + row.cells.map((cell, i) => {
+        const p = data.periods[i], detail = (row.projectName || copy.project) + ' · ' + p.startDay + ' – ' + p.endDay +
+          ' · ' + (cell.tokens === null ? I18n.projectChartControls.unknown : I18n.formatNumber(cell.tokens) + ' Token') +
+          ' · ' + this.projectMatrixCoverageLabel(cell.coverage, copy);
+        return '<td class="project-matrix-cell project-matrix-level-' + (cell.bucket ?? 'unknown') + '" data-day="' + p.startDay +
+          '" data-tokens="' + (cell.tokens ?? '') + '">' +
+          '<button class="project-matrix-inspect" data-project-selection-key="' + range + ':' + scale + ':h:' + this.projectChartHandle(snapshot.provider, row.projectKeys[0] ?? '') + ':' + p.key + '" data-project-inspect aria-label="' + esc(detail) + '">' +
+          (cell.coverage === 'partial' ? '<span aria-hidden="true">·</span>' : '') + '</button></td>';
+      }).join('') + '</tr>').join('');
+    return '<div class="project-matrix-scroll" data-project-scroll-kind="heatmap" tabindex="0" role="region" aria-label="' + esc(copy.matrixAria) +
+      '"><table class="project-matrix-grid"><thead><tr><th scope="col" class="project-matrix-project">' + esc(copy.project) +
+      '</th>' + header + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+      (!body ? '<p class="table-hint">' + esc(I18n.projectChartControls.empty) + '</p>' : '');
+  }
+
+  private renderProjectMatrixTrend(snapshot: ProjectUsageMatrixSnapshot, range: 30 | 90,
+    copy: ProjectMatrixUiCopy, scale: ProjectChartScale = 'day'): string {
+    const data = this.projectChartProjection(snapshot, range, scale), series = data.series, esc = (s: string) => this.escapeHtml(s);
+    if (!series.length) return '<p class="table-hint" data-project-empty>' + esc(I18n.projectChartControls.empty) + '</p>';
+    const names = series.map(s => s.other ? copy.otherProjects + ' (' + s.projectCount + ')' : s.projectName || copy.project);
+    const totals = data.periods.map((_, i) => series.reduce((sum, s) => sum + (s.cells[i].tokens ?? 0), 0));
+    const peak = Math.max(1, ...totals), step = 10 ** Math.floor(Math.log10(peak));
+    const max = Math.ceil(peak / step) * step, width = 900, dx = width / Math.max(1, data.periods.length);
+    const axis = '<div class="project-chart-axis"><small>Token</small>' + [max, max / 2, 0].map((value, i) =>
+      '<span data-axis-tokens="' + value + '" title="' + esc(I18n.formatNumber(value) + ' Token') + '" style="top:' + (15 + i * 65) + 'px">' + esc(I18n.formatTokensCompact(value)) + '</span>').join('') + '</div>';
+    const grid = [15,80,145].map(y => '<line x1="0" x2="' + width + '" y1="' + y + '" y2="' + y +
+      '" stroke="var(--vscode-panel-border)" vector-effect="non-scaling-stroke"/>').join('');
+    // Keep labels outside the stretched SVG: the whole range fits, while type stays legible.
+    const dates = '<div class="project-chart-dates">' + [0, Math.floor((data.periods.length - 1) / 2), data.periods.length - 1]
+      .filter((index, position, all) => index >= 0 && all.indexOf(index) === position)
+      .map(index => '<span>' + esc(this.getShortDate(data.periods[index].startDay)) + (data.periods[index].clipped ? ' *' : '') + '</span>').join('') + '</div>';
+    const lower = (r: number, i: number) => series.slice(0, r).reduce((sum, s) => sum + (s.cells[i].tokens ?? 0), 0);
+    const legend = series.map((s, i) => '<span class="project-matrix-trend-series"><i class="project-matrix-series-' + i +
+      '" aria-hidden="true"></i><span>' + esc(names[i]) + '</span><strong>' + (s.total.tokens === null ? '—' : I18n.formatNumber(s.total.tokens)) + '</strong></span>').join('');
+    const polygons = series.map((s, r) => s.cells.map((cell, i) => {
+      // Do not bridge an unknown contribution in this or a lower stack series.
+      if (cell.tokens === null || series.slice(0, r + 1).some(row => row.cells[i].tokens === null)) return '';
+      const x = dx * (i + .5), y0 = 145 - lower(r, i) / max * 130, y1 = y0 - cell.tokens / max * 130;
+      const next = s.cells[i + 1];
+      if (!next || next.tokens === null || series.slice(0, r + 1).some(row => row.cells[i + 1].tokens === null)) {
+        if (cell.tokens === 0) return '';
+        return '<rect x="' + (x - 1) + '" y="' + y1 + '" width="2" height="' + Math.max(1, y0 - y1) + '" class="project-matrix-area-' + r + '"/>';
+      }
+      if (cell.tokens === 0 && next.tokens === 0) return '';
+      const ny0 = 145 - lower(r, i + 1) / max * 130, ny1 = ny0 - next.tokens / max * 130;
+      return '<polygon class="project-matrix-area-' + r + '" points="' + x + ',' + y0 + ' ' + x + ',' + y1 + ' ' +
+        (x + dx) + ',' + ny1 + ' ' + (x + dx) + ',' + ny0 + '"/>';
+    }).join('')).join('');
+    const marks = data.periods.map((p, i) => {
+      const unknown = series.some(s => s.cells[i].tokens === null), partial = series.some(s => s.cells[i].coverage !== 'complete');
+      const detail = p.startDay + ' – ' + p.endDay + (p.clipped ? ' *' : '') + ' · ' + (unknown && totals[i] === 0 ? I18n.projectChartControls.unknown : I18n.formatNumber(totals[i]) + ' Token') +
+        ' · ' + this.projectMatrixCoverageLabel(partial ? 'partial' : 'complete', copy);
+      return '<g><rect x="' + (dx * i) + '" y="0" width="' + dx + '" height="165" fill="transparent" tabindex="0" role="button" data-project-inspect="' + esc(detail) +
+        '" data-project-selection-key="' + range + ':' + scale + ':t:' + p.key + '" aria-label="' + esc(detail) + '"><title>' + esc(detail) + '</title></rect>' +
+        (unknown ? '<rect x="' + (dx * i) + '" y="151" width="' + dx + '" height="6" fill="url(#project-unknown-' + snapshot.provider + '-' + range + '-' + scale + ')"/>' : '') +
+        '</g>';
     }).join('');
-    return '<div class="project-matrix-trend-legend">' + legend + '</div>' +
-      '<div class="project-matrix-trend-scroll" tabindex="0" role="img" aria-label="' +
-      this.escapeHtml(copy.trendAria + ' · ' + (range === 90 ? copy.last90 : copy.last30)) + '">' +
-      '<div class="project-matrix-trend-bars project-matrix-trend-' + range + '">' + columns + '</div></div>';
+    const bars = data.periods.map((p,i) => '<div class="project-matrix-trend-col"><div class="project-matrix-trend-stack">' +
+      series.map((row,r) => row.cells[i].tokens === 0 ? '' : row.cells[i].tokens === null ? '<span class="project-matrix-trend-unknown" aria-hidden="true">—</span>' :
+        '<span class="project-matrix-trend-segment project-matrix-series-' + r + '" style="height:' + (row.cells[i].tokens! / max * 100) + '%" title="' +
+        esc(names[r] + ' · ' + p.startDay + ' – ' + p.endDay + (p.clipped ? ' *' : '') + ' · ' + I18n.formatNumber(row.cells[i].tokens!) + ' Token · ' + this.projectMatrixCoverageLabel(row.cells[i].coverage,copy)) + '"></span>').join('') +
+      '</div><span class="project-matrix-trend-date">' + (i % Math.max(1,Math.ceil(data.periods.length/10)) === 0 ? esc(this.getShortDate(p.startDay)) + (p.clipped?' *':'') : '') + '</span></div>').join('');
+    return '<div class="project-matrix-trend-legend">' + legend + '</div><div data-project-bars-mode><div class="project-chart-layout">' + axis +
+      '<div class="project-matrix-trend-scroll" data-project-scroll-kind="trend" tabindex="0"><div class="project-matrix-trend-bars project-matrix-trend-' + range + '">' + bars +
+      '</div></div></div></div><div data-project-area-mode hidden><div class="project-chart-layout">' + axis + '<div class="project-chart-overview" role="region" aria-label="' +
+      esc(copy.trendAria) + '"><svg class="project-matrix-area" width="100%" height="165" viewBox="0 0 ' + width + ' 165" preserveAspectRatio="none" role="group" aria-label="' + esc(copy.trendAria) + '">' +
+      '<defs><pattern id="project-unknown-' + snapshot.provider + '-' + range + '-' + scale + '" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 6L6 0" stroke="currentColor" stroke-width="1"/></pattern></defs>' + grid + polygons + marks + '</svg>' + dates + '</div></div></div><p class="table-hint">' + esc(I18n.projectChartControls.subtotal) + '</p>';
   }
 
   private renderProjectUsageMatrix(provider: SettingProvider): string {
     if (!this.setting<boolean>('showProjectUsageMatrix', true)) return '';
-    const snapshot = provider === 'codex'
-      ? this.codexView?.projectUsageMatrix
-      : this.claudeProjectUsageMatrix;
-    if (!snapshot || snapshot.points.length === 0) return '';
-    const copy = projectMatrixUiCopy(I18n.getLocale());
-    const coverage = this.projectMatrixCoverageLabel(snapshot.coverage, copy);
-    const rangePanel = (range: 30 | 90): string =>
-      '<div class="project-matrix-range" data-project-matrix-range-panel="' + range + '"' +
-      (range === 90 ? ' hidden' : '') + '>' +
-      '<div class="project-matrix-view" data-project-matrix-heatmap>' +
-      this.renderProjectMatrixHeatmap(snapshot, range, copy) + '</div>' +
-      '<div class="project-matrix-view" data-project-matrix-trend hidden>' +
-      this.renderProjectMatrixTrend(snapshot, range, copy) + '</div></div>';
-    const hasExtraRows = Math.max(
-      projectHeatmap(snapshot, 30, 40).length,
-      projectHeatmap(snapshot, 90, 40).length,
-    ) > 12;
-    return '<section class="project-matrix" data-project-matrix="' + provider + '">' +
-      '<div class="project-matrix-head"><div><h3>' + this.escapeHtml(copy.title) + '</h3>' +
-      '<p>' + this.escapeHtml(copy.description) + '</p></div>' +
-      '<span class="project-matrix-coverage project-matrix-coverage-' + snapshot.coverage + '">' +
-      this.escapeHtml(coverage) + '</span></div>' +
-      '<div class="project-matrix-toolbar">' +
-      '<div class="project-matrix-control" role="group" aria-label="' + this.escapeHtml(copy.rangeLabel) + '">' +
-      '<span>' + this.escapeHtml(copy.rangeLabel) + '</span>' +
-      '<button class="project-matrix-option active" data-project-matrix-range="30" aria-pressed="true">' +
-      this.escapeHtml(copy.last30) + '</button>' +
-      '<button class="project-matrix-option" data-project-matrix-range="90" aria-pressed="false">' +
-      this.escapeHtml(copy.last90) + '</button></div>' +
-      '<div class="project-matrix-control" role="group" aria-label="' + this.escapeHtml(copy.viewLabel) + '">' +
-      '<span>' + this.escapeHtml(copy.viewLabel) + '</span>' +
-      '<button class="project-matrix-option active" data-project-matrix-view="heatmap" aria-pressed="true">' +
-      this.escapeHtml(copy.heatmap) + '</button>' +
-      '<button class="project-matrix-option" data-project-matrix-view="trend" aria-pressed="false">' +
-      this.escapeHtml(copy.trend) + '</button></div></div>' +
-      rangePanel(30) + rangePanel(90) +
-      (hasExtraRows
-        ? '<button class="project-matrix-expand" data-project-matrix-expand aria-expanded="false" ' +
-          'data-show-more="' + this.escapeHtml(copy.showMore) + '" data-show-less="' +
-          this.escapeHtml(copy.showLess) + '">' + this.escapeHtml(copy.showMore) + '</button>'
-        : '') + '</section>';
+    const snapshot = provider === 'codex' ? this.codexView?.projectUsageMatrix : this.claudeProjectUsageMatrix;
+    if (!snapshot) return '';
+    const copy = projectMatrixUiCopy(I18n.getLocale()), controls = I18n.projectChartControls, esc = (s: string) => this.escapeHtml(s);
+    if (!this.projectChartHandles) this.projectChartHandles = new Map();
+    const sourceScope = provider === 'claude' ? this.dataDirectory ?? '' : this.setting<string>('codex.dataDirectory', '');
+    const handleScope = this.projectChartHandle('scope', provider + '|' + sourceScope + '|' + snapshot.timeZone + '|' + (this.projectChartEpochs?.[provider] ?? ''));
+    if (!this.projectChartHandleScopes) this.projectChartHandleScopes = {};
+    this.projectChartHandleScopes[provider] = handleScope;
+    const known = new Map(snapshot.points.map(p => [p.projectKey, p.projectName]));
+    // Only machine-salted handles enter Webview state. Rebuild the bounded map
+    // from current selectable projects; stale source handles cannot revive data.
+    for (const key of this.projectChartHandles.keys()) if (key.startsWith(provider + '|')) this.projectChartHandles.delete(key);
+    for (const [key] of [...known].sort((a,b) => a[1].localeCompare(b[1])).slice(0,200)) if (!this.projectChartHandles.has(provider + '|' + key)) this.projectChartHandles.set(provider + '|' + key, this.projectChartHandle(provider, key));
+    let selected = this.projectChartSelection?.[provider];
+    const normalized = selected !== undefined && selected.some(key => !known.has(key));
+    if (normalized) { this.projectChartSelection[provider] = undefined; selected = undefined; this.projectChartCache = undefined; }
+    const choices = [...known].sort((a,b) => a[1].localeCompare(b[1])).slice(0, 200).map(([key,name]) => {
+      const handle = this.projectChartHandles!.get(provider + '|' + key)!;
+      return '<label><input type="checkbox" data-project-filter="' + handle + '"' +
+        (selected === undefined || selected.includes(key) ? ' checked' : '') + '>' + esc(name || copy.project) + '</label>';
+    }).join('');
+    const summary = (range: 30 | 90, scale: ProjectChartScale) => {
+      const data = this.projectChartProjection(snapshot,range,scale);
+      const first = data.periods[0]?.startDay ?? snapshot.asOfDay;
+      const last = data.periods[data.periods.length-1]?.endDay ?? snapshot.asOfDay;
+      return '<div class="project-matrix-summary" data-project-summary-range="' + range + '" data-project-summary-scale="' + scale + '"' +
+        (range === 30 && scale === 'day' ? '' : ' hidden') + '><div><strong>' +
+        (data.total.tokens === null ? '—' : I18n.formatNumber(data.total.tokens)) + '</strong> <span>Token</span> <span class="project-matrix-summary-quality">' +
+        esc(this.projectMatrixCoverageLabel(data.total.coverage,copy)) + '</span></div><p>' + esc(first + ' – ' + last + ' · ' + data.timeZone) + '</p></div>';
+    };
+    const rangePanel = (range: 30 | 90) => '<div class="project-matrix-range" data-project-matrix-range-panel="' + range + '"' + (range === 90 ? ' hidden' : '') + '>' +
+      (['day','week','month'] as const).map(scale => '<div data-project-scale-panel="' + scale + '"' + (scale === 'day' ? '' : ' hidden') + '>' +
+        '<div class="project-matrix-view" data-project-matrix-heatmap>' + this.renderProjectMatrixHeatmap(snapshot, range, copy, scale) + '</div>' +
+        '<div class="project-matrix-view" data-project-matrix-trend hidden>' + this.renderProjectMatrixTrend(snapshot, range, copy, scale) + '</div></div>').join('') + '</div>';
+    return '<section class="project-matrix" data-project-matrix="' + provider + '" data-project-filter-scope="' + handleScope + '" data-project-filter-normalized="' + normalized + '" data-project-reset-label="' + esc(controls.reset) + '">' +
+      '<div class="project-matrix-head"><div><h3>' + esc(copy.title) + '</h3></div>' +
+      '<span class="project-matrix-coverage project-matrix-coverage-' + snapshot.coverage + '">' + esc(this.projectMatrixCoverageLabel(snapshot.coverage, copy)) + '</span></div>' +
+      ([30,90] as const).map(range=>(['day','week','month'] as const).map(scale=>summary(range,scale)).join('')).join('') +
+      '<div class="project-matrix-toolbar"><div class="project-matrix-control" role="group" aria-label="' + esc(copy.rangeLabel) + '"><span>' + esc(copy.rangeLabel) + '</span>' +
+      [30,90].map(n => '<button class="project-matrix-option' + (n === 30 ? ' active' : '') + '" data-project-matrix-range="' + n + '" aria-pressed="' + (n === 30) + '">' + esc(n === 30 ? copy.last30 : copy.last90) + '</button>').join('') + '</div>' +
+      '<div class="project-matrix-control" role="group" aria-label="' + esc(copy.viewLabel) + '"><span>' + esc(copy.viewLabel) + '</span>' +
+      ['heatmap','trend','area'].map(v => '<button class="project-matrix-option' + (v === 'heatmap' ? ' active' : '') + '" data-project-matrix-view="' + v + '" aria-pressed="' + (v === 'heatmap') + '">' + esc(v === 'heatmap' ? copy.heatmap : v === 'area' ? controls.area : copy.trend) + '</button>').join('') + '</div>' +
+      '<label>' + esc(controls.scale) + ' <select id="project-scale-' + provider + '" data-project-scale>' +
+      (['day','week','month'] as const).map(v=>'<option value="'+v+'">'+esc(controls[v])+'</option>').join('') + '</select></label></div>' +
+      '<details data-persist="project-filter-' + provider + '"><summary>' + esc(controls.filter) + '</summary><div class="project-matrix-filters">' + choices + '</div>' +
+      '<button data-project-filter-all>' + esc(controls.all) + '</button> <button data-project-filter-none>' + esc(controls.none) + '</button>' +
+      (known.size > 200 ? '<p class="table-hint">' + esc(controls.bounded) + '</p>' : '') + '</details>' +
+      rangePanel(30) + rangePanel(90) + '<p class="project-matrix-selection" data-project-selection role="status"></p>' +
+      '<details class="project-matrix-basis" data-persist="project-basis-' + provider + '"><summary>' + esc(I18n.visualization.evidenceDetails) + '</summary><p class="table-hint">' + esc(copy.description) + '</p><p class="table-hint">' + esc(controls.legend) + '</p></details>' +
+      (known.size > 12 ? '<button class="project-matrix-expand" data-project-matrix-expand aria-expanded="false" data-show-more="' + esc(copy.showMore) + '" data-show-less="' + esc(copy.showLess) + '">' + esc(copy.showMore) + '</button>' : '') + '</section>';
   }
 
   private renderProjectData(provider: SettingProvider = 'claude'): string {
@@ -10393,28 +10481,133 @@ export class UsageWebviewProvider {
     );
   }
 
+  private usageDiagnosticsRenderCache?: Partial<Record<SettingProvider, {
+    source: unknown; diagnosticSource: unknown; key: string; html: string;
+  }>>;
+
+  /** Default-off, numeric-only diagnostics in the existing Content panel. The
+   * lazy provider source and calendar projection are untouched while disabled. */
+  private renderUsageDiagnostics(provider: SettingProvider): string {
+    const throughput = this.setting<boolean>('showUsageThroughput', false);
+    const changes = this.setting<boolean>('showUsageChange', false);
+    if (!throughput && !changes) {
+      this.usageDiagnosticsRenderCache = undefined;
+      return '';
+    }
+    const copy = I18n.usageDiagnostics;
+    const esc = (value: string): string => this.escapeHtml(value);
+    const zone = resolveTimeZone(I18n.getTimezone());
+    const now = Date.now();
+    const today = dayKeyInZone(new Date(now), zone);
+    const source = provider === 'codex' ? this.codexView : this.dailyDataForEveryDay;
+    const diagnosticSource = provider === 'codex' ? this.codexView?.diagnosticDays : undefined;
+    const claudeComplete = this.achievementCalendarTimeZone === zone && !!this.allTimeData &&
+      !this.revokedAchievementEvidence?.has('claude');
+    const key = [I18n.getCurrentLanguage(), zone, today, throughput, changes, claudeComplete].join('|');
+    const previous = this.usageDiagnosticsRenderCache?.[provider];
+    if (previous && previous.source === source && previous.diagnosticSource === diagnosticSource && previous.key === key) return previous.html;
+    const selectedDays = rollingDayKeysFromDayKey(today, 30);
+    const selected = new Set(selectedDays);
+    let days: readonly DiagnosticDay[] = [];
+    if (throughput || changes) {
+      if (provider === 'codex') {
+        if (this.codexView?.periodCoverage.timeZone === zone) days = this.codexView.diagnosticDays?.() ?? [];
+      } else if (this.achievementCalendarTimeZone === zone) {
+        days = adaptClaudeDiagnosticDays(this.dailyDataForEveryDay.filter(row => selected.has(row.date)), claudeComplete);
+        // A complete accepted local census establishes idle days inside this
+        // bounded range. Incomplete sources must never receive artificial zeros.
+        if (claudeComplete) {
+          const present = new Set(days.map(day => day.day));
+          days = [...days, ...selectedDays.filter(day => !present.has(day)).map(day => ({
+            day, output:0, processed:0, coverage:'complete' as const, models:{},
+          }))];
+        }
+      }
+    }
+    const closedKeys = rollingDayKeysFromDayKey(today, 3).slice(0,2);
+    const before = days.find(day => day.day === closedKeys[0]);
+    const after = days.find(day => day.day === closedKeys[1]);
+    let body = '<p class="table-hint">' + esc(copy.scope) + '</p>';
+    const method = (kind:string,content:string):string => '<details class="diagnostic-method" data-diagnostic-method="' + kind +
+      '" data-persist="diagnostics:' + provider + ':method:' + kind + '"><summary>' + esc(I18n.visualization.evidenceDetails) +
+      '</summary>' + content + '<p class="table-hint">' + esc(copy.tps) + '</p></details>';
+    const section = (kind:string,title:string,content:string):string => '<section class="usage-diagnostic" data-diagnostic="' + kind +
+      '"><h4 class="cbar-subhead">' + esc(title) + '</h4>' + content + '</section>';
+    if (changes) {
+      const dimensions = (['models','roles'] as const).map(dimension=>({dimension,result:diagnosticChange(before,after,zone,dimension)}));
+      const primary = dimensions.find(row=>row.result.delta!==null);
+      const signed = (value:number):string => (value>0?'+':'') + I18n.formatNumber(value);
+      const labels: Record<string,string> = {unknown:copy.unknown,root:copy.root,subagent:copy.subagent,'approval-reviewer':copy.reviewer};
+      const barRows = (result:typeof dimensions[number]['result']):string => {
+        const maximum=result.rows.reduce((max,row)=>Math.max(max,Math.abs(row.delta)),1);
+        return '<div class="cbar-list">' + result.rows.map(row=>'<div class="cbar-row"><div class="cbar-label" title="' + esc(row.key) + '">' +
+          esc(labels[row.key]??row.key) + '</div><div class="cbar-track"><div class="cbar-fill cf-1" style="width:' +
+          (100*Math.abs(row.delta)/maximum).toFixed(1) + '%"></div></div><div class="cbar-val" aria-label="' +
+          esc(copy.before+': '+row.before+' · '+copy.after+': '+row.after) + '">' + esc(signed(row.delta)) + '</div></div>').join('') + '</div>';
+      };
+      let changeBody = '<p class="diagnostic-primary" data-diagnostic-result>' + (primary
+        ? esc(I18n.visualization.observedChange.replace('{delta}',signed(primary.result.delta!))) : '—') + '</p>' +
+        '<p class="diagnostic-context">' + esc(copy.basis + ' · ' + closedKeys.join(' → ') + ' · ' + zone) + '</p>';
+      if (primary) changeBody += '<p class="diagnostic-dimension-label">' + esc(primary.dimension==='models'?copy.model:copy.role) + '</p>' + barRows(primary.result);
+      else changeBody += '<p class="diagnostic-quality">' + esc(copy.unavailable) + '</p>';
+      for (const {dimension,result} of dimensions) {
+        const label=dimension==='models'?copy.model:copy.role;
+        changeBody += '<details data-persist="diagnostics:' + provider + ':' + dimension + '"><summary>' + esc(label) + ' · ' +
+          (result.delta===null?'—':esc(signed(result.delta)+' Token')) + '</summary>' + (result.delta===null
+            ? '<p class="table-hint">' + esc(copy.unavailable) + '</p>'
+            : '<div class="diagnostic-evidence">' + result.rows.map(row=>'<div><span>' + esc(labels[row.key]??row.key) +
+              '</span><span>' + esc(copy.before+': '+I18n.formatNumber(row.before)+' → '+copy.after+': '+I18n.formatNumber(row.after)) +
+              '</span><strong>' + esc(signed(row.delta)) + '</strong></div>').join('') + '</div>') + '</details>';
+      }
+      changeBody += '<p class="diagnostic-quality">' + esc(copy.overlap) + '</p>';
+      const beforeHours=diagnosticThroughput(before,zone).hours,afterHours=diagnosticThroughput(after,zone).hours;
+      changeBody += method('change','<p class="table-hint">' + esc(copy.basis+' · '+closedKeys.join(' → ')+' · '+zone) + '</p>' +
+        (beforeHours===undefined||afterHours===undefined?'':'<p class="table-hint">'+esc(copy.before+': '+beforeHours+' '+copy.hour+' · '+copy.after+': '+afterHours+' '+copy.hour)+'</p>'));
+      body += section('change',copy.change,changeBody);
+    }
+    if (throughput) {
+      const rate=diagnosticThroughput(after,zone);
+      const rolling=diagnosticSevenDayPeak(days,today),peak=rolling?.history.exactWindowPeak;
+      const quality=rate.status==='partial'?copy.partial:rate.value===null?copy.unavailable:'';
+      body += section('throughput',copy.throughput,'<p class="diagnostic-primary" data-diagnostic-result><strong>' +
+        (rate.value===null?'—':I18n.formatNumber(rate.value)) + '</strong> <span>' + esc(copy.outputPerHour) + '</span></p>' +
+        '<p class="diagnostic-context">' + esc(closedKeys[1]+' · '+zone+(rate.hours===undefined?'':' · '+rate.hours+' '+copy.hour)) + '</p>' +
+        (quality?'<p class="diagnostic-quality">'+esc(quality)+'</p>':'') + method('throughput','<p class="table-hint">'+esc(copy.throughputNote)+'</p><p class="table-hint">'+
+          esc(copy.seven+' · '+(provider==='codex'?I18n.t.providers.codex.processed:I18n.t.popup.totalTokens))+': '+
+          (peak&&peak.value.status==='exact'?esc(peak.value.units.toLocaleString(I18n.getLocale())+' Token · '+peak.startDay+' → '+peak.endDay):esc(copy.sevenUnavailable))+'</p>'));
+    }
+    const html = '<div class="daily-breakdown" data-usage-diagnostics="' + provider + '"><div class="section-header"><h3>' +
+      esc(copy.title) + '</h3></div>' + body + '</div>';
+    (this.usageDiagnosticsRenderCache ??= {})[provider] = {source,diagnosticSource,key,html};
+    return html;
+  }
+
   private renderContentData(provider: SettingProvider = 'claude'): string {
+    const summaryMetric = (label:string,value:string):string => '<div class="analysis-summary-metric"><strong>' +
+      this.escapeHtml(value) + '</strong><span>' + this.escapeHtml(label) + '</span></div>';
+
     if (provider === 'codex') {
       const view = this.codexView;
       const copy = I18n.t.providers.codex;
       if (!view) {
-        return this.renderCodexEmptyState();
+        return this.renderCodexEmptyState() + this.renderUsageDiagnostics('codex');
       }
       const behavior = view.behaviorScopes.last30Days;
       const percent = (value: number): string => `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
       const metric = (label: string, value: string): string =>
-        '<div class="summary-item"><div class="label">' + this.escapeHtml(label) +
-        '</div><div class="value">' + this.escapeHtml(value) + '</div></div>';
-      const behaviorSummary = '<div class="usage-summary"><div class="summary-grid">' +
-        metric(copy.childThreadsPerRootTask, behavior.childThreadsPerRootTask.toFixed(1)) +
+        '<div class="cbar-row"><span style="flex:1;min-width:0;overflow-wrap:anywhere">' + this.escapeHtml(label) +
+        '</span><strong class="cbar-val">' + this.escapeHtml(value) + '</strong></div>';
+      const behaviorSummary = '<div class="analysis-summary-metrics">' +
+        summaryMetric(copy.childThreadsPerRootTask,behavior.childThreadsPerRootTask.toFixed(1)) +
+        summaryMetric(copy.highEffortFreshShare,percent(behavior.highEffortFreshShare)) +
+        summaryMetric(copy.reasoningOutputShare,percent(behavior.reasoningOutputShare)) + '</div>' +
+        '<details class="analysis-basis" data-persist="analysis:codex:behavior"><summary>' + this.escapeHtml(I18n.visualization.evidenceDetails) + '</summary><div class="cbar-list">' +
         metric(copy.childFreshShare, percent(behavior.childFreshShare)) +
         metric(copy.approvalFreshShare, percent(behavior.approvalReviewerFreshShare)) +
-        metric(copy.highEffortFreshShare, percent(behavior.highEffortFreshShare)) +
-        metric(copy.processedToFreshRatio, behavior.processedToFreshRatio.toFixed(1) + '×') +
-        metric(copy.reasoningOutputShare, percent(behavior.reasoningOutputShare)) +
+        metric(copy.processedToFreshRatio, behavior.processedToFreshRatio.toFixed(1)) +
         metric(copy.postPatchToolCallsPerPatchCall, behavior.postPatchToolCallsPerPatchCall.toFixed(1)) +
         metric(copy.compactions, I18n.formatNumber(behavior.compactCount)) +
-        '</div></div>';
+        '</div></details>';
       const insights = this.codexInsights.last30Days;
       const insightHtml = insights.length === 0
         ? '<div class="model-item"><p class="table-hint">' + this.escapeHtml(copy.recommendationEmpty) + '</p></div>'
@@ -10425,30 +10618,30 @@ export class UsageWebviewProvider {
               return '<span><span class="model-stat-label">' + this.escapeHtml(label) + '</span><strong>' +
                 this.escapeHtml(formattedValue) + '</strong></span>';
             }).join('');
-            return '<div class="model-item"><div class="model-header"><span class="model-name">' +
-              this.escapeHtml(copy.insightTitles[insight.kind]) + '</span></div>' +
+            return '<details class="model-item" data-persist="codex-insight:' + this.escapeHtml(insight.kind) + '"><summary class="model-header"><span class="model-name">' +
+              this.escapeHtml(copy.insightTitles[insight.kind]) + '</span></summary>' +
               '<p class="model-details"><strong>' + this.escapeHtml(copy.insightObservation) + ':</strong> ' +
               this.escapeHtml(copy.insightObservations[insight.kind]) + '</p>' +
               '<div class="model-details model-details-stacked">' + evidence + '</div>' +
               '<p class="model-details"><strong>' + this.escapeHtml(copy.insightConditionalAction) + ':</strong> ' +
-              this.escapeHtml(copy.insightTips[insight.kind]) + '</p></div>';
+              this.escapeHtml(copy.insightTips[insight.kind]) + '</p></details>';
           }).join('') + '</div>';
       const partial = view.periodCoverage.last30Days.complete
         ? ''
         : '<p class="table-hint">' + this.escapeHtml(copy.recommendationPartial) + '</p>';
-      return '<div class="action-card"><div class="action-card-head"><span class="action-icon">✨</span>' +
-        '<div class="action-card-titles"><h3>' + this.escapeHtml(copy.optimization) + '</h3>' +
-        '<p class="action-card-desc">' + this.escapeHtml(copy.structuralProxy) + '</p></div></div>' +
-        this.renderAdviceEffectivenessBody('codex') + '</div>' +
-        '<div class="daily-breakdown"><div class="section-header"><h3>' +
-        this.escapeHtml(copy.behavior + ' · ' + copy.last30Days) + '</h3></div>' +
-        partial + behaviorSummary + insightHtml + '</div>';
+      return '<div class="daily-breakdown" data-analysis-summary="codex"><div class="section-header"><h3>' +
+        this.escapeHtml(copy.behavior+' · '+copy.last30Days) + '</h3></div><p class="table-hint">' + this.escapeHtml(copy.structuralProxy) + '</p>' +
+        partial + behaviorSummary + insightHtml + '</div>' + this.renderUsageDiagnostics('codex') +
+        '<div class="action-card"><div class="action-card-head"><span class="action-icon">✨</span><div class="action-card-titles"><h3>' +
+        this.escapeHtml(copy.optimization) + '</h3><p class="action-card-desc">' + this.escapeHtml(copy.structuralProxy) +
+        '</p></div></div>' + this.renderAdviceEffectivenessBody('codex') + '</div>';
+
     }
     const t = I18n.t.popup;
     const topCards = this.renderAdviceCard() + this.renderOptimizerCard();
     const analysis = this.contentAnalysis;
     if (!analysis || analysis.categories.length === 0 || analysis.totalEstimatedTokens === 0) {
-      return topCards + (this.renderAttributionSection() ||
+      return this.renderUsageDiagnostics('claude') + topCards + (this.renderAttributionSection() ||
         '<div class="no-data"><p>' + I18n.t.popup.noDataMessage + '</p></div>');
     }
 
@@ -10548,19 +10741,17 @@ export class UsageWebviewProvider {
     const totalPrefix = cal ? '' : '~';
     const noteLine = cal ? t.calibratedNote : t.estimatedNote;
 
-    return (
-      topCards +
-      this.renderAttributionSection() +
-      '<div class="daily-breakdown">' +
-      '<div class="section-header"><h3>' + t.contentAnalysis + '</h3>' +
-      '<span class="section-header-right">' +
-      '<span class="cbar-total">' + totalLabel + ': ' + totalPrefix + I18n.formatNumber(total) + '</span>' +
-      '</span></div>' +
-      '<p class="table-hint">' + t.last30days + ' · ' + noteLine + '</p>' +
-      '<div class="cbar-list">' + catRows + '</div>' +
-      toolSection +
-      '</div>'
-    );
+    const categorySummary = (key:string):string => {
+      const category=analysis.categories.find(row=>row.key===key);
+      return category ? totalPrefix+I18n.formatNumber(tokensFor(key,category.estimatedTokens)) : '—';
+    };
+    return '<div class="daily-breakdown" data-analysis-summary="claude"><div class="section-header"><h3>' + t.contentAnalysis + '</h3></div>' +
+      '<p class="table-hint">' + t.last30days + ' · ' + noteLine + '</p><div class="analysis-summary-metrics">' +
+      summaryMetric(totalLabel,totalPrefix+I18n.formatNumber(total)) + summaryMetric(t.catToolResults+' · Token',categorySummary('toolResults')) +
+      summaryMetric(t.catAssistantText+' · Token',categorySummary('assistantText')) + '</div><div class="cbar-list">' + catRows + '</div>' +
+      (toolSection?'<details class="analysis-basis" data-persist="analysis:claude:tools"><summary>'+t.byTool+'</summary>'+toolSection+'</details>':'') +
+      '</div>' + this.renderUsageDiagnostics('claude') + this.renderAttributionSection() + topCards;
+
   }
 
   /**
@@ -11682,6 +11873,45 @@ export class UsageWebviewProvider {
         border-top: 1px solid var(--ccu-border);
         border-bottom: 1px solid var(--ccu-border);
       }
+
+      .project-matrix-cell.project-matrix-level-unknown { background: repeating-linear-gradient(135deg, transparent 0 3px, var(--vscode-descriptionForeground) 3px 4px); }
+      .project-matrix-inspect { padding:0; margin:0; width:100%; height:20px; min-width:12px; border:0; border-radius:0; color:var(--vscode-foreground); background:transparent; }
+      .project-matrix-inspect:hover { background:transparent; outline:1px solid var(--vscode-focusBorder); }
+      .project-matrix-filters { display:flex; flex-wrap:wrap; gap:4px 12px; max-height:160px; overflow:auto; margin:8px 0; }
+      .project-matrix-toolbar select { background:var(--vscode-dropdown-background); color:var(--vscode-dropdown-foreground); border:1px solid var(--vscode-dropdown-border); border-radius:4px; padding:3px 6px; font:inherit; }
+      .project-matrix-filters label { display:inline-flex; align-items:center; font-size:12px; }
+      .project-chart-layout { display: grid; grid-template-columns: 64px minmax(0,1fr); margin-top: 16px; }
+      .project-chart-axis { position: relative; height: 165px; font-size: 11px; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+      .project-chart-axis small { position: absolute; top: -13px; right: 8px; font-size: inherit; }
+      .project-chart-axis > span { position: absolute; right: 8px; transform: translateY(-50%); }
+      .project-chart-overview { min-width: 0; }
+      .project-chart-overview > svg { display: block; width: 100%; }
+      .project-chart-dates { display: flex; justify-content: space-between; gap: 4px; font-size: 11px; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+      .project-chart-layout .project-matrix-trend-bars { height: 171px; padding: 0 2px; border: 0; box-sizing: border-box;
+        background: linear-gradient(to bottom, transparent 14px, var(--vscode-panel-border) 14px, var(--vscode-panel-border) 15px,
+          transparent 15px, transparent 79px, var(--vscode-panel-border) 79px, var(--vscode-panel-border) 80px,
+          transparent 80px, transparent 144px, var(--vscode-panel-border) 144px, var(--vscode-panel-border) 145px, transparent 145px); }
+      .project-chart-layout .project-matrix-trend-col { height: 156px; }
+      .project-chart-layout .project-matrix-trend-stack { position: relative; height: 130px; flex-shrink: 0; }
+      .project-matrix-trend-unknown { position: absolute; bottom: 0; inset-inline-start: 0; }
+      .project-chart-layout .project-matrix-trend-date { height: 26px; box-sizing: border-box; }
+      .project-matrix-summary { margin: 8px 0 16px; }
+      .project-matrix-summary[hidden] { display: none; }
+      .project-matrix-summary strong { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+      .project-matrix-summary span, .project-matrix-summary p { font-size: 12px; color: var(--vscode-descriptionForeground); }
+      .project-matrix-summary p { margin: 4px 0 0; overflow-wrap: anywhere; }
+      .project-matrix-summary-quality { margin-inline-start: 8px; }
+      .project-matrix-trend-series strong { text-align: end; font-variant-numeric: tabular-nums; }
+      .project-matrix-selection { display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--vscode-panel-border); padding-top: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+      .project-matrix-selection:empty { display: none; }
+      .project-matrix-basis { margin-top: 12px; border-top: 1px solid var(--vscode-panel-border); padding-top: 10px; font-size: 12px; }
+      .project-matrix-basis > summary { cursor: pointer; }
+      .project-matrix-area text { fill:var(--vscode-foreground); font-size:10px; }
+      .project-matrix-area [role="button"]:focus-visible { outline:2px solid var(--vscode-focusBorder); outline-offset:-2px; }
+      .project-matrix-area-0 {fill:var(--vscode-charts-blue)} .project-matrix-area-1 {fill:var(--vscode-charts-green)}
+      .project-matrix-area-2 {fill:var(--vscode-charts-yellow)} .project-matrix-area-3 {fill:var(--vscode-charts-purple)}
+      .project-matrix-area-4 {fill:var(--vscode-charts-red)} .project-matrix-area-5 {fill:var(--vscode-charts-orange)}
+
       .project-matrix-head {
         display: flex;
         align-items: flex-start;
@@ -11832,13 +12062,14 @@ export class UsageWebviewProvider {
       }
       .project-matrix-trend-series {
         display: inline-grid;
-        grid-template-columns: 8px minmax(0, auto) auto;
+        grid-template-columns: 8px minmax(0, auto) max-content;
         align-items: center;
         gap: 5px;
         min-width: 0;
         color: var(--vscode-descriptionForeground);
-        font-size: 10px;
+        font-size: 12px;
       }
+      .project-matrix-trend-series > span { min-width: 0; overflow-wrap: anywhere; }
       .project-matrix-trend-series i {
         width: 8px;
         height: 8px;
@@ -13470,6 +13701,41 @@ export class UsageWebviewProvider {
         color: var(--vscode-descriptionForeground);
       }
 
+      .analysis-summary-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border-block: 1px solid var(--vscode-panel-border); margin: 16px 0; }
+      .analysis-summary-metric { min-width: 0; padding: 14px 12px; }
+      .analysis-summary-metric + .analysis-summary-metric { border-inline-start: 1px solid var(--vscode-panel-border); }
+      .analysis-summary-metric strong { display: block; font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+      .analysis-summary-metric span { display: block; margin-top: 4px; font-size: 12px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+      [data-analysis-summary="claude"] .cbar-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(32px,1.5fr) minmax(0,96px) minmax(0,52px); }
+      [data-analysis-summary="claude"] .cbar-label, [data-analysis-summary="claude"] .cbar-val, [data-analysis-summary="claude"] .cbar-pct { width: auto; min-width: 0; max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+      [data-analysis-summary="claude"] .cbar-track { min-width: 0; width: 100%; }
+      .analysis-basis, .diagnostic-method { border-top: 1px solid var(--vscode-panel-border); margin-top: 12px; padding-top: 10px; font-size: 12px; }
+      .analysis-basis > summary, .diagnostic-method > summary { cursor: pointer; }
+      .usage-diagnostic { padding: 14px 0; border-bottom: 1px solid var(--vscode-panel-border); }
+      .usage-diagnostic .cbar-subhead { margin: 0 0 8px; }
+      .diagnostic-primary { margin: 8px 0; font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+      .diagnostic-primary > span { font-size: 13px; font-weight: 400; }
+      .diagnostic-context, .diagnostic-quality { font-size: 12px; color: var(--vscode-descriptionForeground); line-height: 1.5; overflow-wrap: anywhere; }
+      .diagnostic-dimension-label { margin: 12px 0 4px; font-size: 13px; font-weight: 600; }
+      .usage-diagnostic .cbar-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(32px,1.5fr) minmax(0,80px); gap: 12px; }
+      .usage-diagnostic .cbar-label, .usage-diagnostic .cbar-val { width: auto; min-width: 0; max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+      .usage-diagnostic .cbar-track { min-width: 0; width: 100%; }
+      .diagnostic-evidence > div { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,2fr) minmax(0,80px); gap: 8px; margin: 8px 0; }
+      .diagnostic-evidence strong { text-align: end; font-variant-numeric: tabular-nums; }
+      .diagnostic-evidence span, .diagnostic-evidence strong { overflow-wrap: anywhere; }
+      @media (max-width: 600px) {
+        .analysis-summary-metrics { grid-template-columns: minmax(0,1fr); }
+        .analysis-summary-metric { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; }
+        .analysis-summary-metric + .analysis-summary-metric { border-inline-start: 0; border-top: 1px solid var(--vscode-panel-border); }
+        .analysis-summary-metric strong { order: 2; font-size: 20px; }
+        .analysis-summary-metric span { margin: 0; }
+        [data-analysis-summary="claude"] .cbar-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,52px); gap: 6px; }
+        [data-analysis-summary="claude"] .cbar-label { grid-column: 1; grid-row: 1; }
+        [data-analysis-summary="claude"] .cbar-val { grid-column: 2; grid-row: 1; }
+        [data-analysis-summary="claude"] .cbar-pct { grid-column: 3; grid-row: 1; }
+        [data-analysis-summary="claude"] .cbar-track { grid-column: 1 / -1; grid-row: 2; }
+        .usage-diagnostic .cbar-row { gap: 6px; }
+      }
       .cbar-list {
         display: flex;
         flex-direction: column;
@@ -13914,15 +14180,15 @@ export class UsageWebviewProvider {
           grid-template-columns: minmax(0, 1fr);
         }
       }
-      .achievement-collection { --achievement-emblem-size: 80px; --achievement-card-width: 168px;
+      .achievement-collection { --achievement-emblem-size: 80px; --achievement-card-width: 180px;
         --achievement-showcase-size: 72px; --achievement-overview-width: 320px; --achievement-card-height: 180px; display: grid; gap: 12px; }
       .achievement-collection[data-achievement-size="small"] { --achievement-emblem-size: 56px;
-        --achievement-card-width: 136px; --achievement-showcase-size: 56px; --achievement-overview-width: 280px; --achievement-card-height: 156px; }
+        --achievement-card-width: 152px; --achievement-showcase-size: 56px; --achievement-overview-width: 280px; --achievement-card-height: 156px; }
       .achievement-collection[data-achievement-size="large"] { --achievement-emblem-size: 112px;
-        --achievement-card-width: 208px; --achievement-showcase-size: 96px; --achievement-overview-width: 360px; --achievement-card-height: 212px; }
+        --achievement-card-width: 216px; --achievement-showcase-size: 96px; --achievement-overview-width: 360px; --achievement-card-height: 212px; }
       .achievement-ui-icon { width: 17px; height: 17px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.7;
         stroke-linecap: round; stroke-linejoin: round; vertical-align: middle; }
-      .achievement-showcase { display: grid; grid-template-columns: fit-content(calc(2 * var(--achievement-overview-width) + 8px)) minmax(0,1fr);
+      .achievement-showcase { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr));
         gap: 16px; align-items: start; }
       .achievement-showcase:empty { display: none; }
       .achievement-showcase > :only-child { grid-column: 1 / -1; }
@@ -13933,14 +14199,14 @@ export class UsageWebviewProvider {
       .achievement-gallery-heading { margin-bottom: 0; }
       .achievement-overview-grid { display: flex; flex-wrap: wrap; gap: 8px; }
       .achievement-overview-item { position: relative; min-width: 0; width: var(--achievement-overview-width); max-width: 100%;
-        border: 1px solid var(--vscode-panel-border); border-radius: 8px; box-sizing: border-box; }
+        border: 0; border-radius: 6px; box-sizing: border-box; }
       .achievement-overview-badge { background: transparent; color: var(--vscode-foreground); border: 0;
-        display: grid; grid-template-columns: var(--achievement-showcase-size) minmax(0, 1fr);
+        display: grid; grid-template-columns: calc(var(--achievement-showcase-size) + var(--achievement-overview-edge, 8px) * 2) minmax(0, 1fr);
         align-content: center; align-items: center; column-gap: 12px; row-gap: 4px;
         text-align: left; padding: 10px; min-width: 0; width: 100%; box-sizing: border-box; border-radius: 8px; }
       [data-achievement-overview="badges"] .achievement-overview-badge { padding-right: 48px; }
       .achievement-overview-badge:hover { background: var(--vscode-list-hoverBackground); }
-      .achievement-overview-badge img { width: var(--achievement-showcase-size); max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain;
+      .achievement-overview-badge > .achievement-framed-icon { --achievement-art-size: var(--achievement-showcase-size); --achievement-edge: var(--achievement-overview-edge, 8px);
         grid-column: 1; grid-row: 1 / span 4; }
       .achievement-overview-name, .achievement-overview-rank, .achievement-overview-progress, .achievement-overview-track { grid-column: 2; min-width: 0; }
       .achievement-overview-name { font-weight: 650; text-wrap: balance; overflow-wrap: anywhere; }
@@ -13984,14 +14250,14 @@ export class UsageWebviewProvider {
       .achievement-record-badge { display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px;
         row-gap: 4px; align-items: center; width: 100%; padding: 8px 0; border: 0; background: transparent;
         color: var(--vscode-foreground); text-align: left; }
-      .achievement-record-badge img { width: 56px; height: 56px; object-fit: contain; grid-row: 1 / span 2; }
+      .achievement-record-badge > .achievement-framed-icon { width: 56px; height: 56px; grid-row: 1 / span 2; }
       .achievement-record-name { font-weight: 600; overflow-wrap: anywhere; }
       .achievement-record-badge small { color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
       .achievement-record-badge:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
       .achievement-record-history > summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
       .achievement-records-list { display: grid; gap: 4px; margin: 8px 0 0; padding: 0; list-style: none; }
       .achievement-records-list .achievement-record-badge { grid-template-columns: 40px minmax(0, 1fr); }
-      .achievement-records-list img { width: 40px; height: 40px; }
+      .achievement-records-list .achievement-framed-icon { width: 40px; height: 40px; }
       @media (max-width: 720px) { .achievement-recent-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; } }
       @media (max-width: 480px) {
         .achievement-overview-grid { gap: 8px; }
@@ -14059,7 +14325,7 @@ export class UsageWebviewProvider {
       #achievementShownCount { margin-inline-start: auto; font-size: .85rem; }
       #achievementShowcaseEditor { border-block-end: 1px solid var(--vscode-panel-border); padding-bottom: 8px; }
       #achievementShowcaseEditorSummary { width: fit-content; font-size: .9rem; color: var(--vscode-foreground); }
-      @media (max-width: 960px) { .achievement-showcase { grid-template-columns: minmax(0,1fr); gap: 12px; } }
+      @media (max-width: 600px) { .achievement-showcase { grid-template-columns: minmax(0,1fr); gap: 12px; } }
       @media (max-width: 480px) { .achievement-filter-control { width: 100%; box-sizing: border-box; }
         .achievement-filter-control select { margin-inline-start: auto; min-width: 0; } }
       .achievement-filter-toolbar select { max-width: 100%; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border); border-radius: 4px; padding: 5px 7px; }
@@ -14069,15 +14335,15 @@ export class UsageWebviewProvider {
       .achievement-group-codex { --achievement-accent: var(--vscode-charts-blue); }
       .achievement-group h3 { margin: 0 0 12px; font-size: 1.05rem; font-weight: 650; }
       .achievement-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--achievement-card-width)), 1fr)); gap: 10px; align-items: start; }
-      .achievement-card { --achievement-tier-color: var(--achievement-accent); position: relative; min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 11px; background: var(--vscode-editor-background); overflow: hidden; }
-      .achievement-card.earned { border-color: var(--achievement-accent); }
+      .achievement-card { --achievement-tier-color: var(--vscode-foreground); position: relative; min-width: 0; border: 1px solid var(--vscode-panel-border); border-radius: 11px; background: var(--vscode-editor-background); overflow: hidden; }
+      .achievement-card.earned { border-color: var(--vscode-panel-border); }
       .achievement-card[data-achievement-tier="bronze"] { --achievement-tier-color: var(--vscode-charts-orange); }
-      .achievement-card[data-achievement-tier="silver"] { --achievement-tier-color: var(--vscode-descriptionForeground); }
+      .achievement-card[data-achievement-tier="silver"] { --achievement-tier-color: var(--vscode-editor-foreground); }
       .achievement-card[data-achievement-tier="gold"] { --achievement-tier-color: var(--vscode-charts-yellow); }
       .achievement-card[data-achievement-tier="platinum"] { --achievement-tier-color: var(--vscode-charts-blue); }
       .achievement-card[data-achievement-tier="legendary"] { --achievement-tier-color: var(--vscode-charts-purple); }
       .achievement-card[data-achievement-series] { --achievement-tier-label-color: var(--vscode-foreground); }
-      .achievement-card[data-achievement-series].earned { border-color: var(--achievement-tier-color); }
+      .achievement-card[data-achievement-series].earned { border-color: var(--vscode-panel-border); }
       .achievement-card details { min-width: 0; }
       .achievement-card.achievement-statistics-expanded { grid-column: 1 / -1; }
       .achievement-effort-statistics { color: var(--vscode-foreground); font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
@@ -14088,25 +14354,61 @@ export class UsageWebviewProvider {
       .achievement-effort-metric strong { font-variant-numeric: tabular-nums; }
       .achievement-effort-metric progress { width: 100%; max-width: 100%; }
       .achievement-effort-rows p { margin: 7px 0 0; }
-      .achievement-card summary { display: grid; justify-items: center; align-content: start; gap: 4px; min-height: var(--achievement-card-height); padding: 38px 10px 12px; cursor: pointer; list-style: none; text-align: center; }
+      .achievement-card summary { display: grid; justify-items: center; align-content: start; gap: 8px; min-height: var(--achievement-card-height); padding: 38px 12px 12px; cursor: pointer; list-style: none; text-align: center; }
+      .achievement-card[data-achievement-multiple-pins] summary { padding-top: 56px; }
+      .achievement-card[data-achievement-multiple-pins] h4 { padding-inline-end: 0; }
+      .achievement-legacy-rule { display: block; font-size: 12px; line-height: 1.5; color: var(--vscode-foreground); border-inline-start: 2px solid var(--vscode-charts-yellow); padding-inline-start: 6px; overflow-wrap: anywhere; }
+      .achievement-overview-badge > .achievement-legacy-rule, .achievement-record-badge > .achievement-legacy-rule { grid-column: 2; }
       .achievement-card summary::-webkit-details-marker { display: none; }
       .achievement-card summary:hover { background: var(--vscode-list-hoverBackground); }
+      .vscode-light .achievement-card summary:hover .achievement-stage-target,
+      .vscode-light .achievement-card summary:hover .achievement-current-value + span { color: var(--vscode-foreground); }
       .achievement-card summary > * { min-width: 0; max-width: 100%; }
       .achievement-card summary::after { content: '⌄'; color: var(--vscode-descriptionForeground); line-height: 1; }
       .achievement-card details[open] summary::after { content: '⌃'; }
       .achievement-card summary:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: -3px; border-radius: 10px; }
-      .achievement-emblem { display: grid; place-items: center; width: var(--achievement-emblem-size); height: var(--achievement-emblem-size); border-radius: 13px; overflow: hidden; }
+      .achievement-emblem { display: grid; place-items: center; width: calc(var(--achievement-emblem-size) + var(--achievement-gallery-edge, 8px) * 2); height: calc(var(--achievement-emblem-size) + var(--achievement-gallery-edge, 8px) * 2); }
       .achievement-card summary .achievement-emblem { margin-bottom: 4px; }
-      .achievement-emblem img { display: block; width: 100%; height: 100%; object-fit: contain; }
+      .achievement-emblem > .achievement-framed-icon { --achievement-art-size: var(--achievement-emblem-size); --achievement-edge: var(--achievement-gallery-edge, 8px); }
+      .achievement-framed-icon { --achievement-art-size: 80px; --achievement-edge: 8px; position: relative; display: inline-block; flex: none; vertical-align: middle; width: calc(var(--achievement-art-size) + var(--achievement-edge) * 2); height: calc(var(--achievement-art-size) + var(--achievement-edge) * 2); color: var(--vscode-foreground); }
+      .achievement-framed-icon > img { position: absolute; top: var(--achievement-edge); left: var(--achievement-edge); display: block; width: var(--achievement-art-size); height: var(--achievement-art-size); max-width: none; object-fit: contain; }
+      .achievement-framed-icon > .achievement-adornment { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+      .achievement-adornment > [data-art-size] { display: none; }
+      [data-icon-context="gallery"] .achievement-adornment > [data-art-size="80"],
+      [data-icon-context="overview"] .achievement-adornment > [data-art-size="72"],
+      [data-icon-context="record"] .achievement-adornment > [data-art-size="56"],
+      [data-icon-context="detail"] .achievement-adornment > [data-art-size="40"],
+      [data-icon-context="selection"] .achievement-adornment > [data-art-size="48"] { display: inline; }
+      [data-icon-context="record"] { --achievement-art-size: 56px; --achievement-edge: 0px; }
+      [data-icon-context="detail"] { --achievement-art-size: 40px; --achievement-edge: 0px; }
+      [data-icon-context="selection"] { --achievement-art-size: 48px; --achievement-edge: 0px; }
+      .achievement-records-list [data-icon-context="record"] { --achievement-art-size: 40px; }
+      .achievement-records-list [data-icon-context="record"] .achievement-adornment > [data-art-size="56"] { display: none; }
+      .achievement-records-list [data-icon-context="record"] .achievement-adornment > [data-art-size="40"] { display: inline; }
+      .achievement-collection[data-achievement-size="small"] { --achievement-gallery-edge: 0px; --achievement-overview-edge: 0px; }
+      .achievement-collection[data-achievement-size="small"] :is([data-icon-context="gallery"],[data-icon-context="overview"]) .achievement-adornment > [data-art-size],
+      .achievement-collection[data-achievement-size="large"] :is([data-icon-context="gallery"],[data-icon-context="overview"]) .achievement-adornment > [data-art-size] { display: none; }
+      .achievement-collection[data-achievement-size="small"] :is([data-icon-context="gallery"],[data-icon-context="overview"]) .achievement-adornment > [data-art-size="56"],
+      .achievement-collection[data-achievement-size="large"] [data-icon-context="gallery"] .achievement-adornment > [data-art-size="112"],
+      .achievement-collection[data-achievement-size="large"] [data-icon-context="overview"] .achievement-adornment > [data-art-size="96"] { display: inline; }
+      .achievement-framed-icon[data-achievement-frame="bronze"] { color: var(--vscode-charts-orange); color: color-mix(in srgb,var(--vscode-charts-red) 40%,var(--vscode-charts-yellow)); }
+      .achievement-framed-icon[data-achievement-frame="silver"] { color: var(--vscode-editor-foreground); }
+      .achievement-framed-icon[data-achievement-frame="gold"] { color: var(--vscode-charts-yellow); }
+      .achievement-framed-icon[data-achievement-frame="platinum"] { color: var(--vscode-charts-blue); }
+      .achievement-framed-icon[data-achievement-frame="legendary"] { color: var(--vscode-charts-purple); }
+      .achievement-framed-icon[data-achievement-frame="locked"] { color: var(--vscode-descriptionForeground); }
+      .achievement-framed-icon[data-emblem-state="locked"] > img { filter: grayscale(.45); opacity: .75; }
+      .vscode-high-contrast .achievement-framed-icon, .vscode-high-contrast-light .achievement-framed-icon { color: var(--vscode-foreground); }
       .achievement-card.locked .achievement-emblem img { filter: grayscale(.45); opacity: .75; }
-      .achievement-card h4 { margin: 0; font-size: .9rem; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+      .achievement-card h4 { margin: 0; min-height: 2.8em; display: flex; align-items: center; justify-content: center; font-size: .95rem; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
       .achievement-card[data-achievement-series].earned h4 { color: var(--achievement-tier-label-color); }
-      .achievement-rank { display: inline-block; max-width: 100%; padding: 2px 7px; border: 1px solid var(--vscode-panel-border); border-radius: 999px; color: var(--vscode-descriptionForeground); font-size: .72rem; line-height: 1.25; overflow-wrap: anywhere; }
-      .achievement-next-target { color: var(--vscode-descriptionForeground); font-size: .72rem; line-height: 1.4; overflow-wrap: anywhere; }
-      .achievement-current-progress, .achievement-stage-target { display: block; }
-      .achievement-current-progress { color: var(--vscode-foreground); font-variant-numeric: tabular-nums; }
-      .achievement-progress-track { display: block; width: 100%; max-width: 108px; height: 3px; background: var(--vscode-panel-border); overflow: hidden; }
-      .achievement-progress-track > span { display: block; height: 100%; background: var(--achievement-accent); }
+      .achievement-rank { display: inline-block; max-width: 100%; padding: 0; border: 0; color: var(--achievement-tier-color, var(--vscode-foreground)); font-size: .85rem; font-weight: 650; line-height: 1.4; overflow-wrap: anywhere; }
+      .achievement-next-target { color: var(--vscode-descriptionForeground); font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
+      .achievement-current-progress, .achievement-stage-target { display: inline; }
+      .achievement-window { display: block; }
+      .achievement-current-progress { color: var(--vscode-foreground); font-weight: 650; font-variant-numeric: tabular-nums; }
+      .achievement-progress-track { display: block; width: 100%; max-width: none; height: 4px; background: var(--vscode-panel-border); overflow: hidden; }
+      .achievement-progress-track > span { display: block; height: 100%; background: var(--vscode-progressBar-background); }
       .achievement-card-detail h5 { margin: 12px 0 6px; font-size: .8rem; }
       .achievement-level-rules { min-width: 0; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
       .achievement-level-rules li { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: baseline; gap: 4px 8px; padding-block: 6px; font-size: .8rem; line-height: 1.45; overflow-wrap: anywhere; }
@@ -14124,18 +14426,18 @@ export class UsageWebviewProvider {
       .achievement-level-name[data-rank="legendary"] { --achievement-level-accent: var(--vscode-charts-purple); }
       .vscode-high-contrast .achievement-level-rules .achievement-level-name, .vscode-high-contrast-light .achievement-level-rules .achievement-level-name { color: var(--vscode-foreground); }
       .achievement-milestones li { grid-template-columns: 40px minmax(0, 1fr); column-gap: 8px; }
-      .achievement-milestones img { grid-row: 1 / span 3; width: 40px; height: 40px; object-fit: contain; }
-      .achievement-milestones strong, .achievement-milestones small, .achievement-milestones span { grid-column: 2; }
+      .achievement-milestones .achievement-framed-icon { grid-column: 1; grid-row: 1 / span 3; width: 40px; height: 40px; }
+      .achievement-milestones strong, .achievement-milestones small, .achievement-milestones span:not(.achievement-framed-icon) { grid-column: 2; }
       .achievement-milestones .achievement-level-meta { grid-column: 2; }
       .achievement-feature-journey { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
       .achievement-feature-journey li { min-width: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: 6px; font-size: .76rem; line-height: 1.4; overflow-wrap: anywhere; }
       .achievement-step-marker { grid-row: 1 / span 2; }
       .achievement-feature-journey small { grid-column: 2; color: var(--vscode-descriptionForeground); }
-      .achievement-share-choice-icon { flex: none; width: 32px; height: 32px; object-fit: contain; }
+      .achievement-share-option > .achievement-framed-icon { width: 48px; height: 48px; }
       .achievement-share-presentation .sc-check { min-width: 0; }
       .achievement-share-presentation .sc-check span { overflow-wrap: anywhere; }
       .achievement-share-presentation .achievement-share-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,230px),1fr)); gap: 8px; }
-      .achievement-share-presentation .achievement-share-option { display: grid; grid-template-columns: 16px 36px minmax(0,1fr); align-items: center; gap: 10px; min-height: 64px; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; }
+      .achievement-share-presentation .achievement-share-option { display: grid; grid-template-columns: 16px 48px minmax(0,1fr); align-items: center; gap: 10px; min-height: 64px; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; }
       .achievement-share-option:has(input:checked) { border-color: var(--vscode-focusBorder); }
       .achievement-share-option:focus-within { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
       .achievement-share-option input { margin: 0; }
@@ -14155,7 +14457,7 @@ export class UsageWebviewProvider {
       .achievement-tier-marker.complete { border-color: var(--achievement-tier-color); color: var(--achievement-tier-label-color); font-weight: 700; }
       .achievement-tier-marker.next { border-style: dashed; }
       .achievement-progress-label { display: block; margin-bottom: 5px; font-size: .82rem; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
-      .achievement-card progress { display: block; width: 100%; height: 5px; accent-color: var(--achievement-accent); }
+      .achievement-card progress { display: block; width: 100%; height: 5px; accent-color: var(--vscode-progressBar-background); }
       .achievement-unlock-notice { position: fixed; inset-inline-end: 16px; bottom: 17px; z-index: 100; display: flex; align-items: center; gap: 10px; max-width: min(360px, calc(100vw - 32px)); padding: 10px 12px; border: 1px solid var(--vscode-focusBorder); border-radius: 9px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); color: var(--vscode-editorWidget-foreground, var(--vscode-foreground)); box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0,0,0,.22)); }
       .achievement-unlock-notice img { flex: none; width: 44px; height: 44px; object-fit: contain; animation: ccuBadgeArrive 440ms ease-out 1; }
       @keyframes ccuBadgeArrive {
@@ -14169,11 +14471,20 @@ export class UsageWebviewProvider {
       .achievement-unlock-notice button:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 2px; }
       .achievement-intro .btn-secondary { margin-top: 0; }
       .achievement-share-preview { overflow-x: auto; border: 1px solid var(--vscode-panel-border); border-radius: 10px; background: var(--vscode-editor-background); }
-      .achievement-share-preview svg { display: block; width: 100%; min-width: 320px; height: auto; }
-      @media (max-width: 480px) {
-        .achievement-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-        .achievement-card summary { min-height: 160px; padding: 11px 6px 10px; }
-        .achievement-card h4 { font-size: .82rem; }
+      .achievement-share-preview svg { display: block; width: 100%; min-width: 720px; height: auto; }
+      @media (max-width: 600px) {
+        .achievement-showcase { grid-template-columns: minmax(0,1fr); }
+        .achievement-overview-item { width: 100%; }
+        .achievement-grid { grid-template-columns: minmax(0,1fr); gap: 10px; }
+        .achievement-card summary { grid-template-columns: calc(var(--achievement-emblem-size) + var(--achievement-gallery-edge,8px) * 2) minmax(0,1fr); column-gap: 12px;
+          justify-items: start; text-align: left; min-height: 0; padding: 16px 10px 12px; }
+        .achievement-card summary > .achievement-emblem { grid-column: 1; grid-row: 1 / span 5; margin: 0; }
+        .achievement-card summary > :not(.achievement-emblem) { grid-column: 2; }
+        .achievement-card h4 { min-height: 0; justify-content: flex-start; padding-inline-end: 44px; }
+        .achievement-card .achievement-next-target { width: 100%; }
+        .achievement-card summary::after { grid-column: 1 / -1; justify-self: start; margin-top: 4px; }
+        .achievement-card summary > .achievement-progress-track { align-self: end; }
+        .achievement-card-pins { top: 4px; right: 4px; }
       }
       @media (prefers-reduced-motion: reduce) {
         .achievement-unlock-notice img { animation: none !important; }
@@ -14290,24 +14601,68 @@ function ccuElementStateKey(element, kind) {
   return ccuProviderName() + ':' + (tab ? tab.id : 'page') + ':' + kind + ':' + Math.max(0, elements.indexOf(element));
 }
 
+var __ccuProjectScrollPending = {};
+var __ccuProjectScrollTimer = 0;
+function flushProjectScrollPositions() {
+  if(__ccuProjectScrollTimer){clearTimeout(__ccuProjectScrollTimer);__ccuProjectScrollTimer=0;}
+  var pending=__ccuProjectScrollPending;__ccuProjectScrollPending={};
+  document.querySelectorAll('[data-project-matrix]').forEach(function(root){
+    var provider=root.getAttribute('data-project-matrix'),scope=root.getAttribute('data-project-filter-scope');
+    var entries=Object.keys(pending).map(function(k){return pending[k];}).filter(function(row){return row.provider===provider&&row.scope===scope;});
+    if(!entries.length)return;
+    var state=ccuProjectMatrixState(root),changed=false;
+    entries.forEach(function(row){if(state.scrolls[row.key]!==row.left){state.scrolls[row.key]=row.left;changed=true;}});
+    if(changed)ccuSaveProjectMatrixState(root,state);
+  });
+}
+window.addEventListener('pagehide',flushProjectScrollPositions);
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')flushProjectScrollPositions();});
+function ccuProjectScrollState(saved) {
+  var positions = {};
+  if (!saved || typeof saved !== 'object') return positions;
+  Object.keys(saved).filter(function(key){return /^(30|90):(day|week|month):(heatmap|trend)$/.test(key);}).slice(0,12).forEach(function(key){
+    var value=saved[key];if(typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=1000000)positions[key]=value;
+  });
+  return positions;
+}
+function ccuProjectScrollerKey(scroller) {
+  var range=scroller.closest('[data-project-matrix-range-panel]'),scale=scroller.closest('[data-project-scale-panel]');
+  return range&&scale ? range.getAttribute('data-project-matrix-range-panel')+':'+scale.getAttribute('data-project-scale-panel')+':'+scroller.getAttribute('data-project-scroll-kind') : '';
+}
+function ccuRestoreProjectScrollers(root,state) {
+  root.querySelectorAll('[data-project-scroll-kind]').forEach(function(scroller){
+    if(!scroller.clientWidth)return;
+    var key=ccuProjectScrollerKey(scroller),maximum=Math.max(0,scroller.scrollWidth-scroller.clientWidth);
+    var pending=__ccuProjectScrollPending[root.getAttribute('data-project-matrix')+'|'+key];
+    var saved=pending&&pending.scope===root.getAttribute('data-project-filter-scope')?pending.left:state.scrolls[key],left=typeof saved==='number'?Math.min(maximum,saved):maximum;
+    if(Math.abs(scroller.scrollLeft-left)<1)return;
+    scroller.__ccuExpectedProjectScroll=left;scroller.scrollLeft=left;
+  });
+}
 function ccuProjectMatrixState(root) {
   var provider = root ? root.getAttribute('data-project-matrix') : '';
   var all = ccuReadUiState().projectUsageMatrix || {};
   var saved = provider && all[provider] ? all[provider] : {};
   return {
     range: saved.range === '90' ? '90' : '30',
-    view: saved.view === 'trend' ? 'trend' : 'heatmap',
-    expanded: saved.expanded === true
+    view: ['trend','area'].indexOf(saved.view)>=0 ? saved.view : 'heatmap',
+    expanded: saved.expanded === true,
+    scrolls: ccuProjectScrollState(saved.scrolls),
+    scale: ['day','week','month'].indexOf(saved.scale) >= 0 ? saved.scale : 'day',
+    filters: Array.isArray(saved.filters) ? saved.filters.slice(0,200) : null,
+    filterScope: saved.filterScope || '',
+    selection: typeof saved.selection === 'string' && /^[a-z0-9:-]{1,128}$/.test(saved.selection) ? saved.selection : ''
   };
 }
 function ccuSaveProjectMatrixState(root, state) {
   var provider = root ? root.getAttribute('data-project-matrix') : '';
   if (provider !== 'claude' && provider !== 'codex') { return; }
   var all = ccuReadUiState().projectUsageMatrix || {};
+  state.filterScope = root.getAttribute('data-project-filter-scope') || '';
   all[provider] = {
     range: state.range,
     view: state.view,
-    expanded: state.expanded === true
+    expanded: state.expanded === true, scrolls: state.scrolls, scale: state.scale, filters: state.filters, filterScope: state.filterScope, selection: state.selection
   };
   ccuWriteUiState('projectUsageMatrix', all);
 }
@@ -14317,6 +14672,9 @@ function ccuApplyProjectMatrixState(root, state) {
     var selected = button.getAttribute('data-project-matrix-range') === state.range;
     button.classList.toggle('active', selected);
     button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+  root.querySelectorAll('[data-project-summary-range]').forEach(function(summary){
+    summary.hidden=summary.getAttribute('data-project-summary-range')!==state.range||summary.getAttribute('data-project-summary-scale')!==state.scale;
   });
   root.querySelectorAll('[data-project-matrix-view]').forEach(function(button) {
     var selected = button.getAttribute('data-project-matrix-view') === state.view;
@@ -14329,9 +14687,17 @@ function ccuApplyProjectMatrixState(root, state) {
       view.hidden = state.view !== 'heatmap';
     });
     panel.querySelectorAll('[data-project-matrix-trend]').forEach(function(view) {
-      view.hidden = state.view !== 'trend';
+      view.hidden = state.view !== 'trend' && state.view !== 'area';
     });
   });
+  root.querySelectorAll('[data-project-area-mode]').forEach(function(n){n.hidden=state.view!=='area';});
+  root.querySelectorAll('[data-project-bars-mode]').forEach(function(n){n.hidden=state.view!=='trend';});
+  root.querySelectorAll('[data-project-scale-panel]').forEach(function(panel) { panel.hidden = panel.getAttribute('data-project-scale-panel') !== state.scale; });
+  var scaleControl = root.querySelector('[data-project-scale]'); if (scaleControl) scaleControl.value = state.scale;
+  ccuRestoreProjectScrollers(root,state);
+  var detail = root.querySelector('[data-project-selection]');
+  var selectedCell = Array.prototype.find.call(root.querySelectorAll('[data-project-selection-key]'), function(n){return n.getAttribute('data-project-selection-key')===state.selection;});
+  if (detail) detail.textContent = selectedCell ? (selectedCell.getAttribute('aria-label') || selectedCell.getAttribute('title')) : '';
   root.querySelectorAll('[data-project-matrix-extra]').forEach(function(row) {
     row.hidden = !state.expanded;
   });
@@ -14349,9 +14715,38 @@ function restoreProjectMatrixState(scope) {
   if (root.matches && root.matches('[data-project-matrix]')) { matrices.push(root); }
   root.querySelectorAll('[data-project-matrix]').forEach(function(matrix) { matrices.push(matrix); });
   matrices.forEach(function(matrix) {
-    ccuApplyProjectMatrixState(matrix, ccuProjectMatrixState(matrix));
+    var state = ccuProjectMatrixState(matrix);
+    ccuApplyProjectMatrixState(matrix, state);
+    var scope = matrix.getAttribute('data-project-filter-scope');
+    if ((state.filterScope && state.filterScope !== scope) || matrix.getAttribute('data-project-filter-normalized') === 'true') {
+      state.filters=null;state.selection='';state.scrolls={};state.filterScope=scope;ccuSaveProjectMatrixState(matrix,state);ccuApplyProjectMatrixState(matrix,state);
+      var status=matrix.querySelector('[data-project-selection]');if(status)status.textContent=matrix.getAttribute('data-project-reset-label') || '';
+    }
+    if (state.filterScope === scope && Array.isArray(state.filters)) {
+      var rendered = Array.prototype.filter.call(matrix.querySelectorAll('[data-project-filter]'), function(n){return n.checked;}).map(function(n){return n.getAttribute('data-project-filter');}).sort();
+      var available = Array.prototype.map.call(matrix.querySelectorAll('[data-project-filter]'),function(n){return n.getAttribute('data-project-filter');});
+      if (state.filters.some(function(h){return available.indexOf(h)<0;})) {state.filters=null;state.selection='';ccuSaveProjectMatrixState(matrix,state);vscode.postMessage({command:'projectChartFilter',documentId:__ccuDocumentId,provider:matrix.getAttribute('data-project-matrix'),scope:scope,handles:[],all:true});}
+      else if (JSON.stringify(rendered) !== JSON.stringify(state.filters.slice().sort())) {
+        vscode.postMessage({ command:'projectChartFilter', documentId:__ccuDocumentId, provider:matrix.getAttribute('data-project-matrix'), scope:scope, handles:state.filters });
+      }
+    }
+
   });
 }
+document.addEventListener('scroll',function(event){
+  var scroller=event.target;if(!scroller.matches||!scroller.matches('[data-project-scroll-kind]'))return;
+  var root=scroller.closest('[data-project-matrix]');if(!root||!scroller.clientWidth)return;
+  var expected=scroller.__ccuExpectedProjectScroll;
+  if(typeof expected==='number'&&Math.abs(scroller.scrollLeft-expected)<1)return;
+  delete scroller.__ccuExpectedProjectScroll;
+  var state=ccuProjectMatrixState(root),key=ccuProjectScrollerKey(scroller);
+  var left=Math.max(0,Math.min(1000000,scroller.scrollLeft));
+  if(!key||state.scrolls[key]===left)return;
+  var provider=root.getAttribute('data-project-matrix');
+  __ccuProjectScrollPending[provider+'|'+key]={provider:provider,scope:root.getAttribute('data-project-filter-scope'),key:key,left:left};
+  if(__ccuProjectScrollTimer)clearTimeout(__ccuProjectScrollTimer);
+  __ccuProjectScrollTimer=setTimeout(flushProjectScrollPositions,180);
+},true);
 document.addEventListener('click', function(event) {
   var control = event.target && event.target.closest
     ? event.target.closest('[data-project-matrix-range],[data-project-matrix-view],[data-project-matrix-expand]')
@@ -14364,11 +14759,32 @@ document.addEventListener('click', function(event) {
   var range = control.getAttribute('data-project-matrix-range');
   var view = control.getAttribute('data-project-matrix-view');
   if (range === '30' || range === '90') { state.range = range; }
-  if (view === 'heatmap' || view === 'trend') { state.view = view; }
+  if (view === 'heatmap' || view === 'trend' || view === 'area') { state.view = view; }
   if (control.hasAttribute('data-project-matrix-expand')) { state.expanded = !state.expanded; }
   ccuApplyProjectMatrixState(root, state);
   ccuSaveProjectMatrixState(root, state);
 });
+
+document.addEventListener('change', function(event) {
+  var control = event.target, root = control.closest ? control.closest('[data-project-matrix]') : null;
+  if (!root) return;
+  var state = ccuProjectMatrixState(root);
+  if (control.hasAttribute('data-project-scale')) {state.scale=control.value;ccuSaveProjectMatrixState(root,state);ccuApplyProjectMatrixState(root,state);}
+  if (control.hasAttribute('data-project-filter')) ccuProjectFilterSend(root, false);
+});
+function ccuProjectFilterSend(root, all) {
+  var state=ccuProjectMatrixState(root), scope=root.getAttribute('data-project-filter-scope');
+  var handles=Array.prototype.filter.call(root.querySelectorAll('[data-project-filter]'),function(n){return n.checked;}).map(function(n){return n.getAttribute('data-project-filter');});
+  state.filters=all?null:handles;state.filterScope=scope;ccuSaveProjectMatrixState(root,state);
+  vscode.postMessage({command:'projectChartFilter',documentId:__ccuDocumentId,provider:root.getAttribute('data-project-matrix'),scope:scope,handles:handles,all:all});
+}
+document.addEventListener('click', function(event) {
+  var control=event.target.closest?event.target.closest('[data-project-filter-all],[data-project-filter-none],[data-project-inspect]'):null;
+  if(!control)return;var root=control.closest('[data-project-matrix]');if(!root)return;
+  if(control.hasAttribute('data-project-inspect')){var state=ccuProjectMatrixState(root);state.selection=control.getAttribute('data-project-selection-key') || '';ccuSaveProjectMatrixState(root,state);ccuApplyProjectMatrixState(root,state);return;}
+  var all=control.hasAttribute('data-project-filter-all');root.querySelectorAll('[data-project-filter]').forEach(function(n){n.checked=all;});ccuProjectFilterSend(root,all);
+});
+document.addEventListener('keydown', function(event){if((event.key==='Enter'||event.key===' ')&&event.target.matches('[data-project-inspect]')){event.preventDefault();event.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
 
 function adviceRoot(provider) {
   if (provider === 'optimizer') {
@@ -15186,6 +15602,7 @@ function combinedHeatmapReadConfig() {
   var provider = document.getElementById('combinedHeatmapProvider');
   var metric = document.getElementById('combinedHeatmapMetric');
   var amounts = document.getElementById('combinedHeatmapShowAmounts');
+  var presentation = document.getElementById('combinedHeatmapPresentation');
   var showAmounts = !!(amounts && amounts.checked && metric && metric.value === 'apiEquivalent');
   return {
     title: title ? title.value : __combinedHeatmapCopy.defaultTitle,
@@ -15195,7 +15612,8 @@ function combinedHeatmapReadConfig() {
     palette: palette ? palette.value : 'academicViolet',
     customAccent: customAccent ? customAccent.value : '#4f2f87',
     provider: provider ? provider.value : 'both',
-    metric: showAmounts ? 'apiEquivalent' : 'tokens', showAmounts: showAmounts
+    metric: showAmounts ? 'apiEquivalent' : 'tokens', showAmounts: showAmounts,
+    presentation: showAmounts && presentation && presentation.value === 'compact' ? 'compact' : 'standard'
   };
 }
 function combinedHeatmapSaveConfig(config) {
@@ -15209,6 +15627,8 @@ function combinedHeatmapSaveConfig(config) {
     localStorage.setItem('ccu.combinedHeatmap.provider', config.provider);
     localStorage.setItem('ccu.combinedHeatmap.metric', config.metric);
     localStorage.setItem('ccu.combinedHeatmap.showAmounts', config.showAmounts ? 'true' : 'false');
+    var presentation = document.getElementById('combinedHeatmapPresentation');
+    localStorage.setItem('ccu.combinedHeatmap.presentation', presentation && presentation.value === 'compact' ? 'compact' : 'standard');
   } catch (e) {}
 }
 function toggleCombinedCustomAccent(changed) {
@@ -15222,7 +15642,7 @@ var __apiHeatmapPendingConfigKey = '';
 var __apiHeatmapExportPreviewId = '';
 function combinedHeatmapConfigKey(config) {
   return JSON.stringify([config.title,config.range,config.intensityMode,config.palette,config.customAccent,
-    config.provider,config.metric,config.showAmounts]);
+    config.provider,config.metric,config.showAmounts,config.presentation]);
 }
 function combinedHeatmapSetExportState() {
   var preview = document.getElementById('combinedHeatmapPreview');
@@ -15250,6 +15670,16 @@ function combinedHeatmapUpdateDisclosure() {
   var config = combinedHeatmapReadConfig();
   var disclosure = document.getElementById('combinedHeatmapAmountDisclosure');
   var includes = document.getElementById('combinedHeatmapPrivacyIncludes');
+  var presentation = document.getElementById('combinedHeatmapPresentation');
+  var intensity = document.getElementById('combinedHeatmapIntensityMode');
+  var compactDisclosure = document.getElementById('combinedHeatmapCompactDisclosure');
+  if (presentation) { presentation.disabled = !config.showAmounts; }
+  if (intensity) {
+    intensity.disabled = config.presentation === 'compact';
+    if (config.presentation === 'compact') { intensity.setAttribute('aria-describedby','combinedHeatmapCompactDisclosure'); }
+    else { intensity.removeAttribute('aria-describedby'); }
+  }
+  if (compactDisclosure) { compactDisclosure.hidden = config.presentation !== 'compact'; }
   if (disclosure) { disclosure.hidden = !config.showAmounts; }
   if (includes) { includes.textContent = '✓ ' + (config.showAmounts ? __apiHeatmapCopy.amountDisclosure : includes.dataset.tokenCopy); }
 }
@@ -15288,6 +15718,7 @@ function restoreCombinedHeatmapConfig() {
   var provider = document.getElementById('combinedHeatmapProvider');
   var metric = document.getElementById('combinedHeatmapMetric');
   var amounts = document.getElementById('combinedHeatmapShowAmounts');
+  var presentation = document.getElementById('combinedHeatmapPresentation');
   if (!title || !range || !intensityMode || !privacy || !customAccent) { return; }
   var changed = false;
   try {
@@ -15300,6 +15731,8 @@ function restoreCombinedHeatmapConfig() {
     var storedProvider = localStorage.getItem('ccu.combinedHeatmap.provider');
     var storedMetric = localStorage.getItem('ccu.combinedHeatmap.metric');
     var storedAmounts = localStorage.getItem('ccu.combinedHeatmap.showAmounts');
+    var storedPresentation = localStorage.getItem('ccu.combinedHeatmap.presentation');
+    if (presentation && storedPresentation === 'compact') { presentation.value = 'compact'; }
     var sourceAvailable = true;
     if (provider && ['claude','codex','both'].includes(storedProvider)) {
       var option = Array.from(provider.options).find(function(option) { return option.value === storedProvider; });
@@ -15456,7 +15889,8 @@ var __ccuSharingPreferenceKeys = [
   'ccu.combinedHeatmap.customAccent',
   'ccu.combinedHeatmap.provider',
   'ccu.combinedHeatmap.metric',
-  'ccu.combinedHeatmap.showAmounts'
+  'ccu.combinedHeatmap.showAmounts',
+  'ccu.combinedHeatmap.presentation'
 ];
 function ccuCountPresentStorageKeys(storage, keys) {
   var count = 0;
@@ -15538,9 +15972,11 @@ function ccuApplyDefaultSharingControls() {
   var provider = document.getElementById('combinedHeatmapProvider');
   var metric = document.getElementById('combinedHeatmapMetric');
   var amounts = document.getElementById('combinedHeatmapShowAmounts');
+  var presentation = document.getElementById('combinedHeatmapPresentation');
   if (provider) { provider.value = provider.dataset.defaultValue; }
   if (metric) { metric.value = 'tokens'; }
   if (amounts) { amounts.checked = false; }
+  if (presentation) { presentation.value = 'standard'; }
   selectDefaultSharingTemplate();
   scApplyDefaultControls();
   toggleCombinedCustomAccent();
@@ -16158,6 +16594,7 @@ function showTab(tabName, restoring, preserveAchievementDetails) {
       selectedTab.setAttribute('tabindex', '0');
       selectedContent.classList.add('active');
       selectedContent.hidden = false;
+      if(tabName==='projects') selectedContent.querySelectorAll('[data-project-matrix]').forEach(function(root){ccuApplyProjectMatrixState(root,ccuProjectMatrixState(root));});
 
       if (!restoring) {
         vscode.postMessage({ command: 'tabChanged', tab: tabName, documentId: __ccuDocumentId });

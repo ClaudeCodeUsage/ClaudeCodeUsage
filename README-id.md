@@ -12,7 +12,17 @@
 
 > Screenshot mencakup UI bahasa Inggris dan Tionghoa Sederhana. Lihat [README utama](README.md) untuk referensi lengkap.
 
-- Codex dapat menampilkan input, output, dan cache bersama lewat `codex.statusBarUsageFormat` opsional; kosong mempertahankan metrik saat ini. Lihat [detail format](CHANGELOG.md#unreleased).
+## Pembaruan visualisasi dan kuota
+
+- Halaman pencapaian Claude dan Codex memakai tata letak baru yang konsisten. Ilustrasi tetap berukuran penuh dengan ornamen tingkat di tepinya; kartu berbagi mengutamakan gambar dalam baris lencana yang rata tengah, tanpa mengubah syarat penghargaan.
+- Grafik proyek mengelompokkan rentang 30/90 hari terpilih, subtotal Token yang terindeks, dan cakupan di atas legenda serta grafik yang sejajar. Tanggal terbaru ditampilkan terlebih dahulu dan posisi gulir pengguna dipertahankan. Tampilan hari/minggu/bulan, filter proyek, serta perbedaan nilai tidak diketahui, nol, dan subtotal parsial tetap tersedia.
+- Berbagi nilai uang menyediakan tata letak ringkas opsional; standar tetap menjadi bawaan. Nilai Claude dan Codex terpisah. Perubahan pengaturan memerlukan pratinjau baru yang diterima; byte SVG tersimpan dibaca ulang dan dibandingkan dengan pratinjau tersebut.
+- Pencapaian volume dan nilai per penyedia selama tujuh hari memakai jendela bergulir tujuh hari kalender yang telah berakhir. Penghargaan lama mempertahankan catatan dan ditandai sebagai aturan lama; bukti yang kurang tidak menghasilkan tanggal buatan. Siklus reset kuota sebenarnya tidak berubah.
+- Analisis Claude dan Codex menampilkan angka utama dalam rentang yang sama terlebih dahulu, lalu pengamatan, bukti, dan saran. Keluaran per jam berlalu dan perubahan penggunaan teramati tetap nonaktif secara default; cakupan parsial tetap terlihat. Keluaran per jam bukan TPS generasi, dan perubahan tidak membuktikan sebab.
+- Codex dapat menampilkan input, output, dan cache bersama lewat `codex.statusBarUsageFormat` opsional; kosong mempertahankan metrik saat ini. Lihat [detail format](CHANGELOG.md).
+- Pengambilan kuota Claude memakai endpoint OAuth terkini dan menyimpan kredensial yang dirotasi. Lihat [data lokal](LOCAL-DATA.md).
+
+Pembaruan ini mempertahankan pemrosesan penggunaan lokal. Kuota Claude memakai alur penyegaran OAuth yang sudah ada. Lihat [data lokal dan pembersihan](LOCAL-DATA.md).
 
 ## Screenshot
 

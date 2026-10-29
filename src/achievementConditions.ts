@@ -1,3 +1,5 @@
+import {isRollingSevenDayAchievement} from './achievementRuleVersions';
+import {achievementRollingCopyFor} from './achievementRollingCopy';
 import type { AchievementId } from './achievements';
 import type { SupportedLanguage } from './types';
 
@@ -135,6 +137,7 @@ const conditions: Record<SupportedLanguage, Partial<Record<AchievementId, string
 
 /** Pure detail/SVG copy lookup; unknown locales use English, other IDs have no condition. */
 export function achievementConditionFor(locale: string, id: AchievementId): string | undefined {
+  if(isRollingSevenDayAchievement(id))return achievementRollingCopyFor(locale).scope;
   const copy = Object.prototype.hasOwnProperty.call(conditions, locale)
     ? conditions[locale as SupportedLanguage] : conditions.en;
   return Object.prototype.hasOwnProperty.call(copy, id) ? copy[id] : undefined;

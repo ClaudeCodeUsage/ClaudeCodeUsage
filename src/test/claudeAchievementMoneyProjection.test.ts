@@ -19,7 +19,7 @@ test('warm projection reuses the identical bounded DTO; new committed snapshot/b
   for(let n=0;n<1001;n++) index.aggregates.bySession.set(String(n),{modelBreakdown:model(n===1000?50_000_000:1)} as any);
   const first=projection.claudeAchievementMoneyProjection(index,'anthropic',new Date('2026-10-12'),true)!;
   assert.equal(first.cumulative?.microUsd,100_000_000); assert.equal(first.maxSessionTask,200_000_000);
-  assert.equal(first.completedMondayWeekPeak,100_000_000);
+  assert.equal(first.completedRollingSevenDayPeak,100_000_000);
   const iterate=index.aggregates.bySession.values; let loops=0;
   index.aggregates.bySession.values=function(){loops++;return iterate.call(this);};
   assert.equal(projection.claudeAchievementMoneyProjection(index,'anthropic',new Date('2026-10-12T01:00Z'),true),first);

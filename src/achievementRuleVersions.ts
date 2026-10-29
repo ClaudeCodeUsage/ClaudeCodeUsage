@@ -11,7 +11,15 @@ export const RECALIBRATED_ACHIEVEMENT_IDS_V2: readonly AchievementId[] = Object.
   'model-rainbow-bronze', 'model-rainbow', 'model-rainbow-gold',
 ]);
 const changed = new Set<string>(RECALIBRATED_ACHIEVEMENT_IDS_V2);
-export function achievementRuleVersion(id: string): 1 | 2 { return changed.has(id) ? 2 : 1; }
+/** Broader rolling windows preserve old grants; they never inherit old date proof. */
+export const ROLLING_SEVEN_DAY_ACHIEVEMENT_IDS: readonly AchievementId[] = Object.freeze([
+  'weekly-volume-bronze','weekly-volume-silver','weekly-volume-gold',
+  'claude-api-week-bronze','claude-api-week-silver','claude-api-week-gold','claude-api-week-platinum','claude-api-week-legendary',
+  'codex-api-week-bronze','codex-api-week-silver','codex-api-week-gold','codex-api-week-platinum','codex-api-week-legendary',
+]);
+const rolling = new Set<string>(ROLLING_SEVEN_DAY_ACHIEVEMENT_IDS);
+export function isRollingSevenDayAchievement(id:string):boolean { return rolling.has(id); }
+export function achievementRuleVersion(id: string): 1 | 2 | 3 { return rolling.has(id) ? 3 : changed.has(id) ? 2 : 1; }
 
 /** Frozen v1 allowlist. New monetary IDs must never be accepted as old proof. */
 const legacyIds = new Set<string>([
